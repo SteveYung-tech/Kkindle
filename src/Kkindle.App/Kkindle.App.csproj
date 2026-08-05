@@ -6,6 +6,7 @@
     <RootNamespace>Kkindle</RootNamespace>
     <AssemblyName>Kkindle</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Kkindle.ico</ApplicationIcon>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -17,6 +18,10 @@
     <EnableDefaultPageItems>true</EnableDefaultPageItems>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="Assets\Kkindle.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <ProjectReference Include="..\Kkindle.Core\Kkindle.Core.csproj" />
     <ProjectReference Include="..\Kkindle.Infrastructure\Kkindle.Infrastructure.csproj" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.3.1" />

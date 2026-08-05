@@ -1,5 +1,8 @@
 using System.Collections.ObjectModel;
+using System.Runtime.InteropServices;
+using Microsoft.UI;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -36,6 +39,7 @@ public sealed partial class MainWindow : Window
         _kindle = kindle;
         ViewModel = new LibraryViewModel(library, paths.Data);
         InitializeComponent();
+        ConfigureWindowChrome();
         Closed += MainWindow_Closed;
 
         _deviceTimer = DispatcherQueue.CreateTimer();
@@ -47,6 +51,77 @@ public sealed partial class MainWindow : Window
 
     public LibraryViewModel ViewModel { get; }
     public ObservableCollection<KindleBook> DeviceBooks { get; } = [];
+
+    private void ConfigureWindowChrome()
+    {
+        Title = "Kkindle";
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppTitleBar);
+
+        var windowHandle = WindowNative.GetWindowHandle(this);
+        var windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
+        var appWindow = AppWindow.GetFromWindowId(windowId);
+        appWindow.Title = "Kkindle";
+
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Kkindle.ico");
+        if (File.Exists(iconPath)) appWindow.SetIcon(iconPath);
+
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            var titleBar = appWindow.TitleBar;
+            titleBar.BackgroundColor = Colors.White;
+            titleBar.ForegroundColor = Colors.Black;
+            titleBar.InactiveBackgroundColor = Colors.White;
+            titleBar.InactiveForegroundColor = Colors.Black;
+            titleBar.ButtonBackgroundColor = Colors.White;
+            titleBar.ButtonForegroundColor = Colors.Black;
+            titleBar.ButtonHoverBackgroundColor = Colors.Black;
+            titleBar.ButtonHoverForegroundColor = Colors.White;
+            titleBar.ButtonPressedBackgroundColor = Colors.LightGray;
+            titleBar.ButtonPressedForegroundColor = Colors.Black;
+            titleBar.ButtonInactiveBackgroundColor = Colors.White;
+            titleBar.ButtonInactiveForegroundColor = Colors.Black;
+        }
+
+        var cornerPreference = DwmWindowCornerPreference.DoNotRound;
+        _ = DwmSetWindowAttribute(
+            windowHandle,
+            DwmWindowAttribute.WindowCornerPreference,
+            ref cornerPreference,
+            Marshal.SizeOf<DwmWindowCornerPreference>());
+
+        var borderColor = 0x000000;
+        _ = DwmSetWindowAttribute(
+            windowHandle,
+            DwmWindowAttribute.BorderColor,
+            ref borderColor,
+            sizeof(int));
+    }
+
+    private enum DwmWindowAttribute
+    {
+        WindowCornerPreference = 33,
+        BorderColor = 34
+    }
+
+    private enum DwmWindowCornerPreference
+    {
+        DoNotRound = 1
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr windowHandle,
+        DwmWindowAttribute attribute,
+        ref DwmWindowCornerPreference value,
+        int valueSize);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr windowHandle,
+        DwmWindowAttribute attribute,
+        ref int value,
+        int valueSize);
 
     private void DeviceChangeMonitor_DeviceChanged(object? sender, EventArgs e)
     {

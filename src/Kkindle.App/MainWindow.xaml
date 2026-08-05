@@ -6,14 +6,46 @@
     xmlns:local="using:Kkindle">
 
     <Grid x:Name="RootGrid" Background="{StaticResource PageBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="38" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="200" />
             <ColumnDefinition Width="*" />
             <ColumnDefinition x:Name="DetailColumn" Width="0" />
         </Grid.ColumnDefinitions>
 
+        <!-- Custom draggable title bar; caption buttons remain native and accessible. -->
+        <Grid x:Name="AppTitleBar"
+              Grid.Row="0"
+              Grid.ColumnSpan="3"
+              Padding="10,0,150,0"
+              Background="#FFFFFF">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Border Width="22" Height="22" Background="#000000" CornerRadius="0">
+                    <TextBlock Text="K"
+                               Foreground="#FFFFFF"
+                               FontSize="14"
+                               FontWeight="Bold"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                </Border>
+                <TextBlock Text="Kkindle" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" />
+            </StackPanel>
+            <Border Grid.ColumnSpan="2"
+                    BorderBrush="#000000"
+                    BorderThickness="0,0,0,1"
+                    IsHitTestVisible="False" />
+        </Grid>
+
         <!-- Left navigation -->
-        <Border Grid.Column="0"
+        <Border Grid.Row="1"
+                Grid.Column="0"
                 Background="{StaticResource SidebarBackgroundBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,0,1,0">
@@ -123,7 +155,7 @@
         </Border>
 
         <!-- Library -->
-        <Grid x:Name="LibraryPane" Grid.Column="1" Padding="30,24,30,18">
+        <Grid x:Name="LibraryPane" Grid.Row="1" Grid.Column="1" Padding="30,24,30,18">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -311,7 +343,7 @@
         </Grid>
 
         <!-- Kindle device -->
-        <Grid x:Name="DevicePage" Grid.Column="1" Visibility="Collapsed" Padding="30,24,30,18">
+        <Grid x:Name="DevicePage" Grid.Row="1" Grid.Column="1" Visibility="Collapsed" Padding="30,24,30,18">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -394,6 +426,7 @@
 
         <!-- Book details -->
         <Border x:Name="DetailPane"
+                Grid.Row="1"
                 Grid.Column="2"
                 Visibility="Collapsed"
                 Background="#FFFFFF"
@@ -435,6 +468,7 @@
 
         <!-- Fully custom monochrome device confirmation; avoids WinUI popup theming. -->
         <Grid x:Name="DevicePromptOverlay"
+              Grid.RowSpan="2"
               Grid.ColumnSpan="3"
               Canvas.ZIndex="100"
               Background="#66000000"
