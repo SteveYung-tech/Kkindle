@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
     private string? _ignoredDeviceId;
     private Button? _activeNavigationButton;
     private TaskCompletionSource<bool>? _devicePromptCompletion;
+    private bool _nativeChromeConfigured;
 
     public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
     {
@@ -39,7 +40,8 @@ public sealed partial class MainWindow : Window
         _kindle = kindle;
         ViewModel = new LibraryViewModel(library, paths.Data);
         InitializeComponent();
-        ConfigureWindowChrome();
+        ConfigureTitleBar();
+        Activated += MainWindow_Activated;
         Closed += MainWindow_Closed;
 
         _deviceTimer = DispatcherQueue.CreateTimer();
@@ -52,12 +54,30 @@ public sealed partial class MainWindow : Window
     public LibraryViewModel ViewModel { get; }
     public ObservableCollection<KindleBook> DeviceBooks { get; } = [];
 
-    private void ConfigureWindowChrome()
+    private void ConfigureTitleBar()
     {
         Title = "Kkindle";
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
+    }
 
+    private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
+    {
+        if (_nativeChromeConfigured) return;
+        _nativeChromeConfigured = true;
+
+        try
+        {
+            ConfigureNativeWindowChrome();
+        }
+        catch
+        {
+            // Native chrome is decorative; never prevent the application from opening.
+        }
+    }
+
+    private void ConfigureNativeWindowChrome()
+    {
         var windowHandle = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
         var appWindow = AppWindow.GetFromWindowId(windowId);
