@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage.Pickers;
@@ -35,6 +36,7 @@ public sealed partial class MainWindow : Window
     private string? _acceptedDeviceId;
     private string? _ignoredDeviceId;
     private Button? _activeNavigationButton;
+    private readonly HashSet<Button> _hoveredSidebarSections = [];
     private TaskCompletionSource<bool>? _devicePromptCompletion;
     private bool _nativeChromeConfigured;
     private AppWindow? _appWindow;
@@ -622,7 +624,7 @@ public sealed partial class MainWindow : Window
         SetSidebarSectionState(sectionButton, children, chevron, title, expanded: true);
     }
 
-    private static void SetSidebarSectionState(
+    private void SetSidebarSectionState(
         Button sectionButton,
         StackPanel children,
         FontIcon chevron,
@@ -631,14 +633,108 @@ public sealed partial class MainWindow : Window
     {
         children.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
         chevron.Glyph = expanded ? "\uE70D" : "\uE76C";
-        var ink = (Brush)Application.Current.Resources["InkBrush"];
-        var paper = (Brush)Application.Current.Resources["CardBrush"];
-        sectionButton.Background = expanded ? ink : paper;
-        sectionButton.Foreground = expanded ? paper : ink;
-        chevron.Foreground = expanded ? paper : ink;
+        ApplySidebarSectionColors(
+            sectionButton,
+            chevron,
+            darkBackground: expanded != _hoveredSidebarSections.Contains(sectionButton),
+            animate: false);
         sectionButton.SetValue(
             Microsoft.UI.Xaml.Automation.AutomationProperties.NameProperty,
             $"{title}，{(expanded ? "已展开" : "已收起")}");
+    }
+
+    private void SidebarSectionButton_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not Button sectionButton
+            || !TryGetSidebarSectionVisuals(sectionButton, out var children, out var chevron)) return;
+        if (!_hoveredSidebarSections.Add(sectionButton)) return;
+        ApplySidebarSectionColors(
+            sectionButton,
+            chevron,
+            darkBackground: children.Visibility != Visibility.Visible,
+            animate: true);
+    }
+
+    private void SidebarSectionButton_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not Button sectionButton
+            || !TryGetSidebarSectionVisuals(sectionButton, out var children, out var chevron)) return;
+        _hoveredSidebarSections.Remove(sectionButton);
+        ApplySidebarSectionColors(
+            sectionButton,
+            chevron,
+            darkBackground: children.Visibility == Visibility.Visible,
+            animate: true);
+    }
+
+    private bool TryGetSidebarSectionVisuals(
+        Button sectionButton,
+        out StackPanel children,
+        out FontIcon chevron)
+    {
+        if (ReferenceEquals(sectionButton, BookManagementSectionButton))
+            (children, chevron) = (BookManagementChildren, BookManagementChevron);
+        else if (ReferenceEquals(sectionButton, DeviceManagementSectionButton))
+            (children, chevron) = (DeviceManagementChildren, DeviceManagementChevron);
+        else if (ReferenceEquals(sectionButton, ReadingSectionButton))
+            (children, chevron) = (ReadingChildren, ReadingChevron);
+        else if (ReferenceEquals(sectionButton, SystemSectionButton))
+            (children, chevron) = (SystemChildren, SystemChevron);
+        else
+        {
+            children = null!;
+            chevron = null!;
+            return false;
+        }
+        return true;
+    }
+
+    private static void ApplySidebarSectionColors(
+        Button sectionButton,
+        FontIcon chevron,
+        bool darkBackground,
+        bool animate)
+    {
+        var targetBackground = darkBackground ? Colors.Black : Colors.White;
+        var targetForeground = darkBackground ? Colors.White : Colors.Black;
+        var currentBackground = (sectionButton.Background as SolidColorBrush)?.Color ?? targetBackground;
+        var currentForeground = (sectionButton.Foreground as SolidColorBrush)?.Color ?? targetForeground;
+        var backgroundBrush = new SolidColorBrush(currentBackground);
+        var foregroundBrush = new SolidColorBrush(currentForeground);
+        sectionButton.Background = backgroundBrush;
+        sectionButton.Foreground = foregroundBrush;
+        chevron.Foreground = foregroundBrush;
+
+        if (!animate)
+        {
+            backgroundBrush.Color = targetBackground;
+            foregroundBrush.Color = targetForeground;
+            return;
+        }
+
+        var duration = new Duration(TimeSpan.FromMilliseconds(120));
+        var backgroundAnimation = new ColorAnimation
+        {
+            From = currentBackground,
+            To = targetBackground,
+            Duration = duration
+        };
+        var foregroundAnimation = new ColorAnimation
+        {
+            From = currentForeground,
+            To = targetForeground,
+            Duration = duration
+        };
+        Storyboard.SetTarget(backgroundAnimation, backgroundBrush);
+        Storyboard.SetTargetProperty(backgroundAnimation, "Color");
+        Storyboard.SetTarget(foregroundAnimation, foregroundBrush);
+        Storyboard.SetTargetProperty(foregroundAnimation, "Color");
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(backgroundAnimation);
+        storyboard.Children.Add(foregroundAnimation);
+        backgroundBrush.Color = targetBackground;
+        foregroundBrush.Color = targetForeground;
+        storyboard.Begin();
     }
 
     private void SetActiveNavigation(Button activeButton)

@@ -83,6 +83,9 @@
                             <Button x:Name="BookManagementSectionButton"
                                     Style="{StaticResource SidebarSectionButtonStyle}"
                                     Click="SidebarSectionButton_Click"
+                                    PointerEntered="SidebarSectionButton_PointerEntered"
+                                    PointerMoved="SidebarSectionButton_PointerEntered"
+                                    PointerExited="SidebarSectionButton_PointerExited"
                                     AutomationProperties.Name="书籍管理，已展开">
                                 <Grid>
                                     <TextBlock Text="书籍管理" VerticalAlignment="Center" />
@@ -112,6 +115,9 @@
                             <Button x:Name="DeviceManagementSectionButton"
                                     Style="{StaticResource SidebarSectionButtonStyle}"
                                     Click="SidebarSectionButton_Click"
+                                    PointerEntered="SidebarSectionButton_PointerEntered"
+                                    PointerMoved="SidebarSectionButton_PointerEntered"
+                                    PointerExited="SidebarSectionButton_PointerExited"
                                     AutomationProperties.Name="设备管理，已收起">
                                 <Grid>
                                     <TextBlock Text="设备管理" VerticalAlignment="Center" />
@@ -129,6 +135,9 @@
                             <Button x:Name="ReadingSectionButton"
                                     Style="{StaticResource SidebarSectionButtonStyle}"
                                     Click="SidebarSectionButton_Click"
+                                    PointerEntered="SidebarSectionButton_PointerEntered"
+                                    PointerMoved="SidebarSectionButton_PointerEntered"
+                                    PointerExited="SidebarSectionButton_PointerExited"
                                     AutomationProperties.Name="阅读资料，已收起">
                                 <Grid>
                                     <TextBlock Text="阅读资料" VerticalAlignment="Center" />
@@ -145,6 +154,9 @@
                             <Button x:Name="SystemSectionButton"
                                     Style="{StaticResource SidebarSectionButtonStyle}"
                                     Click="SidebarSectionButton_Click"
+                                    PointerEntered="SidebarSectionButton_PointerEntered"
+                                    PointerMoved="SidebarSectionButton_PointerEntered"
+                                    PointerExited="SidebarSectionButton_PointerExited"
                                     AutomationProperties.Name="系统，已收起">
                                 <Grid>
                                     <TextBlock Text="系统" VerticalAlignment="Center" />
