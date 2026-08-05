@@ -6,6 +6,16 @@
 >
 > 项目目录：`C:\Users\kings\Desktop\01_Projects\Kkindle`
 
+## 0. 当前状态速览
+
+- 当前阶段：P0、P1 已完成，下一步进入 P2 测试补强。
+- 当前分支：`master`；P1 基线提交：`b04d56f feat: complete P1 library and Kindle workflows`。
+- GitHub：`origin/master` 已包含 `b04d56f`。
+- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`。
+- 最新验证：Release x64 构建成功，7 项测试全部通过，EXE 启动 5 秒后仍可响应。
+- 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环，设备端无测试残留。
+- 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
+
 ## 1. 项目目标
 
 Kkindle 是一个只供个人使用的 Windows 11 Kindle 书库与 USB 管理器，产品体验参考用户提供的 Reeden 截图：
@@ -481,11 +491,13 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 ## 8. Git 状态
 
-当前工作分支为 `master`，第十三轮发布对应提交为 `065234a`。构建输出由 `.gitignore` 排除，不纳入版本控制。
+当前工作分支为 `master`，P1 发布基线提交为 `b04d56f`，并已推送到 `origin/master`。构建输出由 `.gitignore` 排除，不纳入版本控制。
 
-最近与窗口外观直接相关的提交：
+当前开发基线及最近与窗口外观相关的提交：
 
 ```text
+b04d56f feat: complete P1 library and Kindle workflows
+b8a466c feat: animate sidebar section hover inversion
 065234a fix: enforce square window corners after layout
 b681ca8 feat: replace native window caption buttons
 2848135 fix: initialize window chrome after activation
@@ -535,3 +547,16 @@ git status --short --branch
 - `ApplySquareWindowFrame()` 必须保留首次调用、低优先级调度调用、`Loaded` 调用和 presenter 状态变化后的调用，否则 Windows 可能重新恢复圆角。
 - 自绘最小化、最大化/还原、关闭按钮位于 `MainWindow.xaml`；统一模板 `TitleBarCaptionButtonStyle` 位于 `App.xaml`。
 - P1 已完成；下一步进入 P2，优先补损坏文件批量导入、中文元数据、取消导入以及更多路径安全测试。不要再次重做标题栏架构，除非有新的可复现问题。
+
+## 13. P1 完成发布（2026-08-05）
+
+- 本地书库支持作者、标签和格式筛选，支持清除筛选及无结果空状态。
+- 已验收空书库、无封面占位、长标题省略和 120 DPI（125%）布局。
+- 已用真实 EPUB 验收标题、作者、封面解析和书架显示。
+- Kindle 设备页支持选中书籍后安全删除，应用确认信息明确显示目标位于 `documents`。
+- WPD/MTP 使用无二次系统弹窗的 `IFileOperation` 删除，避免后台 Shell 删除确认导致界面卡住。
+- MTP 发送改为本地暂存最终唯一文件名后复制；轮询使用全新 Shell 快照，解决设备目录缓存导致的超时。
+- 设备断开或切换会取消传输；失败与取消会精确清理本次未完成的设备文件。
+- `WM_DEVICECHANGE` 已接入，3 秒轮询继续作为可靠兜底。
+- 真实 Kindle Scribe 验收结果：发送成功、设备扫描可见、删除成功、测试残留为 0。
+- Release 测试结果：失败 0、通过 7、跳过 0；发布版启动和筛选控件 UI Automation 验证通过。
