@@ -1,0 +1,298 @@
+using System.Collections.ObjectModel;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.Storage.Pickers;
+using WinRT.Interop;
+using Kkindle.Core;
+using Kkindle.Infrastructure;
+
+namespace Kkindle;
+
+public sealed partial class MainWindow : Window
+{
+    private readonly AppPaths _paths;
+    private readonly IBookLibraryService _library;
+    private readonly IKindleDeviceService _kindle;
+    private readonly DispatcherQueueTimer _deviceTimer;
+    private Book? _selectedBook;
+    private IReadOnlyList<KindleDevice> _devices = [];
+
+    public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
+    {
+        _paths = paths;
+        _library = library;
+        _kindle = kindle;
+        ViewModel = new LibraryViewModel(library, paths.Data);
+        InitializeComponent();
+        Closed += MainWindow_Closed;
+
+        _deviceTimer = DispatcherQueue.CreateTimer();
+        _deviceTimer.Interval = TimeSpan.FromSeconds(3);
+        _deviceTimer.Tick += async (_, _) => await RefreshDevicesAsync();
+        _deviceTimer.Start();
+        RootGrid.Loaded += MainWindow_Loaded;
+    }
+
+    public LibraryViewModel ViewModel { get; }
+
+    private void DeviceChangeMonitor_DeviceChanged(object? sender, EventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(async () => await RefreshDevicesAsync());
+    }
+
+    private void MainWindow_Closed(object sender, WindowEventArgs args)
+    {
+        _deviceTimer.Stop();
+    }
+
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        await RefreshLibraryAsync();
+        await RefreshDevicesAsync();
+    }
+
+    private async Task RefreshLibraryAsync()
+    {
+        try
+        {
+            await ViewModel.RefreshAsync();
+            LibrarySummaryText.Text = ViewModel.StatusText;
+            SidebarCountText.Text = ViewModel.Books.Count.ToString();
+        }
+        catch (Exception ex)
+        {
+            await ShowMessageAsync("无法读取书库", ex.Message);
+        }
+    }
+
+    private async Task RefreshDevicesAsync()
+    {
+        try
+        {
+            _devices = await _kindle.DetectDevicesAsync();
+            KindleStatusText.Text = _devices.Count == 0
+                ? "未连接 Kindle"
+                : $"Kindle · {_devices[0].CapacityLabel}";
+        }
+        catch
+        {
+            KindleStatusText.Text = "Kindle 状态未知";
+        }
+    }
+
+    private async void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        ViewModel.SearchText = sender.Text;
+        await RefreshLibraryAsync();
+    }
+
+    private async void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        ViewModel.SearchText = SearchBox.Text;
+        await RefreshLibraryAsync();
+    }
+
+    private async void ImportFilesButton_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileOpenPicker();
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        picker.ViewMode = PickerViewMode.Thumbnail;
+        picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        foreach (var extension in new[] { ".epub", ".pdf", ".mobi", ".azw3" }) picker.FileTypeFilter.Add(extension);
+        var files = await picker.PickMultipleFilesAsync();
+        if (files.Count > 0) await ImportAsync(files.Select(x => x.Path));
+    }
+
+    private async void ImportFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FolderPicker();
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        picker.ViewMode = PickerViewMode.List;
+        picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
+        picker.FileTypeFilter.Add("*");
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder is not null) await ImportAsync([folder.Path]);
+    }
+
+    private async Task ImportAsync(IEnumerable<string> paths)
+    {
+        TaskProgress.Visibility = Visibility.Visible;
+        TaskProgress.Value = 0;
+        try
+        {
+            var progress = new Progress<TransferProgress>(value =>
+            {
+                TaskProgress.Value = value.Percentage;
+                TaskStatusText.Text = value.Message;
+            });
+            var result = await ViewModel.ImportAsync(paths, progress);
+            TaskStatusText.Text = ViewModel.StatusText;
+            if (result.FailureCount > 0)
+            {
+                var failures = string.Join("\n", result.Items.Where(x => !x.Succeeded).Take(5).Select(x => $"{Path.GetFileName(x.SourcePath)}：{x.Message}"));
+                await ShowMessageAsync("部分文件未导入", failures);
+            }
+            LibrarySummaryText.Text = ViewModel.StatusText;
+            SidebarCountText.Text = ViewModel.Books.Count.ToString();
+        }
+        catch (OperationCanceledException)
+        {
+            TaskStatusText.Text = "已取消";
+        }
+        catch (Exception ex)
+        {
+            TaskStatusText.Text = "导入失败";
+            await ShowMessageAsync("导入失败", ex.Message);
+        }
+        finally
+        {
+            TaskProgress.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void BookGrid_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is BookCardViewModel card) SelectBook(card.Book);
+    }
+
+    private void BookList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (BookList.SelectedItem is BookCardViewModel card) SelectBook(card.Book);
+    }
+
+    private void SelectBook(Book book)
+    {
+        _selectedBook = book;
+        DetailsTitleBox.Text = book.Title;
+        DetailsAuthorsBox.Text = book.Authors;
+        DetailsSeriesBox.Text = book.Series ?? string.Empty;
+        DetailsTagsBox.Text = book.Tags;
+        DetailsDescriptionBox.Text = book.Description ?? string.Empty;
+        DetailCoverImage.Source = null;
+        if (!string.IsNullOrWhiteSpace(book.CoverPath))
+        {
+            var coverPath = Path.GetFullPath(Path.Combine(_paths.Data, book.CoverPath));
+            if (File.Exists(coverPath))
+            {
+                try { DetailCoverImage.Source = new BitmapImage(new Uri(coverPath)); }
+                catch { }
+            }
+        }
+        DetailColumn.Width = new GridLength(320);
+        DetailPane.Visibility = Visibility.Visible;
+    }
+
+    private async void SaveDetailsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedBook is null) return;
+        _selectedBook.Title = string.IsNullOrWhiteSpace(DetailsTitleBox.Text) ? "未命名书籍" : DetailsTitleBox.Text.Trim();
+        _selectedBook.Authors = string.IsNullOrWhiteSpace(DetailsAuthorsBox.Text) ? "未知作者" : DetailsAuthorsBox.Text.Trim();
+        _selectedBook.Series = string.IsNullOrWhiteSpace(DetailsSeriesBox.Text) ? null : DetailsSeriesBox.Text.Trim();
+        _selectedBook.Tags = DetailsTagsBox.Text.Trim();
+        _selectedBook.Description = string.IsNullOrWhiteSpace(DetailsDescriptionBox.Text) ? null : DetailsDescriptionBox.Text.Trim();
+        await _library.UpdateMetadataAsync(_selectedBook);
+        await RefreshLibraryAsync();
+        SelectBook(_selectedBook);
+        TaskStatusText.Text = "元数据已保存";
+    }
+
+    private async void SendToKindleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedBook is null || _selectedBook.Files.Count == 0)
+        {
+            await ShowMessageAsync("无法发送", "这本书没有可用的文件格式。");
+            return;
+        }
+        await RefreshDevicesAsync();
+        if (_devices.Count == 0)
+        {
+            await ShowMessageAsync("未找到 Kindle", "请连接 Kindle，并确认它在 Windows 中显示为外部磁盘。");
+            return;
+        }
+
+        var file = _selectedBook.Files[0];
+        var source = _library.GetAbsoluteFilePath(file);
+        TaskProgress.Visibility = Visibility.Visible;
+        try
+        {
+            var progress = new Progress<TransferProgress>(value =>
+            {
+                TaskProgress.Value = value.Percentage;
+                TaskStatusText.Text = value.Message;
+            });
+            await _kindle.SendBookAsync(_devices[0], file, source, progress);
+            TaskStatusText.Text = "已发送到 Kindle";
+        }
+        catch (Exception ex)
+        {
+            TaskStatusText.Text = "发送失败";
+            await ShowMessageAsync("发送失败", ex.Message);
+        }
+        finally { TaskProgress.Visibility = Visibility.Collapsed; }
+    }
+
+    private async void DeleteBookButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedBook is null) return;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = ((FrameworkElement)Content).XamlRoot,
+            Title = "删除这本书？",
+            Content = $"将从 Kkindle 书库中删除“{_selectedBook.Title}”及其文件。",
+            PrimaryButtonText = "删除",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        await _library.DeleteAsync(_selectedBook.Id);
+        _selectedBook = null;
+        CloseDetails();
+        await RefreshLibraryAsync();
+    }
+
+    private void CloseDetailButton_Click(object sender, RoutedEventArgs e) => CloseDetails();
+
+    private void CloseDetails()
+    {
+        DetailPane.Visibility = Visibility.Collapsed;
+        DetailColumn.Width = new GridLength(0);
+    }
+
+    private void GridViewButton_Click(object sender, RoutedEventArgs e)
+    {
+        BookGrid.Visibility = Visibility.Visible;
+        BookList.Visibility = Visibility.Collapsed;
+    }
+
+    private void ListViewButton_Click(object sender, RoutedEventArgs e)
+    {
+        BookGrid.Visibility = Visibility.Collapsed;
+        BookList.Visibility = Visibility.Visible;
+    }
+
+    private async void FilterButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("筛选", "首版先支持搜索；作者、标签和格式筛选将在下一轮接入。");
+    private async void MoreButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("Kkindle", $"便携数据目录：{_paths.Data}");
+    private async void AddTagButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("标签", "可以在书籍详情中直接编辑标签，多个标签用逗号分隔。");
+    private async void AddCategoryButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("分类", "分类功能将在书库筛选基础完成后接入。");
+    private async void SettingsButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("设置", $"当前书库位于：{_paths.Library}");
+    private async void NavigationButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && button != AllBooksButton)
+            await ShowMessageAsync("Kkindle", "首版当前聚焦书架与 Kindle 同步。");
+    }
+
+    private async Task ShowMessageAsync(string title, string message)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = ((FrameworkElement)Content).XamlRoot,
+            Title = title,
+            Content = message,
+            CloseButtonText = "知道了",
+            DefaultButton = ContentDialogButton.Close
+        };
+        await dialog.ShowAsync();
+    }
+}
