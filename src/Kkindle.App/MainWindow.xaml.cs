@@ -610,14 +610,14 @@ public sealed partial class MainWindow : Window
             ToggleSidebarSection(SystemSectionButton, SystemChildren, SystemChevron, "系统");
     }
 
-    private void ToggleSidebarSection(Button sectionButton, StackPanel children, TextBlock chevron, string title)
+    private void ToggleSidebarSection(Button sectionButton, StackPanel children, FontIcon chevron, string title)
     {
         var shouldExpand = children.Visibility != Visibility.Visible;
         if (shouldExpand) CollapseAllSidebarSections();
         SetSidebarSectionState(sectionButton, children, chevron, title, shouldExpand);
     }
 
-    private void ExpandSidebarSection(Button sectionButton, StackPanel children, TextBlock chevron, string title)
+    private void ExpandSidebarSection(Button sectionButton, StackPanel children, FontIcon chevron, string title)
     {
         CollapseAllSidebarSections();
         SetSidebarSectionState(sectionButton, children, chevron, title, expanded: true);
@@ -634,12 +634,12 @@ public sealed partial class MainWindow : Window
     private static void SetSidebarSectionState(
         Button sectionButton,
         StackPanel children,
-        TextBlock chevron,
+        FontIcon chevron,
         string title,
         bool expanded)
     {
         children.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
-        chevron.Text = expanded ? "⌄" : "›";
+        chevron.Glyph = expanded ? "\uE70D" : "\uE76C";
         sectionButton.SetValue(
             Microsoft.UI.Xaml.Automation.AutomationProperties.NameProperty,
             $"{title}，{(expanded ? "已展开" : "已收起")}");

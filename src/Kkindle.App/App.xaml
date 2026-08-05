@@ -68,8 +68,10 @@
 
             <Style x:Key="SidebarButtonStyle" TargetType="Button">
                 <Setter Property="HorizontalContentAlignment" Value="Left" />
+                <Setter Property="Width" Value="146" />
+                <Setter Property="Height" Value="34" />
                 <Setter Property="Padding" Value="18,8,10,8" />
-                <Setter Property="Margin" Value="0,2,0,2" />
+                <Setter Property="Margin" Value="12,2,0,2" />
                 <Setter Property="Background" Value="#FFFFFF" />
                 <Setter Property="Foreground" Value="#000000" />
                 <Setter Property="BorderBrush" Value="#000000" />
@@ -79,12 +81,14 @@
             </Style>
             <Style x:Key="SidebarSectionButtonStyle" TargetType="Button">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Width" Value="164" />
+                <Setter Property="Height" Value="36" />
                 <Setter Property="Padding" Value="10,6" />
                 <Setter Property="Margin" Value="0" />
-                <Setter Property="MinHeight" Value="30" />
                 <Setter Property="Background" Value="#FFFFFF" />
                 <Setter Property="Foreground" Value="#5A5A5A" />
-                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="BorderBrush" Value="#000000" />
+                <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="CornerRadius" Value="0" />
                 <Setter Property="FontSize" Value="12" />
                 <Setter Property="FontWeight" Value="SemiBold" />
@@ -93,7 +97,9 @@
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="SectionBackground"
                                     Padding="{TemplateBinding Padding}"
-                                    Background="{TemplateBinding Background}">
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}">
                                 <VisualStateManager.VisualStateGroups>
                                     <VisualStateGroup x:Name="CommonStates">
                                         <VisualState x:Name="Normal" />

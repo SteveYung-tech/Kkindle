@@ -82,11 +82,12 @@
                                     AutomationProperties.Name="书籍管理，已展开">
                                 <Grid>
                                     <TextBlock Text="书籍管理" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="BookManagementChevron"
-                                               Text="⌄"
+                                    <FontIcon x:Name="BookManagementChevron"
+                                               Glyph="&#xE70D;"
+                                               FontFamily="Segoe MDL2 Assets"
                                                HorizontalAlignment="Right"
                                                VerticalAlignment="Center"
-                                               FontSize="16" />
+                                               FontSize="10" />
                                 </Grid>
                             </Button>
                             <StackPanel x:Name="BookManagementChildren" Spacing="3">
@@ -98,7 +99,7 @@
                                     PointerEntered="AllBooksButton_PointerEntered"
                                     PointerExited="AllBooksButton_PointerExited"
                                     Click="NavigationButton_Click">
-                                <Grid Width="140">
+                                <Grid Width="118">
                                     <TextBlock x:Name="AllBooksLabelText" Text="电脑书库" Foreground="#FFFFFF" />
                                     <TextBlock x:Name="SidebarCountText" HorizontalAlignment="Right" Foreground="#FFFFFF" />
                                 </Grid>
@@ -114,7 +115,7 @@
                                     AutomationProperties.Name="设备管理，已收起">
                                 <Grid>
                                     <TextBlock Text="设备管理" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="DeviceManagementChevron" Text="›" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="18" />
+                                    <FontIcon x:Name="DeviceManagementChevron" Glyph="&#xE76C;" FontFamily="Segoe MDL2 Assets" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10" />
                                 </Grid>
                             </Button>
                             <StackPanel x:Name="DeviceManagementChildren" Spacing="3" Visibility="Collapsed">
@@ -131,7 +132,7 @@
                                     AutomationProperties.Name="阅读资料，已收起">
                                 <Grid>
                                     <TextBlock Text="阅读资料" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="ReadingChevron" Text="›" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="18" />
+                                    <FontIcon x:Name="ReadingChevron" Glyph="&#xE76C;" FontFamily="Segoe MDL2 Assets" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10" />
                                 </Grid>
                             </Button>
                             <StackPanel x:Name="ReadingChildren" Spacing="3" Visibility="Collapsed">
@@ -147,7 +148,7 @@
                                     AutomationProperties.Name="系统，已收起">
                                 <Grid>
                                     <TextBlock Text="系统" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="SystemChevron" Text="›" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="18" />
+                                    <FontIcon x:Name="SystemChevron" Glyph="&#xE76C;" FontFamily="Segoe MDL2 Assets" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10" />
                                 </Grid>
                             </Button>
                             <StackPanel x:Name="SystemChildren" Spacing="3" Visibility="Collapsed">
