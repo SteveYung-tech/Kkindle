@@ -23,6 +23,8 @@ public sealed partial class MainWindow : Window
     private bool _isTransferring;
     private string? _scannedDeviceId;
     private double _deviceUsedRatio;
+    private string? _acceptedDeviceId;
+    private string? _ignoredDeviceId;
 
     public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
     {
@@ -79,25 +81,47 @@ public sealed partial class MainWindow : Window
         _isRefreshingDevices = true;
         try
         {
-            _devices = await _kindle.DetectDevicesAsync();
-            if (_devices.Count == 0)
+            var detectedDevices = await _kindle.DetectDevicesAsync();
+            if (detectedDevices.Count == 0)
             {
-                _scannedDeviceId = null;
-                DeviceBooks.Clear();
-                KindleStatusText.Text = "无设备连接";
-                KindleConnectionText.Text = string.Empty;
-                DeviceStorageText.Text = "无存储信息";
-                _deviceUsedRatio = 0;
-                UpdateDeviceStorageBar();
-                DeviceNameText.Text = "未检测到设备";
-                DeviceCapacityText.Text = "—";
-                DeviceBookCountText.Text = "0 本";
+                _acceptedDeviceId = null;
+                _ignoredDeviceId = null;
+                SetDisconnectedDeviceState();
                 return;
             }
 
-            var device = _devices[0];
+            var device = detectedDevices[0];
+            if (!string.Equals(_acceptedDeviceId, device.VolumeSerial, StringComparison.Ordinal))
+            {
+                if (string.Equals(_ignoredDeviceId, device.VolumeSerial, StringComparison.Ordinal))
+                {
+                    SetDisconnectedDeviceState($"已忽略 {device.Name}");
+                    return;
+                }
+
+                var prompt = new ContentDialog
+                {
+                    XamlRoot = ((FrameworkElement)Content).XamlRoot,
+                    Title = "发现 Kindle 设备",
+                    Content = $"发现 {device.Name}（{device.ConnectionLabel}）。是否连接到 Kkindle？",
+                    PrimaryButtonText = "连接",
+                    CloseButtonText = "暂不连接",
+                    DefaultButton = ContentDialogButton.Primary
+                };
+                if (await prompt.ShowAsync() != ContentDialogResult.Primary)
+                {
+                    _ignoredDeviceId = device.VolumeSerial;
+                    SetDisconnectedDeviceState($"已忽略 {device.Name}");
+                    return;
+                }
+                _acceptedDeviceId = device.VolumeSerial;
+                _ignoredDeviceId = null;
+            }
+
+            _devices = [device];
             KindleStatusText.Text = device.Name;
             KindleConnectionText.Text = $"{device.ConnectionLabel} · 已连接";
+            EjectDeviceButton.Visibility = Visibility.Visible;
             DeviceStorageText.Text = device.CapacityLabel;
             _deviceUsedRatio = device.TotalBytes <= 0
                 ? 0
@@ -110,14 +134,25 @@ public sealed partial class MainWindow : Window
         }
         catch
         {
-            KindleStatusText.Text = "无设备连接";
-            KindleConnectionText.Text = "设备状态读取失败";
-            DeviceStorageText.Text = "无存储信息";
-            _deviceUsedRatio = 0;
-            UpdateDeviceStorageBar();
-            DeviceNameText.Text = "设备读取失败";
+            SetDisconnectedDeviceState("设备状态读取失败");
         }
         finally { _isRefreshingDevices = false; }
+    }
+
+    private void SetDisconnectedDeviceState(string? detail = null)
+    {
+        _devices = [];
+        _scannedDeviceId = null;
+        DeviceBooks.Clear();
+        KindleStatusText.Text = "无设备连接";
+        KindleConnectionText.Text = detail ?? string.Empty;
+        EjectDeviceButton.Visibility = Visibility.Collapsed;
+        DeviceStorageText.Text = "无存储信息";
+        _deviceUsedRatio = 0;
+        UpdateDeviceStorageBar();
+        DeviceNameText.Text = "未检测到设备";
+        DeviceCapacityText.Text = "—";
+        DeviceBookCountText.Text = "0 本";
     }
 
     private async Task ScanDeviceBooksAsync(KindleDevice device)
@@ -364,8 +399,46 @@ public sealed partial class MainWindow : Window
 
     private async void RefreshDeviceButton_Click(object sender, RoutedEventArgs e)
     {
+        _ignoredDeviceId = null;
         _scannedDeviceId = null;
         await RefreshDevicesAsync();
+    }
+
+    private async void EjectDeviceButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isTransferring)
+        {
+            await ShowMessageAsync("正在传输", "请等待书籍传输完成后再弹出设备。");
+            return;
+        }
+        if (_devices.Count == 0) return;
+
+        var device = _devices[0];
+        var isWpd = device.Transport == KindleTransport.Wpd;
+        var confirmation = new ContentDialog
+        {
+            XamlRoot = ((FrameworkElement)Content).XamlRoot,
+            Title = isWpd ? "断开 Kindle？" : "安全弹出 Kindle？",
+            Content = isWpd
+                ? "Kindle Scribe 使用 MTP 连接，不提供磁盘安全弹出。Kkindle 将停止访问设备，随后可以断开 USB。"
+                : "请确认当前没有正在进行的传输。",
+            PrimaryButtonText = isWpd ? "断开" : "弹出",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
+
+        try
+        {
+            if (!isWpd) await _kindle.EjectAsync(device);
+            _acceptedDeviceId = null;
+            _ignoredDeviceId = device.VolumeSerial;
+            SetDisconnectedDeviceState(isWpd ? $"已断开 {device.Name}" : $"已弹出 {device.Name}");
+        }
+        catch (Exception ex)
+        {
+            await ShowMessageAsync("无法弹出设备", ex.Message);
+        }
     }
 
     private void ShowLibrary()
@@ -385,6 +458,7 @@ public sealed partial class MainWindow : Window
             button.Background = isActive ? ink : paper;
             button.Foreground = isActive ? paper : ink;
         }
+        AllBooksLabelText.Foreground = activeButton == AllBooksButton ? paper : ink;
         SidebarCountText.Foreground = activeButton == AllBooksButton ? paper : ink;
     }
 

@@ -46,7 +46,7 @@
                                     Foreground="#FFFFFF"
                                     Click="NavigationButton_Click">
                                 <Grid Width="140">
-                                    <TextBlock Text="电脑书库" />
+                                    <TextBlock x:Name="AllBooksLabelText" Text="电脑书库" Foreground="#FFFFFF" />
                                     <TextBlock x:Name="SidebarCountText" HorizontalAlignment="Right" Foreground="#FFFFFF" />
                                 </Grid>
                             </Button>
@@ -76,7 +76,28 @@
                 <Border Grid.Row="2" Padding="10" Background="#FFFFFF" BorderBrush="#000000" BorderThickness="1" CornerRadius="0">
                     <StackPanel Spacing="5">
                         <TextBlock Text="连接设备" FontSize="10" Foreground="#5A5A5A" />
-                        <TextBlock x:Name="KindleStatusText" Foreground="#000000" FontWeight="Bold" Text="正在检查设备…" TextWrapping="Wrap" />
+                        <Grid ColumnSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="KindleStatusText"
+                                       Foreground="#000000"
+                                       FontWeight="Bold"
+                                       Text="正在检查设备…"
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Center" />
+                            <Button x:Name="EjectDeviceButton"
+                                    Grid.Column="1"
+                                    Width="25"
+                                    Height="23"
+                                    Padding="0"
+                                    Content="▲"
+                                    FontSize="10"
+                                    Visibility="Collapsed"
+                                    ToolTipService.ToolTip="弹出设备"
+                                    Click="EjectDeviceButton_Click" />
+                        </Grid>
                         <TextBlock x:Name="KindleConnectionText" Foreground="#5A5A5A" FontSize="10" />
                         <Grid x:Name="DeviceStorageBar" Height="10" Background="#FFFFFF" SizeChanged="DeviceStorageBar_SizeChanged">
                             <Rectangle x:Name="DeviceStorageUsedBar" HorizontalAlignment="Left" VerticalAlignment="Stretch" Fill="#000000" Width="0" />
