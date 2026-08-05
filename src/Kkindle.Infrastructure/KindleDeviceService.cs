@@ -74,7 +74,10 @@ public sealed class KindleDeviceService : IKindleDeviceService
     public async Task SendBookAsync(KindleDevice device, BookFile bookFile, string sourcePath, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         if (device.Transport == KindleTransport.Wpd)
-            throw new NotSupportedException("当前已支持读取 MTP Kindle；发送功能需完成设备端校验后再开放。请暂用 Windows 资源管理器复制到 documents。");
+        {
+            await Task.Run(() => WpdKindleAccess.SendBook(device, sourcePath, progress, cancellationToken), cancellationToken);
+            return;
+        }
         if (!File.Exists(sourcePath)) throw new FileNotFoundException("书籍源文件不存在。", sourcePath);
         var documents = GetDocumentsRoot(device);
         Directory.CreateDirectory(documents);

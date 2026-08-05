@@ -6,6 +6,7 @@ namespace Kkindle.Infrastructure;
 internal static class WpdKindleAccess
 {
     private const int MyComputerShellFolder = 17;
+    private const int CopyWithoutUi = 4 | 16 | 1024;
 
     public static IReadOnlyList<KindleDevice> DetectDevices(CancellationToken cancellationToken)
     {
@@ -112,6 +113,73 @@ internal static class WpdKindleAccess
         return books.OrderBy(book => book.RelativePath, StringComparer.CurrentCultureIgnoreCase).ToArray();
     }
 
+    public static void SendBook(
+        KindleDevice device,
+        string sourcePath,
+        IProgress<TransferProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(sourcePath)) throw new FileNotFoundException("书籍源文件不存在。", sourcePath);
+        var sourceInfo = new FileInfo(sourcePath);
+        var stagingDirectory = Path.Combine(Path.GetTempPath(), "Kkindle", "transfer", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stagingDirectory);
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath)
+                ?? throw new IOException("Kindle 已断开连接。");
+            dynamic? storage = FindFirstStorage(kindle)
+                ?? throw new IOException("无法读取 Kindle 内部存储。");
+            dynamic? documents = FindChild(storage, "documents")
+                ?? throw new IOException("Kindle 上不存在 documents 目录。");
+
+            var finalName = GetUniqueFileName(documents, sourceInfo.Name);
+            var temporaryName = finalName + ".kkindle-part";
+            var stagedPath = Path.Combine(stagingDirectory, temporaryName);
+            File.Copy(sourcePath, stagedPath, overwrite: false);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            progress?.Report(new TransferProgress(0, sourceInfo.Length, $"正在发送 {sourceInfo.Name}"));
+            dynamic targetFolder = documents.GetFolder;
+            targetFolder.CopyHere(stagedPath, CopyWithoutUi);
+
+            var timeout = TimeSpan.FromMinutes(Math.Clamp(2 + sourceInfo.Length / (100d * 1024 * 1024), 2, 30));
+            dynamic temporaryItem = WaitForItem(
+                documents,
+                temporaryName,
+                sourceInfo.Length,
+                timeout,
+                progress,
+                sourceInfo.Name,
+                cancellationToken);
+            temporaryItem.Name = finalName;
+
+            dynamic finalItem = WaitForItem(
+                documents,
+                finalName,
+                sourceInfo.Length,
+                TimeSpan.FromSeconds(15),
+                progress,
+                sourceInfo.Name,
+                cancellationToken);
+            if (ConvertToInt64(finalItem.Size) != sourceInfo.Length)
+                throw new IOException("设备文件大小校验失败。");
+            progress?.Report(new TransferProgress(sourceInfo.Length, sourceInfo.Length, $"已发送 {finalName}"));
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("MTP 传输失败，请确认 Kindle 仍保持连接。", exception);
+        }
+        finally
+        {
+            Release(shell);
+            try { Directory.Delete(stagingDirectory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
     private static dynamic CreateShell()
     {
         var shellType = Type.GetTypeFromProgID("Shell.Application")
@@ -154,6 +222,48 @@ internal static class WpdKindleAccess
                 return child;
         }
         return null;
+    }
+
+    private static string GetUniqueFileName(dynamic folderItem, string fileName)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        dynamic children = folderItem.GetFolder.Items();
+        for (var index = 0; index < (int)children.Count; index++)
+            names.Add(Convert.ToString(children.Item(index).Name) ?? string.Empty);
+
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+        var extension = Path.GetExtension(fileName);
+        for (var index = 1; ; index++)
+        {
+            var candidate = index == 1 ? fileName : $"{stem} ({index}){extension}";
+            if (!names.Contains(candidate) && !names.Contains(candidate + ".kkindle-part"))
+                return candidate;
+        }
+    }
+
+    private static dynamic WaitForItem(
+        dynamic folderItem,
+        string name,
+        long expectedSize,
+        TimeSpan timeout,
+        IProgress<TransferProgress>? progress,
+        string displayName,
+        CancellationToken cancellationToken)
+    {
+        var startedAt = DateTime.UtcNow;
+        while (DateTime.UtcNow - startedAt < timeout)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            dynamic? item = FindChild(folderItem, name);
+            if (item is not null)
+            {
+                var size = ConvertToInt64(item.Size);
+                progress?.Report(new TransferProgress(Math.Min(size, expectedSize), expectedSize, $"正在发送 {displayName}"));
+                if (size == expectedSize) return item;
+            }
+            Thread.Sleep(250);
+        }
+        throw new TimeoutException("等待 Kindle 完成文件写入超时。");
     }
 
     private static long ReadInt64Property(dynamic item, string propertyName)

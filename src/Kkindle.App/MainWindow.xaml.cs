@@ -20,6 +20,7 @@ public sealed partial class MainWindow : Window
     private Book? _selectedBook;
     private IReadOnlyList<KindleDevice> _devices = [];
     private bool _isRefreshingDevices;
+    private bool _isTransferring;
     private string? _scannedDeviceId;
     private double _deviceUsedRatio;
 
@@ -246,6 +247,7 @@ public sealed partial class MainWindow : Window
 
     private async void SendToKindleButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_isTransferring) return;
         if (_selectedBook is null || _selectedBook.Files.Count == 0)
         {
             await ShowMessageAsync("无法发送", "这本书没有可用的文件格式。");
@@ -254,12 +256,25 @@ public sealed partial class MainWindow : Window
         await RefreshDevicesAsync();
         if (_devices.Count == 0)
         {
-            await ShowMessageAsync("未找到 Kindle", "请连接 Kindle，并确认它在 Windows 中显示为外部磁盘。");
+            await ShowMessageAsync("未找到 Kindle", "请连接并解锁 Kindle，然后重试。");
             return;
         }
 
         var file = _selectedBook.Files[0];
         var source = _library.GetAbsoluteFilePath(file);
+        var device = _devices[0];
+        var confirmation = new ContentDialog
+        {
+            XamlRoot = ((FrameworkElement)Content).XamlRoot,
+            Title = "发送到 Kindle？",
+            Content = $"将“{_selectedBook.Title}”发送到 {device.Name}。\n\n如果设备上存在同名文件，Kkindle 会自动使用带序号的新文件名，不会覆盖原文件。",
+            PrimaryButtonText = "发送",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
+
+        _isTransferring = true;
         TaskProgress.Visibility = Visibility.Visible;
         try
         {
@@ -268,15 +283,21 @@ public sealed partial class MainWindow : Window
                 TaskProgress.Value = value.Percentage;
                 TaskStatusText.Text = value.Message;
             });
-            await _kindle.SendBookAsync(_devices[0], file, source, progress);
+            await _kindle.SendBookAsync(device, file, source, progress);
             TaskStatusText.Text = "已发送到 Kindle";
+            _scannedDeviceId = null;
+            await RefreshDevicesAsync();
         }
         catch (Exception ex)
         {
             TaskStatusText.Text = "发送失败";
             await ShowMessageAsync("发送失败", ex.Message);
         }
-        finally { TaskProgress.Visibility = Visibility.Collapsed; }
+        finally
+        {
+            _isTransferring = false;
+            TaskProgress.Visibility = Visibility.Collapsed;
+        }
     }
 
     private async void DeleteBookButton_Click(object sender, RoutedEventArgs e)
