@@ -692,6 +692,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Button Content="返回书架"
                         Style="{StaticResource QuietButtonStyle}"
@@ -706,9 +707,9 @@
                 </StackPanel>
                 <Button x:Name="ReaderZoomOutButton"
                         Grid.Column="2"
-                        Content="－"
+                        Content="A－"
                         Style="{StaticResource QuietButtonStyle}"
-                        AutomationProperties.Name="缩小"
+                        AutomationProperties.Name="减小字号"
                         Click="ReaderZoomOutButton_Click" />
                 <TextBlock x:Name="ReaderZoomText"
                            Grid.Column="3"
@@ -718,28 +719,33 @@
                            VerticalAlignment="Center" />
                 <Button x:Name="ReaderZoomInButton"
                         Grid.Column="4"
-                        Content="＋"
+                        Content="A＋"
                         Style="{StaticResource QuietButtonStyle}"
-                        AutomationProperties.Name="放大"
+                        AutomationProperties.Name="增大字号"
                         Click="ReaderZoomInButton_Click" />
                 <Button x:Name="ReaderThemeButton"
                         Grid.Column="5"
                         Content="白色"
                         Style="{StaticResource QuietButtonStyle}"
                         Click="ReaderThemeButton_Click" />
-                <Button x:Name="ReaderPreviousButton"
+                <Button x:Name="ReaderFlowButton"
                         Grid.Column="6"
-                        Content="上一章"
+                        Content="连续滚动"
+                        Style="{StaticResource QuietButtonStyle}"
+                        Click="ReaderFlowButton_Click" />
+                <Button x:Name="ReaderPreviousButton"
+                        Grid.Column="7"
+                        Content="上一页"
                         Style="{StaticResource QuietButtonStyle}"
                         Click="ReaderPreviousButton_Click" />
                 <TextBlock x:Name="ReaderChapterText"
-                           Grid.Column="7"
+                           Grid.Column="8"
                            MinWidth="72"
                            TextAlignment="Center"
                            VerticalAlignment="Center" />
                 <Button x:Name="ReaderNextButton"
-                        Grid.Column="8"
-                        Content="下一章"
+                        Grid.Column="9"
+                        Content="下一页"
                         Style="{StaticResource QuietButtonStyle}"
                         Click="ReaderNextButton_Click" />
             </Grid>

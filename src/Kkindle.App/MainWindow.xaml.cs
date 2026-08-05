@@ -52,9 +52,11 @@ public sealed partial class MainWindow : Window
     private int _readerChapterIndex = -1;
     private string? _readerAllowedRoot;
     private string? _readerAllowedFile;
-    private double _readerZoom = 1;
+    private double _readerFontScale = 1;
     private int _readerTheme;
+    private int _readerFlowMode;
     private bool _isUpdatingReaderToc;
+    private bool _readerNavigateToEnd;
 
     public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
     {
@@ -744,10 +746,12 @@ public sealed partial class MainWindow : Window
             ConfigureReaderWebView();
             ReaderTitleText.Text = book.Title;
             ReaderPane.Visibility = Visibility.Visible;
-            _readerZoom = 1;
+            _readerFontScale = 1;
             _readerTheme = 0;
+            _readerFlowMode = 0;
             UpdateReaderZoom();
             UpdateReaderThemeButton();
+            UpdateReaderFlowButton();
 
             if (file.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase))
             {
@@ -766,6 +770,7 @@ public sealed partial class MainWindow : Window
                 ReaderPreviousButton.Visibility = Visibility.Collapsed;
                 ReaderNextButton.Visibility = Visibility.Collapsed;
                 ReaderThemeButton.IsEnabled = false;
+                ReaderFlowButton.Visibility = Visibility.Collapsed;
                 ReaderWebView.Source = new Uri(path);
                 return;
             }
@@ -786,6 +791,7 @@ public sealed partial class MainWindow : Window
             ReaderPreviousButton.Visibility = Visibility.Visible;
             ReaderNextButton.Visibility = Visibility.Visible;
             ReaderThemeButton.IsEnabled = true;
+            ReaderFlowButton.Visibility = Visibility.Visible;
             ShowReaderChapter();
         }
         catch (Exception ex)
@@ -839,36 +845,89 @@ public sealed partial class MainWindow : Window
         ReaderNextButton.IsEnabled = _readerChapterIndex + 1 < _readerChapters.Count;
     }
 
-    private void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
+    private async void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
     {
+        if (await TryTurnWithinChapterAsync(-1)) return;
         if (_readerChapterIndex <= 0) return;
         _readerChapterIndex--;
+        _readerNavigateToEnd = true;
         ShowReaderChapter();
     }
 
-    private void ReaderNextButton_Click(object sender, RoutedEventArgs e)
+    private async void ReaderNextButton_Click(object sender, RoutedEventArgs e)
     {
+        if (await TryTurnWithinChapterAsync(1)) return;
         if (_readerChapterIndex + 1 >= _readerChapters.Count) return;
         _readerChapterIndex++;
+        _readerNavigateToEnd = false;
         ShowReaderChapter();
     }
 
     private void ReaderZoomOutButton_Click(object sender, RoutedEventArgs e)
     {
-        _readerZoom = Math.Max(0.7, _readerZoom - 0.1);
+        _readerFontScale = Math.Max(0.8, _readerFontScale - 0.1);
         UpdateReaderZoom();
     }
 
     private void ReaderZoomInButton_Click(object sender, RoutedEventArgs e)
     {
-        _readerZoom = Math.Min(2, _readerZoom + 0.1);
+        _readerFontScale = Math.Min(1.8, _readerFontScale + 0.1);
         UpdateReaderZoom();
     }
 
     private void UpdateReaderZoom()
     {
-        ReaderZoomText.Text = $"{_readerZoom:P0}";
+        ReaderZoomText.Text = $"{_readerFontScale:P0}";
         _ = ApplyReaderAppearanceAsync();
+    }
+
+    private async void ReaderFlowButton_Click(object sender, RoutedEventArgs e)
+    {
+        _readerFlowMode = (_readerFlowMode + 1) % 2;
+        _readerNavigateToEnd = false;
+        UpdateReaderFlowButton();
+        await ApplyReaderAppearanceAsync();
+        await ResetReaderPositionAsync();
+    }
+
+    private void UpdateReaderFlowButton()
+    {
+        ReaderFlowButton.Content = _readerFlowMode == 0 ? "连续滚动" : "横向分页";
+    }
+
+    private async Task<bool> TryTurnWithinChapterAsync(int direction)
+    {
+        if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return false;
+        var script = _readerFlowMode == 0
+            ? $$"""
+                (() => {
+                  const el = document.scrollingElement;
+                  const step = Math.max(200, window.innerHeight * 0.86);
+                  if ({{direction}} < 0 && el.scrollTop > 4) {
+                    window.scrollBy({ top: -step, behavior: 'smooth' }); return true;
+                  }
+                  if ({{direction}} > 0 && el.scrollTop + window.innerHeight < el.scrollHeight - 4) {
+                    window.scrollBy({ top: step, behavior: 'smooth' }); return true;
+                  }
+                  return false;
+                })();
+                """
+            : $$"""
+                (() => {
+                  const el = document.scrollingElement;
+                  const step = window.innerWidth;
+                  const max = Math.max(0, el.scrollWidth - window.innerWidth);
+                  if ({{direction}} < 0 && el.scrollLeft > 4) {
+                    window.scrollTo({ left: Math.max(0, el.scrollLeft - step), behavior: 'smooth' }); return true;
+                  }
+                  if ({{direction}} > 0 && el.scrollLeft < max - 4) {
+                    window.scrollTo({ left: Math.min(max, el.scrollLeft + step), behavior: 'smooth' }); return true;
+                  }
+                  return false;
+                })();
+                """;
+        try { return await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script) == "true"; }
+        catch { return false; }
     }
 
     private async void ReaderThemeButton_Click(object sender, RoutedEventArgs e)
@@ -898,6 +957,7 @@ public sealed partial class MainWindow : Window
         _readerChapterIndex = -1;
         _readerAllowedRoot = null;
         _readerAllowedFile = null;
+        _readerNavigateToEnd = false;
         ReaderTocList.ItemsSource = null;
         if (ReaderWebView.CoreWebView2 is not null)
             ReaderWebView.CoreWebView2.Navigate("about:blank");
@@ -942,7 +1002,13 @@ public sealed partial class MainWindow : Window
 
     private async void ReaderWebView_NavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
     {
-        if (args.IsSuccess) await ApplyReaderAppearanceAsync();
+        if (!args.IsSuccess) return;
+        await ApplyReaderAppearanceAsync();
+        if (_readerNavigateToEnd)
+        {
+            await MoveReaderToEndAsync();
+            _readerNavigateToEnd = false;
+        }
     }
 
     private async Task ApplyReaderAppearanceAsync()
@@ -954,7 +1020,10 @@ public sealed partial class MainWindow : Window
             2 => ("#171717", "#E8E8E8", "#BDBDBD"),
             _ => ("#FFFFFF", "#111111", "#222222")
         };
-        var zoomPercent = (int)Math.Round(_readerZoom * 100);
+        var fontPercent = (int)Math.Round(_readerFontScale * 100);
+        var flowCss = _readerFlowMode == 0
+            ? "html, body { min-height: 100%; overflow-x: hidden !important; }"
+            : "html, body { height: 100%; overflow-y: hidden !important; } body { column-width: calc(100vw - 108px); column-gap: 108px; column-fill: auto; max-width: none !important; }";
         ReaderWebView.DefaultBackgroundColor = _readerTheme switch
         {
             1 => ColorHelper.FromArgb(255, 244, 236, 216),
@@ -970,10 +1039,12 @@ public sealed partial class MainWindow : Window
                 document.head.appendChild(style);
               }
               style.textContent = `
-                html { zoom: {{zoomPercent}}%; }
+                html { font-size: {{fontPercent}}% !important; }
                 html, body { background: {{background}} !important; color: {{foreground}} !important; }
                 body { max-width: 820px; margin: 0 auto !important; padding: 42px 54px 80px !important;
-                       line-height: 1.75 !important; overflow-wrap: anywhere; box-sizing: border-box; }
+                       font-size: 1rem !important; line-height: 1.75 !important; overflow-wrap: anywhere; box-sizing: border-box; }
+                p, li, blockquote { font-size: 1rem !important; }
+                {{flowCss}}
                 a { color: {{link}} !important; }
                 img, svg { max-width: 100% !important; height: auto !important; }
                 pre, table { max-width: 100%; overflow-x: auto; }
@@ -982,6 +1053,23 @@ public sealed partial class MainWindow : Window
             """;
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { /* Some fixed-layout EPUB pages don't expose a normal document head. */ }
+    }
+
+    private async Task ResetReaderPositionAsync()
+    {
+        if (ReaderWebView.CoreWebView2 is null) return;
+        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync("window.scrollTo({ left: 0, top: 0 });"); }
+        catch { }
+    }
+
+    private async Task MoveReaderToEndAsync()
+    {
+        if (ReaderWebView.CoreWebView2 is null) return;
+        var script = _readerFlowMode == 0
+            ? "window.scrollTo({ top: document.scrollingElement.scrollHeight, behavior: 'instant' });"
+            : "window.scrollTo({ left: document.scrollingElement.scrollWidth, behavior: 'instant' });";
+        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
+        catch { }
     }
 
     private static bool IsPathInside(string root, string path)
