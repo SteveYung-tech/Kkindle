@@ -68,7 +68,7 @@
 
             <Style x:Key="SidebarButtonStyle" TargetType="Button">
                 <Setter Property="HorizontalContentAlignment" Value="Left" />
-                <Setter Property="Padding" Value="10,8" />
+                <Setter Property="Padding" Value="18,8,10,8" />
                 <Setter Property="Margin" Value="0,2,0,2" />
                 <Setter Property="Background" Value="#FFFFFF" />
                 <Setter Property="Foreground" Value="#000000" />
@@ -76,6 +76,52 @@
                 <Setter Property="BorderThickness" Value="0,0,0,1" />
                 <Setter Property="CornerRadius" Value="0" />
                 <Setter Property="FontSize" Value="14" />
+            </Style>
+            <Style x:Key="SidebarSectionButtonStyle" TargetType="Button">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Padding" Value="10,6" />
+                <Setter Property="Margin" Value="0" />
+                <Setter Property="MinHeight" Value="30" />
+                <Setter Property="Background" Value="#FFFFFF" />
+                <Setter Property="Foreground" Value="#5A5A5A" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="0" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="SectionBackground"
+                                    Padding="{TemplateBinding Padding}"
+                                    Background="{TemplateBinding Background}">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SectionBackground" Storyboard.TargetProperty="Background">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#F2F2F2" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SectionBackground" Storyboard.TargetProperty="Background">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#D9D9D9" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled" />
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                  Foreground="{TemplateBinding Foreground}"
+                                                  HorizontalAlignment="Stretch"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
             <Style x:Key="QuietButtonStyle" TargetType="Button">
                 <Setter Property="Padding" Value="12,7" />

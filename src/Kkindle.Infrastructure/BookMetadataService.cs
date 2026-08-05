@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using Kkindle.Core;
@@ -12,13 +13,25 @@ public sealed class BookMetadataService : IMetadataService
         var extension = Path.GetExtension(path).ToLowerInvariant();
         return extension == ".epub"
             ? await ReadEpubAsync(path, cancellationToken)
-            : ReadFallback(path);
+            : await ReadFallbackAsync(path, extension, cancellationToken);
     }
 
-    private static BookMetadata ReadFallback(string path)
+    private static async Task<BookMetadata> ReadFallbackAsync(
+        string path,
+        string extension,
+        CancellationToken cancellationToken)
     {
-        var title = Path.GetFileNameWithoutExtension(path).Replace('_', ' ').Trim();
-        return new BookMetadata { Title = title, Authors = "未知作者" };
+        var title = CleanFileTitle(Path.GetFileNameWithoutExtension(path));
+        byte[]? coverBytes = null;
+        if (extension is ".mobi" or ".azw" or ".azw3" or ".kfx")
+            coverBytes = await ReadLargestEmbeddedJpegAsync(path, cancellationToken);
+        return new BookMetadata
+        {
+            Title = title,
+            Authors = "未知作者",
+            CoverBytes = coverBytes,
+            CoverExtension = ".jpg"
+        };
     }
 
     private static async Task<BookMetadata> ReadEpubAsync(string path, CancellationToken cancellationToken)
@@ -27,19 +40,19 @@ public sealed class BookMetadataService : IMetadataService
         {
             using var archive = ZipFile.OpenRead(path);
             var container = archive.GetEntry("META-INF/container.xml");
-            if (container is null) return ReadFallback(path);
+            if (container is null) return await ReadFallbackAsync(path, ".epub", cancellationToken);
 
             await using var containerStream = container.Open();
             var containerXml = await XDocument.LoadAsync(containerStream, LoadOptions.None, cancellationToken);
             var rootFile = containerXml.Descendants().FirstOrDefault(x => x.Name.LocalName == "rootfile")?.Attribute("full-path")?.Value;
-            if (string.IsNullOrWhiteSpace(rootFile)) return ReadFallback(path);
+            if (string.IsNullOrWhiteSpace(rootFile)) return await ReadFallbackAsync(path, ".epub", cancellationToken);
 
             var opfEntry = archive.GetEntry(rootFile.Replace('\\', '/'));
-            if (opfEntry is null) return ReadFallback(path);
+            if (opfEntry is null) return await ReadFallbackAsync(path, ".epub", cancellationToken);
             await using var opfStream = opfEntry.Open();
             var opf = await XDocument.LoadAsync(opfStream, LoadOptions.None, cancellationToken);
             var metadata = opf.Descendants().FirstOrDefault(x => x.Name.LocalName == "metadata");
-            if (metadata is null) return ReadFallback(path);
+            if (metadata is null) return await ReadFallbackAsync(path, ".epub", cancellationToken);
 
             var title = metadata.Elements().FirstOrDefault(x => x.Name.LocalName == "title")?.Value?.Trim();
             var creators = metadata.Elements().Where(x => x.Name.LocalName == "creator").Select(x => x.Value.Trim()).Where(x => x.Length > 0).ToList();
@@ -97,12 +110,50 @@ public sealed class BookMetadataService : IMetadataService
         }
         catch (InvalidDataException)
         {
-            return ReadFallback(path);
+            return await ReadFallbackAsync(path, ".epub", cancellationToken);
         }
         catch (XmlException)
         {
-            return ReadFallback(path);
+            return await ReadFallbackAsync(path, ".epub", cancellationToken);
         }
+    }
+
+    private static string CleanFileTitle(string fileName)
+    {
+        var title = Regex.Replace(fileName, @"_?[0-9A-F]{32}$", string.Empty, RegexOptions.IgnoreCase);
+        title = Regex.Replace(title, @"\s*\([^)]*(?:z-library|z-lib|1lib)[^)]*\)\s*", " ", RegexOptions.IgnoreCase);
+        return title.Replace('_', ' ').Trim();
+    }
+
+    private static async Task<byte[]?> ReadLargestEmbeddedJpegAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        const long maximumContainerSize = 128L * 1024 * 1024;
+        var file = new FileInfo(path);
+        if (!file.Exists || file.Length <= 0 || file.Length > maximumContainerSize) return null;
+
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        byte[]? largest = null;
+        for (var index = 0; index < bytes.Length - 3; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (bytes[index] != 0xFF || bytes[index + 1] != 0xD8 || bytes[index + 2] != 0xFF) continue;
+
+            for (var end = index + 3; end < bytes.Length - 1; end++)
+            {
+                if (bytes[end] != 0xFF || bytes[end + 1] != 0xD9) continue;
+                var length = end + 2 - index;
+                if (length >= 8 * 1024 && (largest is null || length > largest.Length))
+                {
+                    largest = new byte[length];
+                    Buffer.BlockCopy(bytes, index, largest, 0, length);
+                }
+                index = end + 1;
+                break;
+            }
+        }
+        return largest;
     }
 
     private static string CombineZipPath(string directory, string relative)

@@ -7,7 +7,6 @@
 
     <Grid x:Name="RootGrid" Background="{StaticResource PageBackgroundBrush}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="38" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
@@ -16,30 +15,19 @@
             <ColumnDefinition x:Name="DetailColumn" Width="0" />
         </Grid.ColumnDefinitions>
 
-        <!-- Fully custom rectangular title bar and caption buttons. -->
-        <Grid x:Name="AppTitleBar"
+        <!-- Invisible drag strip with caption buttons embedded in the page. -->
+        <Grid x:Name="WindowChromeLayer"
               Grid.Row="0"
               Grid.ColumnSpan="3"
-              Padding="10,0,0,0"
-              Background="#FFFFFF">
+              Height="38"
+              VerticalAlignment="Top"
+              Canvas.ZIndex="50">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Border Width="22" Height="22" Background="#000000" CornerRadius="0">
-                    <TextBlock Text="K"
-                               Foreground="#FFFFFF"
-                               FontSize="14"
-                               FontWeight="Bold"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center" />
-                </Border>
-                <TextBlock Text="Kkindle" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" />
-            </StackPanel>
-            <Grid x:Name="TitleBarDragRegion" Grid.Column="1" Background="Transparent" />
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="0">
+            <Grid x:Name="TitleBarDragRegion" Background="Transparent" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="0">
                 <Button x:Name="MinimizeWindowButton"
                         Style="{StaticResource TitleBarCaptionButtonStyle}"
                         Click="MinimizeWindowButton_Click"
@@ -59,14 +47,10 @@
                     <FontIcon Glyph="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="10" />
                 </Button>
             </StackPanel>
-            <Border Grid.ColumnSpan="3"
-                    BorderBrush="#000000"
-                    BorderThickness="0,0,0,1"
-                    IsHitTestVisible="False" />
         </Grid>
 
         <!-- Left navigation -->
-        <Border Grid.Row="1"
+        <Border Grid.Row="0"
                 Grid.Column="0"
                 Background="{StaticResource SidebarBackgroundBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
@@ -90,9 +74,22 @@
                 </StackPanel>
 
                 <ScrollViewer Grid.Row="1" Margin="0,24,0,16" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="18">
+                    <StackPanel Spacing="16">
                         <StackPanel Spacing="3">
-                            <TextBlock Text="书籍管理" Margin="10,0,0,4" Foreground="#5A5A5A" FontSize="11" FontWeight="Bold" />
+                            <Button x:Name="BookManagementSectionButton"
+                                    Style="{StaticResource SidebarSectionButtonStyle}"
+                                    Click="SidebarSectionButton_Click"
+                                    AutomationProperties.Name="书籍管理，已展开">
+                                <Grid>
+                                    <TextBlock Text="书籍管理" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="BookManagementChevron"
+                                               Text="⌄"
+                                               HorizontalAlignment="Right"
+                                               VerticalAlignment="Center"
+                                               FontSize="16" />
+                                </Grid>
+                            </Button>
+                            <StackPanel x:Name="BookManagementChildren" Spacing="3">
                             <Button x:Name="AllBooksButton"
                                     AutomationProperties.Name="电脑书库"
                                     Style="{StaticResource SidebarButtonStyle}"
@@ -107,24 +104,55 @@
                                 </Grid>
                             </Button>
                             <Button x:Name="KindleBooksButton" Content="Kindle 书籍" Style="{StaticResource SidebarButtonStyle}" Click="KindleBooksButton_Click" />
+                            </StackPanel>
                         </StackPanel>
 
                         <StackPanel Spacing="3">
-                            <TextBlock Text="设备管理" Margin="10,0,0,4" Foreground="#5A5A5A" FontSize="11" FontWeight="Bold" />
-                            <Button x:Name="DeviceOverviewButton" Content="设备概览" Style="{StaticResource SidebarButtonStyle}" Click="DeviceOverviewButton_Click" />
-                            <Button Content="字体管理 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
-                            <Button Content="字典管理 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
+                            <Button x:Name="DeviceManagementSectionButton"
+                                    Style="{StaticResource SidebarSectionButtonStyle}"
+                                    Click="SidebarSectionButton_Click"
+                                    AutomationProperties.Name="设备管理，已收起">
+                                <Grid>
+                                    <TextBlock Text="设备管理" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="DeviceManagementChevron" Text="›" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="18" />
+                                </Grid>
+                            </Button>
+                            <StackPanel x:Name="DeviceManagementChildren" Spacing="3" Visibility="Collapsed">
+                                <Button x:Name="DeviceOverviewButton" Content="设备概览" Style="{StaticResource SidebarButtonStyle}" Click="DeviceOverviewButton_Click" />
+                                <Button Content="字体管理 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
+                                <Button Content="字典管理 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
+                            </StackPanel>
                         </StackPanel>
 
                         <StackPanel Spacing="3">
-                            <TextBlock Text="阅读资料" Margin="10,0,0,4" Foreground="#5A5A5A" FontSize="11" FontWeight="Bold" />
-                            <Button Content="笔记与标注 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
-                            <Button Content="导出记录 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
+                            <Button x:Name="ReadingSectionButton"
+                                    Style="{StaticResource SidebarSectionButtonStyle}"
+                                    Click="SidebarSectionButton_Click"
+                                    AutomationProperties.Name="阅读资料，已收起">
+                                <Grid>
+                                    <TextBlock Text="阅读资料" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="ReadingChevron" Text="›" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="18" />
+                                </Grid>
+                            </Button>
+                            <StackPanel x:Name="ReadingChildren" Spacing="3" Visibility="Collapsed">
+                                <Button Content="笔记与标注 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
+                                <Button Content="导出记录 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
+                            </StackPanel>
                         </StackPanel>
 
                         <StackPanel Spacing="3">
-                            <TextBlock Text="系统" Margin="10,0,0,4" Foreground="#5A5A5A" FontSize="11" FontWeight="Bold" />
-                            <Button Content="设置" Style="{StaticResource SidebarButtonStyle}" Click="SettingsButton_Click" />
+                            <Button x:Name="SystemSectionButton"
+                                    Style="{StaticResource SidebarSectionButtonStyle}"
+                                    Click="SidebarSectionButton_Click"
+                                    AutomationProperties.Name="系统，已收起">
+                                <Grid>
+                                    <TextBlock Text="系统" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="SystemChevron" Text="›" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="18" />
+                                </Grid>
+                            </Button>
+                            <StackPanel x:Name="SystemChildren" Spacing="3" Visibility="Collapsed">
+                                <Button Content="设置" Style="{StaticResource SidebarButtonStyle}" Click="SettingsButton_Click" />
+                            </StackPanel>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
@@ -177,7 +205,14 @@
         </Border>
 
         <!-- Library -->
-        <Grid x:Name="LibraryPane" Grid.Row="1" Grid.Column="1" Padding="30,24,30,18">
+        <Grid x:Name="LibraryPane"
+              Grid.Row="0"
+              Grid.Column="1"
+              Padding="30,24,30,18"
+              AllowDrop="True"
+              DragOver="LibraryPane_DragOver"
+              DragLeave="LibraryPane_DragLeave"
+              Drop="LibraryPane_Drop">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -205,7 +240,7 @@
                                Foreground="{StaticResource MutedInkBrush}"
                                Text="正在读取书库…" />
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel Grid.Column="1" Margin="0,46,0,0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
                     <Button Content="导入文件" Style="{StaticResource QuietButtonStyle}" Click="ImportFilesButton_Click" />
                     <Button Content="导入文件夹" Style="{StaticResource QuietButtonStyle}" Click="ImportFolderButton_Click" />
                 </StackPanel>
@@ -362,10 +397,31 @@
                            FontSize="11"
                            HorizontalAlignment="Right" />
             </Grid>
+
+            <Border x:Name="DropImportOverlay"
+                    Grid.RowSpan="4"
+                    Canvas.ZIndex="20"
+                    Margin="0,46,0,0"
+                    Background="#F2FFFFFF"
+                    BorderBrush="#000000"
+                    BorderThickness="2"
+                    Visibility="Collapsed"
+                    IsHitTestVisible="False">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                    <FontIcon Glyph="&#xE8E5;" FontFamily="Segoe MDL2 Assets" FontSize="34" />
+                    <TextBlock Text="拖放书籍到电脑书库"
+                               FontSize="20"
+                               FontWeight="Bold"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="支持 EPUB、PDF、MOBI、AZW3"
+                               Foreground="{StaticResource MutedInkBrush}"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+            </Border>
         </Grid>
 
         <!-- Kindle device -->
-        <Grid x:Name="DevicePage" Grid.Row="1" Grid.Column="1" Visibility="Collapsed" Padding="30,24,30,18">
+        <Grid x:Name="DevicePage" Grid.Row="0" Grid.Column="1" Visibility="Collapsed" Padding="30,24,30,18">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -386,7 +442,7 @@
                     </StackPanel>
                     <TextBlock x:Name="DeviceNameText" Text="未检测到设备" Foreground="{StaticResource MutedInkBrush}" />
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel Grid.Column="1" Margin="0,46,0,0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
                     <Button Content="刷新设备" Style="{StaticResource QuietButtonStyle}" Click="RefreshDeviceButton_Click" />
                     <Button Content="返回书架" Click="AllBooksButton_Click" />
                 </StackPanel>
@@ -411,34 +467,64 @@
                 </Border>
             </Grid>
 
-            <ListView x:Name="DeviceBookList" Grid.Row="2" ItemsSource="{x:Bind DeviceBooks}" SelectionMode="None">
-                <ListView.Header>
-                    <Grid Padding="12,8" Background="#D9D9D9">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="90" />
-                            <ColumnDefinition Width="100" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="文件" FontWeight="Bold" />
-                        <TextBlock Grid.Column="1" Text="格式" FontWeight="Bold" />
-                        <TextBlock Grid.Column="2" Text="大小" FontWeight="Bold" />
-                    </Grid>
-                </ListView.Header>
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="core:KindleBook">
-                        <Grid Padding="8,10">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="90" />
-                                <ColumnDefinition Width="100" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="{x:Bind RelativePath}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Grid.Column="1" Text="{x:Bind Format}" FontWeight="Bold" />
-                            <TextBlock Grid.Column="2" Text="{x:Bind SizeLabel}" />
+            <GridView x:Name="DeviceBookList"
+                      Grid.Row="2"
+                      ItemsSource="{x:Bind DeviceBooks}"
+                      SelectionMode="None"
+                      HorizontalContentAlignment="Stretch">
+                <GridView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="0" />
+                    </ItemsPanelTemplate>
+                </GridView.ItemsPanel>
+                <GridView.ItemTemplate>
+                    <DataTemplate x:DataType="local:KindleBookCardViewModel">
+                        <Grid Width="154" Margin="0,0,18,22">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="214" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Border Background="#D9D9D9"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1">
+                                <ToolTipService.ToolTip>
+                                    <ToolTip>
+                                        <StackPanel MaxWidth="360" Spacing="4">
+                                            <TextBlock Text="{x:Bind Title}" FontWeight="Bold" TextWrapping="Wrap" />
+                                            <TextBlock Text="{x:Bind Authors}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{x:Bind RelativePath}"
+                                                       Foreground="{StaticResource MutedInkBrush}"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </ToolTip>
+                                </ToolTipService.ToolTip>
+                                <Grid>
+                                    <TextBlock Text="KINDLE"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource MutedInkBrush}"
+                                               FontSize="13"
+                                               CharacterSpacing="120" />
+                                    <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
+                                </Grid>
+                            </Border>
+                            <StackPanel Grid.Row="1" Margin="2,9,2,0" Spacing="2">
+                                <TextBlock Text="{x:Bind Title}"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis"
+                                           MaxLines="2" />
+                                <TextBlock Text="{x:Bind Authors}"
+                                           Foreground="{StaticResource MutedInkBrush}"
+                                           FontSize="12"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind InfoLabel}"
+                                           Foreground="{StaticResource MutedInkBrush}"
+                                           FontSize="10" />
+                            </StackPanel>
                         </Grid>
                     </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+                </GridView.ItemTemplate>
+            </GridView>
 
             <TextBlock x:Name="DeviceReadOnlyNote" Grid.Row="3"
                        Margin="0,12,0,0"
@@ -448,14 +534,14 @@
 
         <!-- Book details -->
         <Border x:Name="DetailPane"
-                Grid.Row="1"
+                Grid.Row="0"
                 Grid.Column="2"
                 Visibility="Collapsed"
                 Background="#FFFFFF"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="1,0,0,0">
             <ScrollViewer>
-                <StackPanel Padding="24" Spacing="13">
+                <StackPanel Padding="24,70,24,24" Spacing="13">
                     <Button Content="关闭" HorizontalAlignment="Right" Style="{StaticResource QuietButtonStyle}" Click="CloseDetailButton_Click" />
                     <Border Height="250" Background="#D9D9D9" BorderBrush="#000000" BorderThickness="1" CornerRadius="0">
                         <Image x:Name="DetailCoverImage" Stretch="UniformToFill" />
@@ -490,7 +576,6 @@
 
         <!-- Fully custom monochrome device confirmation; avoids WinUI popup theming. -->
         <Grid x:Name="DevicePromptOverlay"
-              Grid.RowSpan="2"
               Grid.ColumnSpan="3"
               Canvas.ZIndex="100"
               Background="#66000000"

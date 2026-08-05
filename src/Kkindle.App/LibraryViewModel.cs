@@ -48,6 +48,28 @@ public sealed class BookCardViewModel : ObservableObject
     }
 }
 
+public sealed class KindleBookCardViewModel
+{
+    public KindleBookCardViewModel(KindleBook book)
+    {
+        Book = book;
+        if (!string.IsNullOrWhiteSpace(book.CoverPath) && File.Exists(book.CoverPath))
+        {
+            try { CoverImage = new BitmapImage(new Uri(book.CoverPath)); }
+            catch { CoverImage = null; }
+        }
+    }
+
+    public KindleBook Book { get; }
+    public string Title => Book.Title;
+    public string Authors => Book.Authors;
+    public string FormatLabel => Book.Format.ToUpperInvariant();
+    public string SizeLabel => Book.SizeLabel;
+    public string InfoLabel => $"{FormatLabel} · {SizeLabel}";
+    public string RelativePath => Book.RelativePath;
+    public BitmapImage? CoverImage { get; }
+}
+
 public sealed class LibraryViewModel : ObservableObject
 {
     private readonly IBookLibraryService _library;

@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
 using Kkindle.Core;
@@ -17,6 +18,10 @@ namespace Kkindle;
 
 public sealed partial class MainWindow : Window
 {
+    private static readonly HashSet<string> ImportableExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".epub", ".pdf", ".mobi", ".azw3"
+    };
     private readonly AppPaths _paths;
     private readonly IBookLibraryService _library;
     private readonly IKindleDeviceService _kindle;
@@ -54,7 +59,7 @@ public sealed partial class MainWindow : Window
     }
 
     public LibraryViewModel ViewModel { get; }
-    public ObservableCollection<KindleBook> DeviceBooks { get; } = [];
+    public ObservableCollection<KindleBookCardViewModel> DeviceBooks { get; } = [];
 
     private void ConfigureTitleBar()
     {
@@ -258,11 +263,48 @@ public sealed partial class MainWindow : Window
 
     private async Task ScanDeviceBooksAsync(KindleDevice device)
     {
+        DeviceNameText.Text = $"{device.Name} · 正在读取书籍与封面…";
         var books = await _kindle.ScanBooksAsync(device);
         DeviceBooks.Clear();
-        foreach (var book in books) DeviceBooks.Add(book);
+        foreach (var book in books) DeviceBooks.Add(new KindleBookCardViewModel(book));
         DeviceBookCountText.Text = $"{books.Count} 本";
+        DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
         _scannedDeviceId = device.VolumeSerial;
+    }
+
+    private void LibraryPane_DragOver(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+        e.AcceptedOperation = DataPackageOperation.Copy;
+        e.DragUIOverride.Caption = "拖放到电脑书库";
+        e.DragUIOverride.IsCaptionVisible = true;
+        e.DragUIOverride.IsGlyphVisible = true;
+        DropImportOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void LibraryPane_DragLeave(object sender, DragEventArgs e)
+    {
+        DropImportOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private async void LibraryPane_Drop(object sender, DragEventArgs e)
+    {
+        DropImportOverlay.Visibility = Visibility.Collapsed;
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+
+        var items = await e.DataView.GetStorageItemsAsync();
+        var paths = items
+            .OfType<Windows.Storage.StorageFile>()
+            .Where(file => ImportableExtensions.Contains(file.FileType))
+            .Select(file => file.Path)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToArray();
+        if (paths.Length == 0)
+        {
+            await ShowMessageAsync("无法导入", "请拖入 EPUB、PDF、MOBI 或 AZW3 书籍文件。");
+            return;
+        }
+        await ImportAsync(paths);
     }
 
     private async void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
@@ -544,9 +586,73 @@ public sealed partial class MainWindow : Window
         LibraryPane.Visibility = Visibility.Visible;
     }
 
+    private void SidebarSectionButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (ReferenceEquals(sender, BookManagementSectionButton))
+        {
+            ToggleSidebarSection(BookManagementSectionButton, BookManagementChildren, BookManagementChevron, "书籍管理");
+            return;
+        }
+
+        if (ReferenceEquals(sender, DeviceManagementSectionButton))
+        {
+            ToggleSidebarSection(DeviceManagementSectionButton, DeviceManagementChildren, DeviceManagementChevron, "设备管理");
+            return;
+        }
+
+        if (ReferenceEquals(sender, ReadingSectionButton))
+        {
+            ToggleSidebarSection(ReadingSectionButton, ReadingChildren, ReadingChevron, "阅读资料");
+            return;
+        }
+
+        if (ReferenceEquals(sender, SystemSectionButton))
+            ToggleSidebarSection(SystemSectionButton, SystemChildren, SystemChevron, "系统");
+    }
+
+    private void ToggleSidebarSection(Button sectionButton, StackPanel children, TextBlock chevron, string title)
+    {
+        var shouldExpand = children.Visibility != Visibility.Visible;
+        if (shouldExpand) CollapseAllSidebarSections();
+        SetSidebarSectionState(sectionButton, children, chevron, title, shouldExpand);
+    }
+
+    private void ExpandSidebarSection(Button sectionButton, StackPanel children, TextBlock chevron, string title)
+    {
+        CollapseAllSidebarSections();
+        SetSidebarSectionState(sectionButton, children, chevron, title, expanded: true);
+    }
+
+    private void CollapseAllSidebarSections()
+    {
+        SetSidebarSectionState(BookManagementSectionButton, BookManagementChildren, BookManagementChevron, "书籍管理", expanded: false);
+        SetSidebarSectionState(DeviceManagementSectionButton, DeviceManagementChildren, DeviceManagementChevron, "设备管理", expanded: false);
+        SetSidebarSectionState(ReadingSectionButton, ReadingChildren, ReadingChevron, "阅读资料", expanded: false);
+        SetSidebarSectionState(SystemSectionButton, SystemChildren, SystemChevron, "系统", expanded: false);
+    }
+
+    private static void SetSidebarSectionState(
+        Button sectionButton,
+        StackPanel children,
+        TextBlock chevron,
+        string title,
+        bool expanded)
+    {
+        children.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        chevron.Text = expanded ? "⌄" : "›";
+        sectionButton.SetValue(
+            Microsoft.UI.Xaml.Automation.AutomationProperties.NameProperty,
+            $"{title}，{(expanded ? "已展开" : "已收起")}");
+    }
+
     private void SetActiveNavigation(Button activeButton)
     {
         _activeNavigationButton = activeButton;
+        if (activeButton == DeviceOverviewButton)
+            ExpandSidebarSection(DeviceManagementSectionButton, DeviceManagementChildren, DeviceManagementChevron, "设备管理");
+        else
+            ExpandSidebarSection(BookManagementSectionButton, BookManagementChildren, BookManagementChevron, "书籍管理");
+
         var ink = (Brush)Application.Current.Resources["InkBrush"];
         var paper = (Brush)Application.Current.Resources["CardBrush"];
         foreach (var button in new[] { AllBooksButton, KindleBooksButton, DeviceOverviewButton })

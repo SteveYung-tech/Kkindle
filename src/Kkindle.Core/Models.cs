@@ -62,9 +62,12 @@ public sealed class KindleBook
 {
     public string RelativePath { get; set; } = string.Empty;
     public string FileName => Path.GetFileName(RelativePath);
+    public string Title { get; set; } = "未命名书籍";
+    public string Authors { get; set; } = "未知作者";
     public string Format { get; set; } = string.Empty;
     public long Size { get; set; }
     public string Sha256 { get; set; } = string.Empty;
+    public string? CoverPath { get; set; }
     public bool IsManagedByKkindle { get; set; }
     public string SizeLabel => Size >= 1024L * 1024
         ? $"{Size / 1024d / 1024:0.0} MB"

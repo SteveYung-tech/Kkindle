@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using Kkindle.Core;
 
@@ -6,10 +7,25 @@ namespace Kkindle.Infrastructure;
 
 public sealed class KindleDeviceService : IKindleDeviceService
 {
+    private const long MaximumMetadataFileSize = 128L * 1024 * 1024;
     private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".epub", ".pdf", ".mobi", ".azw3", ".azw", ".kfx"
     };
+    private readonly IMetadataService _metadata;
+    private readonly string? _coverCacheDirectory;
+
+    public KindleDeviceService()
+        : this(null, new BookMetadataService())
+    {
+    }
+
+    public KindleDeviceService(AppPaths? paths, IMetadataService metadata)
+    {
+        _metadata = metadata;
+        _coverCacheDirectory = paths is null ? null : Path.Combine(paths.Covers, "kindle");
+        if (_coverCacheDirectory is not null) Directory.CreateDirectory(_coverCacheDirectory);
+    }
 
     public async Task<IReadOnlyList<KindleDevice>> DetectDevicesAsync(CancellationToken cancellationToken = default)
     {
@@ -44,7 +60,14 @@ public sealed class KindleDeviceService : IKindleDeviceService
     public async Task<IReadOnlyList<KindleBook>> ScanBooksAsync(KindleDevice device, CancellationToken cancellationToken = default)
     {
         if (device.Transport == KindleTransport.Wpd)
-            return await Task.Run(() => WpdKindleAccess.ScanBooks(device, SupportedExtensions, cancellationToken), cancellationToken);
+        {
+            var wpdBooks = await Task.Run(
+                () => WpdKindleAccess.ScanBooks(device, SupportedExtensions, cancellationToken),
+                cancellationToken);
+            foreach (var book in wpdBooks)
+                await EnrichWpdBookAsync(device, book, cancellationToken);
+            return wpdBooks;
+        }
 
         var documents = GetDocumentsRoot(device);
         if (!Directory.Exists(documents)) return [];
@@ -64,11 +87,109 @@ public sealed class KindleDeviceService : IKindleDeviceService
                     Sha256 = await Hashing.Sha256Async(path, cancellationToken),
                     IsManagedByKkindle = false
                 });
+                await EnrichBookAsync(device, books[^1], path, cancellationToken);
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
         return books;
+    }
+
+    private async Task EnrichWpdBookAsync(
+        KindleDevice device,
+        KindleBook book,
+        CancellationToken cancellationToken)
+    {
+        SetFallbackMetadata(book);
+        var cachedCover = FindCachedCover(device, book);
+        if (cachedCover is not null)
+        {
+            book.CoverPath = cachedCover;
+            return;
+        }
+        if (_coverCacheDirectory is null || book.Size <= 0 || book.Size > MaximumMetadataFileSize) return;
+        if (book.Format is not ("epub" or "mobi" or "azw" or "azw3" or "kfx")) return;
+
+        var stagingDirectory = Path.Combine(Path.GetTempPath(), "Kkindle", "metadata", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var localPath = await Task.Run(
+                () => WpdKindleAccess.CopyBookToLocal(device, book, stagingDirectory, cancellationToken),
+                cancellationToken);
+            await EnrichBookAsync(device, book, localPath, cancellationToken);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or TimeoutException)
+        {
+            // A missing cover must not hide an otherwise readable device book.
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(stagingDirectory)) Directory.Delete(stagingDirectory, recursive: true);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    private async Task EnrichBookAsync(
+        KindleDevice device,
+        KindleBook book,
+        string sourcePath,
+        CancellationToken cancellationToken)
+    {
+        SetFallbackMetadata(book);
+        try
+        {
+            var metadata = await _metadata.ReadMetadataAsync(sourcePath, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(metadata.Title)) book.Title = metadata.Title.Trim();
+            if (!string.IsNullOrWhiteSpace(metadata.Authors)) book.Authors = metadata.Authors.Trim();
+            if (metadata.CoverBytes is { Length: > 0 } && _coverCacheDirectory is not null)
+            {
+                var extension = metadata.CoverExtension.Equals(".png", StringComparison.OrdinalIgnoreCase)
+                    ? ".png"
+                    : ".jpg";
+                var coverPath = Path.Combine(_coverCacheDirectory, GetCoverCacheKey(device, book) + extension);
+                await File.WriteAllBytesAsync(coverPath, metadata.CoverBytes, cancellationToken);
+                book.CoverPath = coverPath;
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            // File metadata is best effort; filename, format and size remain available.
+        }
+    }
+
+    private string? FindCachedCover(KindleDevice device, KindleBook book)
+    {
+        if (_coverCacheDirectory is null) return null;
+        var key = GetCoverCacheKey(device, book);
+        foreach (var extension in new[] { ".jpg", ".png" })
+        {
+            var path = Path.Combine(_coverCacheDirectory, key + extension);
+            if (File.Exists(path)) return path;
+        }
+        return null;
+    }
+
+    private static string GetCoverCacheKey(KindleDevice device, KindleBook book)
+    {
+        var identity = $"{device.VolumeSerial}\n{book.RelativePath}\n{book.Size}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
+    }
+
+    private static void SetFallbackMetadata(KindleBook book)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(book.RelativePath);
+        var identifierSeparator = fileName.LastIndexOf('_');
+        if (identifierSeparator > 0)
+        {
+            var suffix = fileName[(identifierSeparator + 1)..];
+            if (suffix.Length == 32 && suffix.All(Uri.IsHexDigit)) fileName = fileName[..identifierSeparator];
+        }
+        book.Title = fileName.Replace('_', ' ').Trim();
+        book.Authors = "未知作者";
     }
 
     public async Task SendBookAsync(KindleDevice device, BookFile bookFile, string sourcePath, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default)

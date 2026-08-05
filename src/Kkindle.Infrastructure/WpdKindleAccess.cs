@@ -95,7 +95,7 @@ internal static class WpdKindleAccess
                     {
                         RelativePath = relativePath,
                         Format = extension.TrimStart('.').ToLowerInvariant(),
-                        Size = ConvertToInt64(child.Size),
+                        Size = ReadInt64Property(child, "System.Size"),
                         Sha256 = string.Empty,
                         IsManagedByKkindle = false
                     });
@@ -111,6 +111,52 @@ internal static class WpdKindleAccess
             Release(shell);
         }
         return books.OrderBy(book => book.RelativePath, StringComparer.CurrentCultureIgnoreCase).ToArray();
+    }
+
+    public static string CopyBookToLocal(
+        KindleDevice device,
+        KindleBook book,
+        string destinationDirectory,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(destinationDirectory);
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath)
+                ?? throw new IOException("Kindle 已断开连接。");
+            dynamic? storage = FindFirstStorage(kindle)
+                ?? throw new IOException("无法读取 Kindle 内部存储。");
+            dynamic? item = FindItemByRelativePath(storage, $"documents\\{book.RelativePath}")
+                ?? throw new FileNotFoundException("Kindle 书籍不存在。", book.RelativePath);
+            dynamic? destination = shell.NameSpace(destinationDirectory)
+                ?? throw new IOException("无法创建封面缓存目录。");
+
+            var destinationPath = Path.Combine(destinationDirectory, book.FileName);
+            destination.CopyHere(item, CopyWithoutUi);
+            var timeout = TimeSpan.FromMinutes(Math.Clamp(1 + book.Size / (100d * 1024 * 1024), 1, 10));
+            var startedAt = DateTime.UtcNow;
+            while (DateTime.UtcNow - startedAt < timeout)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (File.Exists(destinationPath))
+                {
+                    var length = new FileInfo(destinationPath).Length;
+                    if (book.Size <= 0 || length == book.Size) return destinationPath;
+                }
+                Thread.Sleep(250);
+            }
+            throw new TimeoutException("读取 Kindle 书籍封面超时。");
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法从 MTP Kindle 读取书籍。", exception);
+        }
+        finally
+        {
+            Release(shell);
+        }
     }
 
     public static void SendBook(
@@ -163,7 +209,7 @@ internal static class WpdKindleAccess
                 progress,
                 sourceInfo.Name,
                 cancellationToken);
-            if (ConvertToInt64(finalItem.Size) != sourceInfo.Length)
+            if (ReadInt64Property(finalItem, "System.Size") != sourceInfo.Length)
                 throw new IOException("设备文件大小校验失败。");
             progress?.Report(new TransferProgress(sourceInfo.Length, sourceInfo.Length, $"已发送 {finalName}"));
         }
@@ -224,6 +270,17 @@ internal static class WpdKindleAccess
         return null;
     }
 
+    private static dynamic? FindItemByRelativePath(dynamic root, string relativePath)
+    {
+        dynamic? current = root;
+        foreach (var segment in relativePath.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = current is null ? null : FindChild(current, segment);
+            if (current is null) return null;
+        }
+        return current;
+    }
+
     private static string GetUniqueFileName(dynamic folderItem, string fileName)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -257,7 +314,7 @@ internal static class WpdKindleAccess
             dynamic? item = FindChild(folderItem, name);
             if (item is not null)
             {
-                var size = ConvertToInt64(item.Size);
+                var size = ReadInt64Property(item, "System.Size");
                 progress?.Report(new TransferProgress(Math.Min(size, expectedSize), expectedSize, $"正在发送 {displayName}"));
                 if (size == expectedSize) return item;
             }

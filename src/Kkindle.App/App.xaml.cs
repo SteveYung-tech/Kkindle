@@ -17,7 +17,7 @@ public partial class App : Application
         var paths = new AppPaths(AppContext.BaseDirectory);
         var metadata = new BookMetadataService();
         var library = new SqliteBookLibraryService(paths, metadata);
-        var kindle = new KindleDeviceService();
+        var kindle = new KindleDeviceService(paths, metadata);
         await library.InitializeAsync();
         _window = new MainWindow(paths, library, kindle);
         _window.Activate();
