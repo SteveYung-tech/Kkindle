@@ -322,6 +322,9 @@ C:\Users\kings\Desktop\01_Projects\Kkindle\src\Kkindle.App\bin\x64\Release\net8.
 - 临时 `ProbeWindow` 文件已删除。
 - 第三轮 Release publish 已按用户要求改为黑白墨水屏风格、零圆角硬边矩形，启动 5 秒后仍保持运行。
 - 第四轮 Release publish 已改为白色主界面和小面积黑色块，明确区分本地/Kindle 书库，并加入封面悬浮详情；启动 7 秒和双向页面切换验证通过。
+- 第五轮 Release publish 已重组左侧导航为书籍管理、设备管理、阅读资料和系统；当前可用入口为电脑书库、Kindle 书籍和设备概览，未实现入口使用禁用态明确标注。
+- 侧栏底部设备卡在无设备时显示“无设备连接”，连接时显示真实设备名称、连接方式、剩余/总容量，以及黑色已用、白色剩余的硬边容量条。
+- 本轮因标准 publish 目录被用户正在运行的 Kkindle 占用，新版发布到同级 `publish-next`；启动 7 秒、页面导航、Scribe 名称和容量显示均验证通过。
 
 最值得优先验证的资源写法：
 
@@ -414,6 +417,7 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 - [x] 恢复黑白墨水屏风格、零圆角硬边矩形的完整 MainWindow。
 - [x] 恢复书架卡片封面、标题、作者和格式信息。
 - [x] 区分本地书库与 Kindle 书库，并加入封面悬浮详情。
+- [x] 按书籍管理、设备管理、阅读资料和系统重组左侧导航，并加入设备连接与容量状态卡。
 - [x] 恢复搜索、列表/网格切换和书籍详情面板。
 - [ ] 验证空书库、无封面、长标题和高 DPI。
 - [ ] 用真实导入的 EPUB 做一次完整手工验收。

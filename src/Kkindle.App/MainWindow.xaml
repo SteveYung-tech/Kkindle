@@ -20,7 +20,6 @@
             <Grid Padding="18,24,18,18">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
@@ -36,39 +35,70 @@
                     </StackPanel>
                 </StackPanel>
 
-                <StackPanel Grid.Row="1" Margin="0,30,0,0" Spacing="3">
-                    <Button x:Name="AllBooksButton"
-                            Style="{StaticResource SidebarButtonStyle}"
-                            Background="{StaticResource SelectedBackgroundBrush}"
-                            Foreground="#FFFFFF"
-                            Click="NavigationButton_Click">
-                        <Grid Width="140">
-                            <TextBlock Text="本地书库" />
-                            <TextBlock x:Name="SidebarCountText"
-                                       HorizontalAlignment="Right"
-                                       Foreground="#FFFFFF" />
-                        </Grid>
-                    </Button>
-                    <Button Content="最近导入" Style="{StaticResource SidebarButtonStyle}" Click="NavigationButton_Click" />
-                    <Button Content="作者" Style="{StaticResource SidebarButtonStyle}" Click="NavigationButton_Click" />
-                    <Button Content="标签" Style="{StaticResource SidebarButtonStyle}" Click="AddTagButton_Click" />
-                    <Button Content="分类" Style="{StaticResource SidebarButtonStyle}" Click="AddCategoryButton_Click" />
-                    <Button x:Name="DeviceButton" Content="KINDLE 书库" Style="{StaticResource SidebarButtonStyle}" Click="DeviceButton_Click" />
-                </StackPanel>
-
-                <StackPanel Grid.Row="3" Spacing="8">
-                    <Border Padding="10"
-                            Background="#000000"
-                            BorderBrush="#FFFFFF"
-                            BorderThickness="1"
-                            CornerRadius="0">
+                <ScrollViewer Grid.Row="1" Margin="0,24,0,16" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="18">
                         <StackPanel Spacing="3">
-                            <TextBlock Text="设备" FontSize="11" Foreground="#BFBFBF" />
-                            <TextBlock x:Name="KindleStatusText" Foreground="#FFFFFF" Text="正在检查 Kindle…" TextWrapping="Wrap" />
+                            <TextBlock Text="书籍管理" Margin="10,0,0,4" Foreground="#5A5A5A" FontSize="11" FontWeight="Bold" />
+                            <Button x:Name="AllBooksButton"
+                                    AutomationProperties.Name="电脑书库"
+                                    Style="{StaticResource SidebarButtonStyle}"
+                                    Background="{StaticResource SelectedBackgroundBrush}"
+                                    Foreground="#FFFFFF"
+                                    Click="NavigationButton_Click">
+                                <Grid Width="140">
+                                    <TextBlock Text="电脑书库" />
+                                    <TextBlock x:Name="SidebarCountText" HorizontalAlignment="Right" Foreground="#FFFFFF" />
+                                </Grid>
+                            </Button>
+                            <Button x:Name="KindleBooksButton" Content="Kindle 书籍" Style="{StaticResource SidebarButtonStyle}" Click="KindleBooksButton_Click" />
                         </StackPanel>
-                    </Border>
-                    <Button Content="设置" Style="{StaticResource SidebarButtonStyle}" Click="SettingsButton_Click" />
-                </StackPanel>
+
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="设备管理" Margin="10,0,0,4" Foreground="#5A5A5A" FontSize="11" FontWeight="Bold" />
+                            <Button x:Name="DeviceOverviewButton" Content="设备概览" Style="{StaticResource SidebarButtonStyle}" Click="DeviceOverviewButton_Click" />
+                            <Button Content="字体管理 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
+                            <Button Content="字典管理 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="阅读资料" Margin="10,0,0,4" Foreground="#5A5A5A" FontSize="11" FontWeight="Bold" />
+                            <Button Content="笔记与标注 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
+                            <Button Content="导出记录 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="系统" Margin="10,0,0,4" Foreground="#5A5A5A" FontSize="11" FontWeight="Bold" />
+                            <Button Content="设置" Style="{StaticResource SidebarButtonStyle}" Click="SettingsButton_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Border Grid.Row="2" Padding="10" Background="#FFFFFF" BorderBrush="#000000" BorderThickness="1" CornerRadius="0">
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="连接设备" FontSize="10" Foreground="#5A5A5A" />
+                        <TextBlock x:Name="KindleStatusText" Foreground="#000000" FontWeight="Bold" Text="正在检查设备…" TextWrapping="Wrap" />
+                        <TextBlock x:Name="KindleConnectionText" Foreground="#5A5A5A" FontSize="10" />
+                        <Grid x:Name="DeviceStorageBar" Height="10" Background="#FFFFFF" SizeChanged="DeviceStorageBar_SizeChanged">
+                            <Rectangle x:Name="DeviceStorageUsedBar" HorizontalAlignment="Left" VerticalAlignment="Stretch" Fill="#000000" Width="0" />
+                            <Border BorderBrush="#000000" BorderThickness="1" />
+                        </Grid>
+                        <TextBlock x:Name="DeviceStorageText" Text="无存储信息" Foreground="#5A5A5A" FontSize="10" TextWrapping="Wrap" />
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <Rectangle Width="7" Height="7" Fill="#000000" />
+                                <TextBlock Text="已用" FontSize="9" Foreground="#5A5A5A" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                <Rectangle Width="7" Height="7" Fill="#FFFFFF" Stroke="#000000" StrokeThickness="1" />
+                                <TextBlock Text="剩余" FontSize="9" Foreground="#5A5A5A" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
             </Grid>
         </Border>
 
@@ -91,7 +121,7 @@
                         <Border Background="#000000" Padding="7,3" VerticalAlignment="Center">
                             <TextBlock Text="本地" Foreground="#FFFFFF" FontSize="11" FontWeight="Bold" />
                         </Border>
-                        <TextBlock Text="本地书库"
+                        <TextBlock Text="电脑书库"
                                Foreground="{StaticResource InkBrush}"
                                FontSize="28"
                                FontWeight="Bold" />
@@ -278,7 +308,7 @@
                         <Border Background="#000000" Padding="7,3" VerticalAlignment="Center">
                             <TextBlock Text="设备" Foreground="#FFFFFF" FontSize="11" FontWeight="Bold" />
                         </Border>
-                        <TextBlock Text="Kindle 书库" FontSize="28" FontWeight="Bold" />
+                        <TextBlock x:Name="DevicePageTitleText" Text="Kindle 书籍" FontSize="28" FontWeight="Bold" />
                     </StackPanel>
                     <TextBlock x:Name="DeviceNameText" Text="未检测到设备" Foreground="{StaticResource MutedInkBrush}" />
                 </StackPanel>
@@ -307,7 +337,7 @@
                 </Border>
             </Grid>
 
-            <ListView Grid.Row="2" ItemsSource="{x:Bind DeviceBooks}" SelectionMode="None">
+            <ListView x:Name="DeviceBookList" Grid.Row="2" ItemsSource="{x:Bind DeviceBooks}" SelectionMode="None">
                 <ListView.Header>
                     <Grid Padding="12,8" Background="#D9D9D9">
                         <Grid.ColumnDefinitions>
@@ -336,7 +366,7 @@
                 </ListView.ItemTemplate>
             </ListView>
 
-            <TextBlock Grid.Row="3"
+            <TextBlock x:Name="DeviceReadOnlyNote" Grid.Row="3"
                        Margin="0,12,0,0"
                        Foreground="{StaticResource MutedInkBrush}"
                        Text="MTP 模式当前只读显示 documents；发送与删除将在传输校验完成后开放。" />

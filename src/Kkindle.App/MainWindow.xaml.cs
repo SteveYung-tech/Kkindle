@@ -21,6 +21,7 @@ public sealed partial class MainWindow : Window
     private IReadOnlyList<KindleDevice> _devices = [];
     private bool _isRefreshingDevices;
     private string? _scannedDeviceId;
+    private double _deviceUsedRatio;
 
     public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
     {
@@ -82,7 +83,11 @@ public sealed partial class MainWindow : Window
             {
                 _scannedDeviceId = null;
                 DeviceBooks.Clear();
-                KindleStatusText.Text = "未连接 Kindle";
+                KindleStatusText.Text = "无设备连接";
+                KindleConnectionText.Text = string.Empty;
+                DeviceStorageText.Text = "无存储信息";
+                _deviceUsedRatio = 0;
+                UpdateDeviceStorageBar();
                 DeviceNameText.Text = "未检测到设备";
                 DeviceCapacityText.Text = "—";
                 DeviceBookCountText.Text = "0 本";
@@ -90,7 +95,13 @@ public sealed partial class MainWindow : Window
             }
 
             var device = _devices[0];
-            KindleStatusText.Text = $"{device.Name} · {device.ConnectionLabel}";
+            KindleStatusText.Text = device.Name;
+            KindleConnectionText.Text = $"{device.ConnectionLabel} · 已连接";
+            DeviceStorageText.Text = device.CapacityLabel;
+            _deviceUsedRatio = device.TotalBytes <= 0
+                ? 0
+                : Math.Clamp((device.TotalBytes - device.FreeBytes) / (double)device.TotalBytes, 0, 1);
+            UpdateDeviceStorageBar();
             DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
             DeviceCapacityText.Text = device.CapacityLabel;
             if (!string.Equals(_scannedDeviceId, device.VolumeSerial, StringComparison.Ordinal))
@@ -98,7 +109,11 @@ public sealed partial class MainWindow : Window
         }
         catch
         {
-            KindleStatusText.Text = "Kindle 状态未知";
+            KindleStatusText.Text = "无设备连接";
+            KindleConnectionText.Text = "设备状态读取失败";
+            DeviceStorageText.Text = "无存储信息";
+            _deviceUsedRatio = 0;
+            UpdateDeviceStorageBar();
             DeviceNameText.Text = "设备读取失败";
         }
         finally { _isRefreshingDevices = false; }
@@ -308,13 +323,16 @@ public sealed partial class MainWindow : Window
     private async void AddTagButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("标签", "可以在书籍详情中直接编辑标签，多个标签用逗号分隔。");
     private async void AddCategoryButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("分类", "分类功能将在书库筛选基础完成后接入。");
     private async void SettingsButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("设置", $"当前书库位于：{_paths.Library}");
-    private void DeviceButton_Click(object sender, RoutedEventArgs e)
+    private void KindleBooksButton_Click(object sender, RoutedEventArgs e) => OpenDevicePage(showBooks: true);
+
+    private void DeviceOverviewButton_Click(object sender, RoutedEventArgs e) => OpenDevicePage(showBooks: false);
+
+    private void OpenDevicePage(bool showBooks)
     {
-        AllBooksButton.Background = (Brush)Application.Current.Resources["CardBrush"];
-        AllBooksButton.Foreground = (Brush)Application.Current.Resources["InkBrush"];
-        SidebarCountText.Foreground = (Brush)Application.Current.Resources["InkBrush"];
-        DeviceButton.Background = (Brush)Application.Current.Resources["InkBrush"];
-        DeviceButton.Foreground = (Brush)Application.Current.Resources["CardBrush"];
+        SetActiveNavigation(showBooks ? KindleBooksButton : DeviceOverviewButton);
+        DevicePageTitleText.Text = showBooks ? "Kindle 书籍" : "设备概览";
+        DeviceBookList.Visibility = showBooks ? Visibility.Visible : Visibility.Collapsed;
+        DeviceReadOnlyNote.Visibility = showBooks ? Visibility.Visible : Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
@@ -331,13 +349,30 @@ public sealed partial class MainWindow : Window
 
     private void ShowLibrary()
     {
-        AllBooksButton.Background = (Brush)Application.Current.Resources["InkBrush"];
-        AllBooksButton.Foreground = (Brush)Application.Current.Resources["CardBrush"];
-        SidebarCountText.Foreground = (Brush)Application.Current.Resources["CardBrush"];
-        DeviceButton.Background = (Brush)Application.Current.Resources["CardBrush"];
-        DeviceButton.Foreground = (Brush)Application.Current.Resources["InkBrush"];
+        SetActiveNavigation(AllBooksButton);
         DevicePage.Visibility = Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Visible;
+    }
+
+    private void SetActiveNavigation(Button activeButton)
+    {
+        var ink = (Brush)Application.Current.Resources["InkBrush"];
+        var paper = (Brush)Application.Current.Resources["CardBrush"];
+        foreach (var button in new[] { AllBooksButton, KindleBooksButton, DeviceOverviewButton })
+        {
+            var isActive = button == activeButton;
+            button.Background = isActive ? ink : paper;
+            button.Foreground = isActive ? paper : ink;
+        }
+        SidebarCountText.Foreground = activeButton == AllBooksButton ? paper : ink;
+    }
+
+    private void DeviceStorageBar_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateDeviceStorageBar();
+
+    private void UpdateDeviceStorageBar()
+    {
+        var availableWidth = Math.Max(0, DeviceStorageBar.ActualWidth - 2);
+        DeviceStorageUsedBar.Width = availableWidth * _deviceUsedRatio;
     }
 
     private async void NavigationButton_Click(object sender, RoutedEventArgs e)
