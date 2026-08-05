@@ -401,6 +401,14 @@ dotnet publish src\Kkindle.App\Kkindle.App.csproj `
 src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\
 ```
 
+当前应使用的最新程序：
+
+```text
+C:\Users\kings\Desktop\01_Projects\Kkindle\src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe
+```
+
+`publish-fix` 是第十一轮启动修复时的临时发布目录；第十三轮已成功恢复覆盖标准 `publish` 目录，后续不要再把 `publish-fix` 当成最新版。
+
 启动验证建议：
 
 ```powershell
@@ -422,6 +430,8 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 - [x] 确认 `Kkindle.pri`、`Microsoft.UI.pri` 和 WinUI 依赖都随发布输出存在。
 - [x] 将 `WindowsAppSDKSelfContained=true` 写入 `Kkindle.App.csproj`，避免只依赖命令行参数。
 - [x] 删除临时 Probe 文件和调试代码。
+- [x] 将原生标题栏替换为可启动、可拖动、可缩放的全自绘黑白矩形标题栏。
+- [x] 验证 DWM 最终圆角偏好为 `DWMWCP_DONOTROUND`，避免 presenter 初始化后恢复系统圆角。
 
 ### P1 恢复可用 UI
 
@@ -460,11 +470,21 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 - 不要覆盖 Kindle 上内容不同的同名文件。
 - 不要因为修 UI 而改变 SQLite 数据结构，除非先更新迁移策略。
 - 不要把单个导入失败升级为整批失败。
-- 不要在启动问题未解决前继续扩展格式转换、阅读器、同步服务等范围外功能。
+- 不要破坏当前“窗口激活后再配置原生 chrome、布局完成后重申 DWM 直角”的初始化顺序。
+- 不要为了窗口外观改动而提前扩展格式转换、阅读器、同步服务等范围外功能。
 
 ## 8. Git 状态
 
-仓库已建立首个“可启动的 WinUI 最小版本”提交；构建输出由 `.gitignore` 排除，不纳入版本控制。
+当前工作分支为 `master`，第十三轮发布对应提交为 `065234a`。构建输出由 `.gitignore` 排除，不纳入版本控制。
+
+最近与窗口外观直接相关的提交：
+
+```text
+065234a fix: enforce square window corners after layout
+b681ca8 feat: replace native window caption buttons
+2848135 fix: initialize window chrome after activation
+52a94c0 feat: add square custom window chrome
+```
 
 继续工作前建议：
 
@@ -500,3 +520,12 @@ git status --short --branch
 - 修复 presenter 切换完成后 Windows 重置圆角偏好的时序问题：在低优先级调度、首次布局和 presenter 状态变化后重复应用 DWM 直角设置。
 - 最终启动验证：窗口标题 `Kkindle`、进程可响应，三个自绘按钮均可由 UI Automation 识别。
 - DWM 验证返回成功且 `CornerPreference = 1 (DWMWCP_DONOTROUND)`；离屏窗口截图确认外框为真正直角。
+
+## 12. 当前继续开发基线
+
+- 标准 `publish` 目录中的 exe 是当前基线；Release 测试结果为失败 0、通过 4、跳过 0。
+- `MainWindow.ConfigureTitleBar()` 只负责 XAML 标题栏和拖动区域，不应在窗口激活前读取 `AppWindow`。
+- `ConfigureNativeWindowChrome()` 只能在首次 `Window.Activated` 后调用；其中隐藏原生标题栏并取得 `OverlappedPresenter`。
+- `ApplySquareWindowFrame()` 必须保留首次调用、低优先级调度调用、`Loaded` 调用和 presenter 状态变化后的调用，否则 Windows 可能重新恢复圆角。
+- 自绘最小化、最大化/还原、关闭按钮位于 `MainWindow.xaml`；统一模板 `TitleBarCaptionButtonStyle` 位于 `App.xaml`。
+- 下一步优先继续 P1 验收：空书库、无封面、长标题、高 DPI，以及真实 EPUB 导入；不要再次重做标题栏架构，除非有新的可复现问题。
