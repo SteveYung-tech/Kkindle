@@ -334,6 +334,8 @@ C:\Users\kings\Desktop\01_Projects\Kkindle\src\Kkindle.App\bin\x64\Release\net8.
 - “暂不连接”在本次物理连接期间不会重复提示，设备拔出重连或手动刷新后可再次选择。
 - 第八轮 Release publish 统一覆盖 WinUI 普通按钮、强调按钮和 ContentDialog 的黑白 Normal/Hover/Pressed 状态，连接弹窗改为白底黑框、零圆角且不再出现蓝色按钮。
 - 电脑书库自定义文字和计数显式跟随悬停反色；弹出按钮改用模板绘制的实心三角形，移入为白底黑三角，移出为黑底白三角。
+- 第九轮 Release publish 不再使用 WinUI `ContentDialog` 显示连接与弹出确认，改为主窗口内完全自绘的黑白模态层，彻底移除系统圆角和蓝色按钮模板。
+- 自绘设备确认支持连接/暂不连接、断开/取消以及 Enter/Esc；启动连接和弹出取消流程均通过 UI Automation 验证。
 
 最值得优先验证的资源写法：
 

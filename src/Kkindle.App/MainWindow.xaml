@@ -432,5 +432,63 @@
                 </StackPanel>
             </ScrollViewer>
         </Border>
+
+        <!-- Fully custom monochrome device confirmation; avoids WinUI popup theming. -->
+        <Grid x:Name="DevicePromptOverlay"
+              Grid.ColumnSpan="3"
+              Canvas.ZIndex="100"
+              Background="#66000000"
+              Visibility="Collapsed"
+              IsTabStop="True"
+              KeyDown="DevicePromptOverlay_KeyDown">
+            <Border Width="560"
+                    MaxWidth="560"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="#FFFFFF"
+                    BorderBrush="#000000"
+                    BorderThickness="2"
+                    CornerRadius="0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Padding="28,24,28,22" Spacing="13">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Rectangle Width="10" Height="24" Fill="#000000" />
+                            <TextBlock x:Name="DevicePromptTitleText"
+                                       FontSize="24"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock x:Name="DevicePromptMessageText"
+                                   FontSize="15"
+                                   LineHeight="23"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Grid Grid.Row="1"
+                          Padding="28,18,28,22"
+                          Background="#FFFFFF">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="DevicePromptPrimaryButton"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Click="DevicePromptPrimaryButton_Click" />
+                        <Button x:Name="DevicePromptCancelButton"
+                                Grid.Column="2"
+                                Content="取消"
+                                Style="{StaticResource QuietButtonStyle}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Click="DevicePromptCancelButton_Click" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

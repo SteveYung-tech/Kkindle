@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
     private string? _acceptedDeviceId;
     private string? _ignoredDeviceId;
     private Button? _activeNavigationButton;
+    private TaskCompletionSource<bool>? _devicePromptCompletion;
 
     public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
     {
@@ -101,16 +102,11 @@ public sealed partial class MainWindow : Window
                     return;
                 }
 
-                var prompt = new ContentDialog
-                {
-                    XamlRoot = ((FrameworkElement)Content).XamlRoot,
-                    Title = "发现 Kindle 设备",
-                    Content = $"发现 {device.Name}（{device.ConnectionLabel}）。是否连接到 Kkindle？",
-                    PrimaryButtonText = "连接",
-                    CloseButtonText = "暂不连接",
-                    DefaultButton = ContentDialogButton.Primary
-                };
-                if (await prompt.ShowAsync() != ContentDialogResult.Primary)
+                if (!await ShowDevicePromptAsync(
+                        "发现 Kindle 设备",
+                        $"发现 {device.Name}（{device.ConnectionLabel}）。是否连接到 Kkindle？",
+                        "连接",
+                        "暂不连接"))
                 {
                     _ignoredDeviceId = device.VolumeSerial;
                     SetDisconnectedDeviceState($"已忽略 {device.Name}");
@@ -417,18 +413,13 @@ public sealed partial class MainWindow : Window
 
         var device = _devices[0];
         var isWpd = device.Transport == KindleTransport.Wpd;
-        var confirmation = new ContentDialog
-        {
-            XamlRoot = ((FrameworkElement)Content).XamlRoot,
-            Title = isWpd ? "断开 Kindle？" : "安全弹出 Kindle？",
-            Content = isWpd
-                ? "Kindle Scribe 使用 MTP 连接，不提供磁盘安全弹出。Kkindle 将停止访问设备，随后可以断开 USB。"
-                : "请确认当前没有正在进行的传输。",
-            PrimaryButtonText = isWpd ? "断开" : "弹出",
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Primary
-        };
-        if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
+        if (!await ShowDevicePromptAsync(
+                isWpd ? "断开 Kindle？" : "安全弹出 Kindle？",
+                isWpd
+                    ? "Kindle Scribe 使用 MTP 连接，不提供磁盘安全弹出。Kkindle 将停止访问设备，随后可以断开 USB。"
+                    : "请确认当前没有正在进行的传输。",
+                isWpd ? "断开" : "弹出",
+                "取消")) return;
 
         try
         {
@@ -497,6 +488,48 @@ public sealed partial class MainWindow : Window
         }
         if (sender is Button)
             await ShowMessageAsync("Kkindle", "首版当前聚焦书架与 Kindle 同步。");
+    }
+
+    private Task<bool> ShowDevicePromptAsync(string title, string message, string primaryText, string cancelText)
+    {
+        if (_devicePromptCompletion is not null)
+            throw new InvalidOperationException("已有设备确认窗口正在显示。");
+
+        _devicePromptCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        DevicePromptTitleText.Text = title;
+        DevicePromptMessageText.Text = message;
+        DevicePromptPrimaryButton.Content = primaryText;
+        DevicePromptCancelButton.Content = cancelText;
+        DevicePromptOverlay.Visibility = Visibility.Visible;
+        DevicePromptOverlay.Focus(FocusState.Programmatic);
+        return _devicePromptCompletion.Task;
+    }
+
+    private void DevicePromptPrimaryButton_Click(object sender, RoutedEventArgs e) => CompleteDevicePrompt(true);
+
+    private void DevicePromptCancelButton_Click(object sender, RoutedEventArgs e) => CompleteDevicePrompt(false);
+
+    private void DevicePromptOverlay_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            e.Handled = true;
+            CompleteDevicePrompt(false);
+        }
+        else if (e.Key == Windows.System.VirtualKey.Enter)
+        {
+            e.Handled = true;
+            CompleteDevicePrompt(true);
+        }
+    }
+
+    private void CompleteDevicePrompt(bool result)
+    {
+        var completion = _devicePromptCompletion;
+        if (completion is null) return;
+        _devicePromptCompletion = null;
+        DevicePromptOverlay.Visibility = Visibility.Collapsed;
+        completion.TrySetResult(result);
     }
 
     private async Task ShowMessageAsync(string title, string message)
