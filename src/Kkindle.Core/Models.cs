@@ -39,8 +39,10 @@ public sealed class KindleDevice
     public long TotalBytes { get; init; }
     public long FreeBytes { get; init; }
     public bool IsReady { get; init; }
+    public KindleTransport Transport { get; init; } = KindleTransport.MassStorage;
 
     public string CapacityLabel => $"{FormatBytes(FreeBytes)} 可用 / {FormatBytes(TotalBytes)}";
+    public string ConnectionLabel => Transport == KindleTransport.Wpd ? "MTP" : "USB 磁盘";
 
     private static string FormatBytes(long bytes)
     {
@@ -50,14 +52,23 @@ public sealed class KindleDevice
     }
 }
 
+public enum KindleTransport
+{
+    MassStorage,
+    Wpd
+}
+
 public sealed class KindleBook
 {
-    public string RelativePath { get; init; } = string.Empty;
+    public string RelativePath { get; set; } = string.Empty;
     public string FileName => Path.GetFileName(RelativePath);
-    public string Format { get; init; } = string.Empty;
-    public long Size { get; init; }
-    public string Sha256 { get; init; } = string.Empty;
-    public bool IsManagedByKkindle { get; init; }
+    public string Format { get; set; } = string.Empty;
+    public long Size { get; set; }
+    public string Sha256 { get; set; } = string.Empty;
+    public bool IsManagedByKkindle { get; set; }
+    public string SizeLabel => Size >= 1024L * 1024
+        ? $"{Size / 1024d / 1024:0.0} MB"
+        : $"{Size / 1024d:0} KB";
 }
 
 public sealed class BookMetadata

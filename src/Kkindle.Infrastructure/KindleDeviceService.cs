@@ -8,10 +8,10 @@ public sealed class KindleDeviceService : IKindleDeviceService
 {
     private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".epub", ".pdf", ".mobi", ".azw3"
+        ".epub", ".pdf", ".mobi", ".azw3", ".azw", ".kfx"
     };
 
-    public Task<IReadOnlyList<KindleDevice>> DetectDevicesAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<KindleDevice>> DetectDevicesAsync(CancellationToken cancellationToken = default)
     {
         var devices = new List<KindleDevice>();
         foreach (var drive in DriveInfo.GetDrives())
@@ -35,11 +35,17 @@ public sealed class KindleDeviceService : IKindleDeviceService
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
-        return Task.FromResult<IReadOnlyList<KindleDevice>>(devices);
+        var wpdDevices = await Task.Run(() => WpdKindleAccess.DetectDevices(cancellationToken), cancellationToken);
+        devices.AddRange(wpdDevices.Where(wpd => devices.All(disk =>
+            !string.Equals(disk.VolumeSerial, wpd.VolumeSerial, StringComparison.OrdinalIgnoreCase))));
+        return devices;
     }
 
     public async Task<IReadOnlyList<KindleBook>> ScanBooksAsync(KindleDevice device, CancellationToken cancellationToken = default)
     {
+        if (device.Transport == KindleTransport.Wpd)
+            return await Task.Run(() => WpdKindleAccess.ScanBooks(device, SupportedExtensions, cancellationToken), cancellationToken);
+
         var documents = GetDocumentsRoot(device);
         if (!Directory.Exists(documents)) return [];
         var books = new List<KindleBook>();
@@ -67,6 +73,8 @@ public sealed class KindleDeviceService : IKindleDeviceService
 
     public async Task SendBookAsync(KindleDevice device, BookFile bookFile, string sourcePath, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default)
     {
+        if (device.Transport == KindleTransport.Wpd)
+            throw new NotSupportedException("当前已支持读取 MTP Kindle；发送功能需完成设备端校验后再开放。请暂用 Windows 资源管理器复制到 documents。");
         if (!File.Exists(sourcePath)) throw new FileNotFoundException("书籍源文件不存在。", sourcePath);
         var documents = GetDocumentsRoot(device);
         Directory.CreateDirectory(documents);
@@ -91,6 +99,8 @@ public sealed class KindleDeviceService : IKindleDeviceService
     public Task RemoveBookAsync(KindleDevice device, KindleBook book, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (device.Transport == KindleTransport.Wpd)
+            throw new NotSupportedException("为避免误删，MTP Kindle 的删除功能尚未开放。");
         var documents = GetDocumentsRoot(device);
         var fullPath = Path.GetFullPath(Path.Combine(device.RootPath, book.RelativePath));
         EnsureUnderRoot(fullPath, documents);
@@ -101,6 +111,8 @@ public sealed class KindleDeviceService : IKindleDeviceService
     public Task EjectAsync(KindleDevice device, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (device.Transport == KindleTransport.Wpd)
+            throw new NotSupportedException("MTP Kindle 无法通过磁盘弹出接口弹出，请等待传输完成后直接断开连接。");
         return Task.Run(() => EjectDrive(device.RootPath), cancellationToken);
     }
 

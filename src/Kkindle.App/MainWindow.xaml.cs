@@ -18,6 +18,8 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherQueueTimer _deviceTimer;
     private Book? _selectedBook;
     private IReadOnlyList<KindleDevice> _devices = [];
+    private bool _isRefreshingDevices;
+    private string? _scannedDeviceId;
 
     public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
     {
@@ -36,6 +38,7 @@ public sealed partial class MainWindow : Window
     }
 
     public LibraryViewModel ViewModel { get; }
+    public ObservableCollection<KindleBook> DeviceBooks { get; } = [];
 
     private void DeviceChangeMonitor_DeviceChanged(object? sender, EventArgs e)
     {
@@ -69,17 +72,44 @@ public sealed partial class MainWindow : Window
 
     private async Task RefreshDevicesAsync()
     {
+        if (_isRefreshingDevices) return;
+        _isRefreshingDevices = true;
         try
         {
             _devices = await _kindle.DetectDevicesAsync();
-            KindleStatusText.Text = _devices.Count == 0
-                ? "未连接 Kindle"
-                : $"Kindle · {_devices[0].CapacityLabel}";
+            if (_devices.Count == 0)
+            {
+                _scannedDeviceId = null;
+                DeviceBooks.Clear();
+                KindleStatusText.Text = "未连接 Kindle";
+                DeviceNameText.Text = "未检测到设备";
+                DeviceCapacityText.Text = "—";
+                DeviceBookCountText.Text = "0 本";
+                return;
+            }
+
+            var device = _devices[0];
+            KindleStatusText.Text = $"{device.Name} · {device.ConnectionLabel}";
+            DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
+            DeviceCapacityText.Text = device.CapacityLabel;
+            if (!string.Equals(_scannedDeviceId, device.VolumeSerial, StringComparison.Ordinal))
+                await ScanDeviceBooksAsync(device);
         }
         catch
         {
             KindleStatusText.Text = "Kindle 状态未知";
+            DeviceNameText.Text = "设备读取失败";
         }
+        finally { _isRefreshingDevices = false; }
+    }
+
+    private async Task ScanDeviceBooksAsync(KindleDevice device)
+    {
+        var books = await _kindle.ScanBooksAsync(device);
+        DeviceBooks.Clear();
+        foreach (var book in books) DeviceBooks.Add(book);
+        DeviceBookCountText.Text = $"{books.Count} 本";
+        _scannedDeviceId = device.VolumeSerial;
     }
 
     private async void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
@@ -277,9 +307,36 @@ public sealed partial class MainWindow : Window
     private async void AddTagButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("标签", "可以在书籍详情中直接编辑标签，多个标签用逗号分隔。");
     private async void AddCategoryButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("分类", "分类功能将在书库筛选基础完成后接入。");
     private async void SettingsButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("设置", $"当前书库位于：{_paths.Library}");
+    private void DeviceButton_Click(object sender, RoutedEventArgs e)
+    {
+        LibraryPane.Visibility = Visibility.Collapsed;
+        DetailPane.Visibility = Visibility.Collapsed;
+        DetailColumn.Width = new GridLength(0);
+        DevicePage.Visibility = Visibility.Visible;
+    }
+
+    private void AllBooksButton_Click(object sender, RoutedEventArgs e) => ShowLibrary();
+
+    private async void RefreshDeviceButton_Click(object sender, RoutedEventArgs e)
+    {
+        _scannedDeviceId = null;
+        await RefreshDevicesAsync();
+    }
+
+    private void ShowLibrary()
+    {
+        DevicePage.Visibility = Visibility.Collapsed;
+        LibraryPane.Visibility = Visibility.Visible;
+    }
+
     private async void NavigationButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button button && button != AllBooksButton)
+        if (sender is Button button && button == AllBooksButton)
+        {
+            ShowLibrary();
+            return;
+        }
+        if (sender is Button)
             await ShowMessageAsync("Kkindle", "首版当前聚焦书架与 Kindle 同步。");
     }
 

@@ -255,6 +255,15 @@ EjectAsync(device)
 - 删除时校验路径必须位于 `documents` 目录下。
 - 提供安全弹出入口。
 
+2026-08-05 新增 Kindle Scribe WPD/MTP 支持：
+
+- 通过 Windows Shell 便携设备命名空间识别 Kindle（包括 Amazon VID `1949`）。
+- 读取 MTP 内部存储容量与剩余空间。
+- 只递归扫描 `documents`，明确跳过 `.cache`，不访问 `system`。
+- 设备页显示名称、连接方式、容量及 EPUB/PDF/MOBI/AZW/AZW3/KFX 文件。
+- 已用当前连接的 `Kindle Scribe` 验证：`11.4 GB 可用 / 11.9 GB`，扫描到 4 本书。
+- MTP 发送、删除和弹出当前显式禁用，待传输后校验与路径边界验收完成再开放；传统 USB 磁盘流程不受影响。
+
 当前 UI 主要使用 3 秒一次的设备轮询。`NativeDeviceChangeMonitor.cs` 还在项目中，但 WM_DEVICECHANGE 接入尚未作为稳定主流程验收。
 
 ### 3.5 测试
@@ -407,7 +416,7 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 ### P1 完善 Kindle 流程
 
-- [ ] 设备页显示 Kindle 设备书籍和容量。
+- [x] 设备页显示 USB 磁盘与 WPD/MTP Kindle 的设备书籍和容量。
 - [ ] 发送前显示冲突选择或明确提示。
 - [ ] 发送完成后刷新设备书籍列表。
 - [ ] 只删除 `documents` 下目标文件，并完善二次确认。
