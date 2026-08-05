@@ -35,6 +35,7 @@ public sealed partial class MainWindow : Window
     private string? _acceptedDeviceId;
     private string? _ignoredDeviceId;
     private Button? _activeNavigationButton;
+    private Button? _expandedSidebarSectionButton;
     private TaskCompletionSource<bool>? _devicePromptCompletion;
     private bool _nativeChromeConfigured;
     private AppWindow? _appWindow;
@@ -613,15 +614,18 @@ public sealed partial class MainWindow : Window
 
     private void ToggleSidebarSection(Button sectionButton, StackPanel children, FontIcon chevron, string title)
     {
-        var shouldExpand = children.Visibility != Visibility.Visible;
-        if (shouldExpand) CollapseAllSidebarSections();
-        SetSidebarSectionState(sectionButton, children, chevron, title, shouldExpand);
+        var shouldExpand = !ReferenceEquals(_expandedSidebarSectionButton, sectionButton);
+        CollapseAllSidebarSections();
+        if (!shouldExpand) return;
+        SetSidebarSectionState(sectionButton, children, chevron, title, expanded: true);
+        _expandedSidebarSectionButton = sectionButton;
     }
 
     private void ExpandSidebarSection(Button sectionButton, StackPanel children, FontIcon chevron, string title)
     {
         CollapseAllSidebarSections();
         SetSidebarSectionState(sectionButton, children, chevron, title, expanded: true);
+        _expandedSidebarSectionButton = sectionButton;
     }
 
     private void CollapseAllSidebarSections()
@@ -630,6 +634,7 @@ public sealed partial class MainWindow : Window
         SetSidebarSectionState(DeviceManagementSectionButton, DeviceManagementChildren, DeviceManagementChevron, "设备管理", expanded: false);
         SetSidebarSectionState(ReadingSectionButton, ReadingChildren, ReadingChevron, "阅读资料", expanded: false);
         SetSidebarSectionState(SystemSectionButton, SystemChildren, SystemChevron, "系统", expanded: false);
+        _expandedSidebarSectionButton = null;
     }
 
     private static void SetSidebarSectionState(
