@@ -386,7 +386,14 @@
                                             </StackPanel>
                                         </ToolTip>
                                     </ToolTipService.ToolTip>
-                                    <Grid>
+                                    <Grid Background="Transparent">
+                                        <Grid.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="打开书籍"
+                                                                Tag="{x:Bind Book}"
+                                                                Click="OpenBookMenuItem_Click" />
+                                            </MenuFlyout>
+                                        </Grid.ContextFlyout>
                                         <TextBlock Text="BOOK"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
@@ -657,6 +664,61 @@
                 </StackPanel>
             </ScrollViewer>
         </Border>
+
+        <!-- Minimal built-in EPUB/PDF reader. -->
+        <Grid x:Name="ReaderPane"
+              Grid.ColumnSpan="3"
+              Margin="0,38,0,0"
+              Canvas.ZIndex="80"
+              Background="#FFFFFF"
+              Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="58" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid Padding="18,10"
+                  Background="#FFFFFF"
+                  BorderBrush="#000000"
+                  BorderThickness="0,0,0,1"
+                  ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button Content="返回书架"
+                        Style="{StaticResource QuietButtonStyle}"
+                        Click="CloseReaderButton_Click" />
+                <StackPanel Grid.Column="1" Margin="8,0" VerticalAlignment="Center" Spacing="1">
+                    <TextBlock x:Name="ReaderTitleText"
+                               FontWeight="Bold"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="ReaderStatusText"
+                               FontSize="10"
+                               Foreground="{StaticResource MutedInkBrush}" />
+                </StackPanel>
+                <Button x:Name="ReaderPreviousButton"
+                        Grid.Column="2"
+                        Content="上一章"
+                        Style="{StaticResource QuietButtonStyle}"
+                        Click="ReaderPreviousButton_Click" />
+                <TextBlock x:Name="ReaderChapterText"
+                           Grid.Column="3"
+                           MinWidth="72"
+                           TextAlignment="Center"
+                           VerticalAlignment="Center" />
+                <Button x:Name="ReaderNextButton"
+                        Grid.Column="4"
+                        Content="下一章"
+                        Style="{StaticResource QuietButtonStyle}"
+                        Click="ReaderNextButton_Click" />
+            </Grid>
+            <WebView2 x:Name="ReaderWebView"
+                      Grid.Row="1"
+                      NavigationStarting="ReaderWebView_NavigationStarting" />
+        </Grid>
 
         <!-- Fully custom monochrome device confirmation; avoids WinUI popup theming. -->
         <Grid x:Name="DevicePromptOverlay"

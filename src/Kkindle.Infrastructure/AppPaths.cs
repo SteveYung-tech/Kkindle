@@ -9,6 +9,7 @@ public sealed class AppPaths
         Library = Path.Combine(Data, "library");
         Covers = Path.Combine(Data, "covers");
         Logs = Path.Combine(Data, "logs");
+        ReaderCache = Path.Combine(Data, "reader-cache");
         Database = Path.Combine(Data, "kkindle.db");
     }
 
@@ -17,6 +18,7 @@ public sealed class AppPaths
     public string Library { get; }
     public string Covers { get; }
     public string Logs { get; }
+    public string ReaderCache { get; }
     public string Database { get; }
 
     public void EnsureDirectories()
@@ -25,5 +27,6 @@ public sealed class AppPaths
         Directory.CreateDirectory(Library);
         Directory.CreateDirectory(Covers);
         Directory.CreateDirectory(Logs);
+        Directory.CreateDirectory(ReaderCache);
     }
 }

@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.Web.WebView2.Core;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -26,6 +27,7 @@ public sealed partial class MainWindow : Window
     private readonly AppPaths _paths;
     private readonly IBookLibraryService _library;
     private readonly IKindleDeviceService _kindle;
+    private readonly EpubReaderPreparationService _epubReader;
     private readonly DispatcherQueueTimer _deviceTimer;
     private Book? _selectedBook;
     private KindleBookCardViewModel? _selectedDeviceBook;
@@ -45,12 +47,17 @@ public sealed partial class MainWindow : Window
     private AppWindow? _appWindow;
     private OverlappedPresenter? _windowPresenter;
     private NativeDeviceChangeMonitor? _deviceChangeMonitor;
+    private IReadOnlyList<string> _readerChapters = [];
+    private int _readerChapterIndex = -1;
+    private string? _readerAllowedRoot;
+    private string? _readerAllowedFile;
 
     public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
     {
         _paths = paths;
         _library = library;
         _kindle = kindle;
+        _epubReader = new EpubReaderPreparationService(paths);
         ViewModel = new LibraryViewModel(library, paths.Data);
         InitializeComponent();
         ConfigureTitleBar();
@@ -708,6 +715,139 @@ public sealed partial class MainWindow : Window
         DevicePage.Visibility = Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Visible;
     }
+
+    private async void OpenBookMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem { Tag: Book book }) return;
+
+        var file = book.Files
+            .Where(bookFile => bookFile.Format.Equals("epub", StringComparison.OrdinalIgnoreCase)
+                || bookFile.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(bookFile => GetReadingFormatPriority(bookFile.Format))
+            .FirstOrDefault();
+        if (file is null)
+        {
+            await ShowMessageAsync("暂不支持阅读", "内置阅读器目前支持 EPUB 和 PDF。");
+            return;
+        }
+
+        try
+        {
+            var path = _library.GetAbsoluteFilePath(file);
+            if (!File.Exists(path)) throw new FileNotFoundException("书籍文件不存在。", path);
+
+            await ReaderWebView.EnsureCoreWebView2Async();
+            ConfigureReaderWebView();
+            ReaderTitleText.Text = book.Title;
+            ReaderPane.Visibility = Visibility.Visible;
+
+            if (file.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                _readerChapters = [];
+                _readerChapterIndex = -1;
+                _readerAllowedRoot = null;
+                _readerAllowedFile = Path.GetFullPath(path);
+                ReaderStatusText.Text = "PDF";
+                ReaderChapterText.Text = string.Empty;
+                ReaderPreviousButton.Visibility = Visibility.Collapsed;
+                ReaderNextButton.Visibility = Visibility.Collapsed;
+                ReaderWebView.Source = new Uri(path);
+                return;
+            }
+
+            ReaderStatusText.Text = "正在准备 EPUB…";
+            var document = await _epubReader.PrepareAsync(path, file.Sha256);
+            _readerChapters = document.Chapters;
+            _readerChapterIndex = 0;
+            _readerAllowedRoot = document.RootPath;
+            _readerAllowedFile = null;
+            ReaderStatusText.Text = "EPUB";
+            ReaderPreviousButton.Visibility = Visibility.Visible;
+            ReaderNextButton.Visibility = Visibility.Visible;
+            ShowReaderChapter();
+        }
+        catch (Exception ex)
+        {
+            CloseReader();
+            await ShowMessageAsync("无法打开书籍", ex.Message);
+        }
+    }
+
+    private void ConfigureReaderWebView()
+    {
+        var settings = ReaderWebView.CoreWebView2.Settings;
+        settings.IsScriptEnabled = false;
+        settings.AreDevToolsEnabled = false;
+        settings.IsStatusBarEnabled = false;
+        settings.AreDefaultScriptDialogsEnabled = false;
+    }
+
+    private void ShowReaderChapter()
+    {
+        if (_readerChapterIndex < 0 || _readerChapterIndex >= _readerChapters.Count) return;
+        ReaderChapterText.Text = $"{_readerChapterIndex + 1} / {_readerChapters.Count}";
+        ReaderPreviousButton.IsEnabled = _readerChapterIndex > 0;
+        ReaderNextButton.IsEnabled = _readerChapterIndex + 1 < _readerChapters.Count;
+        ReaderWebView.Source = new Uri(_readerChapters[_readerChapterIndex]);
+    }
+
+    private void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_readerChapterIndex <= 0) return;
+        _readerChapterIndex--;
+        ShowReaderChapter();
+    }
+
+    private void ReaderNextButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_readerChapterIndex + 1 >= _readerChapters.Count) return;
+        _readerChapterIndex++;
+        ShowReaderChapter();
+    }
+
+    private void CloseReaderButton_Click(object sender, RoutedEventArgs e) => CloseReader();
+
+    private void CloseReader()
+    {
+        ReaderPane.Visibility = Visibility.Collapsed;
+        _readerChapters = [];
+        _readerChapterIndex = -1;
+        _readerAllowedRoot = null;
+        _readerAllowedFile = null;
+        if (ReaderWebView.CoreWebView2 is not null)
+            ReaderWebView.CoreWebView2.Navigate("about:blank");
+    }
+
+    private void ReaderWebView_NavigationStarting(WebView2 sender, CoreWebView2NavigationStartingEventArgs args)
+    {
+        if (args.Uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase)) return;
+        if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri) || !uri.IsFile)
+        {
+            args.Cancel = true;
+            return;
+        }
+
+        var target = Path.GetFullPath(uri.LocalPath);
+        var allowed = _readerAllowedFile is not null
+            ? target.Equals(_readerAllowedFile, StringComparison.OrdinalIgnoreCase)
+            : _readerAllowedRoot is not null && IsPathInside(_readerAllowedRoot, target);
+        if (!allowed) args.Cancel = true;
+    }
+
+    private static bool IsPathInside(string root, string path)
+    {
+        var boundary = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        return Path.GetFullPath(path).StartsWith(boundary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int GetReadingFormatPriority(string format) => format.ToLowerInvariant() switch
+    {
+        "epub" => 0,
+        "pdf" => 1,
+        "mobi" => 2,
+        "azw3" => 3,
+        _ => 4
+    };
 
     private void SidebarSectionButton_Click(object sender, RoutedEventArgs e)
     {
