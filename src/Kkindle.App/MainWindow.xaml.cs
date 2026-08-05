@@ -32,6 +32,8 @@ public sealed partial class MainWindow : Window
     private Button? _activeNavigationButton;
     private TaskCompletionSource<bool>? _devicePromptCompletion;
     private bool _nativeChromeConfigured;
+    private AppWindow? _appWindow;
+    private OverlappedPresenter? _windowPresenter;
 
     public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
     {
@@ -58,7 +60,7 @@ public sealed partial class MainWindow : Window
     {
         Title = "Kkindle";
         ExtendsContentIntoTitleBar = true;
-        SetTitleBar(AppTitleBar);
+        SetTitleBar(TitleBarDragRegion);
     }
 
     private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
@@ -81,26 +83,17 @@ public sealed partial class MainWindow : Window
         var windowHandle = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
         var appWindow = AppWindow.GetFromWindowId(windowId);
+        _appWindow = appWindow;
         appWindow.Title = "Kkindle";
 
         var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Kkindle.ico");
         if (File.Exists(iconPath)) appWindow.SetIcon(iconPath);
 
-        if (AppWindowTitleBar.IsCustomizationSupported())
+        if (appWindow.Presenter is OverlappedPresenter presenter)
         {
-            var titleBar = appWindow.TitleBar;
-            titleBar.BackgroundColor = Colors.White;
-            titleBar.ForegroundColor = Colors.Black;
-            titleBar.InactiveBackgroundColor = Colors.White;
-            titleBar.InactiveForegroundColor = Colors.Black;
-            titleBar.ButtonBackgroundColor = Colors.White;
-            titleBar.ButtonForegroundColor = Colors.Black;
-            titleBar.ButtonHoverBackgroundColor = Colors.Black;
-            titleBar.ButtonHoverForegroundColor = Colors.White;
-            titleBar.ButtonPressedBackgroundColor = Colors.LightGray;
-            titleBar.ButtonPressedForegroundColor = Colors.Black;
-            titleBar.ButtonInactiveBackgroundColor = Colors.White;
-            titleBar.ButtonInactiveForegroundColor = Colors.Black;
+            _windowPresenter = presenter;
+            presenter.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false);
+            UpdateMaximizeGlyph();
         }
 
         var cornerPreference = DwmWindowCornerPreference.DoNotRound;
@@ -116,6 +109,29 @@ public sealed partial class MainWindow : Window
             DwmWindowAttribute.BorderColor,
             ref borderColor,
             sizeof(int));
+    }
+
+    private void MinimizeWindowButton_Click(object sender, RoutedEventArgs e) => _windowPresenter?.Minimize();
+
+    private void MaximizeWindowButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_windowPresenter is null) return;
+        if (_windowPresenter.State == OverlappedPresenterState.Maximized)
+            _windowPresenter.Restore();
+        else
+            _windowPresenter.Maximize();
+        UpdateMaximizeGlyph();
+    }
+
+    private void CloseWindowButton_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void UpdateMaximizeGlyph()
+    {
+        var isMaximized = _windowPresenter?.State == OverlappedPresenterState.Maximized;
+        MaximizeWindowGlyph.Glyph = isMaximized ? "\uE923" : "\uE922";
+        MaximizeWindowButton.SetValue(
+            Microsoft.UI.Xaml.Automation.AutomationProperties.NameProperty,
+            isMaximized ? "还原" : "最大化");
     }
 
     private enum DwmWindowAttribute
