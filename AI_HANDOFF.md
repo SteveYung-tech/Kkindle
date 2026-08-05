@@ -160,18 +160,19 @@ EjectAsync(device)
 视觉约束：
 
 ```text
-页面背景：#F4F5F7
-侧边栏：#ECEEF1
-选中项：#DDE0E5
-主文字：#1D2024
-辅助文字：#707780
-强调色：#111111
-边框：#D5D8DC
+页面背景：#FFFFFF
+侧边栏：#000000
+选中项：#FFFFFF
+主文字：#000000
+辅助文字：#5A5A5A
+强调色：#000000
+边框：#000000
 ```
 
 - 侧边栏宽度约 188–220px
-- 搜索框是浅灰圆角胶囊
-- 圆角控制在 8–12px
+- 搜索框和按钮都使用刚性矩形
+- 所有控件、面板和封面占位均为 0 圆角
+- 只使用黑、白和少量中性灰色块，接近 Kindle 墨水屏观感
 - 不使用渐变和强阴影
 - 封面保持固定比例
 - 空书库显示纸张风格空状态
@@ -308,6 +309,7 @@ C:\Users\kings\Desktop\01_Projects\Kkindle\src\Kkindle.App\bin\x64\Release\net8.
 - 既有 Debug 测试以 `--no-build` 运行：失败 0、通过 3、跳过 0。
 - 第二轮 Release publish 已恢复灰白纸张风格主界面，启动 5 秒后仍保持运行。
 - 临时 `ProbeWindow` 文件已删除。
+- 第三轮 Release publish 已按用户要求改为黑白墨水屏风格、零圆角硬边矩形，启动 5 秒后仍保持运行。
 
 最值得优先验证的资源写法：
 
@@ -397,7 +399,7 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 ### P1 恢复可用 UI
 
-- [x] 恢复灰白纸张风格的完整 MainWindow。
+- [x] 恢复黑白墨水屏风格、零圆角硬边矩形的完整 MainWindow。
 - [x] 恢复书架卡片封面、标题、作者和格式信息。
 - [x] 恢复搜索、列表/网格切换和书籍详情面板。
 - [ ] 验证空书库、无封面、长标题和高 DPI。

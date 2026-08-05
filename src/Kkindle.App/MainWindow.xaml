@@ -26,12 +26,12 @@
 
                 <StackPanel Spacing="2">
                     <TextBlock Text="Kkindle"
-                               Foreground="{StaticResource InkBrush}"
-                               FontFamily="Georgia"
+                               Foreground="#FFFFFF"
                                FontSize="24"
-                               FontWeight="SemiBold" />
+                               FontWeight="Bold"
+                               CharacterSpacing="80" />
                     <TextBlock Text="个人电子书架"
-                               Foreground="{StaticResource MutedInkBrush}"
+                               Foreground="#BFBFBF"
                                FontSize="12" />
                 </StackPanel>
 
@@ -39,12 +39,13 @@
                     <Button x:Name="AllBooksButton"
                             Style="{StaticResource SidebarButtonStyle}"
                             Background="{StaticResource SelectedBackgroundBrush}"
+                            Foreground="#000000"
                             Click="NavigationButton_Click">
                         <Grid Width="140">
                             <TextBlock Text="全部书籍" />
                             <TextBlock x:Name="SidebarCountText"
                                        HorizontalAlignment="Right"
-                                       Foreground="{StaticResource MutedInkBrush}" />
+                                       Foreground="#000000" />
                         </Grid>
                     </Button>
                     <Button Content="最近导入" Style="{StaticResource SidebarButtonStyle}" Click="NavigationButton_Click" />
@@ -55,13 +56,13 @@
 
                 <StackPanel Grid.Row="3" Spacing="8">
                     <Border Padding="10"
-                            Background="#F8F8F9"
-                            BorderBrush="{StaticResource BorderBrush}"
+                            Background="#000000"
+                            BorderBrush="#FFFFFF"
                             BorderThickness="1"
-                            CornerRadius="8">
+                            CornerRadius="0">
                         <StackPanel Spacing="3">
-                            <TextBlock Text="设备" FontSize="11" Foreground="{StaticResource MutedInkBrush}" />
-                            <TextBlock x:Name="KindleStatusText" Text="正在检查 Kindle…" TextWrapping="Wrap" />
+                            <TextBlock Text="设备" FontSize="11" Foreground="#BFBFBF" />
+                            <TextBlock x:Name="KindleStatusText" Foreground="#FFFFFF" Text="正在检查 Kindle…" TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
                     <Button Content="设置" Style="{StaticResource SidebarButtonStyle}" Click="SettingsButton_Click" />
@@ -86,9 +87,8 @@
                 <StackPanel>
                     <TextBlock Text="我的书架"
                                Foreground="{StaticResource InkBrush}"
-                               FontFamily="Georgia"
                                FontSize="28"
-                               FontWeight="SemiBold" />
+                               FontWeight="Bold" />
                     <TextBlock x:Name="LibrarySummaryText"
                                Margin="0,3,0,0"
                                Foreground="{StaticResource MutedInkBrush}"
@@ -143,16 +143,15 @@
                                     <RowDefinition Height="214" />
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                <Border Background="#E4E1DA"
+                                <Border Background="#D9D9D9"
                                         BorderBrush="{StaticResource BorderBrush}"
                                         BorderThickness="1"
-                                        CornerRadius="4">
+                                        CornerRadius="0">
                                     <Grid>
                                         <TextBlock Text="BOOK"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
-                                                   Foreground="#9B978E"
-                                                   FontFamily="Georgia"
+                                                   Foreground="#5A5A5A"
                                                    FontSize="17"
                                                    CharacterSpacing="160" />
                                         <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
@@ -190,7 +189,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="100" />
                                 </Grid.ColumnDefinitions>
-                                <Border Width="36" Height="48" Background="#E4E1DA" CornerRadius="2">
+                                <Border Width="36" Height="48" Background="#D9D9D9" BorderBrush="#000000" BorderThickness="1" CornerRadius="0">
                                     <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
                                 </Border>
                                 <StackPanel Grid.Column="1" Margin="12,0,12,0" VerticalAlignment="Center">
@@ -219,16 +218,16 @@
         <Border x:Name="DetailPane"
                 Grid.Column="2"
                 Visibility="Collapsed"
-                Background="#FAFAF9"
+                Background="#FFFFFF"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="1,0,0,0">
             <ScrollViewer>
                 <StackPanel Padding="24" Spacing="13">
                     <Button Content="关闭" HorizontalAlignment="Right" Style="{StaticResource QuietButtonStyle}" Click="CloseDetailButton_Click" />
-                    <Border Height="250" Background="#E4E1DA" CornerRadius="4">
+                    <Border Height="250" Background="#D9D9D9" BorderBrush="#000000" BorderThickness="1" CornerRadius="0">
                         <Image x:Name="DetailCoverImage" Stretch="UniformToFill" />
                     </Border>
-                    <TextBlock Text="书籍信息" FontFamily="Georgia" FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock Text="书籍信息" FontSize="20" FontWeight="Bold" />
                     <StackPanel Spacing="5">
                         <TextBlock Text="标题" FontSize="11" Foreground="{StaticResource MutedInkBrush}" />
                         <TextBox x:Name="DetailsTitleBox" />
