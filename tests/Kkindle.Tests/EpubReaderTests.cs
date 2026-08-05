@@ -40,6 +40,55 @@ public sealed class EpubReaderTests
             Assert.Equal(2, document.Chapters.Count);
             Assert.EndsWith("chapter-1.xhtml", document.Chapters[0]);
             Assert.EndsWith("chapter-2.xhtml", document.Chapters[1]);
+            Assert.Equal(["第 1 章", "第 2 章"], document.Navigation.Select(item => item.Title));
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task ReadsEpub3NavigationAndFragmentTargets()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var epub = Path.Combine(root, "toc.epub");
+            using (var archive = ZipFile.Open(epub, ZipArchiveMode.Create))
+            {
+                AddEntry(archive, "META-INF/container.xml", """
+                    <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                      <rootfiles><rootfile full-path="EPUB/package.opf" /></rootfiles>
+                    </container>
+                    """);
+                AddEntry(archive, "EPUB/package.opf", """
+                    <package xmlns="http://www.idpf.org/2007/opf">
+                      <manifest>
+                        <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav" />
+                        <item id="one" href="text/one.xhtml" media-type="application/xhtml+xml" />
+                        <item id="two" href="text/two.xhtml" media-type="application/xhtml+xml" />
+                      </manifest>
+                      <spine><itemref idref="one" /><itemref idref="two" /></spine>
+                    </package>
+                    """);
+                AddEntry(archive, "EPUB/nav.xhtml", """
+                    <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+                      <body><nav epub:type="toc"><ol>
+                        <li><a href="text/one.xhtml">开始阅读</a></li>
+                        <li><a href="text/two.xhtml#part-2">第二部分</a></li>
+                      </ol></nav></body>
+                    </html>
+                    """);
+                AddEntry(archive, "EPUB/text/one.xhtml", "<html><body>一</body></html>");
+                AddEntry(archive, "EPUB/text/two.xhtml", "<html><body><h1 id=\"part-2\">二</h1></body></html>");
+            }
+
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            paths.EnsureDirectories();
+            var document = await new EpubReaderPreparationService(paths)
+                .PrepareAsync(epub, new string('c', 64));
+
+            Assert.Equal(["开始阅读", "第二部分"], document.Navigation.Select(item => item.Title));
+            Assert.Equal([0, 1], document.Navigation.Select(item => item.ChapterIndex));
+            Assert.EndsWith("#part-2", document.Navigation[1].Target);
         }
         finally { TryDelete(root); }
     }

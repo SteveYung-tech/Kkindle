@@ -48,9 +48,13 @@ public sealed partial class MainWindow : Window
     private OverlappedPresenter? _windowPresenter;
     private NativeDeviceChangeMonitor? _deviceChangeMonitor;
     private IReadOnlyList<string> _readerChapters = [];
+    private IReadOnlyList<EpubReaderNavigationItem> _readerNavigation = [];
     private int _readerChapterIndex = -1;
     private string? _readerAllowedRoot;
     private string? _readerAllowedFile;
+    private double _readerZoom = 1;
+    private int _readerTheme;
+    private bool _isUpdatingReaderToc;
 
     public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
     {
@@ -740,17 +744,28 @@ public sealed partial class MainWindow : Window
             ConfigureReaderWebView();
             ReaderTitleText.Text = book.Title;
             ReaderPane.Visibility = Visibility.Visible;
+            _readerZoom = 1;
+            _readerTheme = 0;
+            UpdateReaderZoom();
+            UpdateReaderThemeButton();
 
             if (file.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase))
             {
                 _readerChapters = [];
+                _readerNavigation = [];
                 _readerChapterIndex = -1;
                 _readerAllowedRoot = null;
                 _readerAllowedFile = Path.GetFullPath(path);
-                ReaderStatusText.Text = "PDF";
+                ReaderStatusText.Text = "PDF · 可使用阅读区内置工具栏搜索和翻页";
                 ReaderChapterText.Text = string.Empty;
+                ReaderTocList.ItemsSource = null;
+                ReaderTocColumn.Width = new GridLength(0);
+                ReaderZoomOutButton.Visibility = Visibility.Collapsed;
+                ReaderZoomText.Visibility = Visibility.Collapsed;
+                ReaderZoomInButton.Visibility = Visibility.Collapsed;
                 ReaderPreviousButton.Visibility = Visibility.Collapsed;
                 ReaderNextButton.Visibility = Visibility.Collapsed;
+                ReaderThemeButton.IsEnabled = false;
                 ReaderWebView.Source = new Uri(path);
                 return;
             }
@@ -758,12 +773,19 @@ public sealed partial class MainWindow : Window
             ReaderStatusText.Text = "正在准备 EPUB…";
             var document = await _epubReader.PrepareAsync(path, file.Sha256);
             _readerChapters = document.Chapters;
+            _readerNavigation = document.Navigation;
             _readerChapterIndex = 0;
             _readerAllowedRoot = document.RootPath;
             _readerAllowedFile = null;
             ReaderStatusText.Text = "EPUB";
+            ReaderTocColumn.Width = new GridLength(260);
+            ReaderTocList.ItemsSource = _readerNavigation;
+            ReaderZoomOutButton.Visibility = Visibility.Visible;
+            ReaderZoomText.Visibility = Visibility.Visible;
+            ReaderZoomInButton.Visibility = Visibility.Visible;
             ReaderPreviousButton.Visibility = Visibility.Visible;
             ReaderNextButton.Visibility = Visibility.Visible;
+            ReaderThemeButton.IsEnabled = true;
             ShowReaderChapter();
         }
         catch (Exception ex)
@@ -788,7 +810,33 @@ public sealed partial class MainWindow : Window
         ReaderChapterText.Text = $"{_readerChapterIndex + 1} / {_readerChapters.Count}";
         ReaderPreviousButton.IsEnabled = _readerChapterIndex > 0;
         ReaderNextButton.IsEnabled = _readerChapterIndex + 1 < _readerChapters.Count;
+        SelectReaderTocItem(_readerNavigation.FirstOrDefault(item => item.ChapterIndex == _readerChapterIndex));
         ReaderWebView.Source = new Uri(_readerChapters[_readerChapterIndex]);
+    }
+
+    private void ReaderTocList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingReaderToc || ReaderTocList.SelectedItem is not EpubReaderNavigationItem item) return;
+        _readerChapterIndex = item.ChapterIndex;
+        UpdateReaderChapterControls();
+        ReaderWebView.Source = new Uri(item.Target);
+    }
+
+    private void SelectReaderTocItem(EpubReaderNavigationItem? item)
+    {
+        _isUpdatingReaderToc = true;
+        ReaderTocList.SelectedItem = item;
+        if (item is not null) ReaderTocList.ScrollIntoView(item);
+        _isUpdatingReaderToc = false;
+    }
+
+    private void UpdateReaderChapterControls()
+    {
+        ReaderChapterText.Text = _readerChapterIndex < 0
+            ? string.Empty
+            : $"{_readerChapterIndex + 1} / {_readerChapters.Count}";
+        ReaderPreviousButton.IsEnabled = _readerChapterIndex > 0;
+        ReaderNextButton.IsEnabled = _readerChapterIndex + 1 < _readerChapters.Count;
     }
 
     private void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
@@ -805,15 +853,52 @@ public sealed partial class MainWindow : Window
         ShowReaderChapter();
     }
 
+    private void ReaderZoomOutButton_Click(object sender, RoutedEventArgs e)
+    {
+        _readerZoom = Math.Max(0.7, _readerZoom - 0.1);
+        UpdateReaderZoom();
+    }
+
+    private void ReaderZoomInButton_Click(object sender, RoutedEventArgs e)
+    {
+        _readerZoom = Math.Min(2, _readerZoom + 0.1);
+        UpdateReaderZoom();
+    }
+
+    private void UpdateReaderZoom()
+    {
+        ReaderZoomText.Text = $"{_readerZoom:P0}";
+        _ = ApplyReaderAppearanceAsync();
+    }
+
+    private async void ReaderThemeButton_Click(object sender, RoutedEventArgs e)
+    {
+        _readerTheme = (_readerTheme + 1) % 3;
+        UpdateReaderThemeButton();
+        await ApplyReaderAppearanceAsync();
+    }
+
+    private void UpdateReaderThemeButton()
+    {
+        ReaderThemeButton.Content = _readerTheme switch
+        {
+            1 => "纸张",
+            2 => "深色",
+            _ => "白色"
+        };
+    }
+
     private void CloseReaderButton_Click(object sender, RoutedEventArgs e) => CloseReader();
 
     private void CloseReader()
     {
         ReaderPane.Visibility = Visibility.Collapsed;
         _readerChapters = [];
+        _readerNavigation = [];
         _readerChapterIndex = -1;
         _readerAllowedRoot = null;
         _readerAllowedFile = null;
+        ReaderTocList.ItemsSource = null;
         if (ReaderWebView.CoreWebView2 is not null)
             ReaderWebView.CoreWebView2.Navigate("about:blank");
     }
@@ -831,7 +916,72 @@ public sealed partial class MainWindow : Window
         var allowed = _readerAllowedFile is not null
             ? target.Equals(_readerAllowedFile, StringComparison.OrdinalIgnoreCase)
             : _readerAllowedRoot is not null && IsPathInside(_readerAllowedRoot, target);
-        if (!allowed) args.Cancel = true;
+        if (!allowed)
+        {
+            args.Cancel = true;
+            return;
+        }
+
+        if (_readerAllowedRoot is not null)
+        {
+            var chapterIndex = _readerChapters.ToList().FindIndex(chapter =>
+                Path.GetFullPath(chapter).Equals(target, StringComparison.OrdinalIgnoreCase));
+            if (chapterIndex >= 0)
+            {
+                _readerChapterIndex = chapterIndex;
+                UpdateReaderChapterControls();
+                var targetWithoutFragment = new Uri(target).AbsoluteUri;
+                var selectedItem = _readerNavigation.FirstOrDefault(item =>
+                    item.Target.Equals(args.Uri, StringComparison.OrdinalIgnoreCase))
+                    ?? _readerNavigation.FirstOrDefault(item =>
+                        item.Target.StartsWith(targetWithoutFragment, StringComparison.OrdinalIgnoreCase));
+                SelectReaderTocItem(selectedItem);
+            }
+        }
+    }
+
+    private async void ReaderWebView_NavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
+    {
+        if (args.IsSuccess) await ApplyReaderAppearanceAsync();
+    }
+
+    private async Task ApplyReaderAppearanceAsync()
+    {
+        if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return;
+        var (background, foreground, link) = _readerTheme switch
+        {
+            1 => ("#F4ECD8", "#2C271F", "#594A30"),
+            2 => ("#171717", "#E8E8E8", "#BDBDBD"),
+            _ => ("#FFFFFF", "#111111", "#222222")
+        };
+        var zoomPercent = (int)Math.Round(_readerZoom * 100);
+        ReaderWebView.DefaultBackgroundColor = _readerTheme switch
+        {
+            1 => ColorHelper.FromArgb(255, 244, 236, 216),
+            2 => ColorHelper.FromArgb(255, 23, 23, 23),
+            _ => Colors.White
+        };
+        var script = $$"""
+            (() => {
+              let style = document.getElementById('kkindle-reader-style');
+              if (!style) {
+                style = document.createElement('style');
+                style.id = 'kkindle-reader-style';
+                document.head.appendChild(style);
+              }
+              style.textContent = `
+                html { zoom: {{zoomPercent}}%; }
+                html, body { background: {{background}} !important; color: {{foreground}} !important; }
+                body { max-width: 820px; margin: 0 auto !important; padding: 42px 54px 80px !important;
+                       line-height: 1.75 !important; overflow-wrap: anywhere; box-sizing: border-box; }
+                a { color: {{link}} !important; }
+                img, svg { max-width: 100% !important; height: auto !important; }
+                pre, table { max-width: 100%; overflow-x: auto; }
+              `;
+            })();
+            """;
+        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
+        catch { /* Some fixed-layout EPUB pages don't expose a normal document head. */ }
     }
 
     private static bool IsPathInside(string root, string path)
