@@ -20,6 +20,9 @@ public sealed class BookCardViewModel : ObservableObject
     public string Authors => Book.Authors;
     public string FormatLabel => Book.FormatSummary;
     public string FileCountLabel => Book.Files.Count == 0 ? string.Empty : $"{Book.Files.Count} 个文件";
+    public string SeriesLabel => string.IsNullOrWhiteSpace(Book.Series) ? "未设置系列" : Book.Series;
+    public string TagsLabel => string.IsNullOrWhiteSpace(Book.Tags) ? "未设置标签" : Book.Tags;
+    public string DescriptionLabel => string.IsNullOrWhiteSpace(Book.Description) ? "暂无简介" : Book.Description;
     public BitmapImage? CoverImage { get; private set; }
 
     public void Refresh()
@@ -38,6 +41,9 @@ public sealed class BookCardViewModel : ObservableObject
         OnPropertyChanged(nameof(Authors));
         OnPropertyChanged(nameof(FormatLabel));
         OnPropertyChanged(nameof(FileCountLabel));
+        OnPropertyChanged(nameof(SeriesLabel));
+        OnPropertyChanged(nameof(TagsLabel));
+        OnPropertyChanged(nameof(DescriptionLabel));
         OnPropertyChanged(nameof(CoverImage));
     }
 }

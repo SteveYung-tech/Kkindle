@@ -161,8 +161,8 @@ EjectAsync(device)
 
 ```text
 页面背景：#FFFFFF
-侧边栏：#000000
-选中项：#FFFFFF
+侧边栏：#FFFFFF
+选中项：#000000
 主文字：#000000
 辅助文字：#5A5A5A
 强调色：#000000
@@ -172,9 +172,11 @@ EjectAsync(device)
 - 侧边栏宽度约 188–220px
 - 搜索框和按钮都使用刚性矩形
 - 所有控件、面板和封面占位均为 0 圆角
-- 只使用黑、白和少量中性灰色块，接近 Kindle 墨水屏观感
+- 白色作为主界面基底，黑色只用于 Logo、当前入口、状态和主操作等小色块
+- 本地书库与 Kindle 书库使用独立入口和独立页面标题，不能混为一个列表
 - 不使用渐变和强阴影
 - 封面保持固定比例
+- 鼠标悬停封面时显示标题、作者、格式、文件数、系列、标签和简介
 - 空书库显示纸张风格空状态
 - 支持窗口缩放、高 DPI、100%/150%/200% 缩放
 - 使用系统标题栏，不自行绘制窗口控制按钮
@@ -319,6 +321,7 @@ C:\Users\kings\Desktop\01_Projects\Kkindle\src\Kkindle.App\bin\x64\Release\net8.
 - 第二轮 Release publish 已恢复灰白纸张风格主界面，启动 5 秒后仍保持运行。
 - 临时 `ProbeWindow` 文件已删除。
 - 第三轮 Release publish 已按用户要求改为黑白墨水屏风格、零圆角硬边矩形，启动 5 秒后仍保持运行。
+- 第四轮 Release publish 已改为白色主界面和小面积黑色块，明确区分本地/Kindle 书库，并加入封面悬浮详情；启动 7 秒和双向页面切换验证通过。
 
 最值得优先验证的资源写法：
 
@@ -353,8 +356,8 @@ xmlns:controls="using:Microsoft.UI.Xaml.Controls"
 
 ### 当前 UI 注意事项
 
-- `MainWindow.xaml` 当前是为启动排查暂时压缩过的简化版，不应视为最终书架 UI。
-- 书架卡片、完整数据绑定和截图风格仍需恢复和验收。
+- `MainWindow.xaml` 已恢复书架和设备书库主界面，但筛选、分类与设置仍有占位入口。
+- 书架卡片已显示封面和元数据，并提供封面悬浮详情；仍需用长标题和高 DPI 验收布局。
 - `MainWindow.xaml.cs` 已包含不少交互入口，但要以当前 XAML 的 `x:Name` 和事件绑定为准，避免恢复 UI 时出现名称不匹配。
 - 当前没有稳定的页面导航框架；首版可以先保持单窗口 + 详情面板。
 - `ProbeWindow.xaml` / `ProbeWindow.xaml.cs` 是临时诊断文件，问题解决后删除。
@@ -410,6 +413,7 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 - [x] 恢复黑白墨水屏风格、零圆角硬边矩形的完整 MainWindow。
 - [x] 恢复书架卡片封面、标题、作者和格式信息。
+- [x] 区分本地书库与 Kindle 书库，并加入封面悬浮详情。
 - [x] 恢复搜索、列表/网格切换和书籍详情面板。
 - [ ] 验证空书库、无封面、长标题和高 DPI。
 - [ ] 用真实导入的 EPUB 做一次完整手工验收。

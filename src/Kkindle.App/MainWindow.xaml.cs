@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -309,6 +310,11 @@ public sealed partial class MainWindow : Window
     private async void SettingsButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("设置", $"当前书库位于：{_paths.Library}");
     private void DeviceButton_Click(object sender, RoutedEventArgs e)
     {
+        AllBooksButton.Background = (Brush)Application.Current.Resources["CardBrush"];
+        AllBooksButton.Foreground = (Brush)Application.Current.Resources["InkBrush"];
+        SidebarCountText.Foreground = (Brush)Application.Current.Resources["InkBrush"];
+        DeviceButton.Background = (Brush)Application.Current.Resources["InkBrush"];
+        DeviceButton.Foreground = (Brush)Application.Current.Resources["CardBrush"];
         LibraryPane.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
@@ -325,6 +331,11 @@ public sealed partial class MainWindow : Window
 
     private void ShowLibrary()
     {
+        AllBooksButton.Background = (Brush)Application.Current.Resources["InkBrush"];
+        AllBooksButton.Foreground = (Brush)Application.Current.Resources["CardBrush"];
+        SidebarCountText.Foreground = (Brush)Application.Current.Resources["CardBrush"];
+        DeviceButton.Background = (Brush)Application.Current.Resources["CardBrush"];
+        DeviceButton.Foreground = (Brush)Application.Current.Resources["InkBrush"];
         DevicePage.Visibility = Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Visible;
     }

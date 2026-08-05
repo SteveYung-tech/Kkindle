@@ -25,35 +25,35 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <StackPanel Spacing="2">
-                    <TextBlock Text="Kkindle"
-                               Foreground="#FFFFFF"
-                               FontSize="24"
-                               FontWeight="Bold"
-                               CharacterSpacing="80" />
-                    <TextBlock Text="个人电子书架"
-                               Foreground="#BFBFBF"
-                               FontSize="12" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Border Width="34" Height="34" Background="#000000">
+                        <TextBlock Text="K" Foreground="#FFFFFF" FontSize="20" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel VerticalAlignment="Center" Spacing="0">
+                        <TextBlock Text="Kkindle" Foreground="#000000" FontSize="18" FontWeight="Bold" CharacterSpacing="60" />
+                        <TextBlock Text="个人电子书架" Foreground="#5A5A5A" FontSize="11" />
+                    </StackPanel>
                 </StackPanel>
 
                 <StackPanel Grid.Row="1" Margin="0,30,0,0" Spacing="3">
                     <Button x:Name="AllBooksButton"
                             Style="{StaticResource SidebarButtonStyle}"
                             Background="{StaticResource SelectedBackgroundBrush}"
-                            Foreground="#000000"
+                            Foreground="#FFFFFF"
                             Click="NavigationButton_Click">
                         <Grid Width="140">
-                            <TextBlock Text="全部书籍" />
+                            <TextBlock Text="本地书库" />
                             <TextBlock x:Name="SidebarCountText"
                                        HorizontalAlignment="Right"
-                                       Foreground="#000000" />
+                                       Foreground="#FFFFFF" />
                         </Grid>
                     </Button>
                     <Button Content="最近导入" Style="{StaticResource SidebarButtonStyle}" Click="NavigationButton_Click" />
                     <Button Content="作者" Style="{StaticResource SidebarButtonStyle}" Click="NavigationButton_Click" />
                     <Button Content="标签" Style="{StaticResource SidebarButtonStyle}" Click="AddTagButton_Click" />
                     <Button Content="分类" Style="{StaticResource SidebarButtonStyle}" Click="AddCategoryButton_Click" />
-                    <Button x:Name="DeviceButton" Content="KINDLE 设备" Style="{StaticResource SidebarButtonStyle}" Click="DeviceButton_Click" />
+                    <Button x:Name="DeviceButton" Content="KINDLE 书库" Style="{StaticResource SidebarButtonStyle}" Click="DeviceButton_Click" />
                 </StackPanel>
 
                 <StackPanel Grid.Row="3" Spacing="8">
@@ -87,10 +87,15 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock Text="我的书架"
+                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        <Border Background="#000000" Padding="7,3" VerticalAlignment="Center">
+                            <TextBlock Text="本地" Foreground="#FFFFFF" FontSize="11" FontWeight="Bold" />
+                        </Border>
+                        <TextBlock Text="本地书库"
                                Foreground="{StaticResource InkBrush}"
                                FontSize="28"
                                FontWeight="Bold" />
+                    </StackPanel>
                     <TextBlock x:Name="LibrarySummaryText"
                                Margin="0,3,0,0"
                                Foreground="{StaticResource MutedInkBrush}"
@@ -149,6 +154,45 @@
                                         BorderBrush="{StaticResource BorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="0">
+                                    <ToolTipService.ToolTip>
+                                        <ToolTip Placement="Right"
+                                                 CornerRadius="0"
+                                                 Padding="0"
+                                                 Background="#FFFFFF"
+                                                 BorderBrush="#000000"
+                                                 BorderThickness="1">
+                                            <StackPanel Width="280" Padding="16" Spacing="7">
+                                                <Border Background="#000000" Padding="7,3" HorizontalAlignment="Left">
+                                                    <TextBlock Text="本地书籍" Foreground="#FFFFFF" FontSize="10" FontWeight="Bold" />
+                                                </Border>
+                                                <TextBlock Text="{x:Bind Title}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
+                                                <TextBlock Text="{x:Bind Authors}" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
+                                                <Rectangle Height="1" Fill="#000000" Margin="0,3" />
+                                                <Grid ColumnSpacing="10">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock Text="格式" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
+                                                        <TextBlock Text="{x:Bind FormatLabel}" FontWeight="Bold" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1">
+                                                        <TextBlock Text="文件" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
+                                                        <TextBlock Text="{x:Bind FileCountLabel}" FontWeight="Bold" />
+                                                    </StackPanel>
+                                                </Grid>
+                                                <TextBlock Text="{x:Bind SeriesLabel}" FontSize="12" />
+                                                <TextBlock Text="{x:Bind TagsLabel}" FontSize="12" />
+                                                <TextBlock Text="{x:Bind DescriptionLabel}"
+                                                           Margin="0,2,0,0"
+                                                           Foreground="{StaticResource MutedInkBrush}"
+                                                           TextWrapping="Wrap"
+                                                           MaxLines="5"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </ToolTip>
+                                    </ToolTipService.ToolTip>
                                     <Grid>
                                         <TextBlock Text="BOOK"
                                                    HorizontalAlignment="Center"
@@ -230,7 +274,12 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Spacing="3">
-                    <TextBlock Text="KINDLE / 设备书库" FontSize="28" FontWeight="Bold" />
+                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        <Border Background="#000000" Padding="7,3" VerticalAlignment="Center">
+                            <TextBlock Text="设备" Foreground="#FFFFFF" FontSize="11" FontWeight="Bold" />
+                        </Border>
+                        <TextBlock Text="Kindle 书库" FontSize="28" FontWeight="Bold" />
+                    </StackPanel>
                     <TextBlock x:Name="DeviceNameText" Text="未检测到设备" Foreground="{StaticResource MutedInkBrush}" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
