@@ -264,20 +264,24 @@ EjectAsync(device)
 - 只递归扫描 `documents`，明确跳过 `.cache`，不访问 `system`。
 - 设备页显示名称、连接方式、容量及 EPUB/PDF/MOBI/AZW/AZW3/KFX 文件。
 - 已用当前连接的 `Kindle Scribe` 验证：`11.4 GB 可用 / 11.9 GB`，扫描到 4 本书。
-- MTP 发送已接入 Windows Shell：先复制为 `.kkindle-part`，轮询设备端大小，校验完成后改为正式文件名；同名文件自动编号且不覆盖。
-- 发送前显示目标设备和不覆盖规则，发送完成后自动刷新设备书籍；真实 Scribe 大文件传输与拔线中断仍待手工验收。
-- MTP 删除和弹出仍显式禁用；传统 USB 磁盘流程不受影响。
+- MTP 发送已接入 Windows Shell：本机暂存为最终唯一文件名后复制，使用全新 Shell 快照轮询设备端大小；同名文件自动编号且不覆盖。
+- 发送前显示目标设备和不覆盖规则，发送完成后自动刷新设备书籍；设备消失或切换时自动取消，并精确清理本次未完成文件。
+- MTP 删除通过无二次系统弹窗的 `IFileOperation` 完成，只允许操作 `documents` 内选中的单个文件；应用内保留明确二次确认。
+- 已用当前连接的 Kindle Scribe 对真实 EPUB 做发送、扫描、删除闭环验收，设备端无测试残留。
 
-当前 UI 主要使用 3 秒一次的设备轮询。`NativeDeviceChangeMonitor.cs` 还在项目中，但 WM_DEVICECHANGE 接入尚未作为稳定主流程验收。
+当前 UI 已接入 `WM_DEVICECHANGE`，并保留 3 秒一次的设备轮询作为驱动不发送事件时的可靠兜底。
 
 ### 3.5 测试
 
-当前已有 4 个测试，并在 2026-08-05 复核通过：
+当前已有 7 个测试，并在 2026-08-05 复核通过：
 
 - EPUB 导入、元数据、封面和哈希去重。
 - 标题/标签搜索。
 - 临时目录模拟 Kindle，发送和扫描书籍。
 - 同名不同内容发送时生成编号文件且不覆盖原文件。
+- 删除仅限 `documents` 内目标文件，且不会误删旁边文件。
+- 拒绝删除 `documents` 外的路径。
+- 取消传输后清理 `.kkindle-part` 临时文件。
 
 复核命令和结果：
 
@@ -285,8 +289,8 @@ EjectAsync(device)
 dotnet build Kkindle.sln -c Debug -p:Platform=x64 --no-restore
 0 个警告，0 个错误
 
-dotnet test Kkindle.sln -c Debug -p:Platform=x64 --no-build
-失败 0，通过 3，跳过 0
+dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj -c Debug -p:Platform=x64 --no-restore
+失败 0，通过 7，跳过 0
 ```
 
 ## 4. 当前未完成和阻塞项
@@ -440,17 +444,19 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 - [x] 区分本地书库与 Kindle 书库，并加入封面悬浮详情。
 - [x] 按书籍管理、设备管理、阅读资料和系统重组左侧导航，并加入设备连接与容量状态卡。
 - [x] 恢复搜索、列表/网格切换和书籍详情面板。
-- [ ] 验证空书库、无封面、长标题和高 DPI。
-- [ ] 用真实导入的 EPUB 做一次完整手工验收。
+- [x] 验证空书库、无封面、长标题和高 DPI 布局。
+- [x] 用真实导入的 EPUB 做一次完整手工验收（元数据、封面、长标题省略）。
+- [x] 完成作者、标签和格式筛选，并提供无结果状态与清除筛选。
 
 ### P1 完善 Kindle 流程
 
 - [x] 设备页显示 USB 磁盘与 WPD/MTP Kindle 的设备书籍和容量。
 - [x] 发送前显示目标设备和同名不覆盖规则。
 - [x] 发送完成后刷新设备书籍列表。
-- [ ] 只删除 `documents` 下目标文件，并完善二次确认。
-- [ ] 验证设备拔出、复制中断、无权限和盘符变化。
-- [ ] 评估是否重新接入 WM_DEVICECHANGE；轮询可以作为可靠兜底。
+- [x] 只删除 `documents` 下目标文件，并完善二次确认。
+- [x] 设备消失/切换时取消传输，失败与取消均清理本次临时文件；传统磁盘仍以卷序列号识别盘符变化。
+- [x] 接入 WM_DEVICECHANGE，并保留轮询作为可靠兜底。
+- [x] 用真实 Kindle Scribe 完成 EPUB 发送、扫描和删除闭环验收。
 
 ### P2 补充测试
 
@@ -523,9 +529,9 @@ git status --short --branch
 
 ## 12. 当前继续开发基线
 
-- 标准 `publish` 目录中的 exe 是当前基线；Release 测试结果为失败 0、通过 4、跳过 0。
+- 标准 `publish` 目录中的 exe 是当前基线；P1 Release 测试结果为失败 0、通过 7、跳过 0。
 - `MainWindow.ConfigureTitleBar()` 只负责 XAML 标题栏和拖动区域，不应在窗口激活前读取 `AppWindow`。
 - `ConfigureNativeWindowChrome()` 只能在首次 `Window.Activated` 后调用；其中隐藏原生标题栏并取得 `OverlappedPresenter`。
 - `ApplySquareWindowFrame()` 必须保留首次调用、低优先级调度调用、`Loaded` 调用和 presenter 状态变化后的调用，否则 Windows 可能重新恢复圆角。
 - 自绘最小化、最大化/还原、关闭按钮位于 `MainWindow.xaml`；统一模板 `TitleBarCaptionButtonStyle` 位于 `App.xaml`。
-- 下一步优先继续 P1 验收：空书库、无封面、长标题、高 DPI，以及真实 EPUB 导入；不要再次重做标题栏架构，除非有新的可复现问题。
+- P1 已完成；下一步进入 P2，优先补损坏文件批量导入、中文元数据、取消导入以及更多路径安全测试。不要再次重做标题栏架构，除非有新的可复现问题。

@@ -220,16 +220,18 @@ public sealed class KindleDeviceService : IKindleDeviceService
         }
     }
 
-    public Task RemoveBookAsync(KindleDevice device, KindleBook book, CancellationToken cancellationToken = default)
+    public async Task RemoveBookAsync(KindleDevice device, KindleBook book, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (device.Transport == KindleTransport.Wpd)
-            throw new NotSupportedException("为避免误删，MTP Kindle 的删除功能尚未开放。");
+        {
+            await Task.Run(() => WpdKindleAccess.RemoveBook(device, book, cancellationToken), cancellationToken);
+            return;
+        }
         var documents = GetDocumentsRoot(device);
         var fullPath = Path.GetFullPath(Path.Combine(device.RootPath, book.RelativePath));
         EnsureUnderRoot(fullPath, documents);
         if (File.Exists(fullPath)) File.Delete(fullPath);
-        return Task.CompletedTask;
     }
 
     public Task EjectAsync(KindleDevice device, CancellationToken cancellationToken = default)

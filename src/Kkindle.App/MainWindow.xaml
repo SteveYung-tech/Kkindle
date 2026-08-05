@@ -229,6 +229,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
@@ -270,7 +271,8 @@
                          Padding="13,7"
                          PlaceholderText="搜索标题或作者"
                          TextChanged="SearchBox_TextChanged" />
-                <Button Grid.Column="1"
+                <Button x:Name="FilterButton"
+                        Grid.Column="1"
                         Margin="10,0,0,0"
                         HorizontalAlignment="Left"
                         Content="筛选"
@@ -283,7 +285,46 @@
                 </StackPanel>
             </Grid>
 
-            <Grid Grid.Row="2">
+            <Border x:Name="FilterPanel"
+                    Grid.Row="2"
+                    Margin="0,0,0,18"
+                    Padding="12"
+                    BorderBrush="#000000"
+                    BorderThickness="1"
+                    Visibility="Collapsed">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox x:Name="AuthorFilterBox"
+                              Header="作者"
+                              CornerRadius="0"
+                              HorizontalAlignment="Stretch"
+                              SelectionChanged="FilterComboBox_SelectionChanged" />
+                    <ComboBox x:Name="TagFilterBox"
+                              Grid.Column="1"
+                              Header="标签"
+                              CornerRadius="0"
+                              HorizontalAlignment="Stretch"
+                              SelectionChanged="FilterComboBox_SelectionChanged" />
+                    <ComboBox x:Name="FormatFilterBox"
+                              Grid.Column="2"
+                              Header="格式"
+                              CornerRadius="0"
+                              HorizontalAlignment="Stretch"
+                              SelectionChanged="FilterComboBox_SelectionChanged" />
+                    <Button Grid.Column="3"
+                            Margin="0,22,0,0"
+                            Content="清除筛选"
+                            Style="{StaticResource QuietButtonStyle}"
+                            Click="ClearFiltersButton_Click" />
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="3">
                 <GridView x:Name="BookGrid"
                           ItemsSource="{x:Bind ViewModel.Books}"
                           IsItemClickEnabled="True"
@@ -400,9 +441,33 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+
+                <StackPanel x:Name="EmptyLibraryState"
+                            Canvas.ZIndex="5"
+                            Width="320"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="10"
+                            Visibility="Collapsed"
+                            IsHitTestVisible="False">
+                    <Border Width="58" Height="76" HorizontalAlignment="Center" BorderBrush="#000000" BorderThickness="2">
+                        <TextBlock Text="BOOK" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="10" CharacterSpacing="100" />
+                    </Border>
+                    <TextBlock x:Name="EmptyLibraryTitleText"
+                               Text="电脑书库还是空的"
+                               HorizontalAlignment="Center"
+                               FontSize="20"
+                               FontWeight="Bold" />
+                    <TextBlock x:Name="EmptyLibraryMessageText"
+                               Text="拖入书籍文件，或使用右上角的导入按钮"
+                               HorizontalAlignment="Center"
+                               Foreground="{StaticResource MutedInkBrush}"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap" />
+                </StackPanel>
             </Grid>
 
-            <Grid Grid.Row="3" Margin="0,10,0,0">
+            <Grid Grid.Row="4" Margin="0,10,0,0">
                 <ProgressBar x:Name="TaskProgress" Visibility="Collapsed" Minimum="0" Maximum="100" Height="3" />
                 <TextBlock x:Name="TaskStatusText"
                            Margin="0,8,0,0"
@@ -412,7 +477,7 @@
             </Grid>
 
             <Border x:Name="DropImportOverlay"
-                    Grid.RowSpan="4"
+                    Grid.RowSpan="5"
                     Canvas.ZIndex="20"
                     Margin="0,46,0,0"
                     Background="#F2FFFFFF"
@@ -456,6 +521,11 @@
                     <TextBlock x:Name="DeviceNameText" Text="未检测到设备" Foreground="{StaticResource MutedInkBrush}" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Margin="0,46,0,0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                    <Button x:Name="DeleteDeviceBookButton"
+                            Content="删除所选书籍"
+                            Style="{StaticResource QuietButtonStyle}"
+                            IsEnabled="False"
+                            Click="DeleteDeviceBookButton_Click" />
                     <Button Content="刷新设备" Style="{StaticResource QuietButtonStyle}" Click="RefreshDeviceButton_Click" />
                     <Button Content="返回书架" Click="AllBooksButton_Click" />
                 </StackPanel>
@@ -483,7 +553,8 @@
             <GridView x:Name="DeviceBookList"
                       Grid.Row="2"
                       ItemsSource="{x:Bind DeviceBooks}"
-                      SelectionMode="None"
+                      SelectionMode="Single"
+                      SelectionChanged="DeviceBookList_SelectionChanged"
                       HorizontalContentAlignment="Stretch">
                 <GridView.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -542,7 +613,7 @@
             <TextBlock x:Name="DeviceReadOnlyNote" Grid.Row="3"
                        Margin="0,12,0,0"
                        Foreground="{StaticResource MutedInkBrush}"
-                       Text="MTP 模式当前只读显示 documents；发送与删除将在传输校验完成后开放。" />
+                       Text="仅显示并操作 Kindle 的 documents；删除设备书籍前会再次确认。" />
         </Grid>
 
         <!-- Book details -->

@@ -75,6 +75,9 @@ public sealed class LibraryViewModel : ObservableObject
     private readonly IBookLibraryService _library;
     private readonly string _dataRoot;
     private string _searchText = string.Empty;
+    private string? _authorFilter;
+    private string? _tagFilter;
+    private string? _formatFilter;
     private bool _isBusy;
     private string _statusText = "准备就绪";
 
@@ -85,6 +88,9 @@ public sealed class LibraryViewModel : ObservableObject
     }
 
     public ObservableCollection<BookCardViewModel> Books { get; } = [];
+    public IReadOnlyList<string> AvailableAuthors { get; private set; } = [];
+    public IReadOnlyList<string> AvailableTags { get; private set; } = [];
+    public IReadOnlyList<string> AvailableFormats { get; private set; } = [];
 
     public string SearchText
     {
@@ -98,6 +104,28 @@ public sealed class LibraryViewModel : ObservableObject
         set => SetProperty(ref _isBusy, value);
     }
 
+    public string? AuthorFilter
+    {
+        get => _authorFilter;
+        set => SetProperty(ref _authorFilter, value);
+    }
+
+    public string? TagFilter
+    {
+        get => _tagFilter;
+        set => SetProperty(ref _tagFilter, value);
+    }
+
+    public string? FormatFilter
+    {
+        get => _formatFilter;
+        set => SetProperty(ref _formatFilter, value);
+    }
+
+    public bool HasActiveFilters => !string.IsNullOrWhiteSpace(AuthorFilter)
+        || !string.IsNullOrWhiteSpace(TagFilter)
+        || !string.IsNullOrWhiteSpace(FormatFilter);
+
     public string StatusText
     {
         get => _statusText;
@@ -109,12 +137,53 @@ public sealed class LibraryViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            var books = await _library.SearchAsync(SearchText, cancellationToken);
+            var allBooks = await _library.SearchAsync(cancellationToken: cancellationToken);
+            AvailableAuthors = allBooks
+                .SelectMany(book => book.Authors.Split(',', '，', ';', '；'))
+                .Select(author => author.Trim())
+                .Where(author => author.Length > 0)
+                .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .Order(StringComparer.CurrentCultureIgnoreCase)
+                .ToArray();
+            AvailableTags = allBooks
+                .SelectMany(book => book.Tags.Split(',', '，', ';', '；'))
+                .Select(tag => tag.Trim())
+                .Where(tag => tag.Length > 0)
+                .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .Order(StringComparer.CurrentCultureIgnoreCase)
+                .ToArray();
+            AvailableFormats = allBooks
+                .SelectMany(book => book.Files.Select(file => file.Format.ToUpperInvariant()))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            var books = allBooks.Where(MatchesFilters).ToArray();
             Books.Clear();
             foreach (var book in books) Books.Add(new BookCardViewModel(book, _dataRoot));
-            StatusText = books.Count == 0 ? "书库还是空的" : $"共 {books.Count} 本书";
+            StatusText = books.Length == 0
+                ? allBooks.Count == 0 ? "书库还是空的" : "没有符合条件的书籍"
+                : HasActiveFilters || !string.IsNullOrWhiteSpace(SearchText)
+                    ? $"找到 {books.Length} 本书"
+                    : $"共 {books.Length} 本书";
         }
         finally { IsBusy = false; }
+    }
+
+    private bool MatchesFilters(Book book)
+    {
+        if (!string.IsNullOrWhiteSpace(SearchText)
+            && !book.Title.Contains(SearchText, StringComparison.CurrentCultureIgnoreCase)
+            && !book.Authors.Contains(SearchText, StringComparison.CurrentCultureIgnoreCase)
+            && !book.Tags.Contains(SearchText, StringComparison.CurrentCultureIgnoreCase)) return false;
+        if (!string.IsNullOrWhiteSpace(AuthorFilter)
+            && !book.Authors.Split(',', '，', ';', '；').Any(author =>
+                string.Equals(author.Trim(), AuthorFilter, StringComparison.CurrentCultureIgnoreCase))) return false;
+        if (!string.IsNullOrWhiteSpace(TagFilter)
+            && !book.Tags.Split(',', '，', ';', '；').Any(tag =>
+                string.Equals(tag.Trim(), TagFilter, StringComparison.CurrentCultureIgnoreCase))) return false;
+        return string.IsNullOrWhiteSpace(FormatFilter)
+            || book.Files.Any(file => string.Equals(file.Format, FormatFilter, StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task<ImportBatchResult> ImportAsync(IEnumerable<string> paths, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default)

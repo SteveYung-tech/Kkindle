@@ -28,9 +28,12 @@ public sealed partial class MainWindow : Window
     private readonly IKindleDeviceService _kindle;
     private readonly DispatcherQueueTimer _deviceTimer;
     private Book? _selectedBook;
+    private KindleBookCardViewModel? _selectedDeviceBook;
     private IReadOnlyList<KindleDevice> _devices = [];
     private bool _isRefreshingDevices;
     private bool _isTransferring;
+    private CancellationTokenSource? _transferCancellation;
+    private bool _isUpdatingFilters;
     private string? _scannedDeviceId;
     private double _deviceUsedRatio;
     private string? _acceptedDeviceId;
@@ -41,6 +44,7 @@ public sealed partial class MainWindow : Window
     private bool _nativeChromeConfigured;
     private AppWindow? _appWindow;
     private OverlappedPresenter? _windowPresenter;
+    private NativeDeviceChangeMonitor? _deviceChangeMonitor;
 
     public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
     {
@@ -92,6 +96,15 @@ public sealed partial class MainWindow : Window
         var windowId = Win32Interop.GetWindowIdFromWindow(windowHandle);
         var appWindow = AppWindow.GetFromWindowId(windowId);
         _appWindow = appWindow;
+        try
+        {
+            _deviceChangeMonitor = new NativeDeviceChangeMonitor(windowHandle);
+            _deviceChangeMonitor.DeviceChanged += DeviceChangeMonitor_DeviceChanged;
+        }
+        catch
+        {
+            _deviceChangeMonitor = null; // The three-second polling timer remains the reliable fallback.
+        }
         appWindow.Title = "Kkindle";
         appWindow.Changed += AppWindow_Changed;
 
@@ -165,6 +178,13 @@ public sealed partial class MainWindow : Window
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
         _deviceTimer.Stop();
+        _transferCancellation?.Cancel();
+        _transferCancellation?.Dispose();
+        if (_deviceChangeMonitor is not null)
+        {
+            _deviceChangeMonitor.DeviceChanged -= DeviceChangeMonitor_DeviceChanged;
+            _deviceChangeMonitor.Dispose();
+        }
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -182,6 +202,8 @@ public sealed partial class MainWindow : Window
             await ViewModel.RefreshAsync();
             LibrarySummaryText.Text = ViewModel.StatusText;
             SidebarCountText.Text = ViewModel.Books.Count.ToString();
+            UpdateFilterControls();
+            UpdateEmptyLibraryState();
         }
         catch (Exception ex)
         {
@@ -198,6 +220,7 @@ public sealed partial class MainWindow : Window
             var detectedDevices = await _kindle.DetectDevicesAsync();
             if (detectedDevices.Count == 0)
             {
+                if (_isTransferring) _transferCancellation?.Cancel();
                 _acceptedDeviceId = null;
                 _ignoredDeviceId = null;
                 SetDisconnectedDeviceState();
@@ -205,6 +228,10 @@ public sealed partial class MainWindow : Window
             }
 
             var device = detectedDevices[0];
+            if (_isTransferring
+                && _devices.Count > 0
+                && !string.Equals(_devices[0].VolumeSerial, device.VolumeSerial, StringComparison.Ordinal))
+                _transferCancellation?.Cancel();
             if (!string.Equals(_acceptedDeviceId, device.VolumeSerial, StringComparison.Ordinal))
             {
                 if (string.Equals(_ignoredDeviceId, device.VolumeSerial, StringComparison.Ordinal))
@@ -252,7 +279,10 @@ public sealed partial class MainWindow : Window
     {
         _devices = [];
         _scannedDeviceId = null;
+        _selectedDeviceBook = null;
         DeviceBooks.Clear();
+        DeviceBookList.SelectedItem = null;
+        DeleteDeviceBookButton.IsEnabled = false;
         KindleStatusText.Text = "无设备连接";
         KindleConnectionText.Text = detail ?? string.Empty;
         EjectDeviceButton.Visibility = Visibility.Collapsed;
@@ -270,6 +300,9 @@ public sealed partial class MainWindow : Window
         var books = await _kindle.ScanBooksAsync(device);
         DeviceBooks.Clear();
         foreach (var book in books) DeviceBooks.Add(new KindleBookCardViewModel(book));
+        _selectedDeviceBook = null;
+        DeviceBookList.SelectedItem = null;
+        DeleteDeviceBookButton.IsEnabled = false;
         DeviceBookCountText.Text = $"{books.Count} 本";
         DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
         _scannedDeviceId = device.VolumeSerial;
@@ -322,6 +355,53 @@ public sealed partial class MainWindow : Window
         await RefreshLibraryAsync();
     }
 
+    private void UpdateFilterControls()
+    {
+        _isUpdatingFilters = true;
+        try
+        {
+            AuthorFilterBox.ItemsSource = new[] { "全部作者" }.Concat(ViewModel.AvailableAuthors).ToArray();
+            TagFilterBox.ItemsSource = new[] { "全部标签" }.Concat(ViewModel.AvailableTags).ToArray();
+            FormatFilterBox.ItemsSource = new[] { "全部格式" }.Concat(ViewModel.AvailableFormats).ToArray();
+            AuthorFilterBox.SelectedItem = ViewModel.AuthorFilter ?? "全部作者";
+            TagFilterBox.SelectedItem = ViewModel.TagFilter ?? "全部标签";
+            FormatFilterBox.SelectedItem = ViewModel.FormatFilter?.ToUpperInvariant() ?? "全部格式";
+            var activeCount = new[] { ViewModel.AuthorFilter, ViewModel.TagFilter, ViewModel.FormatFilter }
+                .Count(value => !string.IsNullOrWhiteSpace(value));
+            FilterButton.Content = activeCount == 0 ? "筛选" : $"筛选 · {activeCount}";
+        }
+        finally { _isUpdatingFilters = false; }
+    }
+
+    private void UpdateEmptyLibraryState()
+    {
+        EmptyLibraryState.Visibility = ViewModel.Books.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var hasQuery = !string.IsNullOrWhiteSpace(ViewModel.SearchText) || ViewModel.HasActiveFilters;
+        EmptyLibraryTitleText.Text = hasQuery ? "没有符合条件的书籍" : "电脑书库还是空的";
+        EmptyLibraryMessageText.Text = hasQuery
+            ? "调整搜索词或清除筛选后再试"
+            : "拖入书籍文件，或使用右上角的导入按钮";
+    }
+
+    private async void FilterComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingFilters) return;
+        ViewModel.AuthorFilter = AuthorFilterBox.SelectedIndex <= 0 ? null : AuthorFilterBox.SelectedItem as string;
+        ViewModel.TagFilter = TagFilterBox.SelectedIndex <= 0 ? null : TagFilterBox.SelectedItem as string;
+        ViewModel.FormatFilter = FormatFilterBox.SelectedIndex <= 0
+            ? null
+            : (FormatFilterBox.SelectedItem as string)?.ToLowerInvariant();
+        await RefreshLibraryAsync();
+    }
+
+    private async void ClearFiltersButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.AuthorFilter = null;
+        ViewModel.TagFilter = null;
+        ViewModel.FormatFilter = null;
+        await RefreshLibraryAsync();
+    }
+
     private async void ImportFilesButton_Click(object sender, RoutedEventArgs e)
     {
         var picker = new FileOpenPicker();
@@ -364,6 +444,8 @@ public sealed partial class MainWindow : Window
             }
             LibrarySummaryText.Text = ViewModel.StatusText;
             SidebarCountText.Text = ViewModel.Books.Count.ToString();
+            UpdateFilterControls();
+            UpdateEmptyLibraryState();
         }
         catch (OperationCanceledException)
         {
@@ -444,18 +526,14 @@ public sealed partial class MainWindow : Window
         var file = _selectedBook.Files[0];
         var source = _library.GetAbsoluteFilePath(file);
         var device = _devices[0];
-        var confirmation = new ContentDialog
-        {
-            XamlRoot = ((FrameworkElement)Content).XamlRoot,
-            Title = "发送到 Kindle？",
-            Content = $"将“{_selectedBook.Title}”发送到 {device.Name}。\n\n如果设备上存在同名文件，Kkindle 会自动使用带序号的新文件名，不会覆盖原文件。",
-            PrimaryButtonText = "发送",
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Primary
-        };
-        if (await confirmation.ShowAsync() != ContentDialogResult.Primary) return;
+        if (!await ShowDevicePromptAsync(
+                "发送到 Kindle？",
+                $"将“{_selectedBook.Title}”发送到 {device.Name}。\n\n如果设备上存在同名文件，Kkindle 会自动使用带序号的新文件名，不会覆盖原文件。",
+                "发送",
+                "取消")) return;
 
         _isTransferring = true;
+        _transferCancellation = new CancellationTokenSource();
         TaskProgress.Visibility = Visibility.Visible;
         try
         {
@@ -464,10 +542,15 @@ public sealed partial class MainWindow : Window
                 TaskProgress.Value = value.Percentage;
                 TaskStatusText.Text = value.Message;
             });
-            await _kindle.SendBookAsync(device, file, source, progress);
+            await _kindle.SendBookAsync(device, file, source, progress, _transferCancellation.Token);
             TaskStatusText.Text = "已发送到 Kindle";
             _scannedDeviceId = null;
             await RefreshDevicesAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            TaskStatusText.Text = "发送已中断";
+            await ShowMessageAsync("发送已中断", "Kindle 已断开或传输已取消；未完成的临时文件会被清理。");
         }
         catch (Exception ex)
         {
@@ -477,7 +560,41 @@ public sealed partial class MainWindow : Window
         finally
         {
             _isTransferring = false;
+            _transferCancellation.Dispose();
+            _transferCancellation = null;
             TaskProgress.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void DeviceBookList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        _selectedDeviceBook = DeviceBookList.SelectedItem as KindleBookCardViewModel;
+        DeleteDeviceBookButton.IsEnabled = _selectedDeviceBook is not null && !_isTransferring;
+    }
+
+    private async void DeleteDeviceBookButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedDeviceBook is null || _devices.Count == 0 || _isTransferring) return;
+        var device = _devices[0];
+        var book = _selectedDeviceBook.Book;
+        if (!await ShowDevicePromptAsync(
+                "从 Kindle 删除这本书？",
+                $"将永久删除“{book.Title}”。\n\n目标仅限 documents\\{book.RelativePath}，此操作不会修改 Kindle 系统目录。",
+                "删除",
+                "取消")) return;
+
+        DeleteDeviceBookButton.IsEnabled = false;
+        try
+        {
+            await _kindle.RemoveBookAsync(device, book);
+            TaskStatusText.Text = "已从 Kindle 删除书籍";
+            _scannedDeviceId = null;
+            await ScanDeviceBooksAsync(device);
+        }
+        catch (Exception ex)
+        {
+            await ShowMessageAsync("无法删除设备书籍", ex.Message);
+            DeleteDeviceBookButton.IsEnabled = _selectedDeviceBook is not null;
         }
     }
 
@@ -520,7 +637,10 @@ public sealed partial class MainWindow : Window
         BookList.Visibility = Visibility.Visible;
     }
 
-    private async void FilterButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("筛选", "首版先支持搜索；作者、标签和格式筛选将在下一轮接入。");
+    private void FilterButton_Click(object sender, RoutedEventArgs e) =>
+        FilterPanel.Visibility = FilterPanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
     private async void MoreButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("Kkindle", $"便携数据目录：{_paths.Data}");
     private async void AddTagButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("标签", "可以在书籍详情中直接编辑标签，多个标签用逗号分隔。");
     private async void AddCategoryButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("分类", "分类功能将在书库筛选基础完成后接入。");

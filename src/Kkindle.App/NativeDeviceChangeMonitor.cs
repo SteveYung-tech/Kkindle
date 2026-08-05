@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 namespace Kkindle;
@@ -20,6 +21,8 @@ internal sealed class NativeDeviceChangeMonitor : IDisposable
         _windowHandle = windowHandle;
         _newWindowProc = WindowProc;
         _oldWindowProc = SetWindowLongPtr(windowHandle, GwlWndProc, Marshal.GetFunctionPointerForDelegate(_newWindowProc));
+        if (_oldWindowProc == IntPtr.Zero)
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "无法监听设备插拔事件。");
     }
 
     public event EventHandler? DeviceChanged;
