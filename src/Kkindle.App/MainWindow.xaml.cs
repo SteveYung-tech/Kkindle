@@ -48,6 +48,7 @@ public sealed partial class MainWindow : Window
         ViewModel = new LibraryViewModel(library, paths.Data);
         InitializeComponent();
         ConfigureTitleBar();
+        SetActiveNavigation(AllBooksButton);
         Activated += MainWindow_Activated;
         Closed += MainWindow_Closed;
 
@@ -640,6 +641,11 @@ public sealed partial class MainWindow : Window
     {
         children.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
         chevron.Glyph = expanded ? "\uE70D" : "\uE76C";
+        var ink = (Brush)Application.Current.Resources["InkBrush"];
+        var paper = (Brush)Application.Current.Resources["CardBrush"];
+        sectionButton.Background = expanded ? ink : paper;
+        sectionButton.Foreground = expanded ? paper : ink;
+        chevron.Foreground = expanded ? paper : ink;
         sectionButton.SetValue(
             Microsoft.UI.Xaml.Automation.AutomationProperties.NameProperty,
             $"{title}，{(expanded ? "已展开" : "已收起")}");
@@ -655,29 +661,18 @@ public sealed partial class MainWindow : Window
 
         var ink = (Brush)Application.Current.Resources["InkBrush"];
         var paper = (Brush)Application.Current.Resources["CardBrush"];
+        var muted = (Brush)Application.Current.Resources["MutedInkBrush"];
+        var idleIndicator = (Brush)Application.Current.Resources["SidebarIndicatorBrush"];
         foreach (var button in new[] { AllBooksButton, KindleBooksButton, DeviceOverviewButton })
         {
             var isActive = button == activeButton;
-            button.Background = isActive ? ink : paper;
-            button.Foreground = isActive ? paper : ink;
+            button.Background = paper;
+            button.Foreground = isActive ? ink : muted;
+            button.BorderBrush = isActive ? ink : idleIndicator;
+            button.FontWeight = isActive ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
         }
-        AllBooksLabelText.Foreground = activeButton == AllBooksButton ? paper : ink;
-        SidebarCountText.Foreground = activeButton == AllBooksButton ? paper : ink;
-    }
-
-    private void AllBooksButton_PointerEntered(object sender, PointerRoutedEventArgs e)
-    {
-        var paper = (Brush)Application.Current.Resources["CardBrush"];
-        AllBooksLabelText.Foreground = paper;
-        SidebarCountText.Foreground = paper;
-    }
-
-    private void AllBooksButton_PointerExited(object sender, PointerRoutedEventArgs e)
-    {
-        var isActive = _activeNavigationButton is null || _activeNavigationButton == AllBooksButton;
-        var brush = (Brush)Application.Current.Resources[isActive ? "CardBrush" : "InkBrush"];
-        AllBooksLabelText.Foreground = brush;
-        SidebarCountText.Foreground = brush;
+        AllBooksLabelText.Foreground = activeButton == AllBooksButton ? ink : muted;
+        SidebarCountText.Foreground = activeButton == AllBooksButton ? ink : muted;
     }
 
     private void DeviceStorageBar_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateDeviceStorageBar();

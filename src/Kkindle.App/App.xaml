@@ -16,6 +16,7 @@
             <SolidColorBrush x:Key="MutedInkBrush" Color="#5A5A5A" />
             <SolidColorBrush x:Key="BorderBrush" Color="#000000" />
             <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="SidebarIndicatorBrush" Color="#BFBFBF" />
 
             <!-- Monochrome WinUI visual-state resources. -->
             <SolidColorBrush x:Key="ButtonBackground" Color="#FFFFFF" />
@@ -70,14 +71,62 @@
                 <Setter Property="HorizontalContentAlignment" Value="Left" />
                 <Setter Property="Width" Value="146" />
                 <Setter Property="Height" Value="34" />
-                <Setter Property="Padding" Value="18,8,10,8" />
+                <Setter Property="Padding" Value="0" />
                 <Setter Property="Margin" Value="12,2,0,2" />
                 <Setter Property="Background" Value="#FFFFFF" />
-                <Setter Property="Foreground" Value="#000000" />
-                <Setter Property="BorderBrush" Value="#000000" />
-                <Setter Property="BorderThickness" Value="0,0,0,1" />
+                <Setter Property="Foreground" Value="#5A5A5A" />
+                <Setter Property="BorderBrush" Value="{StaticResource SidebarIndicatorBrush}" />
+                <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="CornerRadius" Value="0" />
                 <Setter Property="FontSize" Value="14" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="ChildBackground" Background="{TemplateBinding Background}">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="ChildBackground" Storyboard.TargetProperty="Background">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#F2F2F2" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="ChildBackground" Storyboard.TargetProperty="Background">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#D9D9D9" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled">
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="ChildContent" Storyboard.TargetProperty="Opacity" To="0.45" Duration="0" />
+                                            </Storyboard>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <Grid x:Name="ChildContent">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="3" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Rectangle Width="3"
+                                               Height="16"
+                                               Fill="{TemplateBinding BorderBrush}"
+                                               VerticalAlignment="Center" />
+                                    <ContentPresenter Grid.Column="2"
+                                                      Content="{TemplateBinding Content}"
+                                                      Foreground="{TemplateBinding Foreground}"
+                                                      HorizontalAlignment="Stretch"
+                                                      VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
             <Style x:Key="SidebarSectionButtonStyle" TargetType="Button">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -100,26 +149,6 @@
                                     Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}"
                                     BorderThickness="{TemplateBinding BorderThickness}">
-                                <VisualStateManager.VisualStateGroups>
-                                    <VisualStateGroup x:Name="CommonStates">
-                                        <VisualState x:Name="Normal" />
-                                        <VisualState x:Name="PointerOver">
-                                            <Storyboard>
-                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SectionBackground" Storyboard.TargetProperty="Background">
-                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#F2F2F2" />
-                                                </ObjectAnimationUsingKeyFrames>
-                                            </Storyboard>
-                                        </VisualState>
-                                        <VisualState x:Name="Pressed">
-                                            <Storyboard>
-                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SectionBackground" Storyboard.TargetProperty="Background">
-                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#D9D9D9" />
-                                                </ObjectAnimationUsingKeyFrames>
-                                            </Storyboard>
-                                        </VisualState>
-                                        <VisualState x:Name="Disabled" />
-                                    </VisualStateGroup>
-                                </VisualStateManager.VisualStateGroups>
                                 <ContentPresenter Content="{TemplateBinding Content}"
                                                   Foreground="{TemplateBinding Foreground}"
                                                   HorizontalAlignment="Stretch"

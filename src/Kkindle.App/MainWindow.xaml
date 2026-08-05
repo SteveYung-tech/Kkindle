@@ -94,14 +94,10 @@
                             <Button x:Name="AllBooksButton"
                                     AutomationProperties.Name="电脑书库"
                                     Style="{StaticResource SidebarButtonStyle}"
-                                    Background="{StaticResource SelectedBackgroundBrush}"
-                                    Foreground="#FFFFFF"
-                                    PointerEntered="AllBooksButton_PointerEntered"
-                                    PointerExited="AllBooksButton_PointerExited"
                                     Click="NavigationButton_Click">
                                 <Grid Width="118">
-                                    <TextBlock x:Name="AllBooksLabelText" Text="电脑书库" Foreground="#FFFFFF" />
-                                    <TextBlock x:Name="SidebarCountText" HorizontalAlignment="Right" Foreground="#FFFFFF" />
+                                    <TextBlock x:Name="AllBooksLabelText" Text="电脑书库" />
+                                    <TextBlock x:Name="SidebarCountText" HorizontalAlignment="Right" />
                                 </Grid>
                             </Button>
                             <Button x:Name="KindleBooksButton" Content="Kindle 书籍" Style="{StaticResource SidebarButtonStyle}" Click="KindleBooksButton_Click" />
