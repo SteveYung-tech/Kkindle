@@ -306,6 +306,8 @@ C:\Users\kings\Desktop\01_Projects\Kkindle\src\Kkindle.App\bin\x64\Release\net8.
 - Release publish 成功，`Kkindle.exe` 启动 5 秒后仍保持运行。
 - 发布目录存在 `Kkindle.pri`、`Microsoft.UI.pri`、`Microsoft.UI.Xaml.dll`。
 - 既有 Debug 测试以 `--no-build` 运行：失败 0、通过 3、跳过 0。
+- 第二轮 Release publish 已恢复灰白纸张风格主界面，启动 5 秒后仍保持运行。
+- 临时 `ProbeWindow` 文件已删除。
 
 最值得优先验证的资源写法：
 
@@ -391,13 +393,13 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 - [x] 让发布版 exe 启动后稳定保持运行至少 5 秒。
 - [x] 确认 `Kkindle.pri`、`Microsoft.UI.pri` 和 WinUI 依赖都随发布输出存在。
 - [x] 将 `WindowsAppSDKSelfContained=true` 写入 `Kkindle.App.csproj`，避免只依赖命令行参数。
-- [ ] 删除临时 Probe 文件和调试代码。
+- [x] 删除临时 Probe 文件和调试代码。
 
 ### P1 恢复可用 UI
 
-- [ ] 恢复灰白纸张风格的完整 MainWindow。
-- [ ] 恢复书架卡片封面、标题、作者和格式信息。
-- [ ] 恢复搜索、列表/网格切换和书籍详情面板。
+- [x] 恢复灰白纸张风格的完整 MainWindow。
+- [x] 恢复书架卡片封面、标题、作者和格式信息。
+- [x] 恢复搜索、列表/网格切换和书籍详情面板。
 - [ ] 验证空书库、无封面、长标题和高 DPI。
 - [ ] 用真实导入的 EPUB 做一次完整手工验收。
 

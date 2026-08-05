@@ -1,39 +1,259 @@
 <Window
     x:Class="Kkindle.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid x:Name="RootGrid">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Kkindle">
+
+    <Grid x:Name="RootGrid" Background="{StaticResource PageBackgroundBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="200" />
-            <ColumnDefinition x:Name="DetailColumn" Width="*" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition x:Name="DetailColumn" Width="0" />
         </Grid.ColumnDefinitions>
-        <StackPanel Grid.Column="0">
-            <TextBlock Text="Kkindle" />
-            <Button x:Name="AllBooksButton" Content="All" Click="NavigationButton_Click" />
-            <TextBlock x:Name="SidebarCountText" />
-            <TextBox x:Name="SearchBox" TextChanged="SearchBox_TextChanged" />
-            <TextBlock x:Name="LibrarySummaryText" />
-            <TextBlock x:Name="KindleStatusText" />
-            <ListView x:Name="BookList" SelectionChanged="BookList_SelectionChanged" />
-            <ProgressBar x:Name="TaskProgress" />
-            <TextBlock x:Name="TaskStatusText" />
-        </StackPanel>
-        <StackPanel Grid.Column="1">
-            <GridView x:Name="BookGrid" IsItemClickEnabled="True" ItemClick="BookGrid_ItemClick" />
-            <Border x:Name="DetailPane">
-                <StackPanel>
-                    <Button Content="Close" Click="CloseDetailButton_Click" />
-                    <Image x:Name="DetailCoverImage" />
-                    <TextBox x:Name="DetailsTitleBox" />
-                    <TextBox x:Name="DetailsAuthorsBox" />
-                    <TextBox x:Name="DetailsSeriesBox" />
-                    <TextBox x:Name="DetailsTagsBox" />
-                    <TextBox x:Name="DetailsDescriptionBox" />
-                    <Button Content="Save" Click="SaveDetailsButton_Click" />
-                    <Button Content="Send" Click="SendToKindleButton_Click" />
-                    <Button Content="Delete" Click="DeleteBookButton_Click" />
+
+        <!-- Left navigation -->
+        <Border Grid.Column="0"
+                Background="{StaticResource SidebarBackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,1,0">
+            <Grid Padding="18,24,18,18">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Kkindle"
+                               Foreground="{StaticResource InkBrush}"
+                               FontFamily="Georgia"
+                               FontSize="24"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="个人电子书架"
+                               Foreground="{StaticResource MutedInkBrush}"
+                               FontSize="12" />
                 </StackPanel>
-            </Border>
-        </StackPanel>
+
+                <StackPanel Grid.Row="1" Margin="0,30,0,0" Spacing="3">
+                    <Button x:Name="AllBooksButton"
+                            Style="{StaticResource SidebarButtonStyle}"
+                            Background="{StaticResource SelectedBackgroundBrush}"
+                            Click="NavigationButton_Click">
+                        <Grid Width="140">
+                            <TextBlock Text="全部书籍" />
+                            <TextBlock x:Name="SidebarCountText"
+                                       HorizontalAlignment="Right"
+                                       Foreground="{StaticResource MutedInkBrush}" />
+                        </Grid>
+                    </Button>
+                    <Button Content="最近导入" Style="{StaticResource SidebarButtonStyle}" Click="NavigationButton_Click" />
+                    <Button Content="作者" Style="{StaticResource SidebarButtonStyle}" Click="NavigationButton_Click" />
+                    <Button Content="标签" Style="{StaticResource SidebarButtonStyle}" Click="AddTagButton_Click" />
+                    <Button Content="分类" Style="{StaticResource SidebarButtonStyle}" Click="AddCategoryButton_Click" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="3" Spacing="8">
+                    <Border Padding="10"
+                            Background="#F8F8F9"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="设备" FontSize="11" Foreground="{StaticResource MutedInkBrush}" />
+                            <TextBlock x:Name="KindleStatusText" Text="正在检查 Kindle…" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Button Content="设置" Style="{StaticResource SidebarButtonStyle}" Click="SettingsButton_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Library -->
+        <Grid Grid.Column="1" Padding="30,24,30,18">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="我的书架"
+                               Foreground="{StaticResource InkBrush}"
+                               FontFamily="Georgia"
+                               FontSize="28"
+                               FontWeight="SemiBold" />
+                    <TextBlock x:Name="LibrarySummaryText"
+                               Margin="0,3,0,0"
+                               Foreground="{StaticResource MutedInkBrush}"
+                               Text="正在读取书库…" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Content="导入文件" Style="{StaticResource QuietButtonStyle}" Click="ImportFilesButton_Click" />
+                    <Button Content="导入文件夹" Style="{StaticResource QuietButtonStyle}" Click="ImportFolderButton_Click" />
+                </StackPanel>
+            </Grid>
+
+            <Grid Grid.Row="1" Margin="0,22,0,18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="420" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="SearchBox"
+                         Height="38"
+                         Padding="13,7"
+                         PlaceholderText="搜索标题或作者"
+                         TextChanged="SearchBox_TextChanged" />
+                <Button Grid.Column="1"
+                        Margin="10,0,0,0"
+                        HorizontalAlignment="Left"
+                        Content="筛选"
+                        Style="{StaticResource QuietButtonStyle}"
+                        Click="FilterButton_Click" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                    <Button Content="网格" Style="{StaticResource QuietButtonStyle}" Click="GridViewButton_Click" />
+                    <Button Content="列表" Style="{StaticResource QuietButtonStyle}" Click="ListViewButton_Click" />
+                    <Button Content="更多" Style="{StaticResource QuietButtonStyle}" Click="MoreButton_Click" />
+                </StackPanel>
+            </Grid>
+
+            <Grid Grid.Row="2">
+                <GridView x:Name="BookGrid"
+                          ItemsSource="{x:Bind ViewModel.Books}"
+                          IsItemClickEnabled="True"
+                          ItemClick="BookGrid_ItemClick"
+                          SelectionMode="None"
+                          HorizontalContentAlignment="Stretch">
+                    <GridView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="0" />
+                        </ItemsPanelTemplate>
+                    </GridView.ItemsPanel>
+                    <GridView.ItemTemplate>
+                        <DataTemplate x:DataType="local:BookCardViewModel">
+                            <Grid Width="154" Margin="0,0,18,22">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="214" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Border Background="#E4E1DA"
+                                        BorderBrush="{StaticResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="4">
+                                    <Grid>
+                                        <TextBlock Text="BOOK"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="#9B978E"
+                                                   FontFamily="Georgia"
+                                                   FontSize="17"
+                                                   CharacterSpacing="160" />
+                                        <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
+                                    </Grid>
+                                </Border>
+                                <StackPanel Grid.Row="1" Margin="2,9,2,0" Spacing="2">
+                                    <TextBlock Text="{x:Bind Title}"
+                                               Foreground="{StaticResource InkBrush}"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"
+                                               MaxLines="2" />
+                                    <TextBlock Text="{x:Bind Authors}"
+                                               Foreground="{StaticResource MutedInkBrush}"
+                                               FontSize="12"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{x:Bind FormatLabel}"
+                                               Foreground="{StaticResource MutedInkBrush}"
+                                               FontSize="10" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </GridView.ItemTemplate>
+                </GridView>
+
+                <ListView x:Name="BookList"
+                          Visibility="Collapsed"
+                          ItemsSource="{x:Bind ViewModel.Books}"
+                          SelectionChanged="BookList_SelectionChanged">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="local:BookCardViewModel">
+                            <Grid Padding="8,9" MinHeight="66">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="42" />
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="100" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="36" Height="48" Background="#E4E1DA" CornerRadius="2">
+                                    <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
+                                </Border>
+                                <StackPanel Grid.Column="1" Margin="12,0,12,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{x:Bind FileCountLabel}" Foreground="{StaticResource MutedInkBrush}" FontSize="11" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="2" Text="{x:Bind Authors}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="3" Text="{x:Bind FormatLabel}" VerticalAlignment="Center" Foreground="{StaticResource MutedInkBrush}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+
+            <Grid Grid.Row="3" Margin="0,10,0,0">
+                <ProgressBar x:Name="TaskProgress" Visibility="Collapsed" Minimum="0" Maximum="100" Height="3" />
+                <TextBlock x:Name="TaskStatusText"
+                           Margin="0,8,0,0"
+                           Foreground="{StaticResource MutedInkBrush}"
+                           FontSize="11"
+                           HorizontalAlignment="Right" />
+            </Grid>
+        </Grid>
+
+        <!-- Book details -->
+        <Border x:Name="DetailPane"
+                Grid.Column="2"
+                Visibility="Collapsed"
+                Background="#FAFAF9"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1,0,0,0">
+            <ScrollViewer>
+                <StackPanel Padding="24" Spacing="13">
+                    <Button Content="关闭" HorizontalAlignment="Right" Style="{StaticResource QuietButtonStyle}" Click="CloseDetailButton_Click" />
+                    <Border Height="250" Background="#E4E1DA" CornerRadius="4">
+                        <Image x:Name="DetailCoverImage" Stretch="UniformToFill" />
+                    </Border>
+                    <TextBlock Text="书籍信息" FontFamily="Georgia" FontSize="20" FontWeight="SemiBold" />
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="标题" FontSize="11" Foreground="{StaticResource MutedInkBrush}" />
+                        <TextBox x:Name="DetailsTitleBox" />
+                    </StackPanel>
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="作者" FontSize="11" Foreground="{StaticResource MutedInkBrush}" />
+                        <TextBox x:Name="DetailsAuthorsBox" />
+                    </StackPanel>
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="系列" FontSize="11" Foreground="{StaticResource MutedInkBrush}" />
+                        <TextBox x:Name="DetailsSeriesBox" />
+                    </StackPanel>
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="标签" FontSize="11" Foreground="{StaticResource MutedInkBrush}" />
+                        <TextBox x:Name="DetailsTagsBox" PlaceholderText="多个标签用逗号分隔" />
+                    </StackPanel>
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="简介" FontSize="11" Foreground="{StaticResource MutedInkBrush}" />
+                        <TextBox x:Name="DetailsDescriptionBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="100" />
+                    </StackPanel>
+                    <Button Content="保存修改" Click="SaveDetailsButton_Click" />
+                    <Button Content="发送到 Kindle" Style="{StaticResource QuietButtonStyle}" Click="SendToKindleButton_Click" />
+                    <Button Content="从书库删除" Style="{StaticResource QuietButtonStyle}" Click="DeleteBookButton_Click" />
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
     </Grid>
 </Window>
