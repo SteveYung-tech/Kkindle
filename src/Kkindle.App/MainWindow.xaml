@@ -44,6 +44,8 @@
                                     Style="{StaticResource SidebarButtonStyle}"
                                     Background="{StaticResource SelectedBackgroundBrush}"
                                     Foreground="#FFFFFF"
+                                    PointerEntered="AllBooksButton_PointerEntered"
+                                    PointerExited="AllBooksButton_PointerExited"
                                     Click="NavigationButton_Click">
                                 <Grid Width="140">
                                     <TextBlock x:Name="AllBooksLabelText" Text="电脑书库" Foreground="#FFFFFF" />
@@ -89,11 +91,8 @@
                                        VerticalAlignment="Center" />
                             <Button x:Name="EjectDeviceButton"
                                     Grid.Column="1"
-                                    Width="25"
-                                    Height="23"
-                                    Padding="0"
-                                    Content="▲"
-                                    FontSize="10"
+                                    AutomationProperties.Name="弹出设备"
+                                    Style="{StaticResource EjectButtonStyle}"
                                     Visibility="Collapsed"
                                     ToolTipService.ToolTip="弹出设备"
                                     Click="EjectDeviceButton_Click" />

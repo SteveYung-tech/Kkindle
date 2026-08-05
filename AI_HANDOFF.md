@@ -332,6 +332,8 @@ C:\Users\kings\Desktop\01_Projects\Kkindle\src\Kkindle.App\bin\x64\Release\net8.
 - 第七轮 Release publish 修复电脑书库选中后文字消失的问题；启动自动发现 Kindle 并询问是否连接，接受后显示设备与容量。
 - 侧栏设备名右侧增加 `▲` 弹出按钮：USB 磁盘调用安全弹出接口，MTP 让 Kkindle 停止访问并提示可以断开 USB；传输进行中禁止弹出。
 - “暂不连接”在本次物理连接期间不会重复提示，设备拔出重连或手动刷新后可再次选择。
+- 第八轮 Release publish 统一覆盖 WinUI 普通按钮、强调按钮和 ContentDialog 的黑白 Normal/Hover/Pressed 状态，连接弹窗改为白底黑框、零圆角且不再出现蓝色按钮。
+- 电脑书库自定义文字和计数显式跟随悬停反色；弹出按钮改用模板绘制的实心三角形，移入为白底黑三角，移出为黑底白三角。
 
 最值得优先验证的资源写法：
 

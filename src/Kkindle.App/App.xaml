@@ -17,6 +17,39 @@
             <SolidColorBrush x:Key="BorderBrush" Color="#000000" />
             <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" />
 
+            <!-- Monochrome WinUI visual-state resources. -->
+            <SolidColorBrush x:Key="ButtonBackground" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#D9D9D9" />
+            <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#F2F2F2" />
+            <SolidColorBrush x:Key="ButtonForeground" Color="#000000" />
+            <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#000000" />
+            <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#8A8A8A" />
+            <SolidColorBrush x:Key="ButtonBorderBrush" Color="#000000" />
+            <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#000000" />
+            <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="#BFBFBF" />
+
+            <SolidColorBrush x:Key="AccentButtonBackground" Color="#000000" />
+            <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#D9D9D9" />
+            <SolidColorBrush x:Key="AccentButtonBackgroundDisabled" Color="#F2F2F2" />
+            <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#000000" />
+            <SolidColorBrush x:Key="AccentButtonForegroundDisabled" Color="#8A8A8A" />
+            <SolidColorBrush x:Key="AccentButtonBorderBrush" Color="#000000" />
+            <SolidColorBrush x:Key="AccentButtonBorderBrushPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="AccentButtonBorderBrushPressed" Color="#000000" />
+            <SolidColorBrush x:Key="AccentButtonBorderBrushDisabled" Color="#BFBFBF" />
+
+            <SolidColorBrush x:Key="ContentDialogBackground" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ContentDialogForeground" Color="#000000" />
+            <SolidColorBrush x:Key="ContentDialogBorderBrush" Color="#000000" />
+            <Thickness x:Key="ContentDialogBorderWidth">1</Thickness>
+            <CornerRadius x:Key="OverlayCornerRadius">0</CornerRadius>
+
             <Style TargetType="Button">
                 <Setter Property="CornerRadius" Value="0" />
                 <Setter Property="Background" Value="#000000" />
@@ -51,6 +84,62 @@
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="CornerRadius" Value="0" />
+            </Style>
+
+            <Style x:Key="EjectButtonStyle" TargetType="Button">
+                <Setter Property="Width" Value="25" />
+                <Setter Property="Height" Value="23" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Background" Value="#000000" />
+                <Setter Property="BorderBrush" Value="#000000" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="0" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Grid>
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="EjectBackground" Storyboard.TargetProperty="Background">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#FFFFFF" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="EjectTriangle" Storyboard.TargetProperty="Fill">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#000000" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="EjectBackground" Storyboard.TargetProperty="Background">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#D9D9D9" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="EjectTriangle" Storyboard.TargetProperty="Fill">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#000000" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled" />
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <Border x:Name="EjectBackground"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}" />
+                                <Polygon x:Name="EjectTriangle"
+                                         Points="0,8 7,0 14,8"
+                                         Width="14"
+                                         Height="8"
+                                         Fill="#FFFFFF"
+                                         Stretch="Fill"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
         </ResourceDictionary>
     </Application.Resources>

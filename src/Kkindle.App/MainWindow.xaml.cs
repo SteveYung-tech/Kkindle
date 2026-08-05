@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Storage.Pickers;
@@ -25,6 +26,7 @@ public sealed partial class MainWindow : Window
     private double _deviceUsedRatio;
     private string? _acceptedDeviceId;
     private string? _ignoredDeviceId;
+    private Button? _activeNavigationButton;
 
     public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
     {
@@ -450,6 +452,7 @@ public sealed partial class MainWindow : Window
 
     private void SetActiveNavigation(Button activeButton)
     {
+        _activeNavigationButton = activeButton;
         var ink = (Brush)Application.Current.Resources["InkBrush"];
         var paper = (Brush)Application.Current.Resources["CardBrush"];
         foreach (var button in new[] { AllBooksButton, KindleBooksButton, DeviceOverviewButton })
@@ -460,6 +463,21 @@ public sealed partial class MainWindow : Window
         }
         AllBooksLabelText.Foreground = activeButton == AllBooksButton ? paper : ink;
         SidebarCountText.Foreground = activeButton == AllBooksButton ? paper : ink;
+    }
+
+    private void AllBooksButton_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        var paper = (Brush)Application.Current.Resources["CardBrush"];
+        AllBooksLabelText.Foreground = paper;
+        SidebarCountText.Foreground = paper;
+    }
+
+    private void AllBooksButton_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        var isActive = _activeNavigationButton is null || _activeNavigationButton == AllBooksButton;
+        var brush = (Brush)Application.Current.Resources[isActive ? "CardBrush" : "InkBrush"];
+        AllBooksLabelText.Foreground = brush;
+        SidebarCountText.Foreground = brush;
     }
 
     private void DeviceStorageBar_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateDeviceStorageBar();
