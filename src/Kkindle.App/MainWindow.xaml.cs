@@ -85,6 +85,7 @@ public sealed partial class MainWindow : Window
         var appWindow = AppWindow.GetFromWindowId(windowId);
         _appWindow = appWindow;
         appWindow.Title = "Kkindle";
+        appWindow.Changed += AppWindow_Changed;
 
         var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Kkindle.ico");
         if (File.Exists(iconPath)) appWindow.SetIcon(iconPath);
@@ -96,19 +97,8 @@ public sealed partial class MainWindow : Window
             UpdateMaximizeGlyph();
         }
 
-        var cornerPreference = DwmWindowCornerPreference.DoNotRound;
-        _ = DwmSetWindowAttribute(
-            windowHandle,
-            DwmWindowAttribute.WindowCornerPreference,
-            ref cornerPreference,
-            Marshal.SizeOf<DwmWindowCornerPreference>());
-
-        var borderColor = 0x000000;
-        _ = DwmSetWindowAttribute(
-            windowHandle,
-            DwmWindowAttribute.BorderColor,
-            ref borderColor,
-            sizeof(int));
+        ApplySquareWindowFrame();
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
     }
 
     private void MinimizeWindowButton_Click(object sender, RoutedEventArgs e) => _windowPresenter?.Minimize();
@@ -121,6 +111,7 @@ public sealed partial class MainWindow : Window
         else
             _windowPresenter.Maximize();
         UpdateMaximizeGlyph();
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
     }
 
     private void CloseWindowButton_Click(object sender, RoutedEventArgs e) => Close();
@@ -134,28 +125,27 @@ public sealed partial class MainWindow : Window
             isMaximized ? "还原" : "最大化");
     }
 
-    private enum DwmWindowAttribute
+    private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args)
     {
-        WindowCornerPreference = 33,
-        BorderColor = 34
+        if (!args.DidPresenterChange) return;
+        UpdateMaximizeGlyph();
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
     }
 
-    private enum DwmWindowCornerPreference
+    private void ApplySquareWindowFrame()
     {
-        DoNotRound = 1
+        var windowHandle = WindowNative.GetWindowHandle(this);
+        var cornerPreference = 1; // DWMWCP_DONOTROUND
+        _ = DwmSetWindowAttribute(windowHandle, 33, ref cornerPreference, sizeof(int));
+
+        var borderColor = 0x000000;
+        _ = DwmSetWindowAttribute(windowHandle, 34, ref borderColor, sizeof(int));
     }
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(
         IntPtr windowHandle,
-        DwmWindowAttribute attribute,
-        ref DwmWindowCornerPreference value,
-        int valueSize);
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(
-        IntPtr windowHandle,
-        DwmWindowAttribute attribute,
+        int attribute,
         ref int value,
         int valueSize);
 
@@ -171,6 +161,8 @@ public sealed partial class MainWindow : Window
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
+        ApplySquareWindowFrame();
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
         await RefreshLibraryAsync();
         await RefreshDevicesAsync();
     }

@@ -491,3 +491,12 @@ git status --short --branch
 - 原生窗口装饰设置增加失败隔离：即使某项系统 API 不受支持，也不会阻止主窗口打开。
 - 由于两个旧版 Kkindle 进程锁定标准发布目录，本轮修复版发布到同级 `publish-fix` 目录。
 - 修复版实际启动验证通过：2 秒内取得主窗口句柄，窗口标题为 `Kkindle`，进程可响应。
+
+## 11. 第十二、十三轮发布：全自绘窗口按钮与真正直角（2026-08-05）
+
+- 使用 `OverlappedPresenter.SetBorderAndTitleBar(true, false)` 移除 Windows 原生标题栏按钮，保留系统窗口缩放边框。
+- 标题栏右侧新增三个完全自绘的矩形按钮：最小化、最大化/还原、关闭；Normal、Hover、Pressed 均为黑白直角样式。
+- 标题栏拖动区域与按钮区域分离，按钮可正常交互；最大化状态下图标和辅助功能名称会切换为“还原”。
+- 修复 presenter 切换完成后 Windows 重置圆角偏好的时序问题：在低优先级调度、首次布局和 presenter 状态变化后重复应用 DWM 直角设置。
+- 最终启动验证：窗口标题 `Kkindle`、进程可响应，三个自绘按钮均可由 UI Automation 识别。
+- DWM 验证返回成功且 `CornerPreference = 1 (DWMWCP_DONOTROUND)`；离屏窗口截图确认外框为真正直角。
