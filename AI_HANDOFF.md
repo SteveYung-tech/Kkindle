@@ -662,3 +662,10 @@ git status --short --branch
 - 测试从 18 增至 22，新增：中文 EPUB 正文索引与相关片段检索、划线/批注增删改持久化、脚注目录边界安全、AI API Key DPAPI 加密。Debug/Release 构建 0 警告 0 错误，两个配置测试全部通过。
 - 本轮代码已提交并推送到 GitHub：`4e8009b feat: add reader AI assistant, highlights, notes, and book index`。
 - 说明：AI 对话需要用户自行配置有效 API Key；真实服务调用尚未在本文档记录人工验收，应先完成配置后手工验证一次完整问答。
+
+## 18. AI 功能发布（2026-08-06）
+
+- 标准 `publish` 目录已用当前 `master` 重新发布，`Kkindle.exe` 更新于 2026-08-06 15:16，包含第 17 节的 AI 问答、划线/批注和本地全文索引。
+- 发布前 Debug/Release x64 构建均为 0 警告、0 错误，22 项测试全部通过。
+- 发布后启动验证：进程 5 秒后仍存活，主窗口标题为 `Kkindle`，主窗口句柄正常。
+- 功能代码已包含在已推送的 `4e8009b` 中，本次发布不新增代码提交，仅记录发布轮次。
