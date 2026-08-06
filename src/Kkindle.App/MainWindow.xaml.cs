@@ -63,16 +63,29 @@ public sealed partial class MainWindow : Window
     private bool _readerTocExpanded = true;
     private bool _readerAssistantExpanded = true;
     private bool _readerHasToc;
-    private readonly List<string> _readerSessionNotes = [];
 
-    public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
+    public MainWindow(
+        AppPaths paths,
+        IBookLibraryService library,
+        IKindleDeviceService kindle,
+        ReaderDataService readerData,
+        EpubBookContentService bookContent,
+        EpubFootnoteResolver footnotes,
+        AiSettingsStore aiSettingsStore,
+        AiChatClient aiChatClient)
     {
         _paths = paths;
         _library = library;
         _kindle = kindle;
+        _readerData = readerData;
+        _bookContent = bookContent;
+        _footnotes = footnotes;
+        _aiSettingsStore = aiSettingsStore;
+        _aiChatClient = aiChatClient;
         _epubReader = new EpubReaderPreparationService(paths);
         ViewModel = new LibraryViewModel(library, paths.Data);
         InitializeComponent();
+        ConfigureReaderFeatureHosts();
         ConfigureTitleBar();
         SetActiveNavigation(AllBooksButton);
         Activated += MainWindow_Activated;
@@ -168,9 +181,13 @@ public sealed partial class MainWindow : Window
 
     private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args)
     {
-        if (!args.DidPresenterChange) return;
-        UpdateMaximizeGlyph();
-        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
+        if (args.DidPresenterChange)
+        {
+            UpdateMaximizeGlyph();
+            DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
+        }
+        if (args.DidSizeChange)
+            DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ConstrainRootToViewport);
     }
 
     private void ApplySquareWindowFrame()
@@ -200,6 +217,9 @@ public sealed partial class MainWindow : Window
         _deviceTimer.Stop();
         _transferCancellation?.Cancel();
         _transferCancellation?.Dispose();
+        _readerFeatureCancellation?.Cancel();
+        _readerFeatureCancellation?.Dispose();
+        _aiChatClient.Dispose();
         if (_deviceChangeMonitor is not null)
         {
             _deviceChangeMonitor.DeviceChanged -= DeviceChangeMonitor_DeviceChanged;
@@ -211,6 +231,7 @@ public sealed partial class MainWindow : Window
     {
         ApplySquareWindowFrame();
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
+        ConstrainRootToViewport();
         await RefreshLibraryAsync();
         await RefreshDevicesAsync();
     }
@@ -768,7 +789,8 @@ public sealed partial class MainWindow : Window
             await ReaderWebView.EnsureCoreWebView2Async();
             ConfigureReaderWebView();
             ConfigureReaderBookInformation(book, file);
-            ResetReaderAssistant();
+            BeginReaderSession(book, file);
+            await LoadReaderSessionDataAsync(_readerFeatureCancellation!.Token);
             ReaderTitleText.Text = book.Title;
             ReaderPane.Visibility = Visibility.Visible;
             ReaderPane.UpdateLayout();
@@ -808,6 +830,9 @@ public sealed partial class MainWindow : Window
                 ReaderPdfBottomText.Visibility = Visibility.Visible;
                 ReaderThemeButton.Visibility = Visibility.Collapsed;
                 ReaderFlowButton.Visibility = Visibility.Collapsed;
+                ReaderHighlightButton.Visibility = Visibility.Collapsed;
+                ReaderAnnotateButton.Visibility = Visibility.Collapsed;
+                SetReaderIndexUnavailable("PDF 暂不支持本地全文索引与批注；可继续使用内置查看器。");
                 ApplyReaderPanelLayout();
                 ReaderWebView.Source = new Uri(path);
                 return;
@@ -816,6 +841,7 @@ public sealed partial class MainWindow : Window
             _readerHasToc = true;
             ReaderStatusText.Text = "正在准备 EPUB…";
             var document = await _epubReader.PrepareAsync(path, file.Sha256);
+            _readerDocument = document;
             _readerChapters = document.Chapters;
             _readerNavigation = document.Navigation;
             _readerChapterIndex = 0;
@@ -836,8 +862,11 @@ public sealed partial class MainWindow : Window
             ReaderPdfBottomText.Visibility = Visibility.Collapsed;
             ReaderThemeButton.Visibility = Visibility.Visible;
             ReaderFlowButton.Visibility = Visibility.Visible;
+            ReaderHighlightButton.Visibility = Visibility.Visible;
+            ReaderAnnotateButton.Visibility = Visibility.Visible;
             ApplyReaderPanelLayout();
             ShowReaderChapter();
+            StartReaderIndexing();
         }
         catch (Exception ex)
         {
@@ -871,14 +900,22 @@ public sealed partial class MainWindow : Window
 
     private void ResetReaderAssistant()
     {
-        _readerSessionNotes.Clear();
-        ReaderNoteBox.Text = string.Empty;
-        ReaderAssistantOutputText.Text = string.Empty;
-        ReaderAssistantOutputBorder.Visibility = Visibility.Collapsed;
-        ReaderAssistantEmptyState.Visibility = Visibility.Visible;
+        ResetReaderFeatures();
     }
 
-    private void ReaderPane_SizeChanged(object sender, SizeChangedEventArgs e) => ApplyReaderPanelLayout(e.NewSize.Width);
+    private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        ConstrainRootToViewport();
+    }
+
+    private void ConstrainRootToViewport()
+    {
+        var viewportWidth = RootGrid.XamlRoot?.Size.Width ?? 0;
+        if (viewportWidth <= 0) return;
+        if (double.IsNaN(RootGrid.Width) || Math.Abs(RootGrid.Width - viewportWidth) > 0.5)
+            RootGrid.Width = viewportWidth;
+        ApplyReaderPanelLayout(viewportWidth);
+    }
 
     private void ReaderTocToggleButton_Click(object sender, RoutedEventArgs e)
     {
@@ -895,13 +932,33 @@ public sealed partial class MainWindow : Window
     private void ApplyReaderPanelLayout(double? availableWidth = null)
     {
         if (ReaderPane.Visibility != Visibility.Visible) return;
-        var width = availableWidth ?? ReaderPane.ActualWidth;
-        var showToc = _readerTocExpanded && width >= 760;
-        var showAssistant = _readerAssistantExpanded && width >= 1180;
-        ReaderTocColumn.Width = showToc ? new GridLength(286) : new GridLength(0);
-        ReaderAssistantColumn.Width = showAssistant ? new GridLength(310) : new GridLength(0);
-        ReaderTocToggleButton.Opacity = showToc ? 0.58 : 1;
-        ReaderAssistantToggleButton.Opacity = showAssistant ? 0.58 : 1;
+        var width = RootGrid.XamlRoot?.Size.Width ?? availableWidth ?? RootGrid.ActualWidth;
+        if (width <= 0) return;
+        var assistantWidth = _readerAssistantExpanded ? 360d : 0d;
+        var readerWidth = Math.Max(0, width - assistantWidth);
+        ReaderPane.Width = readerWidth;
+        ReaderPane.HorizontalAlignment = HorizontalAlignment.Left;
+        var tocWidth = _readerTocExpanded ? 286d : 0d;
+        ReaderTocColumn.Width = new GridLength(tocWidth);
+        ReaderContentColumn.Width = new GridLength(Math.Max(0, readerWidth - tocWidth));
+        ReaderAssistantColumn.Width = new GridLength(0);
+
+        ReaderTocPanel.Visibility = _readerTocExpanded ? Visibility.Visible : Visibility.Collapsed;
+        Grid.SetColumn(ReaderTocPanel, 0);
+        Grid.SetColumnSpan(ReaderTocPanel, 1);
+        ReaderTocPanel.Width = double.NaN;
+        ReaderTocPanel.HorizontalAlignment = HorizontalAlignment.Stretch;
+        Canvas.SetZIndex(ReaderTocPanel, 0);
+
+        UpdateReaderAssistantPopup(_readerAssistantExpanded);
+
+        ReaderTocToggleButton.Opacity = _readerTocExpanded ? 0.58 : 1;
+        ReaderAssistantToggleButton.Opacity = _readerAssistantExpanded ? 0.58 : 1;
+    }
+
+    private void ReaderContentPanel_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        ReaderContentClip.Rect = new Windows.Foundation.Rect(0, 0, e.NewSize.Width, e.NewSize.Height);
     }
 
     private void ReaderTocSearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyReaderTocFilter();
@@ -1081,70 +1138,6 @@ public sealed partial class MainWindow : Window
         };
     }
 
-    private async void ReaderAssistantOverviewButton_Click(object sender, RoutedEventArgs e)
-    {
-        var rawText = await ExecuteReaderStringScriptAsync(GetReaderSectionTextScript());
-        var text = NormalizeReaderText(rawText);
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            ShowReaderAssistantOutput("当前页面无法提取正文。PDF 可继续使用内置查看器阅读和搜索。");
-            return;
-        }
-
-        var chapterTitle = (ReaderTocList.SelectedItem as EpubReaderNavigationItem)?.Title
-            ?? _readerNavigation.FirstOrDefault(item => item.ChapterIndex == _readerChapterIndex)?.Title
-            ?? "当前章节";
-        var preview = text.Length > 420 ? text[..420] + "…" : text;
-        ShowReaderAssistantOutput($"{chapterTitle}\n\n约 {text.Count(character => !char.IsWhiteSpace(character)):N0} 字\n\n{preview}");
-    }
-
-    private async void ReaderAssistantStatisticsButton_Click(object sender, RoutedEventArgs e)
-    {
-        var rawText = await ExecuteReaderStringScriptAsync(GetReaderSectionTextScript());
-        if (string.IsNullOrWhiteSpace(rawText))
-        {
-            ShowReaderAssistantOutput("当前页面无法统计正文内容。");
-            return;
-        }
-
-        var characters = rawText.Count(character => !char.IsWhiteSpace(character));
-        var paragraphs = rawText.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
-            .Count(line => !string.IsNullOrWhiteSpace(line));
-        var estimatedMinutes = Math.Max(1, (int)Math.Ceiling(characters / 500d));
-        ShowReaderAssistantOutput($"阅读统计\n\n正文字符：{characters:N0}\n段落行数：{paragraphs:N0}\n预计阅读：约 {estimatedMinutes} 分钟");
-    }
-
-    private async void ReaderAssistantCopySelectionButton_Click(object sender, RoutedEventArgs e)
-    {
-        var selectedText = await ExecuteReaderStringScriptAsync("window.getSelection ? window.getSelection().toString() : ''");
-        if (string.IsNullOrWhiteSpace(selectedText))
-        {
-            ShowReaderAssistantOutput("请先在正文中选择一段文字，再点击“复制选中”。");
-            return;
-        }
-
-        var package = new DataPackage();
-        package.SetText(selectedText.Trim());
-        Clipboard.SetContent(package);
-        ShowReaderAssistantOutput($"已复制 {selectedText.Trim().Length:N0} 个字符到剪贴板。\n\n{selectedText.Trim()}");
-    }
-
-    private void ReaderAssistantClearButton_Click(object sender, RoutedEventArgs e) => ResetReaderAssistant();
-
-    private void ReaderNoteAddButton_Click(object sender, RoutedEventArgs e)
-    {
-        var note = ReaderNoteBox.Text.Trim();
-        if (string.IsNullOrEmpty(note))
-        {
-            ShowReaderAssistantOutput("先写下一段阅读想法，再加入临时笔记。");
-            return;
-        }
-
-        _readerSessionNotes.Add($"[{DateTime.Now:HH:mm}] {note}");
-        ReaderNoteBox.Text = string.Empty;
-        ShowReaderAssistantOutput("临时笔记\n\n" + string.Join("\n\n", _readerSessionNotes));
-    }
-
     private static string GetReaderSectionTextScript() =>
         """
         (() => {
@@ -1199,18 +1192,13 @@ public sealed partial class MainWindow : Window
         return string.Join(" ", text.Split([' ', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries));
     }
 
-    private void ShowReaderAssistantOutput(string text)
-    {
-        ReaderAssistantOutputText.Text = text;
-        ReaderAssistantEmptyState.Visibility = Visibility.Collapsed;
-        ReaderAssistantOutputBorder.Visibility = Visibility.Visible;
-    }
-
     private void CloseReaderButton_Click(object sender, RoutedEventArgs e) => CloseReader();
 
     private void CloseReader()
     {
         ReaderPane.Visibility = Visibility.Collapsed;
+        UpdateReaderAssistantPopup(false);
+        SetReaderAiSettingsVisible(false);
         _readerChapters = [];
         _readerNavigation = [];
         _readerChapterIndex = -1;
@@ -1222,6 +1210,7 @@ public sealed partial class MainWindow : Window
         ReaderTocSearchBox.Text = string.Empty;
         ReaderCoverImage.Source = null;
         ResetReaderAssistant();
+        EndReaderSession();
         if (ReaderWebView.CoreWebView2 is not null)
             ReaderWebView.CoreWebView2.Navigate("about:blank");
     }
@@ -1267,6 +1256,10 @@ public sealed partial class MainWindow : Window
     {
         if (!args.IsSuccess) return;
         await ApplyReaderAppearanceAsync();
+        await ApplyReaderAnnotationsToPageAsync();
+        await ConfigureReaderFootnoteHoverAsync();
+        await ScrollToPendingReaderAnnotationAsync();
+        await ScrollToPendingReaderChunkAsync();
         if (_readerNavigateToEnd)
         {
             await MoveReaderToEndAsync();

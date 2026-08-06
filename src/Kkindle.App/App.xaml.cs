@@ -18,8 +18,18 @@ public partial class App : Application
         var metadata = new BookMetadataService();
         var library = new SqliteBookLibraryService(paths, metadata);
         var kindle = new KindleDeviceService(paths, metadata);
+        var readerData = new ReaderDataService(paths);
         await library.InitializeAsync();
-        _window = new MainWindow(paths, library, kindle);
+        await readerData.InitializeAsync();
+        _window = new MainWindow(
+            paths,
+            library,
+            kindle,
+            readerData,
+            new EpubBookContentService(readerData),
+            new EpubFootnoteResolver(),
+            new AiSettingsStore(paths),
+            new AiChatClient());
         _window.Activate();
     }
 }
