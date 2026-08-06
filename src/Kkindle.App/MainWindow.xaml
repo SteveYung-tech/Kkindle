@@ -800,12 +800,13 @@
                     <RectangleGeometry x:Name="ReaderContentClip" />
                 </Grid.Clip>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="52" />
+                    <RowDefinition x:Name="ReaderHeaderRow" Height="52" />
                     <RowDefinition Height="*" />
-                    <RowDefinition Height="50" />
+                    <RowDefinition x:Name="ReaderFooterRow" Height="50" />
                 </Grid.RowDefinitions>
 
-                <Border Background="#FFFFFF"
+                <Border x:Name="ReaderHeaderBar"
+                        Background="#FFFFFF"
                         BorderBrush="#000000"
                         BorderThickness="0,0,0,1">
                     <Grid Padding="14,8" ColumnSpacing="8">
@@ -851,6 +852,35 @@
                                     Style="{StaticResource ReaderToolbarButtonStyle}"
                                     ToolTipService.ToolTip="切换滚动或分页"
                                     Click="ReaderFlowButton_Click" />
+                            <Button x:Name="ReaderMoreButton"
+                                    Content="更多"
+                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    ToolTipService.ToolTip="阅读设置"
+                                    AutomationProperties.Name="阅读设置">
+                                <Button.Flyout>
+                                    <MenuFlyout>
+                                        <ToggleMenuFlyoutItem x:Name="ReaderZenMenuItem"
+                                                              Text="禅模式"
+                                                              ToolTipService.ToolTip="隐藏目录与阅读助手，最大化正文区域"
+                                                              Click="ReaderZenMenuItem_Click" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="翻页动画" IsEnabled="False" />
+                                        <RadioMenuFlyoutItem x:Name="ReaderAnimationNoneItem"
+                                                             Text="无动画"
+                                                             GroupName="ReaderPageAnimation"
+                                                             IsChecked="True"
+                                                             Click="ReaderAnimationItem_Click" />
+                                        <RadioMenuFlyoutItem x:Name="ReaderAnimationFadeItem"
+                                                             Text="仿真"
+                                                             GroupName="ReaderPageAnimation"
+                                                             Click="ReaderAnimationItem_Click" />
+                                        <RadioMenuFlyoutItem x:Name="ReaderAnimationSlideItem"
+                                                             Text="左右滑动"
+                                                             GroupName="ReaderPageAnimation"
+                                                             Click="ReaderAnimationItem_Click" />
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
                             <Button x:Name="ReaderHighlightButton"
                                     Content="划线"
                                     Style="{StaticResource ReaderToolbarButtonStyle}"
@@ -877,18 +907,57 @@
                 </Border>
 
                 <Grid Grid.Row="1" Background="#FFFFFF">
-                    <Border Margin="16,12,16,10"
+                    <Border x:Name="ReaderWebViewHost"
+                            Margin="16,12,16,10"
                             Background="#FFFFFF"
                             BorderBrush="#000000"
                             BorderThickness="1"
-                            CornerRadius="0">
+                            CornerRadius="0"
+                            RenderTransformOrigin="0.5,0.5">
+                        <Border.RenderTransform>
+                            <CompositeTransform x:Name="ReaderWebViewTransform" />
+                        </Border.RenderTransform>
                         <WebView2 x:Name="ReaderWebView"
                                   NavigationStarting="ReaderWebView_NavigationStarting"
                                   NavigationCompleted="ReaderWebView_NavigationCompleted" />
                     </Border>
+
+                    <!-- Slim floating bar shown only in zen mode; keeps the exit/close entries
+                         while the normal header and footer bars are collapsed. -->
+                    <Border x:Name="ReaderZenBar"
+                            Margin="0,16,24,0"
+                            Padding="2,2,2,2"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Canvas.ZIndex="30"
+                            Background="#FFFFFF"
+                            BorderBrush="#000000"
+                            BorderThickness="1"
+                            CornerRadius="0"
+                            Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="禅模式"
+                                       Margin="10,0,2,0"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                            <Button x:Name="ReaderExitZenButton"
+                                    Content="退出禅模式"
+                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    ToolTipService.ToolTip="退出禅模式，恢复目录与阅读助手"
+                                    Click="ReaderExitZenButton_Click" />
+                            <Button x:Name="ReaderZenCloseButton"
+                                    Content="×"
+                                    FontSize="15"
+                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    AutomationProperties.Name="关闭阅读器"
+                                    ToolTipService.ToolTip="返回书架"
+                                    Click="CloseReaderButton_Click" />
+                        </StackPanel>
+                    </Border>
                 </Grid>
 
-                <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="#000000" BorderThickness="0,1,0,0">
+                <Border x:Name="ReaderFooterBar" Grid.Row="2" Background="#FFFFFF" BorderBrush="#000000" BorderThickness="0,1,0,0">
                     <Grid Padding="10,6" ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />

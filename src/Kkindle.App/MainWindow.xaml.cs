@@ -62,6 +62,14 @@ public sealed partial class MainWindow : Window
     private bool _readerTocExpanded = true;
     private bool _readerAssistantExpanded = true;
     private bool _readerHasToc;
+    private bool _readerZenMode;
+    private bool _readerPreZenTocExpanded = true;
+    private bool _readerPreZenAssistantExpanded = true;
+    private int _readerPageAnimation; // 0 = none, 1 = simulated, 2 = slide
+    private bool _readerContinuousLocked;
+    private int _readerContinuousDirection = 1;
+    private DateTimeOffset _readerLastChapterChange = DateTimeOffset.MinValue;
+    private int? _readerPendingTurnInAnimation;
 
     public MainWindow(
         AppPaths paths,
@@ -95,6 +103,8 @@ public sealed partial class MainWindow : Window
         _deviceTimer.Tick += async (_, _) => await RefreshDevicesAsync();
         _deviceTimer.Start();
         RootGrid.Loaded += MainWindow_Loaded;
+        RootGrid.KeyDown += RootGrid_KeyDown;
+        ReaderWebView.WebMessageReceived += ReaderWebView_WebMessageReceived;
     }
 
     public LibraryViewModel ViewModel { get; }
@@ -798,8 +808,13 @@ public sealed partial class MainWindow : Window
             _readerAssistantExpanded = true;
             _readerFontScale = 1;
             _readerFlowMode = 0;
+            _readerZenMode = false;
+            _readerContinuousLocked = false;
+            _readerPendingTurnInAnimation = null;
+            ResetReaderChromeLayout();
             UpdateReaderZoom();
             UpdateReaderFlowButton();
+            SyncReaderPageAnimationMenu();
             ApplyReaderPanelLayout();
 
             if (file.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase))
@@ -947,6 +962,7 @@ public sealed partial class MainWindow : Window
         Canvas.SetZIndex(ReaderTocPanel, 0);
 
         UpdateReaderAssistantPopup(_readerAssistantExpanded);
+        if (_readerZenMode) UpdateReaderZenPopup(true);
 
         ReaderTocToggleButton.Opacity = _readerTocExpanded ? 0.58 : 1;
         ReaderAssistantToggleButton.Opacity = _readerAssistantExpanded ? 0.58 : 1;
@@ -985,6 +1001,7 @@ public sealed partial class MainWindow : Window
     private void ReaderTocList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isUpdatingReaderToc || ReaderTocList.SelectedItem is not EpubReaderNavigationItem item) return;
+        _readerContinuousLocked = false;
         _readerChapterIndex = item.ChapterIndex;
         UpdateReaderChapterControls();
         ReaderWebView.Source = new Uri(item.Target);
@@ -1027,6 +1044,7 @@ public sealed partial class MainWindow : Window
         if (_isUpdatingReaderProgress || !_readerHasToc || _readerChapters.Count == 0) return;
         var chapterIndex = Math.Clamp((int)Math.Round(e.NewValue) - 1, 0, _readerChapters.Count - 1);
         if (chapterIndex == _readerChapterIndex) return;
+        _readerContinuousLocked = false;
         _readerChapterIndex = chapterIndex;
         _readerNavigateToEnd = false;
         ShowReaderChapter();
@@ -1034,20 +1052,14 @@ public sealed partial class MainWindow : Window
 
     private async void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
     {
-        if (await TryTurnWithinChapterAsync(-1)) return;
-        if (_readerChapterIndex <= 0) return;
-        _readerChapterIndex--;
-        _readerNavigateToEnd = true;
-        ShowReaderChapter();
+        _readerContinuousLocked = false;
+        await TurnReaderPageAsync(-1);
     }
 
     private async void ReaderNextButton_Click(object sender, RoutedEventArgs e)
     {
-        if (await TryTurnWithinChapterAsync(1)) return;
-        if (_readerChapterIndex + 1 >= _readerChapters.Count) return;
-        _readerChapterIndex++;
-        _readerNavigateToEnd = false;
-        ShowReaderChapter();
+        _readerContinuousLocked = false;
+        await TurnReaderPageAsync(1);
     }
 
     private void ReaderZoomOutButton_Click(object sender, RoutedEventArgs e)
@@ -1072,6 +1084,7 @@ public sealed partial class MainWindow : Window
     {
         _readerFlowMode = (_readerFlowMode + 1) % 2;
         _readerNavigateToEnd = false;
+        _readerContinuousLocked = false;
         UpdateReaderFlowButton();
         await ApplyReaderAppearanceAsync();
         await ResetReaderPositionAsync();
@@ -1080,6 +1093,264 @@ public sealed partial class MainWindow : Window
     private void UpdateReaderFlowButton()
     {
         ReaderFlowButton.Content = _readerFlowMode == 0 ? "滚动" : "分页";
+    }
+
+    // ------------------------------------------------------------------
+    // Zen mode: maximize the reading surface by hiding the TOC and the AI
+    // assistant panels and collapsing the reader header/footer bars. The
+    // custom window title bar (with window caption buttons) is untouched.
+    // ------------------------------------------------------------------
+
+    private void ReaderZenMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleReaderZenMode();
+        ReaderMoreButton.Flyout?.Hide();
+    }
+
+    private void ReaderExitZenButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_readerZenMode) ToggleReaderZenMode();
+    }
+
+    private void ToggleReaderZenMode()
+    {
+        _readerZenMode = !_readerZenMode;
+        ApplyReaderZenLayout();
+        ReaderZenMenuItem.IsChecked = _readerZenMode;
+    }
+
+    private void ApplyReaderZenLayout()
+    {
+        if (ReaderPane.Visibility != Visibility.Visible)
+        {
+            ResetReaderChromeLayout();
+            return;
+        }
+
+        if (_readerZenMode)
+        {
+            _readerPreZenTocExpanded = _readerTocExpanded;
+            _readerPreZenAssistantExpanded = _readerAssistantExpanded;
+            _readerTocExpanded = false;
+            _readerAssistantExpanded = false;
+            ReaderHeaderRow.Height = new GridLength(0);
+            ReaderHeaderBar.Visibility = Visibility.Collapsed;
+            ReaderFooterRow.Height = new GridLength(0);
+            ReaderFooterBar.Visibility = Visibility.Collapsed;
+            ReaderTocToggleButton.Opacity = 1;
+            ReaderAssistantToggleButton.Opacity = 1;
+            UpdateReaderZenPopup(true);
+        }
+        else
+        {
+            ReaderHeaderRow.Height = new GridLength(52);
+            ReaderHeaderBar.Visibility = Visibility.Visible;
+            ReaderFooterRow.Height = new GridLength(50);
+            ReaderFooterBar.Visibility = Visibility.Visible;
+            _readerTocExpanded = _readerPreZenTocExpanded;
+            _readerAssistantExpanded = _readerPreZenAssistantExpanded;
+            ReaderTocToggleButton.Opacity = _readerTocExpanded ? 0.58 : 1;
+            ReaderAssistantToggleButton.Opacity = _readerAssistantExpanded ? 0.58 : 1;
+            UpdateReaderZenPopup(false);
+        }
+        ApplyReaderPanelLayout();
+    }
+
+    private void ResetReaderChromeLayout()
+    {
+        _readerZenMode = false;
+        ReaderHeaderRow.Height = new GridLength(52);
+        ReaderHeaderBar.Visibility = Visibility.Visible;
+        ReaderFooterRow.Height = new GridLength(50);
+        ReaderFooterBar.Visibility = Visibility.Visible;
+        ReaderZenMenuItem.IsChecked = false;
+        ReaderTocToggleButton.Opacity = _readerTocExpanded ? 0.58 : 1;
+        ReaderAssistantToggleButton.Opacity = _readerAssistantExpanded ? 0.58 : 1;
+        UpdateReaderZenPopup(false);
+    }
+
+    // ------------------------------------------------------------------
+    // Page-turn animation selection (session state). Applied only to
+    // pagination-mode page turns; scroll mode is never animated.
+    // ------------------------------------------------------------------
+
+    private void ReaderAnimationItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (ReferenceEquals(sender, ReaderAnimationFadeItem))
+            _readerPageAnimation = 1;
+        else if (ReferenceEquals(sender, ReaderAnimationSlideItem))
+            _readerPageAnimation = 2;
+        else
+            _readerPageAnimation = 0;
+    }
+
+    private void SyncReaderPageAnimationMenu()
+    {
+        ReaderAnimationNoneItem.IsChecked = _readerPageAnimation == 0;
+        ReaderAnimationFadeItem.IsChecked = _readerPageAnimation == 1;
+        ReaderAnimationSlideItem.IsChecked = _readerPageAnimation == 2;
+    }
+
+    // ------------------------------------------------------------------
+    // Page turning shared by the prev/next buttons, the keyboard arrows
+    // and the pagination-mode click zones. Returns whether a turn happened.
+    // ------------------------------------------------------------------
+
+    private async Task<bool> TurnReaderPageAsync(int direction)
+    {
+        if (ReaderPane.Visibility != Visibility.Visible) return false;
+        if (ReaderWebView.CoreWebView2 is null) return false;
+        if (!_readerHasToc || _readerChapters.Count == 0) return false;
+
+        var animated = _readerFlowMode == 1 && _readerPageAnimation > 0;
+        var crossesChapter = false;
+        if (animated)
+        {
+            crossesChapter = !await CanTurnWithinChapterAsync(direction);
+            if (crossesChapter)
+            {
+                var nextIndex = _readerChapterIndex + direction;
+                if (nextIndex < 0 || nextIndex >= _readerChapters.Count) crossesChapter = false;
+            }
+            if (crossesChapter) await AnimateReaderPageTurnAsync(direction, isOut: true);
+        }
+
+        if (await TryTurnWithinChapterAsync(direction)) return true;
+
+        var targetIndex = _readerChapterIndex + direction;
+        if (targetIndex < 0 || targetIndex >= _readerChapters.Count)
+        {
+            if (animated && crossesChapter) await AnimateReaderPageTurnAsync(direction, isOut: false);
+            return false;
+        }
+
+        _readerChapterIndex = targetIndex;
+        _readerNavigateToEnd = direction < 0;
+        _readerContinuousLocked = false;
+        _readerLastChapterChange = DateTimeOffset.UtcNow;
+        UpdateReaderChapterControls();
+        ShowReaderChapter();
+        if (animated && crossesChapter) _readerPendingTurnInAnimation = direction;
+        return true;
+    }
+
+    private async Task<bool> CanTurnWithinChapterAsync(int direction)
+    {
+        if (ReaderWebView.CoreWebView2 is null) return false;
+        var script = $$"""
+            (() => {
+              const el = document.scrollingElement;
+              if (!el) return false;
+              const max = Math.max(0, el.scrollWidth - el.clientWidth);
+              if ({{direction}} < 0) return el.scrollLeft > 4;
+              return el.scrollLeft < max - 4;
+            })();
+            """;
+        try { return await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script) == "true"; }
+        catch { return false; }
+    }
+
+    private Task AnimateReaderPageTurnAsync(int direction, bool isOut)
+    {
+        if (_readerPageAnimation == 0)
+        {
+            ResetReaderWebViewTransform();
+            return Task.CompletedTask;
+        }
+
+        var width = ReaderWebViewHost.ActualWidth;
+        var storyboard = new Storyboard();
+        var duration = new Duration(TimeSpan.FromMilliseconds(isOut ? 130 : 190));
+        var easing = new CubicEase { EasingMode = EasingMode.EaseInOut };
+
+        if (_readerPageAnimation == 1)
+        {
+            // Simulated: gentle fade combined with a slight scale.
+            var opacity = new DoubleAnimation
+            {
+                To = isOut ? 0.2 : 1,
+                Duration = duration,
+                EnableDependentAnimation = true,
+                EasingFunction = easing
+            };
+            Storyboard.SetTarget(opacity, ReaderWebViewHost);
+            Storyboard.SetTargetProperty(opacity, "Opacity");
+            storyboard.Children.Add(opacity);
+
+            var scaleX = new DoubleAnimation
+            {
+                To = isOut ? 0.985 : 1,
+                Duration = duration,
+                EnableDependentAnimation = true,
+                EasingFunction = easing
+            };
+            Storyboard.SetTarget(scaleX, ReaderWebViewTransform);
+            Storyboard.SetTargetProperty(scaleX, "ScaleX");
+            storyboard.Children.Add(scaleX);
+
+            var scaleY = new DoubleAnimation
+            {
+                To = isOut ? 0.985 : 1,
+                Duration = duration,
+                EnableDependentAnimation = true,
+                EasingFunction = easing
+            };
+            Storyboard.SetTarget(scaleY, ReaderWebViewTransform);
+            Storyboard.SetTargetProperty(scaleY, "ScaleY");
+            storyboard.Children.Add(scaleY);
+        }
+        else
+        {
+            // Slide: horizontal translation. Incoming content enters from the
+            // direction of travel; the off-screen jump is hidden by the clip.
+            var from = isOut ? 0d : (direction > 0 ? width : -width);
+            var to = isOut ? (direction > 0 ? -width : width) : 0d;
+            var translate = new DoubleAnimation
+            {
+                From = from,
+                To = to,
+                Duration = duration,
+                EnableDependentAnimation = true,
+                EasingFunction = easing
+            };
+            Storyboard.SetTarget(translate, ReaderWebViewTransform);
+            Storyboard.SetTargetProperty(translate, "TranslateX");
+            storyboard.Children.Add(translate);
+        }
+
+        storyboard.Begin();
+        return Task.Delay(isOut ? 130 : 190);
+    }
+
+    private void ResetReaderWebViewTransform()
+    {
+        ReaderWebViewHost.Opacity = 1;
+        ReaderWebViewTransform.TranslateX = 0;
+        ReaderWebViewTransform.ScaleX = 1;
+        ReaderWebViewTransform.ScaleY = 1;
+    }
+
+    // ------------------------------------------------------------------
+    // Keyboard page turning. Left/right arrows only turn pages while the
+    // reader is open and the focus is not on a text-editing control.
+    // ------------------------------------------------------------------
+
+    private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Left && e.Key != Windows.System.VirtualKey.Right) return;
+        if (ReaderPane.Visibility != Visibility.Visible) return;
+        if (IsReaderTextInputFocused()) return;
+        e.Handled = true;
+        var direction = e.Key == Windows.System.VirtualKey.Left ? -1 : 1;
+        _ = TurnReaderPageAsync(direction);
+    }
+
+    private bool IsReaderTextInputFocused()
+    {
+        if (Content is not FrameworkElement root || root.XamlRoot is null) return false;
+        var focused = FocusManager.GetFocusedElement(root.XamlRoot);
+        return focused is TextBox or PasswordBox or RichEditBox or AutoSuggestBox
+            || focused is ComboBox { IsEditable: true };
     }
 
     private async Task<bool> TryTurnWithinChapterAsync(int direction)
@@ -1186,6 +1457,10 @@ public sealed partial class MainWindow : Window
         _readerAllowedFile = null;
         _readerNavigateToEnd = false;
         _readerHasToc = false;
+        _readerZenMode = false;
+        _readerContinuousLocked = false;
+        _readerPendingTurnInAnimation = null;
+        ResetReaderChromeLayout();
         ReaderTocList.ItemsSource = null;
         ReaderTocSearchBox.Text = string.Empty;
         ReaderCoverImage.Source = null;
@@ -1234,6 +1509,13 @@ public sealed partial class MainWindow : Window
 
     private async void ReaderWebView_NavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
     {
+        // Always restore the page-turn transform, even on a failed navigation,
+        // so the reader content is never left off-screen.
+        if (_readerPendingTurnInAnimation is int pendingDirection)
+        {
+            _readerPendingTurnInAnimation = null;
+            await AnimateReaderPageTurnAsync(pendingDirection, isOut: false);
+        }
         if (!args.IsSuccess) return;
         await ApplyReaderAppearanceAsync();
         await ApplyReaderAnnotationsToPageAsync();
@@ -1245,6 +1527,9 @@ public sealed partial class MainWindow : Window
             await MoveReaderToEndAsync();
             _readerNavigateToEnd = false;
         }
+        await InstallReaderNavigationHooksAsync();
+        if (_readerFlowMode == 0 && _readerContinuousLocked)
+            _ = SkipShortChapterIfNeededAsync();
     }
 
     private async Task ApplyReaderAppearanceAsync()
