@@ -661,9 +661,7 @@
             <Border x:Name="ReaderTocPanel"
                     Grid.Column="0"
                     Margin="0,38,0,0"
-                    Background="#FFFFFF"
-                    BorderBrush="#000000"
-                    BorderThickness="0,0,1,0">
+                    Background="#FFFFFF">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="52" />
@@ -673,6 +671,14 @@
                         <RowDefinition Height="*" />
                         <RowDefinition Height="50" />
                     </Grid.RowDefinitions>
+
+                    <!-- Vertical separator below the header, aligned to the header rule. -->
+                    <Rectangle Grid.Row="1"
+                               Grid.RowSpan="5"
+                               Width="1"
+                               HorizontalAlignment="Right"
+                               Fill="#000000"
+                               IsHitTestVisible="False" />
 
                     <Grid Padding="14,8" BorderBrush="#000000" BorderThickness="0,0,0,1">
                         <Grid.ColumnDefinitions>
@@ -800,7 +806,7 @@
                 </Grid.RowDefinitions>
 
                 <Border Background="#FFFFFF">
-                    <Grid Padding="10,7" ColumnSpacing="8">
+                    <Grid Padding="14,8" ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
@@ -946,9 +952,7 @@
             <Border x:Name="ReaderAssistantPanel"
                     Grid.Column="2"
                     Margin="0,38,0,0"
-                    Background="#FFFFFF"
-                    BorderBrush="#000000"
-                    BorderThickness="1,0,0,0">
+                    Background="#FFFFFF">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="52" />
@@ -957,17 +961,26 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <Grid Padding="14,8">
+                    <!-- Vertical separator below the header, aligned to the header rule. -->
+                    <Rectangle Grid.Row="1"
+                               Grid.RowSpan="3"
+                               Width="1"
+                               HorizontalAlignment="Left"
+                               Fill="#000000"
+                               IsHitTestVisible="False" />
+
+                    <Grid Padding="14,8" BorderBrush="#000000" BorderThickness="0,0,0,1">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center" Spacing="0">
-                            <TextBlock Text="AI 助手" FontSize="18" FontWeight="SemiBold" />
+                        <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="AI 助手" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
                             <TextBlock x:Name="ReaderAiProviderText"
                                        Text="DeepSeek · 未配置"
                                        FontSize="9"
                                        Foreground="#888888"
+                                       VerticalAlignment="Center"
                                        TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
