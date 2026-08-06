@@ -793,6 +793,7 @@ public sealed partial class MainWindow : Window
             await LoadReaderSessionDataAsync(_readerFeatureCancellation!.Token);
             ReaderTitleText.Text = book.Title;
             ReaderPane.Visibility = Visibility.Visible;
+            ReaderBrandText.Visibility = Visibility.Visible;
             ReaderPane.UpdateLayout();
             _readerTocExpanded = true;
             _readerAssistantExpanded = true;
@@ -1197,6 +1198,7 @@ public sealed partial class MainWindow : Window
     private void CloseReader()
     {
         ReaderPane.Visibility = Visibility.Collapsed;
+        ReaderBrandText.Visibility = Visibility.Collapsed;
         UpdateReaderAssistantPopup(false);
         SetReaderAiSettingsVisible(false);
         _readerChapters = [];

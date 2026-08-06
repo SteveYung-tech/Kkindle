@@ -30,6 +30,17 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <Grid x:Name="TitleBarDragRegion" Background="Transparent" />
+            <TextBlock x:Name="ReaderBrandText"
+                       Grid.Column="0"
+                       Text="Kreader"
+                       Foreground="#000000"
+                       FontSize="18"
+                       FontWeight="Bold"
+                       CharacterSpacing="60"
+                       VerticalAlignment="Center"
+                       Margin="16,0,0,0"
+                       IsHitTestVisible="False"
+                       Visibility="Collapsed" />
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="0">
                 <Button x:Name="MinimizeWindowButton"
                         Style="{StaticResource TitleBarCaptionButtonStyle}"

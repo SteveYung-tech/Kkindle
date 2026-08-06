@@ -669,3 +669,10 @@ git status --short --branch
 - 发布前 Debug/Release x64 构建均为 0 警告、0 错误，22 项测试全部通过。
 - 发布后启动验证：进程 5 秒后仍存活，主窗口标题为 `Kkindle`，主窗口句柄正常。
 - 功能代码已包含在已推送的 `4e8009b` 中，本次发布不新增代码提交，仅记录发布轮次。
+
+## 19. Kreader 阅读器标识（2026-08-06）
+
+- 打开书籍进入阅读器后，顶部自绘标题栏左端显示黑色 `Kreader` 字样（FontSize 18、Bold、CharacterSpacing 60，与侧栏 Kkindle 品牌风格一致）；关闭阅读器后自动隐藏。
+- 该字样设置 `IsHitTestVisible=False`，不遮挡标题栏拖动区域。
+- XAML 位于 `WindowChromeLayer`（ZIndex 50）内，位于阅读器内容之上；显示/隐藏由 `MainWindow.xaml.cs` 在打开/关闭阅读器时切换。
+- Debug/Release x64 构建均为 0 警告、0 错误，22 项测试全部通过；标准 `publish` 目录已重新发布（exe 更新于 15:20），启动验证通过。
