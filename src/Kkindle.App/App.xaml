@@ -45,6 +45,15 @@
             <SolidColorBrush x:Key="AccentButtonBorderBrushPressed" Color="#000000" />
             <SolidColorBrush x:Key="AccentButtonBorderBrushDisabled" Color="#BFBFBF" />
 
+            <!-- Book shelf selected-card border: hard black, square corners, no accent/blue.
+                 Only the selected visual is affected; the presenter border layer keeps the
+                 exact card footprint aligned by BookCardItemStyle. -->
+            <SolidColorBrush x:Key="GridViewItemSelectedBorderBrush" Color="#000000" />
+            <SolidColorBrush x:Key="GridViewItemSelectedPointerOverBorderBrush" Color="#000000" />
+            <SolidColorBrush x:Key="GridViewItemSelectedPressedBorderBrush" Color="#000000" />
+            <SolidColorBrush x:Key="GridViewItemSelectedDisabledBorderBrush" Color="#000000" />
+            <CornerRadius x:Key="GridViewItemCornerRadius">0</CornerRadius>
+
             <SolidColorBrush x:Key="ContentDialogBackground" Color="#FFFFFF" />
             <SolidColorBrush x:Key="ContentDialogForeground" Color="#000000" />
             <SolidColorBrush x:Key="ContentDialogBorderBrush" Color="#000000" />
