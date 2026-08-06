@@ -70,6 +70,7 @@ public sealed partial class MainWindow : Window
     private int _readerContinuousDirection = 1;
     private DateTimeOffset _readerLastChapterChange = DateTimeOffset.MinValue;
     private int? _readerPendingTurnInAnimation;
+    private CancellationTokenSource? _readerRelayoutCancellation;
 
     public MainWindow(
         AppPaths paths,
@@ -228,6 +229,8 @@ public sealed partial class MainWindow : Window
         _transferCancellation?.Dispose();
         _readerFeatureCancellation?.Cancel();
         _readerFeatureCancellation?.Dispose();
+        _readerRelayoutCancellation?.Cancel();
+        _readerRelayoutCancellation?.Dispose();
         _aiChatClient.Dispose();
         if (_deviceChangeMonitor is not null)
         {
@@ -971,6 +974,52 @@ public sealed partial class MainWindow : Window
     private void ReaderContentPanel_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         ReaderContentClip.Rect = new Windows.Foundation.Rect(0, 0, e.NewSize.Width, e.NewSize.Height);
+        ScheduleReaderRelayout();
+    }
+
+    // ------------------------------------------------------------------
+    // Re-adaptation: whenever the reading surface changes size (window
+    // resize, TOC/assistant collapse, zen-mode toggle), re-apply the
+    // viewport-based appearance so pagination re-flows to the current
+    // reading viewport, and clamp the current scroll position so the
+    // reader never rests outside the available pages.
+    // ------------------------------------------------------------------
+
+    private void ScheduleReaderRelayout()
+    {
+        if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
+        if (ReaderPane.Visibility != Visibility.Visible) return;
+        _readerRelayoutCancellation?.Cancel();
+        _readerRelayoutCancellation?.Dispose();
+        _readerRelayoutCancellation = new CancellationTokenSource();
+        var token = _readerRelayoutCancellation.Token;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(120);
+            if (token.IsCancellationRequested) return;
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                if (token.IsCancellationRequested) return;
+                try
+                {
+                    await ApplyReaderAppearanceAsync();
+                    await ClampReaderScrollAsync();
+                }
+                catch
+                {
+                }
+            });
+        });
+    }
+
+    private async Task ClampReaderScrollAsync()
+    {
+        if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
+        var script = _readerFlowMode == 0
+            ? "(function(){var el=document.scrollingElement;var max=Math.max(0,el.scrollHeight-el.clientHeight);if(el.scrollTop>max)window.scrollTo({top:max});})()"
+            : "(function(){var el=document.scrollingElement;var max=Math.max(0,el.scrollWidth-el.clientWidth);if(el.scrollLeft>max)window.scrollTo({left:max,top:0});})()";
+        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
+        catch { }
     }
 
     private void ReaderTocSearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyReaderTocFilter();
@@ -1376,10 +1425,10 @@ public sealed partial class MainWindow : Window
                   const step = window.innerWidth;
                   const max = Math.max(0, el.scrollWidth - window.innerWidth);
                   if ({{direction}} < 0 && el.scrollLeft > 4) {
-                    window.scrollTo({ left: Math.max(0, el.scrollLeft - step), behavior: 'smooth' }); return true;
+                    window.scrollTo({ left: Math.max(0, el.scrollLeft - step), top: 0, behavior: 'smooth' }); return true;
                   }
                   if ({{direction}} > 0 && el.scrollLeft < max - 4) {
-                    window.scrollTo({ left: Math.min(max, el.scrollLeft + step), behavior: 'smooth' }); return true;
+                    window.scrollTo({ left: Math.min(max, el.scrollLeft + step), top: 0, behavior: 'smooth' }); return true;
                   }
                   return false;
                 })();
@@ -1448,6 +1497,9 @@ public sealed partial class MainWindow : Window
     {
         ReaderPane.Visibility = Visibility.Collapsed;
         ReaderBrandText.Visibility = Visibility.Collapsed;
+        _readerRelayoutCancellation?.Cancel();
+        _readerRelayoutCancellation?.Dispose();
+        _readerRelayoutCancellation = null;
         UpdateReaderAssistantPopup(false);
         SetReaderAiSettingsVisible(false);
         _readerChapters = [];
@@ -1541,7 +1593,9 @@ public sealed partial class MainWindow : Window
         var fontPercent = (int)Math.Round(_readerFontScale * 100);
         var flowCss = _readerFlowMode == 0
             ? "html, body { min-height: 100%; overflow-x: hidden !important; }"
-            : "html, body { height: 100%; overflow-y: hidden !important; } body { column-width: calc(100vw - 144px); column-gap: 144px; column-fill: auto; max-width: none !important; }";
+            : "html { height: 100%; overflow: hidden !important; }"
+              + " body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !important; box-sizing: border-box;"
+              + " column-width: calc(100vw - 96px); column-gap: 48px; column-fill: auto; max-width: none !important; }";
         ReaderWebView.DefaultBackgroundColor = Colors.White;
         var script = $$"""
             (() => {
@@ -1572,6 +1626,19 @@ public sealed partial class MainWindow : Window
             """;
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { /* Some fixed-layout EPUB pages don't expose a normal document head. */ }
+        if (_readerFlowMode == 1)
+        {
+            // Pagination mode: the document may still carry a vertical scroll
+            // position from a previous flow/zoom/layout state. Pin the reading
+            // area to the top of the current column so each viewport shows one
+            // full page instead of a vertically offset strip.
+            try
+            {
+                await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                    "window.scrollTo({ left: (document.scrollingElement||document.documentElement).scrollLeft, top: 0 });");
+            }
+            catch { }
+        }
     }
 
     private async Task ResetReaderPositionAsync()
@@ -1586,7 +1653,7 @@ public sealed partial class MainWindow : Window
         if (ReaderWebView.CoreWebView2 is null) return;
         var script = _readerFlowMode == 0
             ? "window.scrollTo({ top: document.scrollingElement.scrollHeight, behavior: 'instant' });"
-            : "window.scrollTo({ left: document.scrollingElement.scrollWidth, behavior: 'instant' });";
+            : "window.scrollTo({ left: document.scrollingElement.scrollWidth, top: 0, behavior: 'instant' });";
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
     }

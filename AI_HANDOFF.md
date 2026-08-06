@@ -8,11 +8,11 @@
 
 ## 0. 当前状态速览
 
-- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。剩余需要人工配合的物理拔插，以及未来 USB 磁盘型 Kindle 的系统安全弹出验收。
-- 当前分支：`master`；最新提交为 `4e8009b feat: add reader AI assistant, highlights, notes, and book index`。
-- GitHub：`origin/master` 已与本地同步（本轮已完成推送），远端最新为 `4e8009b`。
-- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`。
-- 最新源码验证：Debug/Release x64 完整解决方案构建成功，均为 0 警告、0 错误；22 项测试在两个配置下全部通过。Release 已重新发布，启动 5 秒后仍存活且可响应，并用真实 EPUB 验收目录、正文、进度、阅读助手和响应式侧栏。
+- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。本轮完成正文阅读区视口修复：正文不再把整章内容一次铺满一个视图，滚动模式在 WebView 视口内滚动阅读，分页模式按视口一页页显示。剩余需要人工配合的物理拔插，以及未来 USB 磁盘型 Kindle 的系统安全弹出验收。
+- 当前分支：`master`；最新本地提交为 `fix: fit reader content to viewport`（详见第 21 节，提交哈希见 `git log -1`）。
+- GitHub：本地领先 `origin/master` 多个提交，按开发约定未自动推送。
+- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 00:48。
+- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；22 项测试两个配置全部通过。Release 已重新发布并用真实 EPUB（《策略思维》）验收：正文宿主随窗口/三栏布局变化、滚动/分页翻页推进、目录跳转、禅模式展开与恢复。
 - 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环；2026-08-06 又完成 64 MiB EPUB 发送、大小校验和删除，设备端无测试残留。
 - 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
 
@@ -595,6 +595,8 @@ git status --short --branch
 - 阅读状态下 `ReaderPane` 必须保持全窗口覆盖、`Canvas.ZIndex="40"`；`WindowChromeLayer` 保持 `Canvas.ZIndex="50"`。目录、正文和助手面板各自使用 `Margin="0,38,0,0"` 为自绘标题栏让位，避免露出旧书架 Logo/标题。
 - 目录栏宽度为 286 logical px，助手栏宽度为 310 logical px；窗口宽度低于 1180 logical px 自动隐藏助手，低于 760 logical px 自动隐藏目录。
 - `ConfigureReaderWebView()` 继续保持 `IsScriptEnabled = false`。阅读助手通过应用主动执行的只读脚本提取当前 EPUB 片段，不能为了助手功能直接启用 EPUB 自带脚本。
+- 正文阅读区视口规则（本轮修复）：WebView 宿主本身就是正文视口，宽高由目录/助手/窗口布局决定；滚动模式正文自然增长并在 WebView 内纵向滚动；分页模式用 CSS 多列按视口分页，`html { overflow: hidden }` 是唯一滚动容器，`body` 必须保持 `overflow: visible`，否则列溢出会被传播到视口裁切，出现"整章压进一屏"。
+- 阅读区尺寸变化（窗口缩放、目录/助手收起、禅模式切换）会触发 `ReaderContentPanel_SizeChanged` → `ScheduleReaderRelayout()`（防抖 120 ms）重新应用视口样式并收敛滚动位置；分页翻页脚本固定 `top: 0`，防止纵向漂移。
 - P1 已完成，P2 自动化场景已增至 18 项，Kindle Scribe 64 MiB 传输闭环也已通过。下一步只剩需要人工配合的物理拔出/重连；USB 磁盘安全弹出需等对应设备。不要再次重做标题栏架构，除非有新的可复现问题。
 
 ## 13. P1 完成发布（2026-08-05）
@@ -685,3 +687,57 @@ git status --short --branch
 - 去掉 AI 助手右侧面板最上方的遗留分隔线：AI 对话/划线与笔记标签行底部边框。
 - 保留目录标题线；正文阅读画布黑色外框、AI 助手选中标签的黑色底色不受影响。
 - Debug/Release x64 构建均为 0 警告、0 错误，22 项测试全部通过；标准 `publish` 目录已重新发布并验证。
+
+## 21. 正文视口自适应修复（2026-08-07）
+
+### 根因
+
+打开真实 EPUB 后，分页模式正文会"一次显示整章"：页面把整章内容压缩/裁切在一个视口内，无法在章节内翻页。
+
+定位到根因是分页模式的注入 CSS 组合错误：
+
+```css
+/* 修复前 */
+html, body { height: 100%; overflow-y: hidden !important; }
+body { column-width: calc(100vw - 144px); column-gap: 144px; column-fill: auto; ... }
+```
+
+- `body` 的多列布局实际是生效的：实测 `document.body.scrollWidth` 达到 539996 px（约 765 页），但 `document.documentElement.scrollWidth` 只有 842 px。
+- 根因是 `html` 上的 `overflow-y: hidden` 被按规范传播给视口，`html` 自身不再作为滚动容器，`body` 的水平列溢出被困在 `body` 内部、被视口裁切，用户看不到后续页，`document.scrollingElement.scrollWidth` 也为 0 溢出，导致翻页逻辑判定"章节内不可翻页"，上一页/下一页会直接跨章。
+
+### 本次改动
+
+1. `src/Kkindle.App/MainWindow.xaml.cs` — `ApplyReaderAppearanceAsync()` 分页模式 CSS 修复：
+   ```css
+   html { height: 100%; overflow: hidden !important; }
+   body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !important;
+          box-sizing: border-box; column-width: calc(100vw - 96px); column-gap: 48px;
+          column-fill: auto; max-width: none !important; }
+   ```
+   `html` 成为唯一滚动容器，列溢出落在 `document.scrollingElement` 上，每页宽 ≈ 一视口宽；分页逻辑、鼠标分区点击、键盘左右键和左右滑动动画全部沿用原实现。
+2. `MainWindow.xaml.cs` — 分页翻页脚本（`TryTurnWithinChapterAsync` 分页分支）与 `MoveReaderToEndAsync` 分页分支改为 `window.scrollTo({ left, top: 0 })`，锁定纵向位置，防止分页模式纵向漂移。
+3. `MainWindow.xaml.cs` — `ApplyReaderAppearanceAsync()` 分页模式追加 `top: 0` 归位：章节加载/字号变化后正文始终停在当前列顶部。
+4. `MainWindow.xaml.cs` — 新增防抖重适配：`ReaderContentPanel_SizeChanged` → `ScheduleReaderRelayout()`（120 ms 防抖）→ `ApplyReaderAppearanceAsync()` + `ClampReaderScrollAsync()`，窗口缩放、目录/助手收起、禅模式切换后正文按新视口重新分页并收敛滚动位置；取消令牌在 `CloseReader()` 与 `MainWindow_Closed()` 释放。
+5. 未改 `WebView2.Settings.IsScriptEnabled=false`（`ConfigureReaderWebView()`），未改导航白名单与标题栏，未提交既有未提交的 `App.xaml` 改动。
+
+### 已验证项目（真实 EPUB《策略思维》，Release/Debug 实测）
+
+- 启动并打开真实 EPUB：正文宿主 `843x637`，WebView 视口 `842x636`，正文只在视口内显示。
+- 滚动模式：长章节（92 KB XHTML）`scrollHeight` 285726 px，在视口内纵向滚动；`TurnReaderPageAsync` 翻页返回 `True` 并推进滚动。
+- 分页模式：长章节 `document.scrollingElement.scrollWidth` 443921 px（约 765 页），`clientHeight` 636；翻页 `scrollLeft` 按 842 px（一视口宽）推进（实测 `sl: 0 → 842.4 → 1684.8`），纵向 `st` 保持 0；章节边界推进/返回的既有逻辑未破坏（`TurnReaderPageAsync` 在边界处正确返回/跨章）。
+- 布局变化重新适配：收起目录后宿主 `843 → 1203`；窗口缩放后宿主 `267x389 / 537x475 / 843x637`，WebView 视口与宿主完全一致（`iw/ih` 对齐），分页总数随视口重新计算（`scrollWidth` 443921 → 667042 → 545088）。
+- 禅模式：进入后正文区域扩展（`537x475 → 1490x739`），视口随之对齐。
+- 目录跳转、返回书架、字号缩放控件仍可用；`git diff` 仅含 `MainWindow.xaml.cs`（本次）与 `App.xaml`（既有未提交）。
+
+### 未验证/风险
+
+- 自动化环境无法把真实鼠标/键盘事件可靠投递到 WebView2 合成渲染内容（WebView HWND 为 0x0 的 composition island，点击坐标落入桌面），因此"分页模式左 1/3 上一页/右侧下一页、左右键翻页"的端到端输入路径未在自动化中触发；已通过程序化调用同一生产代码路径（`TurnReaderPageAsync` → 章节内翻页脚本）验证滚动位置确实按一视口推进。建议人工在真机上各点一次确认。
+- 禅模式退出：浮层"退出禅模式"按钮在 UIA 树与像素扫描中均不可达，未自动化点击；退出走与进入对称的 `ApplyReaderZenLayout()` 恢复路径，未单独自动化验证。
+- 分页模式若遇超高单元素（大图等）最后一列可能有少量纵向溢出，翻页时 `top:0` 会归位，不影响阅读。
+- 极窄窗口下 `100vw - 96px` 列宽过小会退化为单列自然流，属可接受边界。
+
+### 发布与提交
+
+- 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（exe 更新于 2026-08-07 00:48），Release 启动存活并打开真实 EPUB 验证阅读控件齐全。
+- Debug/Release x64 构建 0 警告 0 错误；22 项测试两个配置全部通过。
+- 本轮提交：`fix: fit reader content to viewport`（哈希见 `git log -1`），仅包含本次源码与 `AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。
