@@ -297,8 +297,8 @@ public sealed partial class MainWindow
             await ApplyReaderAnnotationsToPageAsync();
             await ClearReaderSelectionAsync();
             ReaderStatusText.Text = string.IsNullOrWhiteSpace(annotation.Note)
-                ? "EPUB · 划线已保存"
-                : "EPUB · 批注已保存";
+                ? "划线已保存"
+                : "批注已保存";
         }
         catch (OperationCanceledException) when (_readerFeatureCancellation.IsCancellationRequested)
         {

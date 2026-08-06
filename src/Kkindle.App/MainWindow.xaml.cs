@@ -55,7 +55,6 @@ public sealed partial class MainWindow : Window
     private string? _readerAllowedRoot;
     private string? _readerAllowedFile;
     private double _readerFontScale = 1;
-    private int _readerTheme;
     private int _readerFlowMode;
     private bool _isUpdatingReaderToc;
     private bool _isUpdatingReaderProgress;
@@ -798,10 +797,8 @@ public sealed partial class MainWindow : Window
             _readerTocExpanded = true;
             _readerAssistantExpanded = true;
             _readerFontScale = 1;
-            _readerTheme = 0;
             _readerFlowMode = 0;
             UpdateReaderZoom();
-            UpdateReaderThemeButton();
             UpdateReaderFlowButton();
             ApplyReaderPanelLayout();
 
@@ -829,7 +826,6 @@ public sealed partial class MainWindow : Window
                 ReaderNextButton.Visibility = Visibility.Collapsed;
                 ReaderProgressSlider.Visibility = Visibility.Collapsed;
                 ReaderPdfBottomText.Visibility = Visibility.Visible;
-                ReaderThemeButton.Visibility = Visibility.Collapsed;
                 ReaderFlowButton.Visibility = Visibility.Collapsed;
                 ReaderHighlightButton.Visibility = Visibility.Collapsed;
                 ReaderAnnotateButton.Visibility = Visibility.Collapsed;
@@ -840,7 +836,7 @@ public sealed partial class MainWindow : Window
             }
 
             _readerHasToc = true;
-            ReaderStatusText.Text = "正在准备 EPUB…";
+            ReaderStatusText.Text = "正在准备…";
             var document = await _epubReader.PrepareAsync(path, file.Sha256);
             _readerDocument = document;
             _readerChapters = document.Chapters;
@@ -848,7 +844,7 @@ public sealed partial class MainWindow : Window
             _readerChapterIndex = 0;
             _readerAllowedRoot = document.RootPath;
             _readerAllowedFile = null;
-            ReaderStatusText.Text = "EPUB";
+            ReaderStatusText.Text = string.Empty;
             ReaderTocSearchBox.Text = string.Empty;
             ReaderTocSearchBox.Visibility = Visibility.Visible;
             ReaderTocList.Visibility = Visibility.Visible;
@@ -861,7 +857,6 @@ public sealed partial class MainWindow : Window
             ReaderNextButton.Visibility = Visibility.Visible;
             ReaderProgressSlider.Visibility = Visibility.Visible;
             ReaderPdfBottomText.Visibility = Visibility.Collapsed;
-            ReaderThemeButton.Visibility = Visibility.Visible;
             ReaderFlowButton.Visibility = Visibility.Visible;
             ReaderHighlightButton.Visibility = Visibility.Visible;
             ReaderAnnotateButton.Visibility = Visibility.Visible;
@@ -1122,23 +1117,6 @@ public sealed partial class MainWindow : Window
         catch { return false; }
     }
 
-    private async void ReaderThemeButton_Click(object sender, RoutedEventArgs e)
-    {
-        _readerTheme = (_readerTheme + 1) % 3;
-        UpdateReaderThemeButton();
-        await ApplyReaderAppearanceAsync();
-    }
-
-    private void UpdateReaderThemeButton()
-    {
-        ReaderThemeButton.Content = _readerTheme switch
-        {
-            1 => "纸张",
-            2 => "深色",
-            _ => "白色"
-        };
-    }
-
     private static string GetReaderSectionTextScript() =>
         """
         (() => {
@@ -1272,22 +1250,14 @@ public sealed partial class MainWindow : Window
     private async Task ApplyReaderAppearanceAsync()
     {
         if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return;
-        var (background, foreground, link) = _readerTheme switch
-        {
-            1 => ("#F4ECD8", "#2C271F", "#594A30"),
-            2 => ("#171717", "#E8E8E8", "#BDBDBD"),
-            _ => ("#FFFFFF", "#111111", "#222222")
-        };
+        const string background = "#FFFFFF";
+        const string foreground = "#111111";
+        const string link = "#222222";
         var fontPercent = (int)Math.Round(_readerFontScale * 100);
         var flowCss = _readerFlowMode == 0
             ? "html, body { min-height: 100%; overflow-x: hidden !important; }"
             : "html, body { height: 100%; overflow-y: hidden !important; } body { column-width: calc(100vw - 144px); column-gap: 144px; column-fill: auto; max-width: none !important; }";
-        ReaderWebView.DefaultBackgroundColor = _readerTheme switch
-        {
-            1 => ColorHelper.FromArgb(255, 244, 236, 216),
-            2 => ColorHelper.FromArgb(255, 23, 23, 23),
-            _ => Colors.White
-        };
+        ReaderWebView.DefaultBackgroundColor = Colors.White;
         var script = $$"""
             (() => {
               let style = document.getElementById('kkindle-reader-style');

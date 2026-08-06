@@ -805,7 +805,9 @@
                     <RowDefinition Height="50" />
                 </Grid.RowDefinitions>
 
-                <Border Background="#FFFFFF">
+                <Border Background="#FFFFFF"
+                        BorderBrush="#000000"
+                        BorderThickness="0,0,0,1">
                     <Grid Padding="14,8" ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -844,11 +846,6 @@
                                     Style="{StaticResource ReaderToolbarButtonStyle}"
                                     AutomationProperties.Name="增大字号"
                                     Click="ReaderZoomInButton_Click" />
-                            <Button x:Name="ReaderThemeButton"
-                                    Content="白色"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
-                                    ToolTipService.ToolTip="切换阅读主题"
-                                    Click="ReaderThemeButton_Click" />
                             <Button x:Name="ReaderFlowButton"
                                     Content="滚动"
                                     Style="{StaticResource ReaderToolbarButtonStyle}"
@@ -983,22 +980,30 @@
                                        VerticalAlignment="Center"
                                        TextTrimming="CharacterEllipsis" />
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2">
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Spacing="6"
+                                    VerticalAlignment="Center">
                             <Button x:Name="ReaderAiSettingsButton"
+                                    VerticalAlignment="Center"
                                     Style="{StaticResource ReaderToolbarButtonStyle}"
                                     ToolTipService.ToolTip="配置 AI API"
                                     Click="ReaderAiSettingsButton_Click">
-                                <FontIcon Glyph="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="13" />
+                                <FontIcon Glyph="&#xE713;"
+                                          FontFamily="Segoe MDL2 Assets"
+                                          FontSize="13"
+                                          VerticalAlignment="Center" />
                             </Button>
                             <Button Content="›"
                                     FontSize="20"
+                                    VerticalAlignment="Center"
                                     Style="{StaticResource ReaderToolbarButtonStyle}"
                                     ToolTipService.ToolTip="收起阅读助手"
                                     Click="ReaderAssistantToggleButton_Click" />
                         </StackPanel>
                     </Grid>
 
-                    <Grid Grid.Row="1" Padding="12,5" ColumnSpacing="6">
+                    <Grid Grid.Row="1" Padding="12,4" ColumnSpacing="6" BorderBrush="#000000" BorderThickness="0,0,0,1">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
@@ -1006,6 +1011,7 @@
                         <Button x:Name="ReaderAiTabButton"
                                 Content="AI 对话"
                                 HorizontalAlignment="Stretch"
+                                VerticalAlignment="Center"
                                 BorderThickness="1"
                                 Style="{StaticResource ReaderToolbarButtonStyle}"
                                 Click="ReaderAiTabButton_Click" />
@@ -1013,6 +1019,7 @@
                                 Grid.Column="1"
                                 Content="划线与笔记"
                                 HorizontalAlignment="Stretch"
+                                VerticalAlignment="Center"
                                 BorderThickness="1"
                                 Style="{StaticResource ReaderToolbarButtonStyle}"
                                 Click="ReaderNotesTabButton_Click" />
