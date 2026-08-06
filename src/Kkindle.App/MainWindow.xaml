@@ -361,45 +361,6 @@
                                         BorderBrush="{StaticResource BorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="0">
-                                    <ToolTipService.ToolTip>
-                                        <ToolTip Placement="Right"
-                                                 CornerRadius="0"
-                                                 Padding="0"
-                                                 Background="#FFFFFF"
-                                                 BorderBrush="#000000"
-                                                 BorderThickness="1">
-                                            <StackPanel Width="280" Padding="16" Spacing="7">
-                                                <Border Background="#000000" Padding="7,3" HorizontalAlignment="Left">
-                                                    <TextBlock Text="本地书籍" Foreground="#FFFFFF" FontSize="10" FontWeight="Bold" />
-                                                </Border>
-                                                <TextBlock Text="{x:Bind Title}" FontSize="18" FontWeight="Bold" TextWrapping="Wrap" />
-                                                <TextBlock Text="{x:Bind Authors}" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
-                                                <Rectangle Height="1" Fill="#000000" Margin="0,3" />
-                                                <Grid ColumnSpacing="10">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="*" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <StackPanel>
-                                                        <TextBlock Text="格式" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
-                                                        <TextBlock Text="{x:Bind FormatLabel}" FontWeight="Bold" />
-                                                    </StackPanel>
-                                                    <StackPanel Grid.Column="1">
-                                                        <TextBlock Text="文件" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
-                                                        <TextBlock Text="{x:Bind FileCountLabel}" FontWeight="Bold" />
-                                                    </StackPanel>
-                                                </Grid>
-                                                <TextBlock Text="{x:Bind SeriesLabel}" FontSize="12" />
-                                                <TextBlock Text="{x:Bind TagsLabel}" FontSize="12" />
-                                                <TextBlock Text="{x:Bind DescriptionLabel}"
-                                                           Margin="0,2,0,0"
-                                                           Foreground="{StaticResource MutedInkBrush}"
-                                                           TextWrapping="Wrap"
-                                                           MaxLines="5"
-                                                           TextTrimming="CharacterEllipsis" />
-                                            </StackPanel>
-                                        </ToolTip>
-                                    </ToolTipService.ToolTip>
                                     <Grid Background="Transparent">
                                         <Grid.ContextFlyout>
                                             <MenuFlyout>
