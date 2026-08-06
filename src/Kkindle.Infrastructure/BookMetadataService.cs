@@ -120,8 +120,12 @@ public sealed class BookMetadataService : IMetadataService
 
     private static string CleanFileTitle(string fileName)
     {
-        var title = Regex.Replace(fileName, @"_?[0-9A-F]{32}$", string.Empty, RegexOptions.IgnoreCase);
-        title = Regex.Replace(title, @"\s*\([^)]*(?:z-library|z-lib|1lib)[^)]*\)\s*", " ", RegexOptions.IgnoreCase);
+        var title = Regex.Replace(
+            fileName,
+            @"\s*\([^)]*(?:z-library|z-lib|1lib)[^)]*\)\s*",
+            " ",
+            RegexOptions.IgnoreCase).Trim();
+        title = Regex.Replace(title, @"_?[0-9A-F]{32}$", string.Empty, RegexOptions.IgnoreCase).Trim();
         return title.Replace('_', ' ').Trim();
     }
 

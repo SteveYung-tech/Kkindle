@@ -6,6 +6,18 @@ namespace Kkindle.Tests;
 public sealed class KindleDeviceTests
 {
     [Fact]
+    public void DeviceIdentityUsesVolumeSerialAcrossDriveLetterChanges()
+    {
+        var firstDetection = new KindleDevice { RootPath = @"E:\", VolumeSerial = "A1B2C3D4" };
+        var secondDetection = new KindleDevice { RootPath = @"F:\", VolumeSerial = "a1b2c3d4" };
+        var unidentifiedDevice = new KindleDevice { RootPath = @"F:\" };
+
+        Assert.Equal(firstDetection.Identity, secondDetection.Identity, ignoreCase: true);
+        Assert.NotEqual(firstDetection.RootPath, secondDetection.RootPath);
+        Assert.NotEqual(firstDetection.Identity, unidentifiedDevice.Identity);
+    }
+
+    [Fact]
     public async Task SendsAndScansBooksInDocumentsDirectory()
     {
         var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
@@ -105,6 +117,57 @@ public sealed class KindleDeviceTests
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 service.RemoveBookAsync(device, new KindleBook { RelativePath = "outside.epub" }));
             Assert.True(File.Exists(outside));
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task RefusesToDeleteFromSiblingDirectoryWithDocumentsPrefix()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "documents"));
+        var sibling = Path.Combine(root, "documents-backup");
+        Directory.CreateDirectory(sibling);
+        var outside = Path.Combine(sibling, "outside.epub");
+        await File.WriteAllTextAsync(outside, "do not delete");
+        try
+        {
+            var service = new KindleDeviceService();
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+            var traversal = Path.Combine("documents", "..", "documents-backup", "outside.epub");
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.RemoveBookAsync(device, new KindleBook { RelativePath = traversal }));
+            Assert.True(File.Exists(outside));
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task HashMismatchCleansPartialTransferFile()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        var documents = Path.Combine(root, "documents");
+        Directory.CreateDirectory(documents);
+        var source = Path.Combine(root, "mismatch.epub");
+        await File.WriteAllTextAsync(source, "content whose hash will not match");
+        try
+        {
+            var service = new KindleDeviceService();
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+            var wrongHash = new string('0', 64);
+
+            await Assert.ThrowsAsync<IOException>(() =>
+                service.SendBookAsync(device, new BookFile { Sha256 = wrongHash }, source));
+
+            Assert.Empty(Directory.EnumerateFiles(documents, "*.kkindle-part", SearchOption.AllDirectories));
+            Assert.False(File.Exists(Path.Combine(documents, "mismatch.epub")));
         }
         finally
         {

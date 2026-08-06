@@ -243,11 +243,11 @@ public sealed partial class MainWindow : Window
             var device = detectedDevices[0];
             if (_isTransferring
                 && _devices.Count > 0
-                && !string.Equals(_devices[0].VolumeSerial, device.VolumeSerial, StringComparison.Ordinal))
+                && !string.Equals(_devices[0].Identity, device.Identity, StringComparison.OrdinalIgnoreCase))
                 _transferCancellation?.Cancel();
-            if (!string.Equals(_acceptedDeviceId, device.VolumeSerial, StringComparison.Ordinal))
+            if (!string.Equals(_acceptedDeviceId, device.Identity, StringComparison.OrdinalIgnoreCase))
             {
-                if (string.Equals(_ignoredDeviceId, device.VolumeSerial, StringComparison.Ordinal))
+                if (string.Equals(_ignoredDeviceId, device.Identity, StringComparison.OrdinalIgnoreCase))
                 {
                     SetDisconnectedDeviceState($"已忽略 {device.Name}");
                     return;
@@ -259,11 +259,11 @@ public sealed partial class MainWindow : Window
                         "连接",
                         "暂不连接"))
                 {
-                    _ignoredDeviceId = device.VolumeSerial;
+                    _ignoredDeviceId = device.Identity;
                     SetDisconnectedDeviceState($"已忽略 {device.Name}");
                     return;
                 }
-                _acceptedDeviceId = device.VolumeSerial;
+                _acceptedDeviceId = device.Identity;
                 _ignoredDeviceId = null;
             }
 
@@ -278,7 +278,7 @@ public sealed partial class MainWindow : Window
             UpdateDeviceStorageBar();
             DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
             DeviceCapacityText.Text = device.CapacityLabel;
-            if (!string.Equals(_scannedDeviceId, device.VolumeSerial, StringComparison.Ordinal))
+            if (!string.Equals(_scannedDeviceId, device.Identity, StringComparison.OrdinalIgnoreCase))
                 await ScanDeviceBooksAsync(device);
         }
         catch
@@ -318,7 +318,7 @@ public sealed partial class MainWindow : Window
         DeleteDeviceBookButton.IsEnabled = false;
         DeviceBookCountText.Text = $"{books.Count} 本";
         DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
-        _scannedDeviceId = device.VolumeSerial;
+        _scannedDeviceId = device.Identity;
     }
 
     private void LibraryPane_DragOver(object sender, DragEventArgs e)
@@ -706,7 +706,7 @@ public sealed partial class MainWindow : Window
         {
             if (!isWpd) await _kindle.EjectAsync(device);
             _acceptedDeviceId = null;
-            _ignoredDeviceId = device.VolumeSerial;
+            _ignoredDeviceId = device.Identity;
             SetDisconnectedDeviceState(isWpd ? $"已断开 {device.Name}" : $"已弹出 {device.Name}");
         }
         catch (Exception ex)

@@ -53,7 +53,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
         }
         var wpdDevices = await Task.Run(() => WpdKindleAccess.DetectDevices(cancellationToken), cancellationToken);
         devices.AddRange(wpdDevices.Where(wpd => devices.All(disk =>
-            !string.Equals(disk.VolumeSerial, wpd.VolumeSerial, StringComparison.OrdinalIgnoreCase))));
+            !string.Equals(disk.Identity, wpd.Identity, StringComparison.OrdinalIgnoreCase))));
         return devices;
     }
 
@@ -175,7 +175,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
 
     private static string GetCoverCacheKey(KindleDevice device, KindleBook book)
     {
-        var identity = $"{device.VolumeSerial}\n{book.RelativePath}\n{book.Size}";
+        var identity = $"{device.Identity}\n{book.RelativePath}\n{book.Size}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
     }
 

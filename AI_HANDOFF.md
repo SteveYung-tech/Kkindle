@@ -2,18 +2,18 @@
 
 > 给后续 AI / 开发者使用。继续工作前请先阅读本文档，再查看代码和当前 Git 状态。
 >
-> 更新时间：2026-08-05
+> 更新时间：2026-08-06
 >
 > 项目目录：`C:\Users\kings\Desktop\01_Projects\Kkindle`
 
 ## 0. 当前状态速览
 
-- 当前阶段：P0、P1 已完成，下一步进入 P2 测试补强。
-- 当前分支：`master`；P1 基线提交：`b04d56f feat: complete P1 library and Kindle workflows`。
-- GitHub：`origin/master` 已包含 `b04d56f`。
+- 当前阶段：P0、P1 已完成；最小内置阅读器已加入；P2 自动化和真机大文件传输已完成，剩余需要人工配合的物理拔插，以及未来 USB 磁盘型 Kindle 的系统安全弹出验收。
+- 当前分支：`master`；本地阅读器基线提交：`bf36d34 feat: add reader flow modes and font sizing`。
+- GitHub：`origin/master` 当前停在 `43c5849 docs: update agent handoff after P1`；本地提交尚未推送。
 - 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`。
-- 最新验证：Release x64 构建成功，7 项测试全部通过，EXE 启动 5 秒后仍可响应。
-- 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环，设备端无测试残留。
+- 最新源码验证：Debug/Release x64 完整解决方案构建成功，均为 0 警告、0 错误；18 项测试在两个配置下全部通过。本轮 P2 未重新发布 EXE。
+- 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环；2026-08-06 又完成 64 MiB EPUB 发送、大小校验和删除，设备端无测试残留。
 - 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
 
 ## 1. 项目目标
@@ -283,15 +283,24 @@ EjectAsync(device)
 
 ### 3.5 测试
 
-当前已有 7 个测试，并在 2026-08-05 复核通过：
+当前已有 18 个测试，并在 2026-08-06 复核通过：
 
-- EPUB 导入、元数据、封面和哈希去重。
+- 中文 EPUB 文件名、中文元数据、封面和哈希去重。
 - 标题/标签搜索。
+- 单个元数据解析失败时记录逐项失败，并继续导入其他文件。
+- 同一本书的同名不同内容文件使用编号文件名保留。
+- 取消导入后清理 `.part`，且不写入书籍记录。
+- 拒绝解析应用数据目录之外的书籍路径。
+- 清理下载文件名中的 32 位哈希和 Z-Library 标记。
 - 临时目录模拟 Kindle，发送和扫描书籍。
 - 同名不同内容发送时生成编号文件且不覆盖原文件。
 - 删除仅限 `documents` 内目标文件，且不会误删旁边文件。
-- 拒绝删除 `documents` 外的路径。
+- 拒绝删除 `documents` 外路径及名称以 `documents` 开头的相邻目录文件。
+- SHA-256 校验失败后清理 `.kkindle-part` 和未完成目标文件。
 - 取消传输后清理 `.kkindle-part` 临时文件。
+- EPUB 阅读器按 spine 顺序准备章节、解析 EPUB 3 目录和片段目标。
+- EPUB 解压拒绝越出 `reader-cache` 的归档路径。
+- 相同卷序列号在盘符变化后仍产生相同设备身份，UI 状态和封面缓存不依赖盘符。
 
 复核命令和结果：
 
@@ -300,8 +309,33 @@ dotnet build Kkindle.sln -c Debug -p:Platform=x64 --no-restore
 0 个警告，0 个错误
 
 dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj -c Debug -p:Platform=x64 --no-restore
-失败 0，通过 7，跳过 0
+失败 0，通过 18，跳过 0
+
+dotnet build Kkindle.sln -c Release -p:Platform=x64 --no-restore
+0 个警告，0 个错误
+
+dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj -c Release -p:Platform=x64 --no-build --no-restore
+失败 0，通过 18，跳过 0
 ```
+
+### 3.6 最小内置阅读器
+
+本地 `master` 在 P1 之后新增了 3 个尚未推送的阅读器提交：
+
+```text
+bf36d34 feat: add reader flow modes and font sizing
+5c88d6a feat: add reader table of contents and controls
+f841cb1 feat: add minimal built-in book reader
+```
+
+当前能力：
+
+- 详情面板可打开 EPUB 和 PDF；其他格式会明确提示暂不支持。
+- EPUB 解压到 `data/reader-cache`，严格校验归档路径，按 OPF spine 顺序组织章节。
+- 支持 EPUB 3 navigation 目录、章节跳转、上一章/下一章和片段锚点。
+- EPUB 支持 80%–180% 字号、白色/纸张/深色主题，以及连续滚动/横向分页。
+- PDF 使用 WebView2 内置查看能力。
+- WebView2 导航限制在当前 PDF 文件或 EPUB 缓存根目录内。
 
 ## 4. 当前未完成和阻塞项
 
@@ -470,14 +504,18 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 ### P2 补充测试
 
-- [ ] 损坏文件逐项失败且不影响其他文件。
-- [ ] 中文文件名和中文元数据。
-- [ ] 文件名清理和同名冲突。
-- [ ] SHA-256 校验失败后的临时文件清理。
-- [ ] 取消导入和取消发送。
-- [ ] 同名不同内容发送到 Kindle 时自动编号。
-- [ ] 设备盘符变化和 `documents` 路径安全边界。
-- [ ] 真实 Kindle 插拔、弹出和大文件传输。
+- [x] 损坏文件逐项失败且不影响其他文件。
+- [x] 中文文件名和中文元数据。
+- [x] 文件名清理和同名冲突。
+- [x] SHA-256 校验失败后的临时文件清理。
+- [x] 取消导入和取消发送。
+- [x] 同名不同内容发送到 Kindle 时自动编号。
+- [x] `documents` 路径安全边界。
+- [x] 设备盘符变化后的卷序列号识别。
+- [x] 真实 Kindle Scribe 大文件传输：64 MiB EPUB 发送、设备端大小校验和删除闭环。
+- [x] MTP 断开确认与停止访问流程。
+- [ ] 真实 Kindle 物理拔出/重连事件验收（需要人工操作 USB 线）。
+- [ ] USB 磁盘型 Kindle 的系统安全弹出验收（当前 Scribe 为 MTP，不适用磁盘弹出接口）。
 
 ## 7. 不要做的事情
 
@@ -487,21 +525,21 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 - 不要因为修 UI 而改变 SQLite 数据结构，除非先更新迁移策略。
 - 不要把单个导入失败升级为整批失败。
 - 不要破坏当前“窗口激活后再配置原生 chrome、布局完成后重申 DWM 直角”的初始化顺序。
-- 不要为了窗口外观改动而提前扩展格式转换、阅读器、同步服务等范围外功能。
+- 不要在没有明确需求时继续扩大当前最小阅读器范围；格式转换、阅读进度同步、笔记和云同步仍属于范围外功能。
 
 ## 8. Git 状态
 
-当前工作分支为 `master`，P1 发布基线提交为 `b04d56f`，并已推送到 `origin/master`。构建输出由 `.gitignore` 排除，不纳入版本控制。
+当前工作分支为 `master`；`origin/master` 位于 `43c5849`，本地包含 3 个阅读器提交和本轮 P2 测试补强。构建输出由 `.gitignore` 排除，不纳入版本控制。
 
-当前开发基线及最近与窗口外观相关的提交：
+当前开发基线及最近提交：
 
 ```text
+bf36d34 feat: add reader flow modes and font sizing
+5c88d6a feat: add reader table of contents and controls
+f841cb1 feat: add minimal built-in book reader
+43c5849 docs: update agent handoff after P1
 b04d56f feat: complete P1 library and Kindle workflows
 b8a466c feat: animate sidebar section hover inversion
-065234a fix: enforce square window corners after layout
-b681ca8 feat: replace native window caption buttons
-2848135 fix: initialize window chrome after activation
-52a94c0 feat: add square custom window chrome
 ```
 
 继续工作前建议：
@@ -541,12 +579,12 @@ git status --short --branch
 
 ## 12. 当前继续开发基线
 
-- 标准 `publish` 目录中的 exe 是当前基线；P1 Release 测试结果为失败 0、通过 7、跳过 0。
+- 标准 `publish` 目录中的 exe 是当前阅读器基线；本轮 P2 只修改基础设施和测试，尚未重新发布 EXE。
 - `MainWindow.ConfigureTitleBar()` 只负责 XAML 标题栏和拖动区域，不应在窗口激活前读取 `AppWindow`。
 - `ConfigureNativeWindowChrome()` 只能在首次 `Window.Activated` 后调用；其中隐藏原生标题栏并取得 `OverlappedPresenter`。
 - `ApplySquareWindowFrame()` 必须保留首次调用、低优先级调度调用、`Loaded` 调用和 presenter 状态变化后的调用，否则 Windows 可能重新恢复圆角。
 - 自绘最小化、最大化/还原、关闭按钮位于 `MainWindow.xaml`；统一模板 `TitleBarCaptionButtonStyle` 位于 `App.xaml`。
-- P1 已完成；下一步进入 P2，优先补损坏文件批量导入、中文元数据、取消导入以及更多路径安全测试。不要再次重做标题栏架构，除非有新的可复现问题。
+- P1 已完成，P2 自动化场景已增至 18 项，Kindle Scribe 64 MiB 传输闭环也已通过。下一步只剩需要人工配合的物理拔出/重连；USB 磁盘安全弹出需等对应设备。不要再次重做标题栏架构，除非有新的可复现问题。
 
 ## 13. P1 完成发布（2026-08-05）
 
@@ -560,3 +598,23 @@ git status --short --branch
 - `WM_DEVICECHANGE` 已接入，3 秒轮询继续作为可靠兜底。
 - 真实 Kindle Scribe 验收结果：发送成功、设备扫描可见、删除成功、测试残留为 0。
 - Release 测试结果：失败 0、通过 7、跳过 0；发布版启动和筛选控件 UI Automation 验证通过。
+
+## 14. 最小内置阅读器（2026-08-05）
+
+- 新增 EPUB/PDF 阅读入口和主窗口内阅读面板。
+- EPUB 支持安全解压、spine 章节顺序、EPUB 3 目录、章节与锚点跳转。
+- 新增上一章/下一章、目录、80%–180% 字号、三种主题和连续滚动/横向分页。
+- 阅读内容导航限制在当前 EPUB 缓存目录或当前 PDF 文件，阻止跳转到外部路径和网络地址。
+- 新增 3 项阅读器测试；本地提交为 `f841cb1`、`5c88d6a`、`bf36d34`，尚未推送到 `origin/master`。
+
+## 15. P2 自动化测试补强（2026-08-06）
+
+- 新增 8 项测试，总数从 10 增至 18。
+- 覆盖单项导入失败隔离、同名文件编号、取消导入清理、应用数据路径越界、Kindle 相邻目录越界和 SHA-256 失败清理。
+- 加强中文 EPUB 验证，确认中文文件名、标题、作者、简介和实际保存文件名均正确。
+- 修复下载文件名清理顺序：32 位哈希位于 `(Z-Library)` 标记之前时也能被移除。
+- 统一设备身份为 `KindleDevice.Identity`：优先使用卷序列号，盘符变化不会触发新设备提示或破坏封面缓存身份。
+- Debug/Release x64 完整解决方案构建均通过：0 警告、0 错误；两个配置的测试均为失败 0、通过 18、跳过 0。
+- 真机为 `Kindle Scribe`（MTP，11.4 GB 可用 / 11.9 GB）；唯一测试文件大小为 67,110,066 字节，发送完成后通过设备端大小校验并成功删除。
+- 删除后再次只读枚举 `documents`，测试文件残留为 0；本机 64 MiB 临时 EPUB 和临时测试工具也已清理。
+- 本轮没有重新发布 EXE；标准 `publish` 目录仍是上一轮阅读器基线。

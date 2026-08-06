@@ -41,6 +41,9 @@ public sealed class KindleDevice
     public bool IsReady { get; init; }
     public KindleTransport Transport { get; init; } = KindleTransport.MassStorage;
 
+    public string Identity => string.IsNullOrWhiteSpace(VolumeSerial)
+        ? RootPath.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+        : VolumeSerial.Trim();
     public string CapacityLabel => $"{FormatBytes(FreeBytes)} 可用 / {FormatBytes(TotalBytes)}";
     public string ConnectionLabel => Transport == KindleTransport.Wpd ? "MTP" : "USB 磁盘";
 
