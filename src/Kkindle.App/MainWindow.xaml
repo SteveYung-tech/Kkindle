@@ -639,6 +639,10 @@
                         <Image x:Name="DetailCoverImage" Stretch="UniformToFill" />
                     </Border>
                     <TextBlock Text="书籍信息" FontSize="20" FontWeight="Bold" />
+                    <Button x:Name="OpenSelectedBookButton"
+                            Content="开始阅读"
+                            AutomationProperties.Name="开始阅读"
+                            Click="OpenSelectedBookButton_Click" />
                     <StackPanel Spacing="5">
                         <TextBlock Text="标题" FontSize="11" Foreground="{StaticResource MutedInkBrush}" />
                         <TextBox x:Name="DetailsTitleBox" />
@@ -666,127 +670,414 @@
             </ScrollViewer>
         </Border>
 
-        <!-- Minimal built-in EPUB/PDF reader. -->
+        <!-- Focused three-pane EPUB/PDF reader inspired by desktop reading tools. -->
         <Grid x:Name="ReaderPane"
               Grid.ColumnSpan="3"
-              Margin="0,38,0,0"
-              Canvas.ZIndex="80"
-              Background="#FFFFFF"
-              Visibility="Collapsed">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="58" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
-            <Grid Padding="18,10"
-                  Background="#FFFFFF"
-                  BorderBrush="#000000"
-                  BorderThickness="0,0,0,1"
-                  ColumnSpacing="10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <Button Content="返回书架"
-                        Style="{StaticResource QuietButtonStyle}"
-                        Click="CloseReaderButton_Click" />
-                <StackPanel Grid.Column="1" Margin="8,0" VerticalAlignment="Center" Spacing="1">
-                    <TextBlock x:Name="ReaderTitleText"
-                               FontWeight="Bold"
-                               TextTrimming="CharacterEllipsis" />
-                    <TextBlock x:Name="ReaderStatusText"
-                               FontSize="10"
-                               Foreground="{StaticResource MutedInkBrush}" />
-                </StackPanel>
-                <Button x:Name="ReaderZoomOutButton"
-                        Grid.Column="2"
-                        Content="A－"
-                        Style="{StaticResource QuietButtonStyle}"
-                        AutomationProperties.Name="减小字号"
-                        Click="ReaderZoomOutButton_Click" />
-                <TextBlock x:Name="ReaderZoomText"
-                           Grid.Column="3"
-                           MinWidth="48"
-                           Text="100%"
-                           TextAlignment="Center"
-                           VerticalAlignment="Center" />
-                <Button x:Name="ReaderZoomInButton"
-                        Grid.Column="4"
-                        Content="A＋"
-                        Style="{StaticResource QuietButtonStyle}"
-                        AutomationProperties.Name="增大字号"
-                        Click="ReaderZoomInButton_Click" />
-                <Button x:Name="ReaderThemeButton"
-                        Grid.Column="5"
-                        Content="白色"
-                        Style="{StaticResource QuietButtonStyle}"
-                        Click="ReaderThemeButton_Click" />
-                <Button x:Name="ReaderFlowButton"
-                        Grid.Column="6"
-                        Content="连续滚动"
-                        Style="{StaticResource QuietButtonStyle}"
-                        Click="ReaderFlowButton_Click" />
-                <Button x:Name="ReaderPreviousButton"
-                        Grid.Column="7"
-                        Content="上一页"
-                        Style="{StaticResource QuietButtonStyle}"
-                        Click="ReaderPreviousButton_Click" />
-                <TextBlock x:Name="ReaderChapterText"
-                           Grid.Column="8"
-                           MinWidth="72"
-                           TextAlignment="Center"
-                           VerticalAlignment="Center" />
-                <Button x:Name="ReaderNextButton"
-                        Grid.Column="9"
-                        Content="下一页"
-                        Style="{StaticResource QuietButtonStyle}"
-                        Click="ReaderNextButton_Click" />
-            </Grid>
-            <Grid Grid.Row="1">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition x:Name="ReaderTocColumn" Width="260" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <Border x:Name="ReaderTocPanel"
-                        Grid.Column="0"
-                        Background="#F5F3ED"
-                        BorderBrush="#000000"
-                        BorderThickness="0,0,1,0">
-                    <Grid Padding="16,18">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
+              Margin="0"
+              Canvas.ZIndex="40"
+              Background="#F3F3F1"
+              Visibility="Collapsed"
+              SizeChanged="ReaderPane_SizeChanged">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="ReaderTocColumn" Width="286" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition x:Name="ReaderAssistantColumn" Width="310" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Book information and table of contents. -->
+            <Border x:Name="ReaderTocPanel"
+                    Grid.Column="0"
+                    Margin="0,38,0,0"
+                    Background="#FBFBFA"
+                    BorderBrush="#D8D8D4"
+                    BorderThickness="0,0,1,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="52" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="46" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Padding="14,8" BorderBrush="#E1E1DE" BorderThickness="0,0,0,1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
                         <TextBlock Text="目录"
-                                   Margin="4,0,4,12"
-                                   FontSize="18"
-                                   FontWeight="Bold" />
+                                   FontSize="20"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="1"
+                                Content="‹"
+                                FontSize="20"
+                                Style="{StaticResource ReaderToolbarButtonStyle}"
+                                ToolTipService.ToolTip="收起目录"
+                                Click="ReaderTocToggleButton_Click" />
+                    </Grid>
+
+                    <Grid Grid.Row="1" Padding="14,12,14,10" ColumnSpacing="11">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="48" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid Width="48" Height="68" Background="#E6E5E0">
+                            <TextBlock x:Name="ReaderCoverPlaceholder"
+                                       Text="BOOK"
+                                       FontSize="8"
+                                       CharacterSpacing="100"
+                                       Foreground="#777777"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                            <Image x:Name="ReaderCoverImage" Stretch="UniformToFill" />
+                        </Grid>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+                            <TextBlock x:Name="ReaderBookTitleText"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       MaxLines="2"
+                                       TextTrimming="CharacterEllipsis"
+                                       TextWrapping="Wrap" />
+                            <TextBlock x:Name="ReaderBookAuthorText"
+                                       FontSize="11"
+                                       Foreground="#777777"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="ReaderBookFormatText"
+                                       FontSize="10"
+                                       Foreground="#909090" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Grid Grid.Row="2" Padding="14,0,14,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="ReaderReadingProgressText"
+                                   Text="准备阅读"
+                                   FontSize="11"
+                                   Foreground="#5E5E5E" />
+                        <TextBlock x:Name="ReaderProgressPercentText"
+                                   Grid.Column="1"
+                                   Text="0%"
+                                   FontSize="11"
+                                   Foreground="#5E5E5E" />
+                    </Grid>
+
+                    <TextBox x:Name="ReaderTocSearchBox"
+                             Grid.Row="3"
+                             Margin="14,0,14,10"
+                             Height="34"
+                             Padding="10,5"
+                             CornerRadius="4"
+                             BorderBrush="#D5D5D1"
+                             PlaceholderText="搜索目录"
+                             TextChanged="ReaderTocSearchBox_TextChanged" />
+
+                    <Grid Grid.Row="4">
                         <ListView x:Name="ReaderTocList"
-                                  Grid.Row="1"
                                   SelectionMode="Single"
-                                  SelectionChanged="ReaderTocList_SelectionChanged">
+                                  ItemContainerStyle="{StaticResource ReaderTocItemStyle}"
+                                  SelectionChanged="ReaderTocList_SelectionChanged"
+                                  ScrollViewer.HorizontalScrollMode="Disabled"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="infra:EpubReaderNavigationItem">
                                     <TextBlock Text="{x:Bind Title}"
-                                               Padding="5,7"
+                                               FontSize="12"
                                                TextWrapping="Wrap" />
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
+                        <TextBlock x:Name="ReaderTocEmptyText"
+                                   Margin="20"
+                                   Text="此文档没有可用目录。"
+                                   FontSize="12"
+                                   Foreground="#777777"
+                                   TextWrapping="Wrap"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Visibility="Collapsed" />
+                    </Grid>
+
+                    <Button Grid.Row="5"
+                            Content="返回书架"
+                            Margin="10,6"
+                            HorizontalAlignment="Stretch"
+                            Style="{StaticResource ReaderToolbarButtonStyle}"
+                            Click="CloseReaderButton_Click" />
+                </Grid>
+            </Border>
+
+            <!-- Reading canvas and compact controls. -->
+            <Grid Grid.Column="1" Margin="0,38,0,0" Background="#F1F1EF">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="54" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="50" />
+                </Grid.RowDefinitions>
+
+                <Border Background="#FFFFFF" BorderBrush="#D8D8D4" BorderThickness="0,0,0,1">
+                    <Grid Padding="10,7" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="ReaderTocToggleButton"
+                                Content="目录"
+                                Style="{StaticResource ReaderToolbarButtonStyle}"
+                                ToolTipService.ToolTip="显示或隐藏目录"
+                                Click="ReaderTocToggleButton_Click" />
+                        <StackPanel Grid.Column="1" Margin="4,0" VerticalAlignment="Center" Spacing="1">
+                            <TextBlock x:Name="ReaderTitleText"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="ReaderStatusText"
+                                       FontSize="10"
+                                       Foreground="#858585"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
+                            <Button x:Name="ReaderZoomOutButton"
+                                    Content="A−"
+                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    AutomationProperties.Name="减小字号"
+                                    Click="ReaderZoomOutButton_Click" />
+                            <TextBlock x:Name="ReaderZoomText"
+                                       MinWidth="42"
+                                       Text="100%"
+                                       FontSize="11"
+                                       TextAlignment="Center"
+                                       VerticalAlignment="Center" />
+                            <Button x:Name="ReaderZoomInButton"
+                                    Content="A+"
+                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    AutomationProperties.Name="增大字号"
+                                    Click="ReaderZoomInButton_Click" />
+                            <Button x:Name="ReaderThemeButton"
+                                    Content="白色"
+                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    ToolTipService.ToolTip="切换阅读主题"
+                                    Click="ReaderThemeButton_Click" />
+                            <Button x:Name="ReaderFlowButton"
+                                    Content="滚动"
+                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    ToolTipService.ToolTip="切换滚动或分页"
+                                    Click="ReaderFlowButton_Click" />
+                            <Button x:Name="ReaderAssistantToggleButton"
+                                    Content="助手"
+                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    ToolTipService.ToolTip="显示或隐藏阅读助手"
+                                    Click="ReaderAssistantToggleButton_Click" />
+                            <Button Content="×"
+                                    FontSize="17"
+                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    AutomationProperties.Name="关闭阅读器"
+                                    ToolTipService.ToolTip="返回书架"
+                                    Click="CloseReaderButton_Click" />
+                        </StackPanel>
                     </Grid>
                 </Border>
-                <WebView2 x:Name="ReaderWebView"
-                          Grid.Column="1"
-                          NavigationStarting="ReaderWebView_NavigationStarting"
-                          NavigationCompleted="ReaderWebView_NavigationCompleted" />
+
+                <Grid Grid.Row="1" Background="#F1F1EF">
+                    <Border Margin="16,12,16,10"
+                            Background="#FFFFFF"
+                            BorderBrush="#DADAD6"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <WebView2 x:Name="ReaderWebView"
+                                  NavigationStarting="ReaderWebView_NavigationStarting"
+                                  NavigationCompleted="ReaderWebView_NavigationCompleted" />
+                    </Border>
+                </Grid>
+
+                <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="#D8D8D4" BorderThickness="0,1,0,0">
+                    <Grid Padding="10,6" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="ReaderPreviousButton"
+                                Content="‹"
+                                FontSize="18"
+                                Style="{StaticResource ReaderToolbarButtonStyle}"
+                                AutomationProperties.Name="上一页"
+                                Click="ReaderPreviousButton_Click" />
+                        <Button x:Name="ReaderNextButton"
+                                Grid.Column="1"
+                                Content="›"
+                                FontSize="18"
+                                Style="{StaticResource ReaderToolbarButtonStyle}"
+                                AutomationProperties.Name="下一页"
+                                Click="ReaderNextButton_Click" />
+                        <Slider x:Name="ReaderProgressSlider"
+                                Grid.Column="2"
+                                Margin="4,0"
+                                Minimum="1"
+                                Maximum="1"
+                                Value="1"
+                                StepFrequency="1"
+                                SnapsTo="StepValues"
+                                VerticalAlignment="Center"
+                                ValueChanged="ReaderProgressSlider_ValueChanged">
+                            <Slider.Resources>
+                                <SolidColorBrush x:Key="SliderTrackValueFill" Color="#30302E" />
+                                <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#111111" />
+                                <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#111111" />
+                                <SolidColorBrush x:Key="SliderThumbBackground" Color="#30302E" />
+                                <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#111111" />
+                                <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#000000" />
+                            </Slider.Resources>
+                        </Slider>
+                        <TextBlock x:Name="ReaderChapterText"
+                                   Grid.Column="3"
+                                   MinWidth="76"
+                                   TextAlignment="Center"
+                                   VerticalAlignment="Center" />
+                        <TextBlock x:Name="ReaderPdfBottomText"
+                                   Grid.Column="4"
+                                   Text="PDF"
+                                   FontSize="11"
+                                   Foreground="#777777"
+                                   VerticalAlignment="Center"
+                                   Visibility="Collapsed" />
+                    </Grid>
+                </Border>
             </Grid>
+
+            <!-- Local, privacy-preserving reading helper. -->
+            <Border x:Name="ReaderAssistantPanel"
+                    Grid.Column="2"
+                    Margin="0,38,0,0"
+                    Background="#FBFBFA"
+                    BorderBrush="#D8D8D4"
+                    BorderThickness="1,0,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="52" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Padding="14,8" BorderBrush="#E1E1DE" BorderThickness="0,0,0,1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center" Spacing="0">
+                            <TextBlock Text="阅读助手" FontSize="18" FontWeight="SemiBold" />
+                            <TextBlock Text="本地工具 · 内容不上传" FontSize="9" Foreground="#888888" />
+                        </StackPanel>
+                        <Button Grid.Column="1"
+                                Content="›"
+                                FontSize="20"
+                                Style="{StaticResource ReaderToolbarButtonStyle}"
+                                ToolTipService.ToolTip="收起阅读助手"
+                                Click="ReaderAssistantToggleButton_Click" />
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="1" Padding="14,18" VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="16">
+                            <StackPanel x:Name="ReaderAssistantEmptyState" Spacing="8" HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xE8BD;" FontFamily="Segoe MDL2 Assets" FontSize="30" Foreground="#777777" />
+                                <TextBlock Text="处理当前章节或保存临时笔记"
+                                           MaxWidth="220"
+                                           FontSize="12"
+                                           Foreground="#777777"
+                                           TextAlignment="Center"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <Grid ColumnSpacing="8" RowSpacing="8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="ReaderAssistantOverviewButton"
+                                        Content="章节概览"
+                                        BorderThickness="1"
+                                        Style="{StaticResource ReaderToolbarButtonStyle}"
+                                        AutomationProperties.Name="章节概览"
+                                        AutomationProperties.AccessibilityView="Content"
+                                        Click="ReaderAssistantOverviewButton_Click" />
+                                <Button x:Name="ReaderAssistantStatisticsButton"
+                                        Grid.Column="1"
+                                        Content="阅读统计"
+                                        BorderThickness="1"
+                                        Style="{StaticResource ReaderToolbarButtonStyle}"
+                                        AutomationProperties.Name="阅读统计"
+                                        AutomationProperties.AccessibilityView="Content"
+                                        Click="ReaderAssistantStatisticsButton_Click" />
+                                <Button x:Name="ReaderAssistantCopySelectionButton"
+                                        Grid.Row="1"
+                                        Content="复制选中"
+                                        BorderThickness="1"
+                                        Style="{StaticResource ReaderToolbarButtonStyle}"
+                                        AutomationProperties.Name="复制选中"
+                                        AutomationProperties.AccessibilityView="Content"
+                                        Click="ReaderAssistantCopySelectionButton_Click" />
+                                <Button x:Name="ReaderAssistantClearButton"
+                                        Grid.Row="1" Grid.Column="1"
+                                        Content="清空面板"
+                                        BorderThickness="1"
+                                        Style="{StaticResource ReaderToolbarButtonStyle}"
+                                        AutomationProperties.Name="清空面板"
+                                        AutomationProperties.AccessibilityView="Content"
+                                        Click="ReaderAssistantClearButton_Click" />
+                            </Grid>
+
+                            <Border x:Name="ReaderAssistantOutputBorder"
+                                    Padding="12"
+                                    Background="#FFFFFF"
+                                    BorderBrush="#DADAD6"
+                                    BorderThickness="1"
+                                    CornerRadius="4"
+                                    Visibility="Collapsed">
+                                <TextBlock x:Name="ReaderAssistantOutputText"
+                                           FontSize="12"
+                                           LineHeight="20"
+                                           TextWrapping="Wrap" />
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <Grid Grid.Row="2" Padding="12" BorderBrush="#E1E1DE" BorderThickness="0,1,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBox x:Name="ReaderNoteBox"
+                                 MinHeight="74"
+                                 Padding="10,8"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 CornerRadius="4"
+                                 BorderBrush="#D5D5D1"
+                                 PlaceholderText="记录当前阅读想法…" />
+                        <Button x:Name="ReaderNoteAddButton"
+                                Grid.Row="1"
+                                Margin="0,8,0,0"
+                                Content="加入临时笔记"
+                                HorizontalAlignment="Stretch"
+                                BorderThickness="1"
+                                Style="{StaticResource ReaderToolbarButtonStyle}"
+                                AutomationProperties.Name="加入临时笔记"
+                                AutomationProperties.AccessibilityView="Content"
+                                Click="ReaderNoteAddButton_Click" />
+                    </Grid>
+                </Grid>
+            </Border>
         </Grid>
 
         <!-- Fully custom monochrome device confirmation; avoids WinUI popup theming. -->

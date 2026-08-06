@@ -1,10 +1,12 @@
 using System.Collections.ObjectModel;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
@@ -56,7 +58,12 @@ public sealed partial class MainWindow : Window
     private int _readerTheme;
     private int _readerFlowMode;
     private bool _isUpdatingReaderToc;
+    private bool _isUpdatingReaderProgress;
     private bool _readerNavigateToEnd;
+    private bool _readerTocExpanded = true;
+    private bool _readerAssistantExpanded = true;
+    private bool _readerHasToc;
+    private readonly List<string> _readerSessionNotes = [];
 
     public MainWindow(AppPaths paths, IBookLibraryService library, IKindleDeviceService kindle)
     {
@@ -488,6 +495,9 @@ public sealed partial class MainWindow : Window
     private void SelectBook(Book book)
     {
         _selectedBook = book;
+        OpenSelectedBookButton.IsEnabled = book.Files.Any(bookFile =>
+            bookFile.Format.Equals("epub", StringComparison.OrdinalIgnoreCase)
+            || bookFile.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase));
         DetailsTitleBox.Text = book.Title;
         DetailsAuthorsBox.Text = book.Authors;
         DetailsSeriesBox.Text = book.Series ?? string.Empty;
@@ -726,6 +736,19 @@ public sealed partial class MainWindow : Window
     {
         if (sender is not MenuFlyoutItem { Tag: Book book }) return;
 
+        await OpenBookAsync(book);
+    }
+
+    private async void OpenSelectedBookButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedBook is null) return;
+
+        await OpenBookAsync(_selectedBook);
+    }
+
+    private async Task OpenBookAsync(Book book)
+    {
+
         var file = book.Files
             .Where(bookFile => bookFile.Format.Equals("epub", StringComparison.OrdinalIgnoreCase)
                 || bookFile.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase))
@@ -744,17 +767,24 @@ public sealed partial class MainWindow : Window
 
             await ReaderWebView.EnsureCoreWebView2Async();
             ConfigureReaderWebView();
+            ConfigureReaderBookInformation(book, file);
+            ResetReaderAssistant();
             ReaderTitleText.Text = book.Title;
             ReaderPane.Visibility = Visibility.Visible;
+            ReaderPane.UpdateLayout();
+            _readerTocExpanded = true;
+            _readerAssistantExpanded = true;
             _readerFontScale = 1;
             _readerTheme = 0;
             _readerFlowMode = 0;
             UpdateReaderZoom();
             UpdateReaderThemeButton();
             UpdateReaderFlowButton();
+            ApplyReaderPanelLayout();
 
             if (file.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase))
             {
+                _readerHasToc = false;
                 _readerChapters = [];
                 _readerNavigation = [];
                 _readerChapterIndex = -1;
@@ -762,19 +792,28 @@ public sealed partial class MainWindow : Window
                 _readerAllowedFile = Path.GetFullPath(path);
                 ReaderStatusText.Text = "PDF · 可使用阅读区内置工具栏搜索和翻页";
                 ReaderChapterText.Text = string.Empty;
+                ReaderReadingProgressText.Text = "PDF 文档";
+                ReaderProgressPercentText.Text = "—";
                 ReaderTocList.ItemsSource = null;
-                ReaderTocColumn.Width = new GridLength(0);
+                ReaderTocList.Visibility = Visibility.Collapsed;
+                ReaderTocSearchBox.Visibility = Visibility.Collapsed;
+                ReaderTocEmptyText.Text = "PDF 使用内置查看器。可通过查看器工具栏搜索、缩放和翻页。";
+                ReaderTocEmptyText.Visibility = Visibility.Visible;
                 ReaderZoomOutButton.Visibility = Visibility.Collapsed;
                 ReaderZoomText.Visibility = Visibility.Collapsed;
                 ReaderZoomInButton.Visibility = Visibility.Collapsed;
                 ReaderPreviousButton.Visibility = Visibility.Collapsed;
                 ReaderNextButton.Visibility = Visibility.Collapsed;
-                ReaderThemeButton.IsEnabled = false;
+                ReaderProgressSlider.Visibility = Visibility.Collapsed;
+                ReaderPdfBottomText.Visibility = Visibility.Visible;
+                ReaderThemeButton.Visibility = Visibility.Collapsed;
                 ReaderFlowButton.Visibility = Visibility.Collapsed;
+                ApplyReaderPanelLayout();
                 ReaderWebView.Source = new Uri(path);
                 return;
             }
 
+            _readerHasToc = true;
             ReaderStatusText.Text = "正在准备 EPUB…";
             var document = await _epubReader.PrepareAsync(path, file.Sha256);
             _readerChapters = document.Chapters;
@@ -783,15 +822,21 @@ public sealed partial class MainWindow : Window
             _readerAllowedRoot = document.RootPath;
             _readerAllowedFile = null;
             ReaderStatusText.Text = "EPUB";
-            ReaderTocColumn.Width = new GridLength(260);
-            ReaderTocList.ItemsSource = _readerNavigation;
+            ReaderTocSearchBox.Text = string.Empty;
+            ReaderTocSearchBox.Visibility = Visibility.Visible;
+            ReaderTocList.Visibility = Visibility.Visible;
+            ReaderTocEmptyText.Visibility = Visibility.Collapsed;
+            ApplyReaderTocFilter();
             ReaderZoomOutButton.Visibility = Visibility.Visible;
             ReaderZoomText.Visibility = Visibility.Visible;
             ReaderZoomInButton.Visibility = Visibility.Visible;
             ReaderPreviousButton.Visibility = Visibility.Visible;
             ReaderNextButton.Visibility = Visibility.Visible;
-            ReaderThemeButton.IsEnabled = true;
+            ReaderProgressSlider.Visibility = Visibility.Visible;
+            ReaderPdfBottomText.Visibility = Visibility.Collapsed;
+            ReaderThemeButton.Visibility = Visibility.Visible;
             ReaderFlowButton.Visibility = Visibility.Visible;
+            ApplyReaderPanelLayout();
             ShowReaderChapter();
         }
         catch (Exception ex)
@@ -810,12 +855,76 @@ public sealed partial class MainWindow : Window
         settings.AreDefaultScriptDialogsEnabled = false;
     }
 
+    private void ConfigureReaderBookInformation(Book book, BookFile file)
+    {
+        ReaderBookTitleText.Text = book.Title;
+        ReaderBookAuthorText.Text = book.Authors;
+        ReaderBookFormatText.Text = file.Format.ToUpperInvariant();
+        ReaderCoverImage.Source = null;
+        if (string.IsNullOrWhiteSpace(book.CoverPath)) return;
+
+        var coverPath = Path.GetFullPath(Path.Combine(_paths.Data, book.CoverPath));
+        if (!File.Exists(coverPath)) return;
+        try { ReaderCoverImage.Source = new BitmapImage(new Uri(coverPath)); }
+        catch { ReaderCoverImage.Source = null; }
+    }
+
+    private void ResetReaderAssistant()
+    {
+        _readerSessionNotes.Clear();
+        ReaderNoteBox.Text = string.Empty;
+        ReaderAssistantOutputText.Text = string.Empty;
+        ReaderAssistantOutputBorder.Visibility = Visibility.Collapsed;
+        ReaderAssistantEmptyState.Visibility = Visibility.Visible;
+    }
+
+    private void ReaderPane_SizeChanged(object sender, SizeChangedEventArgs e) => ApplyReaderPanelLayout(e.NewSize.Width);
+
+    private void ReaderTocToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        _readerTocExpanded = !_readerTocExpanded;
+        ApplyReaderPanelLayout();
+    }
+
+    private void ReaderAssistantToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        _readerAssistantExpanded = !_readerAssistantExpanded;
+        ApplyReaderPanelLayout();
+    }
+
+    private void ApplyReaderPanelLayout(double? availableWidth = null)
+    {
+        if (ReaderPane.Visibility != Visibility.Visible) return;
+        var width = availableWidth ?? ReaderPane.ActualWidth;
+        var showToc = _readerTocExpanded && width >= 760;
+        var showAssistant = _readerAssistantExpanded && width >= 1180;
+        ReaderTocColumn.Width = showToc ? new GridLength(286) : new GridLength(0);
+        ReaderAssistantColumn.Width = showAssistant ? new GridLength(310) : new GridLength(0);
+        ReaderTocToggleButton.Opacity = showToc ? 0.58 : 1;
+        ReaderAssistantToggleButton.Opacity = showAssistant ? 0.58 : 1;
+    }
+
+    private void ReaderTocSearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyReaderTocFilter();
+
+    private void ApplyReaderTocFilter()
+    {
+        if (!_readerHasToc)
+        {
+            ReaderTocList.ItemsSource = null;
+            return;
+        }
+
+        var query = ReaderTocSearchBox.Text.Trim();
+        ReaderTocList.ItemsSource = string.IsNullOrEmpty(query)
+            ? _readerNavigation
+            : _readerNavigation.Where(item =>
+                item.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase)).ToArray();
+    }
+
     private void ShowReaderChapter()
     {
         if (_readerChapterIndex < 0 || _readerChapterIndex >= _readerChapters.Count) return;
-        ReaderChapterText.Text = $"{_readerChapterIndex + 1} / {_readerChapters.Count}";
-        ReaderPreviousButton.IsEnabled = _readerChapterIndex > 0;
-        ReaderNextButton.IsEnabled = _readerChapterIndex + 1 < _readerChapters.Count;
+        UpdateReaderChapterControls();
         SelectReaderTocItem(_readerNavigation.FirstOrDefault(item => item.ChapterIndex == _readerChapterIndex));
         ReaderWebView.Source = new Uri(_readerChapters[_readerChapterIndex]);
     }
@@ -840,9 +949,34 @@ public sealed partial class MainWindow : Window
     {
         ReaderChapterText.Text = _readerChapterIndex < 0
             ? string.Empty
-            : $"{_readerChapterIndex + 1} / {_readerChapters.Count}";
+            : $"{_readerChapterIndex + 1} / {_readerChapters.Count} 章";
         ReaderPreviousButton.IsEnabled = _readerChapterIndex > 0;
         ReaderNextButton.IsEnabled = _readerChapterIndex + 1 < _readerChapters.Count;
+        UpdateReaderProgress();
+    }
+
+    private void UpdateReaderProgress()
+    {
+        if (_readerChapterIndex < 0 || _readerChapters.Count == 0) return;
+        var current = _readerChapterIndex + 1;
+        var percentage = (int)Math.Round(current * 100d / _readerChapters.Count);
+        ReaderReadingProgressText.Text = $"已读 {current} / {_readerChapters.Count} 章";
+        ReaderProgressPercentText.Text = $"{percentage}%";
+        _isUpdatingReaderProgress = true;
+        ReaderProgressSlider.Minimum = 1;
+        ReaderProgressSlider.Maximum = Math.Max(1, _readerChapters.Count);
+        ReaderProgressSlider.Value = current;
+        _isUpdatingReaderProgress = false;
+    }
+
+    private void ReaderProgressSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_isUpdatingReaderProgress || !_readerHasToc || _readerChapters.Count == 0) return;
+        var chapterIndex = Math.Clamp((int)Math.Round(e.NewValue) - 1, 0, _readerChapters.Count - 1);
+        if (chapterIndex == _readerChapterIndex) return;
+        _readerChapterIndex = chapterIndex;
+        _readerNavigateToEnd = false;
+        ShowReaderChapter();
     }
 
     private async void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
@@ -892,7 +1026,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateReaderFlowButton()
     {
-        ReaderFlowButton.Content = _readerFlowMode == 0 ? "连续滚动" : "横向分页";
+        ReaderFlowButton.Content = _readerFlowMode == 0 ? "滚动" : "分页";
     }
 
     private async Task<bool> TryTurnWithinChapterAsync(int direction)
@@ -947,6 +1081,131 @@ public sealed partial class MainWindow : Window
         };
     }
 
+    private async void ReaderAssistantOverviewButton_Click(object sender, RoutedEventArgs e)
+    {
+        var rawText = await ExecuteReaderStringScriptAsync(GetReaderSectionTextScript());
+        var text = NormalizeReaderText(rawText);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            ShowReaderAssistantOutput("当前页面无法提取正文。PDF 可继续使用内置查看器阅读和搜索。");
+            return;
+        }
+
+        var chapterTitle = (ReaderTocList.SelectedItem as EpubReaderNavigationItem)?.Title
+            ?? _readerNavigation.FirstOrDefault(item => item.ChapterIndex == _readerChapterIndex)?.Title
+            ?? "当前章节";
+        var preview = text.Length > 420 ? text[..420] + "…" : text;
+        ShowReaderAssistantOutput($"{chapterTitle}\n\n约 {text.Count(character => !char.IsWhiteSpace(character)):N0} 字\n\n{preview}");
+    }
+
+    private async void ReaderAssistantStatisticsButton_Click(object sender, RoutedEventArgs e)
+    {
+        var rawText = await ExecuteReaderStringScriptAsync(GetReaderSectionTextScript());
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            ShowReaderAssistantOutput("当前页面无法统计正文内容。");
+            return;
+        }
+
+        var characters = rawText.Count(character => !char.IsWhiteSpace(character));
+        var paragraphs = rawText.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Count(line => !string.IsNullOrWhiteSpace(line));
+        var estimatedMinutes = Math.Max(1, (int)Math.Ceiling(characters / 500d));
+        ShowReaderAssistantOutput($"阅读统计\n\n正文字符：{characters:N0}\n段落行数：{paragraphs:N0}\n预计阅读：约 {estimatedMinutes} 分钟");
+    }
+
+    private async void ReaderAssistantCopySelectionButton_Click(object sender, RoutedEventArgs e)
+    {
+        var selectedText = await ExecuteReaderStringScriptAsync("window.getSelection ? window.getSelection().toString() : ''");
+        if (string.IsNullOrWhiteSpace(selectedText))
+        {
+            ShowReaderAssistantOutput("请先在正文中选择一段文字，再点击“复制选中”。");
+            return;
+        }
+
+        var package = new DataPackage();
+        package.SetText(selectedText.Trim());
+        Clipboard.SetContent(package);
+        ShowReaderAssistantOutput($"已复制 {selectedText.Trim().Length:N0} 个字符到剪贴板。\n\n{selectedText.Trim()}");
+    }
+
+    private void ReaderAssistantClearButton_Click(object sender, RoutedEventArgs e) => ResetReaderAssistant();
+
+    private void ReaderNoteAddButton_Click(object sender, RoutedEventArgs e)
+    {
+        var note = ReaderNoteBox.Text.Trim();
+        if (string.IsNullOrEmpty(note))
+        {
+            ShowReaderAssistantOutput("先写下一段阅读想法，再加入临时笔记。");
+            return;
+        }
+
+        _readerSessionNotes.Add($"[{DateTime.Now:HH:mm}] {note}");
+        ReaderNoteBox.Text = string.Empty;
+        ShowReaderAssistantOutput("临时笔记\n\n" + string.Join("\n\n", _readerSessionNotes));
+    }
+
+    private static string GetReaderSectionTextScript() =>
+        """
+        (() => {
+          const body = document.body;
+          if (!body) return '';
+
+          let fragment = location.hash ? location.hash.slice(1) : '';
+          try { fragment = decodeURIComponent(fragment); } catch { }
+
+          const anchor = fragment ? document.getElementById(fragment) : null;
+          const start = anchor?.closest('h1, h2, h3, h4, h5, h6')
+            ?? anchor
+            ?? body.firstElementChild;
+          if (!start) return body.innerText || '';
+
+          const startHeading = /^H([1-6])$/i.exec(start.tagName);
+          const startLevel = startHeading ? Number(startHeading[1]) : 0;
+          const pieces = [];
+          let current = start;
+
+          while (current) {
+            if (current !== start) {
+              const heading = /^H([1-6])$/i.exec(current.tagName);
+              if (heading && (startLevel === 0 || Number(heading[1]) <= startLevel)) break;
+            }
+
+            const value = (current.innerText || '').trim();
+            if (value) pieces.push(value);
+            current = current.nextElementSibling;
+          }
+
+          return pieces.join('\n\n') || start.innerText || body.innerText || '';
+        })();
+        """;
+
+    private async Task<string> ExecuteReaderStringScriptAsync(string script)
+    {
+        if (ReaderWebView.CoreWebView2 is null) return string.Empty;
+        try
+        {
+            var json = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script);
+            return JsonSerializer.Deserialize<string>(json) ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string NormalizeReaderText(string text)
+    {
+        return string.Join(" ", text.Split([' ', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private void ShowReaderAssistantOutput(string text)
+    {
+        ReaderAssistantOutputText.Text = text;
+        ReaderAssistantEmptyState.Visibility = Visibility.Collapsed;
+        ReaderAssistantOutputBorder.Visibility = Visibility.Visible;
+    }
+
     private void CloseReaderButton_Click(object sender, RoutedEventArgs e) => CloseReader();
 
     private void CloseReader()
@@ -958,7 +1217,11 @@ public sealed partial class MainWindow : Window
         _readerAllowedRoot = null;
         _readerAllowedFile = null;
         _readerNavigateToEnd = false;
+        _readerHasToc = false;
         ReaderTocList.ItemsSource = null;
+        ReaderTocSearchBox.Text = string.Empty;
+        ReaderCoverImage.Source = null;
+        ResetReaderAssistant();
         if (ReaderWebView.CoreWebView2 is not null)
             ReaderWebView.CoreWebView2.Navigate("about:blank");
     }
@@ -1023,7 +1286,7 @@ public sealed partial class MainWindow : Window
         var fontPercent = (int)Math.Round(_readerFontScale * 100);
         var flowCss = _readerFlowMode == 0
             ? "html, body { min-height: 100%; overflow-x: hidden !important; }"
-            : "html, body { height: 100%; overflow-y: hidden !important; } body { column-width: calc(100vw - 108px); column-gap: 108px; column-fill: auto; max-width: none !important; }";
+            : "html, body { height: 100%; overflow-y: hidden !important; } body { column-width: calc(100vw - 144px); column-gap: 144px; column-fill: auto; max-width: none !important; }";
         ReaderWebView.DefaultBackgroundColor = _readerTheme switch
         {
             1 => ColorHelper.FromArgb(255, 244, 236, 216),
@@ -1039,15 +1302,21 @@ public sealed partial class MainWindow : Window
                 document.head.appendChild(style);
               }
               style.textContent = `
-                html { font-size: {{fontPercent}}% !important; }
+                html { font-size: {{fontPercent}}% !important; text-rendering: optimizeLegibility; }
                 html, body { background: {{background}} !important; color: {{foreground}} !important; }
-                body { max-width: 820px; margin: 0 auto !important; padding: 42px 54px 80px !important;
-                       font-size: 1rem !important; line-height: 1.75 !important; overflow-wrap: anywhere; box-sizing: border-box; }
-                p, li, blockquote { font-size: 1rem !important; }
+                body { max-width: 800px; margin: 0 auto !important; padding: 58px 68px 100px !important;
+                       font-family: "Source Han Serif SC", "Noto Serif CJK SC", "Microsoft YaHei UI", sans-serif !important;
+                       font-size: 1rem !important; line-height: 1.88 !important; letter-spacing: 0.012em;
+                       overflow-wrap: anywhere; box-sizing: border-box; }
+                p { margin: 0.55em 0 1.05em !important; }
+                li, blockquote { font-size: 1rem !important; line-height: 1.78 !important; }
+                h1, h2, h3, h4 { color: {{foreground}} !important; line-height: 1.35 !important; margin: 1.35em 0 0.72em !important; }
+                blockquote { margin: 1.4em 0 !important; padding: 0.2em 1.1em !important; border-left: 3px solid {{link}} !important; opacity: 0.88; }
                 {{flowCss}}
                 a { color: {{link}} !important; }
-                img, svg { max-width: 100% !important; height: auto !important; }
+                img, svg { display: block; max-width: 100% !important; height: auto !important; margin: 1.8em auto !important; }
                 pre, table { max-width: 100%; overflow-x: auto; }
+                hr { border: 0 !important; border-top: 1px solid {{link}} !important; opacity: 0.24; margin: 2em 0 !important; }
               `;
             })();
             """;

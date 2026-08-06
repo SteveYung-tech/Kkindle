@@ -8,11 +8,11 @@
 
 ## 0. 当前状态速览
 
-- 当前阶段：P0、P1 已完成；最小内置阅读器已加入；P2 自动化和真机大文件传输已完成，剩余需要人工配合的物理拔插，以及未来 USB 磁盘型 Kindle 的系统安全弹出验收。
-- 当前分支：`master`；本地阅读器基线提交：`bf36d34 feat: add reader flow modes and font sizing`。
+- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成参考图驱动的三栏界面重设计。剩余需要人工配合的物理拔插，以及未来 USB 磁盘型 Kindle 的系统安全弹出验收。
+- 当前分支：`master`；本轮发布基于 `d17bcb3 test: complete P2 import and Kindle validation`，对应提交信息为 `feat: redesign reader workspace`。
 - GitHub：`origin/master` 当前停在 `43c5849 docs: update agent handoff after P1`；本地提交尚未推送。
 - 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`。
-- 最新源码验证：Debug/Release x64 完整解决方案构建成功，均为 0 警告、0 错误；18 项测试在两个配置下全部通过。本轮 P2 未重新发布 EXE。
+- 最新源码验证：Debug/Release x64 完整解决方案构建成功，均为 0 警告、0 错误；18 项测试在两个配置下全部通过。Release 已重新发布，启动 5 秒后仍存活且可响应，并用真实 EPUB 验收目录、正文、进度、阅读助手和响应式侧栏。
 - 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环；2026-08-06 又完成 64 MiB EPUB 发送、大小校验和删除，设备端无测试残留。
 - 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
 
@@ -336,6 +336,9 @@ f841cb1 feat: add minimal built-in book reader
 - EPUB 支持 80%–180% 字号、白色/纸张/深色主题，以及连续滚动/横向分页。
 - PDF 使用 WebView2 内置查看能力。
 - WebView2 导航限制在当前 PDF 文件或 EPUB 缓存根目录内。
+- 书籍详情面板新增明确的“开始阅读”按钮；原有封面右键“打开书籍”仍保留。
+- 阅读界面已改为目录、正文、阅读助手三栏；目录和助手都可手动收起，并按窗口宽度自动隐藏。
+- 阅读助手仅执行本地章节概览、阅读统计、复制选中文字和临时笔记；EPUB 页面脚本保持禁用，内容不上传。
 
 ## 4. 当前未完成和阻塞项
 
@@ -422,8 +425,8 @@ xmlns:controls="using:Microsoft.UI.Xaml.Controls"
 - 书架卡片已显示封面和元数据，并提供封面悬浮详情；仍需用长标题和高 DPI 验收布局。
 - `MainWindow.xaml.cs` 已包含不少交互入口，但要以当前 XAML 的 `x:Name` 和事件绑定为准，避免恢复 UI 时出现名称不匹配。
 - 当前没有稳定的页面导航框架；首版可以先保持单窗口 + 详情面板。
-- `ProbeWindow.xaml` / `ProbeWindow.xaml.cs` 是临时诊断文件，问题解决后删除。
-- 当前 `App.xaml` 只有自定义颜色和按钮样式，尚未稳定加入 WinUI 默认控件资源。
+- `ProbeWindow.xaml` / `ProbeWindow.xaml.cs` 已删除，不要恢复临时诊断入口。
+- `App.xaml` 已通过合并字典稳定加载 `XamlControlsResources`，并包含阅读器工具栏与目录选中样式；不要改变现有资源合并层级。
 - PowerShell/终端显示中文时曾出现乱码样式；继续编辑源码请使用 UTF-8，不能根据终端显示的乱码直接判断业务字符串是否损坏。当前 Debug build 已通过。
 
 ## 5. 发布与启动验证
@@ -529,11 +532,12 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 ## 8. Git 状态
 
-当前工作分支为 `master`；`origin/master` 位于 `43c5849`，本地包含 3 个阅读器提交和本轮 P2 测试补强。构建输出由 `.gitignore` 排除，不纳入版本控制。
+当前工作分支为 `master`；`origin/master` 位于 `43c5849`，本地包含 3 个阅读器基础提交、P2 测试补强和本轮阅读界面重设计。构建输出由 `.gitignore` 排除，不纳入版本控制。
 
 当前开发基线及最近提交：
 
 ```text
+d17bcb3 test: complete P2 import and Kindle validation
 bf36d34 feat: add reader flow modes and font sizing
 5c88d6a feat: add reader table of contents and controls
 f841cb1 feat: add minimal built-in book reader
@@ -579,11 +583,14 @@ git status --short --branch
 
 ## 12. 当前继续开发基线
 
-- 标准 `publish` 目录中的 exe 是当前阅读器基线；本轮 P2 只修改基础设施和测试，尚未重新发布 EXE。
+- 标准 `publish` 目录中的 exe 已更新为三栏阅读界面版本，并通过真实 EPUB 与阅读助手验收。
 - `MainWindow.ConfigureTitleBar()` 只负责 XAML 标题栏和拖动区域，不应在窗口激活前读取 `AppWindow`。
 - `ConfigureNativeWindowChrome()` 只能在首次 `Window.Activated` 后调用；其中隐藏原生标题栏并取得 `OverlappedPresenter`。
 - `ApplySquareWindowFrame()` 必须保留首次调用、低优先级调度调用、`Loaded` 调用和 presenter 状态变化后的调用，否则 Windows 可能重新恢复圆角。
 - 自绘最小化、最大化/还原、关闭按钮位于 `MainWindow.xaml`；统一模板 `TitleBarCaptionButtonStyle` 位于 `App.xaml`。
+- 阅读状态下 `ReaderPane` 必须保持全窗口覆盖、`Canvas.ZIndex="40"`；`WindowChromeLayer` 保持 `Canvas.ZIndex="50"`。目录、正文和助手面板各自使用 `Margin="0,38,0,0"` 为自绘标题栏让位，避免露出旧书架 Logo/标题。
+- 目录栏宽度为 286 logical px，助手栏宽度为 310 logical px；窗口宽度低于 1180 logical px 自动隐藏助手，低于 760 logical px 自动隐藏目录。
+- `ConfigureReaderWebView()` 继续保持 `IsScriptEnabled = false`。阅读助手通过应用主动执行的只读脚本提取当前 EPUB 片段，不能为了助手功能直接启用 EPUB 自带脚本。
 - P1 已完成，P2 自动化场景已增至 18 项，Kindle Scribe 64 MiB 传输闭环也已通过。下一步只剩需要人工配合的物理拔出/重连；USB 磁盘安全弹出需等对应设备。不要再次重做标题栏架构，除非有新的可复现问题。
 
 ## 13. P1 完成发布（2026-08-05）
@@ -618,3 +625,19 @@ git status --short --branch
 - 真机为 `Kindle Scribe`（MTP，11.4 GB 可用 / 11.9 GB）；唯一测试文件大小为 67,110,066 字节，发送完成后通过设备端大小校验并成功删除。
 - 删除后再次只读枚举 `documents`，测试文件残留为 0；本机 64 MiB 临时 EPUB 和临时测试工具也已清理。
 - 本轮没有重新发布 EXE；标准 `publish` 目录仍是上一轮阅读器基线。
+
+## 16. 阅读界面重设计发布（2026-08-06）
+
+- 按用户提供的桌面阅读器截图重做主阅读区，采用左侧目录、中间正文、右侧本地阅读助手的三栏结构。
+- 左栏显示封面、书名、作者、格式、阅读进度、目录搜索和章节列表；中栏使用紧凑顶部工具栏、留白阅读画布与底部翻页/章节滑块；右栏明确标注“本地工具 · 内容不上传”。
+- 目录和助手支持手动折叠；窗口宽度低于 1180 logical px 自动隐藏助手，低于 760 logical px 自动隐藏目录。
+- EPUB 正文样式已优化正文宽度、行高、标题、引用、图片和表格；底部 Slider 已覆盖为黑灰色轨道与滑块，不再出现系统蓝色。
+- 修复阅读层只从标题栏下方开始导致旧书架 Logo/标题露出的问题：阅读层覆盖整个窗口，三个内容面板单独为 38px 自绘标题栏让位。
+- 书籍详情面板新增“开始阅读”主按钮，解决阅读入口只存在于封面右键菜单、可发现性不足的问题。
+- 阅读助手支持章节概览、阅读统计、复制选中文字、临时笔记和清空面板。章节概览/统计会按当前 EPUB URL 片段提取到下一个同级或更高级标题，避免把整本合并 XHTML 误算为当前章节。
+- `WebView2.Settings.IsScriptEnabled` 仍为 `false`；助手只运行应用自身的只读提取脚本，没有启用 EPUB 内嵌脚本。
+- Debug/Release x64 完整构建均为 0 警告、0 错误；Debug/Release 测试均为失败 0、通过 18、跳过 0。
+- 标准 Release 便携版已发布并启动存活至少 5 秒；真实 EPUB 已验证“开始阅读”、目录跳转、黑灰进度条、章节概览、阅读统计、临时笔记、清空面板和响应式侧栏。
+- 最终完整 DPI 截图：`C:\Users\kings\.codex\visualizations\2026\08\06\019fd520-bebc-7740-84de-ac82ef43a5f4\reader-final-release.png`。
+- 发布文件：`C:\Users\kings\Desktop\01_Projects\Kkindle\src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`。
+- 本轮对应提交信息：`feat: redesign reader workspace`；不推送。
