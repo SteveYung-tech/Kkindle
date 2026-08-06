@@ -45,9 +45,12 @@
             <SolidColorBrush x:Key="AccentButtonBorderBrushPressed" Color="#000000" />
             <SolidColorBrush x:Key="AccentButtonBorderBrushDisabled" Color="#BFBFBF" />
 
-            <!-- Book shelf selected-card border: hard black, square corners, no accent/blue.
-                 Only the selected visual is affected; the presenter border layer keeps the
-                 exact card footprint aligned by BookCardItemStyle. -->
+            <!-- Book shelf card border: hard black, square corners, no accent/blue.
+                 PointerOverBorderBrush drives the hover outline (normal hover),
+                 while the Selected* brushes drive the click-selected outline. Both are
+                 rendered by ListViewItemPresenter around the exact card footprint
+                 aligned by BookCardItemStyle (spacing lives outside the container). -->
+            <SolidColorBrush x:Key="GridViewItemPointerOverBorderBrush" Color="#000000" />
             <SolidColorBrush x:Key="GridViewItemSelectedBorderBrush" Color="#000000" />
             <SolidColorBrush x:Key="GridViewItemSelectedPointerOverBorderBrush" Color="#000000" />
             <SolidColorBrush x:Key="GridViewItemSelectedPressedBorderBrush" Color="#000000" />
