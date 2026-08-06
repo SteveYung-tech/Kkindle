@@ -710,7 +710,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
-                        <RowDefinition Height="46" />
+                        <RowDefinition Height="50" />
                     </Grid.RowDefinitions>
 
                     <Grid Padding="14,8" BorderBrush="#000000" BorderThickness="0,0,0,1">
@@ -833,12 +833,12 @@
                     <RectangleGeometry x:Name="ReaderContentClip" />
                 </Grid.Clip>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="54" />
+                    <RowDefinition Height="52" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="50" />
                 </Grid.RowDefinitions>
 
-                <Border Background="#FFFFFF" BorderBrush="#000000" BorderThickness="0,0,0,1">
+                <Border Background="#FFFFFF">
                     <Grid Padding="10,7" ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -996,7 +996,7 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <Grid Padding="14,8" BorderBrush="#000000" BorderThickness="0,0,0,1">
+                    <Grid Padding="14,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
@@ -1024,7 +1024,7 @@
                         </StackPanel>
                     </Grid>
 
-                    <Grid Grid.Row="1" Padding="12,5" ColumnSpacing="6" BorderBrush="#000000" BorderThickness="0,0,0,1">
+                    <Grid Grid.Row="1" Padding="12,5" ColumnSpacing="6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
