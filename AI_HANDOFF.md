@@ -8,11 +8,11 @@
 
 ## 0. 当前状态速览
 
-- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成参考图驱动的三栏界面重设计。剩余需要人工配合的物理拔插，以及未来 USB 磁盘型 Kindle 的系统安全弹出验收。
-- 当前分支：`master`；本轮发布基于 `d17bcb3 test: complete P2 import and Kindle validation`，对应提交信息为 `feat: redesign reader workspace`。
-- GitHub：`origin/master` 当前停在 `43c5849 docs: update agent handoff after P1`；本地提交尚未推送。
+- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。剩余需要人工配合的物理拔插，以及未来 USB 磁盘型 Kindle 的系统安全弹出验收。
+- 当前分支：`master`；最新提交为 `4e8009b feat: add reader AI assistant, highlights, notes, and book index`。
+- GitHub：`origin/master` 已与本地同步（本轮已完成推送），远端最新为 `4e8009b`。
 - 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`。
-- 最新源码验证：Debug/Release x64 完整解决方案构建成功，均为 0 警告、0 错误；18 项测试在两个配置下全部通过。Release 已重新发布，启动 5 秒后仍存活且可响应，并用真实 EPUB 验收目录、正文、进度、阅读助手和响应式侧栏。
+- 最新源码验证：Debug/Release x64 完整解决方案构建成功，均为 0 警告、0 错误；22 项测试在两个配置下全部通过。Release 已重新发布，启动 5 秒后仍存活且可响应，并用真实 EPUB 验收目录、正文、进度、阅读助手和响应式侧栏。
 - 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环；2026-08-06 又完成 64 MiB EPUB 发送、大小校验和删除，设备端无测试残留。
 - 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
 
@@ -283,7 +283,7 @@ EjectAsync(device)
 
 ### 3.5 测试
 
-当前已有 18 个测试，并在 2026-08-06 复核通过：
+当前已有 22 个测试，并在 2026-08-06 复核通过：
 
 - 中文 EPUB 文件名、中文元数据、封面和哈希去重。
 - 标题/标签搜索。
@@ -301,6 +301,10 @@ EjectAsync(device)
 - EPUB 阅读器按 spine 顺序准备章节、解析 EPUB 3 目录和片段目标。
 - EPUB 解压拒绝越出 `reader-cache` 的归档路径。
 - 相同卷序列号在盘符变化后仍产生相同设备身份，UI 状态和封面缓存不依赖盘符。
+- 中文 EPUB 正文本地索引：按章节分块、按 `SourceHash` 判断重建，并通过全文检索找到相关片段。
+- 划线/批注的新增、更新和删除持久化。
+- 脚注解析只接受 EPUB 缓存目录内的 `#fragment` 目标。
+- AI API Key 使用当前 Windows 用户的 DPAPI 加密保存，读取时能正确解密。
 
 复核命令和结果：
 
@@ -309,18 +313,18 @@ dotnet build Kkindle.sln -c Debug -p:Platform=x64 --no-restore
 0 个警告，0 个错误
 
 dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj -c Debug -p:Platform=x64 --no-restore
-失败 0，通过 18，跳过 0
+失败 0，通过 22，跳过 0
 
 dotnet build Kkindle.sln -c Release -p:Platform=x64 --no-restore
 0 个警告，0 个错误
 
 dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj -c Release -p:Platform=x64 --no-build --no-restore
-失败 0，通过 18，跳过 0
+失败 0，通过 22，跳过 0
 ```
 
 ### 3.6 最小内置阅读器
 
-本地 `master` 在 P1 之后新增了 3 个尚未推送的阅读器提交：
+本地 `master` 在 P1 之后新增了 3 个阅读器基础提交（已随后续提交一起推送到 GitHub）：
 
 ```text
 bf36d34 feat: add reader flow modes and font sizing
@@ -532,18 +536,18 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 ## 8. Git 状态
 
-当前工作分支为 `master`；`origin/master` 位于 `43c5849`，本地包含 3 个阅读器基础提交、P2 测试补强和本轮阅读界面重设计。构建输出由 `.gitignore` 排除，不纳入版本控制。
+当前工作分支为 `master`；`origin/master` 已与本地同步（2026-08-06 已推送），远端最新为 `4e8009b`。构建输出由 `.gitignore` 排除，不纳入版本控制。
 
 当前开发基线及最近提交：
 
 ```text
+4e8009b feat: add reader AI assistant, highlights, notes, and book index
+abeb663 feat: redesign reader workspace
 d17bcb3 test: complete P2 import and Kindle validation
 bf36d34 feat: add reader flow modes and font sizing
 5c88d6a feat: add reader table of contents and controls
 f841cb1 feat: add minimal built-in book reader
 43c5849 docs: update agent handoff after P1
-b04d56f feat: complete P1 library and Kindle workflows
-b8a466c feat: animate sidebar section hover inversion
 ```
 
 继续工作前建议：
@@ -641,3 +645,20 @@ git status --short --branch
 - 最终完整 DPI 截图：`C:\Users\kings\.codex\visualizations\2026\08\06\019fd520-bebc-7740-84de-ac82ef43a5f4\reader-final-release.png`。
 - 发布文件：`C:\Users\kings\Desktop\01_Projects\Kkindle\src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`。
 - 本轮对应提交信息：`feat: redesign reader workspace`；不推送。
+
+## 17. 阅读助手 AI 与划线批注（2026-08-06）
+
+- 阅读助手改为右侧浮动面板（Popup，宽 360，从 38px 自绘标题栏下方开始），内部提供“AI”和“笔记”两个标签页；窗口过窄时仍随响应式布局隐藏。
+- AI 标签页支持 DeepSeek（默认）、OpenAI 和自定义（OpenAI 兼容 Chat Completions）三种服务；设置面板可配置 Provider、Base URL、模型和 API Key。
+- API Key 通过 Windows DPAPI（当前用户）加密后保存到 `data/ai-settings.json`，不落明文。
+- 对话支持 Ctrl+Enter 发送、当前章节总结、解释选中文字、全书结构化概览和清空对话；请求超时 120 秒，携带最近 8 轮上下文，单轮内容限制 3500 字符。
+- 打开 EPUB 后自动建立本地全文索引：`EpubBookContentService` 按章节把正文切分为约 1000 字符片段（最小 620、重叠 160），写入 SQLite `BookContentChunks`，并按 `BookFileId + SourceHash` 判断是否需要重建。
+- 提问时在本地检索最多 7 个相关片段作为引用上下文；全书概览抽取 12 个章节开头片段。检索优先 FTS，异常时回退 LIKE。
+- 回答下方显示“本次参考 [n]”来源按钮，点击可跳转到对应章节并滚动到片段起始位置。
+- 工具栏新增“划线”和“批注”：划线直接保存黑色高亮；批注打开笔记页填写文字。数据持久化到 SQLite `ReaderAnnotations` 表（章节路径、片段、起止偏移、选中文字、前后缀锚点、颜色和笔记）。
+- 同一位置已有划线时再次保存会合并笔记而不产生重叠划线；与既有划线重叠的选区会被拒绝。
+- 笔记页列出当前书的全部划线/批注，支持选中和删除；划线会在正文重新加载时通过只读脚本还原。
+- 新增 `EpubFootnoteResolver`：只解析 EPUB 缓存目录内、且以 `#fragment` 定位的脚注目标，XDocument 解析失败时安全跳过，单次最多 120 个目标，文本截断到 1200 字符。
+- 测试从 18 增至 22，新增：中文 EPUB 正文索引与相关片段检索、划线/批注增删改持久化、脚注目录边界安全、AI API Key DPAPI 加密。Debug/Release 构建 0 警告 0 错误，两个配置测试全部通过。
+- 本轮代码已提交并推送到 GitHub：`4e8009b feat: add reader AI assistant, highlights, notes, and book index`。
+- 说明：AI 对话需要用户自行配置有效 API Key；真实服务调用尚未在本文档记录人工验收，应先完成配置后手工验证一次完整问答。
