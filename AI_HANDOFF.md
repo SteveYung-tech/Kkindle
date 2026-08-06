@@ -9,7 +9,7 @@
 ## 0. 当前状态速览
 
 - 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。本轮完成正文阅读区视口修复：正文不再把整章内容一次铺满一个视图，滚动模式在 WebView 视口内滚动阅读，分页模式按视口一页页显示。剩余需要人工配合的物理拔插，以及未来 USB 磁盘型 Kindle 的系统安全弹出验收。
-- 当前分支：`master`；最新本地提交为 `fix: fit reader content to viewport`（详见第 21 节，提交哈希见 `git log -1`）。
+- 当前分支：`master`；最新本地提交为 `1444cb9 fix: fit reader content to viewport`（详见第 21 节）。
 - GitHub：本地领先 `origin/master` 多个提交，按开发约定未自动推送。
 - 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 00:48。
 - 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；22 项测试两个配置全部通过。Release 已重新发布并用真实 EPUB（《策略思维》）验收：正文宿主随窗口/三栏布局变化、滚动/分页翻页推进、目录跳转、禅模式展开与恢复。
@@ -740,4 +740,4 @@ body { column-width: calc(100vw - 144px); column-gap: 144px; column-fill: auto; 
 
 - 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（exe 更新于 2026-08-07 00:48），Release 启动存活并打开真实 EPUB 验证阅读控件齐全。
 - Debug/Release x64 构建 0 警告 0 错误；22 项测试两个配置全部通过。
-- 本轮提交：`fix: fit reader content to viewport`（哈希见 `git log -1`），仅包含本次源码与 `AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。
+- 本轮提交：`1444cb9 fix: fit reader content to viewport`，仅包含本次源码与 `AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。
