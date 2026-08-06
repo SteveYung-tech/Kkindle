@@ -344,7 +344,7 @@
                           IsItemClickEnabled="True"
                           ItemClick="BookGrid_ItemClick"
                           SelectionMode="None"
-                          HorizontalContentAlignment="Stretch">
+                          ItemContainerStyle="{StaticResource BookCardItemStyle}">
                     <GridView.ItemsPanel>
                         <ItemsPanelTemplate>
                             <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="0" />
@@ -352,7 +352,7 @@
                     </GridView.ItemsPanel>
                     <GridView.ItemTemplate>
                         <DataTemplate x:DataType="local:BookCardViewModel">
-                            <Grid Width="154" Margin="0,0,18,22">
+                            <Grid Width="154">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="214" />
                                     <RowDefinition Height="Auto" />
@@ -576,7 +576,7 @@
                       ItemsSource="{x:Bind DeviceBooks}"
                       SelectionMode="Single"
                       SelectionChanged="DeviceBookList_SelectionChanged"
-                      HorizontalContentAlignment="Stretch">
+                      ItemContainerStyle="{StaticResource BookCardItemStyle}">
                 <GridView.ItemsPanel>
                     <ItemsPanelTemplate>
                         <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="0" />
@@ -584,7 +584,7 @@
                 </GridView.ItemsPanel>
                 <GridView.ItemTemplate>
                     <DataTemplate x:DataType="local:KindleBookCardViewModel">
-                        <Grid Width="154" Margin="0,0,18,22">
+                        <Grid Width="154">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="214" />
                                 <RowDefinition Height="Auto" />

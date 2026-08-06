@@ -355,6 +355,15 @@
                 </Setter>
             </Style>
 
+            <!-- Book cover shelf item container. Spacing lives on the container (outside the
+                 GridViewItem content area) so the default selection border wraps the card
+                 exactly instead of including extra right/bottom blank space. -->
+            <Style x:Key="BookCardItemStyle" TargetType="GridViewItem">
+                <Setter Property="Margin" Value="0,0,18,22" />
+                <Setter Property="HorizontalContentAlignment" Value="Left" />
+                <Setter Property="VerticalContentAlignment" Value="Top" />
+            </Style>
+
             <Style x:Key="TitleBarCaptionButtonStyle" TargetType="Button">
                 <Setter Property="Width" Value="46" />
                 <Setter Property="Height" Value="38" />
