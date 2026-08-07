@@ -914,7 +914,22 @@
                         <RowDefinition Height="50" />
                     </Grid.RowDefinitions>
 
-                    <Button Grid.Row="0"
+                    <Grid Grid.Row="0"
+                          Width="28"
+                          HorizontalAlignment="Center">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="18" />
+                            <RowDefinition Height="34" />
+                        </Grid.RowDefinitions>
+                        <TextBlock x:Name="ReaderTocCompactUpIndicator"
+                                   Text="&#x25B3;"
+                                   FontFamily="Segoe UI Symbol"
+                                   FontSize="12"
+                                   Foreground="#000000"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   AutomationProperties.Name="Up chapter status" />
+                    <Button Grid.Row="1"
                             Width="28"
                             MinWidth="0"
                             Height="34"
@@ -931,6 +946,7 @@
                                   HorizontalAlignment="Center"
                                   VerticalAlignment="Center" />
                     </Button>
+                    </Grid>
 
                     <ScrollViewer Grid.Row="1"
                                   x:Name="ReaderTocCompactScrollViewer"
@@ -939,6 +955,7 @@
                                   VerticalScrollBarVisibility="Hidden"
                                   VerticalScrollMode="Enabled"
                                   Padding="0,8"
+                                  ViewChanged="ReaderTocCompactScrollViewer_ViewChanged"
                                   PointerWheelChanged="ReaderTocCompactScrollViewer_PointerWheelChanged">
                         <ItemsControl x:Name="ReaderTocCompactList"
                                       HorizontalAlignment="Center">
@@ -982,6 +999,15 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
+                    <TextBlock Grid.Row="2"
+                               x:Name="ReaderTocCompactDownIndicator"
+                               Text="&#x25BD;"
+                               FontFamily="Segoe UI Symbol"
+                               FontSize="12"
+                               Foreground="#000000"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               AutomationProperties.Name="Down chapter status" />
                 </Grid>
             </Border>
 

@@ -43,6 +43,13 @@ public sealed partial class MainWindow
         SetReaderTocMinimal(false);
     }
 
+    private void ReaderTocCompactScrollViewer_ViewChanged(
+        object sender,
+        ScrollViewerViewChangedEventArgs e)
+    {
+        UpdateReaderCompactScrollIndicators();
+    }
+
     private void ReaderCompactTocItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement element
@@ -101,8 +108,25 @@ public sealed partial class MainWindow
         var offset = _readerCompactScrollStart
             + (_readerCompactScrollTarget - _readerCompactScrollStart) * eased;
         ReaderTocCompactScrollViewer.ChangeView(null, offset, null, disableAnimation: true);
+        UpdateReaderCompactScrollIndicators();
 
         if (progress >= 1) StopReaderCompactScrollAnimation();
+    }
+
+    private void UpdateReaderCompactScrollIndicators()
+    {
+        if (ReaderTocCompactUpIndicator is null || ReaderTocCompactDownIndicator is null) return;
+
+        const double edgeTolerance = 0.5d;
+        var offset = ReaderTocCompactScrollViewer.VerticalOffset;
+        var maximum = ReaderTocCompactScrollViewer.ScrollableHeight;
+        ReaderTocCompactUpIndicator.Text = offset <= edgeTolerance ? "\u25B3" : "\u25B2";
+        ReaderTocCompactDownIndicator.Text = offset >= maximum - edgeTolerance ? "\u25BD" : "\u25BC";
+    }
+
+    private void QueueReaderCompactScrollIndicatorUpdate()
+    {
+        DispatcherQueue.TryEnqueue(UpdateReaderCompactScrollIndicators);
     }
 
     private void StopReaderCompactScrollAnimation()
@@ -146,6 +170,7 @@ public sealed partial class MainWindow
         _readerTocMinimal = minimal;
         _readerTocExpanded = !minimal;
         ApplyReaderPanelLayout();
+        QueueReaderCompactScrollIndicatorUpdate();
     }
 
     private void SetReaderCompactNavigationItems(IReadOnlyList<EpubReaderNavigationItem> items)
@@ -153,6 +178,7 @@ public sealed partial class MainWindow
         StopReaderCompactScrollAnimation();
         _readerCompactNavigationItems = items;
         RefreshReaderCompactMarkers();
+        QueueReaderCompactScrollIndicatorUpdate();
     }
 
     private void ClearReaderCompactNavigationItems()
@@ -160,6 +186,7 @@ public sealed partial class MainWindow
         StopReaderCompactScrollAnimation();
         _readerCompactNavigationItems = [];
         ReaderTocCompactList.ItemsSource = null;
+        QueueReaderCompactScrollIndicatorUpdate();
     }
 
     private void RefreshReaderCompactMarkers()
