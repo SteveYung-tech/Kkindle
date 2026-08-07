@@ -167,8 +167,11 @@ public sealed partial class MainWindow
 
     private void EndReaderSession()
     {
+        // The persistence flush is owned by CloseReader/MainWindow_Closed
+        // (FlushReaderSessionSafelyAsync) and must run BEFORE this method
+        // nulls the session fields, otherwise the last progress snapshot would
+        // be lost. Keep this method to cancellation/cleanup only.
         StopReaderToolsTimers();
-        _ = FlushReaderSessionAsync();
         _readerAiCancellation?.Cancel();
         _readerAiCancellation?.Dispose();
         _readerAiCancellation = null;
@@ -577,7 +580,7 @@ public sealed partial class MainWindow
         }
         else
         {
-            ReaderWebView.Source = new Uri(target);
+            _ = NavigateReaderSourceAsync(new Uri(target), 1, animate: true);
         }
     }
 
@@ -703,6 +706,7 @@ public sealed partial class MainWindow
     {
         if (_readerPollRunning) return;
         if (ReaderPane.Visibility != Visibility.Visible) return;
+        if (_readerCloseRequested || _readerTransitionActive) return;
         if (_readerFlowMode != 0 || !_readerHasToc || _readerChapters.Count <= 1) return;
         if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
         if (_readerChapterIndex < 0 || _readerChapterIndex >= _readerChapters.Count) return;
@@ -772,7 +776,7 @@ public sealed partial class MainWindow
                     _readerContinuousDirection = 1;
                     _readerLastChapterChange = DateTimeOffset.UtcNow;
                     UpdateReaderChapterControls();
-                    ShowReaderChapter();
+                    _ = ShowReaderChapterAsync(1);
                 }
             }
             else if (nearTop && !_readerLastNearTop)
@@ -785,7 +789,7 @@ public sealed partial class MainWindow
                     _readerContinuousDirection = -1;
                     _readerLastChapterChange = DateTimeOffset.UtcNow;
                     UpdateReaderChapterControls();
-                    ShowReaderChapter();
+                    _ = ShowReaderChapterAsync(-1);
                 }
             }
             _readerLastNearTop = nearTop;
@@ -879,48 +883,62 @@ public sealed partial class MainWindow
     private void InstallReaderMouseHook()
     {
         if (_readerMouseHook != IntPtr.Zero) return;
+        _readerHookEnabled = true;
         _readerMouseProc = ReaderMouseHookCallback;
         _readerMouseHook = SetWindowsHookEx(WhMouseLl, _readerMouseProc, GetModuleHandle(null), 0);
+        if (_readerMouseHook == IntPtr.Zero) _readerHookEnabled = false;
     }
 
     private void UninstallReaderMouseHook()
     {
+        _readerHookEnabled = false;
         if (_readerMouseHook == IntPtr.Zero) return;
         _ = UnhookWindowsHookEx(_readerMouseHook);
         _readerMouseHook = IntPtr.Zero;
         _readerMouseProc = null;
     }
 
+    // Runs on the system hook thread. It only reads plain cached fields (never
+    // XAML), so uninstalling the hook while a callback is in flight cannot
+    // deadlock the UI thread; the click handling is enqueued to the dispatcher.
     private IntPtr ReaderMouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode >= 0
-            && ReaderPane.Visibility == Visibility.Visible
-            && _readerFlowMode == 1
-            && ReaderWebView.CoreWebView2 is not null)
+        if (nCode >= 0 && _readerHookEnabled)
         {
             var data = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
             switch ((uint)wParam.ToInt64())
             {
                 case WmLButtonDown:
-                    if (IsInsideReaderWebViewScreenRect(data.pt))
+                    if (IsInsideCachedReaderWebViewScreenRect(data.pt))
                     {
                         _readerMouseDownInside = true;
                         _readerMouseDownPoint = data.pt;
                     }
                     break;
                 case WmLButtonUp:
-                    if (_readerMouseDownInside && IsInsideReaderWebViewScreenRect(data.pt))
+                    if (_readerMouseDownInside && IsInsideCachedReaderWebViewScreenRect(data.pt))
                     {
                         var moved = Math.Abs(data.pt.X - _readerMouseDownPoint.X)
                             + Math.Abs(data.pt.Y - _readerMouseDownPoint.Y);
                         if (moved <= ClickDragTolerance)
-                            _ = HandleReaderZoneClickAsync(data.pt);
+                        {
+                            var point = data.pt;
+                            DispatcherQueue.TryEnqueue(() => _ = HandleReaderZoneClickAsync(point));
+                        }
                     }
                     _readerMouseDownInside = false;
                     break;
             }
         }
         return CallNextHookEx(_readerMouseHook, nCode, wParam, lParam);
+    }
+
+    private bool IsInsideCachedReaderWebViewScreenRect(POINT point)
+    {
+        var rect = _readerWebViewScreenRect;
+        return rect.Width > 0
+            && point.X >= rect.Left && point.X <= rect.Right
+            && point.Y >= rect.Top && point.Y <= rect.Bottom;
     }
 
     private Windows.Foundation.Rect GetReaderWebViewScreenRect()
@@ -930,11 +948,14 @@ public sealed partial class MainWindow
         _ = ClientToScreen(hwnd, ref clientOrigin);
         var origin = ReaderWebViewHost.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, 0));
         var scale = ReaderWebViewHost.XamlRoot?.RasterizationScale ?? 1.0;
-        return new Windows.Foundation.Rect(
+        var rect = new Windows.Foundation.Rect(
             clientOrigin.X + origin.X * scale,
             clientOrigin.Y + origin.Y * scale,
             ReaderWebViewHost.ActualWidth * scale,
             ReaderWebViewHost.ActualHeight * scale);
+        // Cache for the low-level hook thread (which must never touch XAML).
+        _readerWebViewScreenRect = rect;
+        return rect;
     }
 
     private bool IsInsideReaderWebViewScreenRect(POINT point)
@@ -946,6 +967,7 @@ public sealed partial class MainWindow
 
     private async Task HandleReaderZoneClickAsync(POINT screenPoint)
     {
+        if (_readerCloseRequested || _readerTransitionActive) return;
         if (_readerFlowMode != 1 || ReaderWebView.CoreWebView2 is null) return;
         if (_readerSearchVisible) return; // The search panel is open: don't page-turn underneath it.
         var rect = GetReaderWebViewScreenRect();
@@ -995,8 +1017,10 @@ public sealed partial class MainWindow
     private async Task SkipShortChapterIfNeededAsync()
     {
         if (!_readerContinuousLocked || ReaderWebView.CoreWebView2 is null) return;
+        if (_readerCloseRequested) return;
         await Task.Delay(60);
         if (!_readerContinuousLocked || ReaderWebView.CoreWebView2 is null) return;
+        if (_readerCloseRequested) return;
         string result;
         try
         {
@@ -1011,7 +1035,7 @@ public sealed partial class MainWindow
         _readerNavigateToEnd = _readerContinuousDirection < 0;
         _readerLastChapterChange = DateTimeOffset.UtcNow;
         UpdateReaderChapterControls();
-        ShowReaderChapter();
+        await ShowReaderChapterAsync(_readerContinuousDirection);
     }
 
     private sealed class ReaderSelectionAnchor

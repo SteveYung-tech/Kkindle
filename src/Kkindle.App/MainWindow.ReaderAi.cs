@@ -393,7 +393,7 @@ public sealed partial class MainWindow
         if (ReaderWebView.Source?.LocalPath.Equals(target.LocalPath, StringComparison.OrdinalIgnoreCase) == true)
             _ = ScrollToPendingReaderChunkAsync();
         else
-            ReaderWebView.Source = target;
+            _ = NavigateReaderSourceAsync(target, 1, animate: true);
     }
 
     private async Task ScrollToPendingReaderChunkAsync()

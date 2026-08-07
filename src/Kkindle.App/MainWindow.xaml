@@ -953,11 +953,11 @@
                                         <RadioMenuFlyoutItem x:Name="ReaderAnimationNoneItem"
                                                              Text="无动画"
                                                              GroupName="ReaderPageAnimation"
-                                                             IsChecked="True"
                                                              Click="ReaderAnimationItem_Click" />
                                         <RadioMenuFlyoutItem x:Name="ReaderAnimationFadeItem"
                                                              Text="仿真"
                                                              GroupName="ReaderPageAnimation"
+                                                             IsChecked="True"
                                                              Click="ReaderAnimationItem_Click" />
                                         <RadioMenuFlyoutItem x:Name="ReaderAnimationSlideItem"
                                                              Text="左右滑动"

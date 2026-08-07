@@ -501,7 +501,7 @@ public sealed partial class MainWindow
         if (ReaderWebView.Source?.AbsoluteUri.Equals(target, StringComparison.OrdinalIgnoreCase) == true)
             _ = ScrollToPendingReaderBookmarkAsync();
         else
-            ReaderWebView.Source = new Uri(target);
+            _ = NavigateReaderSourceAsync(new Uri(target), 1, animate: true);
     }
 
     private async void ReaderBookmarkDeleteButton_Click(object sender, RoutedEventArgs e)
@@ -676,7 +676,7 @@ public sealed partial class MainWindow
         if (ReaderWebView.Source?.LocalPath.Equals(target.LocalPath, StringComparison.OrdinalIgnoreCase) == true)
             await ScrollToPendingReaderChunkAsync();
         else
-            ReaderWebView.Source = target;
+            await NavigateReaderSourceAsync(target, 1, animate: true);
         ReaderSearchStatusText.Text = $"已跳转到《{source.ChapterTitle}》相关位置。";
     }
 
@@ -961,15 +961,26 @@ public sealed partial class MainWindow
     {
         if (!_windowActive || ReaderPane.Visibility != Visibility.Visible) return;
         _readerActiveSeconds++;
-        if (_readerActiveSeconds % 30 == 0) _ = FlushReaderSessionAsync();
+        if (_readerActiveSeconds % 30 == 0) _ = FlushReaderSessionSafelyAsync();
         UpdateReaderStatsDisplay();
     }
 
-    private async Task FlushReaderSessionAsync()
+    // Flush used on close paths. It must be started while the reader session
+    // fields are still populated (CloseReader/窗口关闭前) so the last known
+    // snapshot survives; it never touches the WebView when skipWebViewCapture
+    // is set, so it can never hang on a WebView that is navigating or being
+    // torn down.
+    private async Task FlushReaderSessionAsync(bool skipWebViewCapture = false)
     {
         var book = _readerBook;
         var bookFile = _readerBookFile;
-        var token = _readerFeatureCancellation?.Token ?? CancellationToken.None;
+        // Close-path flushes must not be cancelled by EndReaderSession's
+        // _readerFeatureCancellation.Cancel() (which runs right after the flush
+        // is kicked off); the bounded timeout in FlushReaderSessionSafelyAsync
+        // is what keeps the close fast.
+        var token = skipWebViewCapture
+            ? CancellationToken.None
+            : _readerFeatureCancellation?.Token ?? CancellationToken.None;
         if (book is null || bookFile is null) return;
         if (_readerActiveSeconds > 0)
         {
@@ -978,12 +989,16 @@ public sealed partial class MainWindow
                 ? last.ChapterIndex + 1
                 : (_readerChapterIndex >= 0 ? _readerChapterIndex + 1 : 0);
             var total = _readerChapters.Count;
+            // Reset the counter synchronously before the first await so a
+            // concurrent flush (stats timer vs close) can never double-count.
+            var activeSeconds = _readerActiveSeconds;
+            _readerActiveSeconds = 0;
             try
             {
                 await _readerData.AddReadingTimeAsync(
                     book.Id,
                     bookFile.Id,
-                    _readerActiveSeconds,
+                    activeSeconds,
                     percent,
                     completed,
                     total,
@@ -992,16 +1007,47 @@ public sealed partial class MainWindow
             catch
             {
             }
-            _readerActiveSeconds = 0;
         }
         try
         {
-            var progress = await CaptureReaderProgressAsync(book, bookFile);
+            ReaderProgressRow? progress;
+            if (skipWebViewCapture)
+            {
+                // Use the most recently captured snapshot (updated on every
+                // NavigationCompleted and throttled save) instead of issuing a
+                // script call that could hang during close.
+                progress = _readerLastProgress;
+            }
+            else
+            {
+                progress = await CaptureReaderProgressAsync(book, bookFile);
+            }
             if (progress is not null)
             {
                 await _readerData.SaveProgressAsync(progress, token);
                 _readerLastProgress = progress;
             }
+        }
+        catch
+        {
+        }
+    }
+
+    // Bounded, non-blocking persistence for close paths. Never call .Wait()/
+    // .Result() on the UI thread; the timeout simply abandons the flush if the
+    // SQLite gate or a WebView script call cannot finish quickly, so the window
+    // and reader close immediately either way.
+    private async Task FlushReaderSessionSafelyAsync(bool skipWebViewCapture = false)
+    {
+        try
+        {
+            await FlushReaderSessionAsync(skipWebViewCapture).WaitAsync(TimeSpan.FromMilliseconds(1500));
+        }
+        catch (TimeoutException)
+        {
+        }
+        catch (OperationCanceledException)
+        {
         }
         catch
         {

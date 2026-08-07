@@ -64,7 +64,7 @@ public sealed partial class MainWindow : Window
     private bool _readerZenMode;
     private bool _readerPreZenTocExpanded = true;
     private bool _readerPreZenAssistantExpanded = true;
-    private int _readerPageAnimation; // 0 = none, 1 = simulated, 2 = slide
+    private int _readerPageAnimation = 1; // 0 = none, 1 = simulated, 2 = slide (1 = default smooth chapter transition)
     private bool _readerContinuousLocked;
     private int _readerContinuousDirection = 1;
     private DateTimeOffset _readerLastChapterChange = DateTimeOffset.MinValue;
@@ -78,6 +78,22 @@ public sealed partial class MainWindow : Window
     private bool _readerMouseDownInside;
     private POINT _readerMouseDownPoint;
     private LowLevelMouseProc? _readerMouseProc;
+    // The low-level mouse hook runs on a system thread and must NEVER touch
+    // XAML objects (cross-thread DependencyObject access can block the hook
+    // thread, and UnhookWindowsHookEx then deadlocks the UI thread). The hook
+    // callback only reads these plain cached values; the click itself is
+    // dispatched back to the UI thread.
+    private volatile bool _readerHookEnabled;
+    private Windows.Foundation.Rect _readerWebViewScreenRect;
+    // Closing guard: entered before any reader teardown starts so repeated
+    // X/返回书架/window-close calls stay idempotent.
+    private bool _readerCloseRequested;
+    private bool _readerCloseInProgress;
+    // Chapter transition state: prevents the scroll poll / repeated input from
+    // interleaving with an in-flight cross-chapter animation or navigation.
+    private bool _readerTransitionActive;
+    private CancellationTokenSource? _readerChapterTransitionCancellation;
+    private int _readerChapterTransitionSequence;
 
     public MainWindow(
         AppPaths paths,
@@ -232,17 +248,31 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
-        try { FlushReaderSessionAsync().GetAwaiter().GetResult(); }
-        catch { }
+        // Reader teardown must never block the UI thread. The previous
+        // implementation synchronously waited on FlushReaderSessionAsync()
+        // (GetAwaiter().GetResult()); a WebView ExecuteScriptAsync that never
+        // returns (navigation/shutdown race) froze the whole window. Now we
+        // stop all reader machinery first, then fire the persistence flush
+        // fire-and-forget with a short timeout (it uses the last captured
+        // progress snapshot and never touches the WebView).
+        _readerCloseRequested = true;
+        UninstallReaderMouseHook();
+        StopReaderScrollPoll();
+        StopReaderToolsTimers();
+        _readerChapterTransitionCancellation?.Cancel();
+        _readerChapterTransitionCancellation?.Dispose();
+        _readerChapterTransitionCancellation = null;
+        _readerRelayoutCancellation?.Cancel();
+        _readerRelayoutCancellation?.Dispose();
+        _readerFeatureCancellation?.Cancel();
+        _readerFeatureCancellation?.Dispose();
+        _readerAiCancellation?.Cancel();
+        _readerAiCancellation?.Dispose();
+        _ = FlushReaderSessionSafelyAsync(skipWebViewCapture: true);
+
         _deviceTimer.Stop();
         _transferCancellation?.Cancel();
         _transferCancellation?.Dispose();
-        _readerFeatureCancellation?.Cancel();
-        _readerFeatureCancellation?.Dispose();
-        _readerRelayoutCancellation?.Cancel();
-        _readerRelayoutCancellation?.Dispose();
-        StopReaderScrollPoll();
-        UninstallReaderMouseHook();
         _aiChatClient.Dispose();
         if (_deviceChangeMonitor is not null)
         {
@@ -813,6 +843,16 @@ public sealed partial class MainWindow : Window
             await ReaderWebView.EnsureCoreWebView2Async();
             ConfigureReaderWebView();
             ConfigureReaderBookInformation(book, file);
+            // A fresh reader session: re-arm the close guard and clear any
+            // leftover transition/animation state from a previous session.
+            _readerCloseInProgress = false;
+            _readerCloseRequested = false;
+            _readerTransitionActive = false;
+            _readerPendingTurnInAnimation = null;
+            _readerChapterTransitionCancellation?.Cancel();
+            _readerChapterTransitionCancellation?.Dispose();
+            _readerChapterTransitionCancellation = null;
+            ResetReaderWebViewTransform();
             BeginReaderSession(book, file);
             await LoadReaderSessionDataAsync(_readerFeatureCancellation!.Token);
             ReaderTitleText.Text = book.Title;
@@ -824,7 +864,6 @@ public sealed partial class MainWindow : Window
             _readerFlowMode = _readerLayout.FlowMode;
             _readerZenMode = false;
             _readerContinuousLocked = false;
-            _readerPendingTurnInAnimation = null;
             ResetReaderChromeLayout();
             UpdateReaderZoom();
             UpdateReaderFlowButton();
@@ -898,7 +937,7 @@ public sealed partial class MainWindow : Window
             ReaderHighlightButton.Visibility = Visibility.Visible;
             ReaderAnnotateButton.Visibility = Visibility.Visible;
             ApplyReaderPanelLayout();
-            ShowReaderChapter();
+            await ShowReaderChapterAsync(animate: false);
             StartReaderIndexing();
             StartReaderScrollPoll();
             InstallReaderMouseHook();
@@ -991,12 +1030,17 @@ public sealed partial class MainWindow : Window
 
         ReaderTocToggleButton.Opacity = _readerTocExpanded ? 0.58 : 1;
         ReaderAssistantToggleButton.Opacity = _readerAssistantExpanded ? 0.58 : 1;
+        // Refresh the cached WebView screen rect used by the low-level mouse
+        // hook (the hook thread itself must never touch XAML). Layout changes
+        // always re-run this and keep the cache in sync.
+        try { GetReaderWebViewScreenRect(); } catch { }
     }
 
     private void ReaderContentPanel_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         ReaderContentClip.Rect = new Windows.Foundation.Rect(0, 0, e.NewSize.Width, e.NewSize.Height);
         ScheduleReaderRelayout();
+        try { GetReaderWebViewScreenRect(); } catch { }
     }
 
     // ------------------------------------------------------------------
@@ -1066,12 +1110,94 @@ public sealed partial class MainWindow : Window
                 item.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase)).ToArray();
     }
 
-    private void ShowReaderChapter()
+    // ------------------------------------------------------------------
+    // Chapter navigation. Every real chapter-switch path funnels through
+    // ShowReaderChapterAsync / NavigateReaderSourceAsync so a short smooth
+    // transition (fade "仿真" or directional "左右滑动", disabled in "无动画")
+    // plays on the verified host transform. The transition never blocks the
+    // UI thread and is cancelled immediately when the reader closes.
+    // ------------------------------------------------------------------
+
+    private async Task ShowReaderChapterAsync(int direction = 1, bool animate = true)
     {
         if (_readerChapterIndex < 0 || _readerChapterIndex >= _readerChapters.Count) return;
         UpdateReaderChapterControls();
         SelectReaderTocItem(_readerNavigation.FirstOrDefault(item => item.ChapterIndex == _readerChapterIndex));
-        ReaderWebView.Source = new Uri(_readerChapters[_readerChapterIndex]);
+        await NavigateReaderSourceAsync(new Uri(_readerChapters[_readerChapterIndex]), direction, animate);
+    }
+
+    private async Task NavigateReaderSourceAsync(Uri target, int direction, bool animate)
+    {
+        if (target is null || ReaderWebView.CoreWebView2 is null)
+        {
+            if (target is not null) ReaderWebView.Source = target;
+            return;
+        }
+
+        var sameChapter = ReaderWebView.Source?.AbsoluteUri.Equals(target.AbsoluteUri, StringComparison.OrdinalIgnoreCase) == true;
+        if (sameChapter && !_readerNavigateToEnd)
+        {
+            // Already on this exact chapter/fragment: no navigation, no animation.
+            _readerPendingTurnInAnimation = null;
+            return;
+        }
+
+        // Animations are decorative: never run them while closing, while the
+        // pane is hidden, or when the user selected "无动画".
+        var shouldAnimate = animate
+            && _readerPageAnimation > 0
+            && !_readerCloseRequested
+            && ReaderPane.Visibility == Visibility.Visible;
+
+        _readerChapterTransitionCancellation?.Cancel();
+        _readerChapterTransitionCancellation?.Dispose();
+        _readerChapterTransitionCancellation = new CancellationTokenSource();
+        var token = _readerChapterTransitionCancellation.Token;
+        var sequence = ++_readerChapterTransitionSequence;
+
+        if (shouldAnimate)
+        {
+            _readerTransitionActive = true;
+            try
+            {
+                await AnimateReaderPageTurnAsync(direction, isOut: true, token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            if (token.IsCancellationRequested
+                || sequence != _readerChapterTransitionSequence
+                || _readerCloseRequested)
+            {
+                ResetReaderWebViewTransform();
+                return;
+            }
+        }
+
+        _readerPendingTurnInAnimation = shouldAnimate ? direction : null;
+        try
+        {
+            ReaderWebView.Source = target;
+        }
+        catch
+        {
+            // A stale navigation is fine; make sure the reader surface is never
+            // left in a transformed/hidden state.
+            _readerPendingTurnInAnimation = null;
+            ResetReaderWebViewTransform();
+            _readerTransitionActive = false;
+            return;
+        }
+        if (shouldAnimate)
+        {
+            // Watchdog: NavigationCompleted normally releases the transition
+            // guard; if the navigation never reports back, release it after a
+            // few seconds so the scroll poll can never be blocked permanently.
+            _ = Task.Delay(3000).ContinueWith(
+                _ => _readerTransitionActive = false,
+                TaskScheduler.Default);
+        }
     }
 
     private void ReaderTocList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1080,7 +1206,7 @@ public sealed partial class MainWindow : Window
         _readerContinuousLocked = false;
         _readerChapterIndex = item.ChapterIndex;
         UpdateReaderChapterControls();
-        ReaderWebView.Source = new Uri(item.Target);
+        _ = NavigateReaderSourceAsync(new Uri(item.Target), 1, animate: true);
     }
 
     private void SelectReaderTocItem(EpubReaderNavigationItem? item)
@@ -1122,10 +1248,11 @@ public sealed partial class MainWindow : Window
         if (_isUpdatingReaderProgress || !_readerHasToc || _readerChapters.Count == 0) return;
         var chapterIndex = Math.Clamp((int)Math.Round(e.NewValue) - 1, 0, _readerChapters.Count - 1);
         if (chapterIndex == _readerChapterIndex) return;
+        var previousIndex = _readerChapterIndex;
         _readerContinuousLocked = false;
         _readerChapterIndex = chapterIndex;
         _readerNavigateToEnd = false;
-        ShowReaderChapter();
+        _ = ShowReaderChapterAsync(previousIndex < chapterIndex ? 1 : -1);
     }
 
     private async void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
@@ -1285,26 +1412,19 @@ public sealed partial class MainWindow : Window
         if (ReaderPane.Visibility != Visibility.Visible) return false;
         if (ReaderWebView.CoreWebView2 is null) return false;
         if (!_readerHasToc || _readerChapters.Count == 0) return false;
+        if (_readerCloseRequested) return false;
 
-        var animated = _readerFlowMode == 1 && _readerPageAnimation > 0;
-        var crossesChapter = false;
-        if (animated)
-        {
-            crossesChapter = !await CanTurnWithinChapterAsync(direction);
-            if (crossesChapter)
-            {
-                var nextIndex = _readerChapterIndex + direction;
-                if (nextIndex < 0 || nextIndex >= _readerChapters.Count) crossesChapter = false;
-            }
-            if (crossesChapter) await AnimateReaderPageTurnAsync(direction, isOut: true);
-        }
-
+        // Turn within the current chapter when content remains (pagination
+        // columns or scroll direction). Crossing a chapter funnels through
+        // ShowReaderChapterAsync so the selected transition plays there too.
         if (await TryTurnWithinChapterAsync(direction)) return true;
 
         var targetIndex = _readerChapterIndex + direction;
         if (targetIndex < 0 || targetIndex >= _readerChapters.Count)
         {
-            if (animated && crossesChapter) await AnimateReaderPageTurnAsync(direction, isOut: false);
+            // At the very first/last chapter: never leave the surface in an
+            // animated state.
+            ResetReaderWebViewTransform();
             return false;
         }
 
@@ -1314,8 +1434,7 @@ public sealed partial class MainWindow : Window
         _readerLastChapterChange = DateTimeOffset.UtcNow;
         UpdateReaderChapterControls();
         _ = SaveReaderProgressThrottledAsync();
-        ShowReaderChapter();
-        if (animated && crossesChapter) _readerPendingTurnInAnimation = direction;
+        await ShowReaderChapterAsync(direction, animate: _readerPageAnimation > 0);
         return true;
     }
 
@@ -1335,12 +1454,20 @@ public sealed partial class MainWindow : Window
         catch { return false; }
     }
 
-    private Task AnimateReaderPageTurnAsync(int direction, bool isOut)
+    private async Task AnimateReaderPageTurnAsync(
+        int direction,
+        bool isOut,
+        CancellationToken cancellationToken = default)
     {
-        if (_readerPageAnimation == 0)
+        if (_readerPageAnimation == 0 || _readerCloseRequested)
         {
             ResetReaderWebViewTransform();
-            return Task.CompletedTask;
+            return;
+        }
+        if (cancellationToken.IsCancellationRequested)
+        {
+            ResetReaderWebViewTransform();
+            return;
         }
 
         var width = ReaderWebViewHost.ActualWidth;
@@ -1404,7 +1531,19 @@ public sealed partial class MainWindow : Window
         }
 
         storyboard.Begin();
-        return Task.Delay(isOut ? 130 : 190);
+        try
+        {
+            await Task.Delay(isOut ? 130 : 190, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer transition or a reader close superseded this one; stop the
+            // storyboard and restore the identity transform so the content is
+            // never left faded/slid off-screen.
+            try { storyboard.Stop(); } catch { }
+            ResetReaderWebViewTransform();
+            throw;
+        }
     }
 
     private void ResetReaderWebViewTransform()
@@ -1581,17 +1720,52 @@ public sealed partial class MainWindow : Window
 
     private void CloseReader()
     {
-        ReaderPane.Visibility = Visibility.Collapsed;
-        ReaderBrandText.Visibility = Visibility.Collapsed;
+        // Idempotent: repeated X / 返回书架 / window-close calls must be no-ops
+        // while a close is already in progress (and after it completes).
+        if (_readerCloseInProgress) return;
+        _readerCloseInProgress = true;
+        _readerCloseRequested = true;
+
+        // 1) Tear down every background reader mechanism first, before any UI
+        //    work or persistence. None of these block the UI thread.
+        UninstallReaderMouseHook();
         StopReaderScrollPoll();
         StopReaderToolsTimers();
-        UninstallReaderMouseHook();
+        _readerChapterTransitionCancellation?.Cancel();
+        _readerChapterTransitionCancellation?.Dispose();
+        _readerChapterTransitionCancellation = null;
+        _readerTransitionActive = false;
+        _readerPendingTurnInAnimation = null;
         _readerRelayoutCancellation?.Cancel();
         _readerRelayoutCancellation?.Dispose();
         _readerRelayoutCancellation = null;
+        ResetReaderWebViewTransform();
+
+        // 2) Close every reader Popup. WebView2 renders as an HWND composition
+        //    island, so popups are the only surfaces that can float above it and
+        //    must be closed explicitly.
         UpdateReaderAssistantPopup(false);
         SetReaderAiSettingsVisible(false);
-        SetReaderTocTab(bookmarkTab: false);
+        if (_readerLayoutPopup is not null) _readerLayoutPopup.IsOpen = false;
+        if (_readerSearchPopup is not null) _readerSearchPopup.IsOpen = false;
+        if (_readerSelectionPopup is not null) _readerSelectionPopup.IsOpen = false;
+        if (_readerZenPopup is not null) _readerZenPopup.IsOpen = false;
+        _readerSearchVisible = false;
+
+        // 3) Hide the reader and return to the library immediately.
+        ReaderPane.Visibility = Visibility.Collapsed;
+        ReaderBrandText.Visibility = Visibility.Collapsed;
+
+        // 4) Persist progress/statistics without blocking: the flush uses the
+        //    last captured progress snapshot and a short timeout, so a failing
+        //    or hanging save can never prevent the reader from closing. It must
+        //    start before EndReaderSession nulls the session fields.
+        _ = FlushReaderSessionSafelyAsync(skipWebViewCapture: true);
+        EndReaderSession();
+
+        // 5) Reset session state and unload the reader WebView. Navigating to
+        //    about:blank is fire-and-forget; NavigationCompleted early-returns
+        //    once _readerCloseRequested is set.
         _readerChapters = [];
         _readerNavigation = [];
         _readerChapterIndex = -1;
@@ -1601,15 +1775,16 @@ public sealed partial class MainWindow : Window
         _readerHasToc = false;
         _readerZenMode = false;
         _readerContinuousLocked = false;
-        _readerPendingTurnInAnimation = null;
         ResetReaderChromeLayout();
         ReaderTocList.ItemsSource = null;
         ReaderTocSearchBox.Text = string.Empty;
         ReaderCoverImage.Source = null;
         ResetReaderAssistant();
-        EndReaderSession();
         if (ReaderWebView.CoreWebView2 is not null)
-            ReaderWebView.CoreWebView2.Navigate("about:blank");
+        {
+            try { ReaderWebView.CoreWebView2.Navigate("about:blank"); }
+            catch { }
+        }
     }
 
     private void ReaderWebView_NavigationStarting(WebView2 sender, CoreWebView2NavigationStartingEventArgs args)
@@ -1651,35 +1826,59 @@ public sealed partial class MainWindow : Window
 
     private async void ReaderWebView_NavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
     {
-        // Always restore the page-turn transform, even on a failed navigation,
-        // so the reader content is never left off-screen.
-        if (_readerPendingTurnInAnimation is int pendingDirection)
+        if (_readerCloseRequested)
         {
-            _readerPendingTurnInAnimation = null;
-            await AnimateReaderPageTurnAsync(pendingDirection, isOut: false);
+            // The reader is closing: never run post-navigation work and never
+            // let a stale animation touch the (now hidden) reader surface.
+            _readerTransitionActive = false;
+            return;
         }
-        if (!args.IsSuccess) return;
-        await ApplyReaderAppearanceAsync();
-        // Cover images can finish decoding after the navigation completes; retry
-        // the cover fit so late-loading raster/SVG covers still get the tight
-        // page fit instead of a bottom-clipped render.
-        _ = RetryReaderImageFitAsync();
-        await ApplyReaderAnnotationsToPageAsync();
-        await ConfigureReaderFootnoteHoverAsync();
-        await ScrollToPendingReaderAnnotationAsync();
-        await ScrollToPendingReaderChunkAsync();
-        await ScrollToPendingReaderBookmarkAsync();
-        await ApplyReaderRestorePositionAsync();
-        if (_readerNavigateToEnd)
+        try
         {
-            await MoveReaderToEndAsync();
-            _readerNavigateToEnd = false;
+            // Always restore the page-turn transform, even on a failed navigation,
+            // so the reader content is never left off-screen.
+            if (_readerPendingTurnInAnimation is int pendingDirection)
+            {
+                _readerPendingTurnInAnimation = null;
+                await AnimateReaderPageTurnAsync(pendingDirection, isOut: false);
+            }
+            if (!args.IsSuccess)
+            {
+                _readerTransitionActive = false;
+                return;
+            }
+            await ApplyReaderAppearanceAsync();
+            // Cover images can finish decoding after the navigation completes; retry
+            // the cover fit so late-loading raster/SVG covers still get the tight
+            // page fit instead of a bottom-clipped render.
+            _ = RetryReaderImageFitAsync();
+            await ApplyReaderAnnotationsToPageAsync();
+            await ConfigureReaderFootnoteHoverAsync();
+            await ScrollToPendingReaderAnnotationAsync();
+            await ScrollToPendingReaderChunkAsync();
+            await ScrollToPendingReaderBookmarkAsync();
+            await ApplyReaderRestorePositionAsync();
+            if (_readerNavigateToEnd)
+            {
+                await MoveReaderToEndAsync();
+                _readerNavigateToEnd = false;
+            }
+            // Edge state is aligned only after the new chapter is styled and
+            // positioned; release the transition guard right after so the poll
+            // can never misfire on a not-yet-primed page.
+            await PrimeReaderScrollEdgesAsync();
+            _readerTransitionActive = false;
+            await RefreshReaderProgressAsync();
+            _ = SaveReaderProgressThrottledAsync();
+            if (_readerFlowMode == 0 && _readerContinuousLocked)
+                _ = SkipShortChapterIfNeededAsync();
         }
-        await PrimeReaderScrollEdgesAsync();
-        await RefreshReaderProgressAsync();
-        _ = SaveReaderProgressThrottledAsync();
-        if (_readerFlowMode == 0 && _readerContinuousLocked)
-            _ = SkipShortChapterIfNeededAsync();
+        catch
+        {
+            // Post-navigation styling is best-effort; a failure here must never
+            // leave the reader or the window in a broken state.
+            _readerTransitionActive = false;
+        }
     }
 
     private async Task ApplyReaderAppearanceAsync()
