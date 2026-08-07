@@ -1273,3 +1273,9 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - 左侧信息标题改为当前书籍的 `书名 · 文件类型`，打开书籍时动态更新，关闭阅读器时清空；标题过长时省略显示。
 - 左下“返回书架”按钮增加独立的黑色矩形外框，按钮自身保持无重复边框。
 - Release x64 完整解决方案构建 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 22:39:38）。本轮代码与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。
+
+## 36. Kreader 助手页签线条微调（2026-08-07）
+
+- 移除左侧导航右边框，避免阅读器顶部露出不需要的竖线；助手正文下方的长竖向分隔线保持不变。
+- 助手“AI 对话 / 划线与笔记”按钮组改为只显示上边线，恢复按钮上方横线并移除按钮组下方横线；按钮自身的选中和未选中边框保持不变。
+- Release x64 完整解决方案构建 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 23:00:51）。本轮修改与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。
