@@ -141,6 +141,9 @@ public sealed partial class MainWindow
         _pendingReaderChunkOffset = null;
         ResetReaderFeatures();
         ResetReaderToolsSession();
+        // A previous session may have left the TOC pane on the bookmark tab;
+        // reset the visual tab state together with the persisted session data.
+        SetReaderTocTab(bookmarkTab: false);
     }
 
     private async Task LoadReaderSessionDataAsync(CancellationToken cancellationToken)

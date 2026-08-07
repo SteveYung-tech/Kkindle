@@ -107,6 +107,10 @@ public sealed partial class MainWindow : Window
     private bool _readerTransitionActive;
     private CancellationTokenSource? _readerChapterTransitionCancellation;
     private int _readerChapterTransitionSequence;
+    // Same-chapter jumps do not produce NavigationCompleted, so they need their
+    // own sequence guard to prevent an older async location task from winning.
+    private int _readerLocationSequence;
+    private bool _readerOpenInProgress;
 
     // Direction + animation style for the incoming chapter transition. Style is
     // 1 = fade (仿真), 2 = slide (左右滑动). Recorded when the navigation starts
@@ -575,22 +579,10 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void BookGrid_ItemClick(object sender, ItemClickEventArgs e)
-    {
-        if (e.ClickedItem is BookCardViewModel card) SelectBook(card.Book);
-    }
-
-    private void BookList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (BookList.SelectedItem is BookCardViewModel card) SelectBook(card.Book);
-    }
-
     private void SelectBook(Book book)
     {
         _selectedBook = book;
-        OpenSelectedBookButton.IsEnabled = book.Files.Any(bookFile =>
-            bookFile.Format.Equals("epub", StringComparison.OrdinalIgnoreCase)
-            || bookFile.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase));
+        OpenSelectedBookButton.IsEnabled = ReaderBookSelectionPolicy.SelectPreferred(book.Files) is not null;
         DetailsTitleBox.Text = book.Title;
         DetailsAuthorsBox.Text = book.Authors;
         DetailsSeriesBox.Text = book.Series ?? string.Empty;
@@ -841,18 +833,16 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenBookAsync(Book book)
     {
+        if (_readerOpenInProgress) return;
 
-        var file = book.Files
-            .Where(bookFile => bookFile.Format.Equals("epub", StringComparison.OrdinalIgnoreCase)
-                || bookFile.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(bookFile => GetReadingFormatPriority(bookFile.Format))
-            .FirstOrDefault();
+        var file = ReaderBookSelectionPolicy.SelectPreferred(book.Files);
         if (file is null)
         {
             await ShowMessageAsync("暂不支持阅读", "内置阅读器目前支持 EPUB 和 PDF。");
             return;
         }
 
+        _readerOpenInProgress = true;
         try
         {
             var path = _library.GetAbsoluteFilePath(file);
@@ -917,6 +907,9 @@ public sealed partial class MainWindow : Window
                 ReaderFlowButton.Visibility = Visibility.Collapsed;
                 ReaderHighlightButton.Visibility = Visibility.Collapsed;
                 ReaderAnnotateButton.Visibility = Visibility.Collapsed;
+                ReaderBookmarkButton.Visibility = Visibility.Collapsed;
+                ReaderSearchToolbarButton.Visibility = Visibility.Collapsed;
+                ReaderBookmarkTabButton.Visibility = Visibility.Collapsed;
                 SetReaderIndexUnavailable("PDF 暂不支持本地全文索引与批注；可继续使用内置查看器。");
                 ApplyReaderPanelLayout();
                 ReaderWebView.Source = new Uri(path);
@@ -956,6 +949,9 @@ public sealed partial class MainWindow : Window
             ReaderFlowButton.Visibility = Visibility.Visible;
             ReaderHighlightButton.Visibility = Visibility.Visible;
             ReaderAnnotateButton.Visibility = Visibility.Visible;
+            ReaderBookmarkButton.Visibility = Visibility.Visible;
+            ReaderSearchToolbarButton.Visibility = Visibility.Visible;
+            ReaderBookmarkTabButton.Visibility = Visibility.Visible;
             ApplyReaderPanelLayout();
             await ShowReaderChapterAsync(animate: false);
             StartReaderIndexing();
@@ -967,6 +963,10 @@ public sealed partial class MainWindow : Window
         {
             CloseReader();
             await ShowMessageAsync("无法打开书籍", ex.Message);
+        }
+        finally
+        {
+            _readerOpenInProgress = false;
         }
     }
 
@@ -1183,6 +1183,7 @@ public sealed partial class MainWindow : Window
         PruneReaderPendingLocations(intent);
         _readerNavigationIntent = intent;
 
+        var locationSequence = ++_readerLocationSequence;
         var sameChapter = ReaderWebView.Source?.AbsoluteUri.Equals(target.AbsoluteUri, StringComparison.OrdinalIgnoreCase) == true;
         if (sameChapter && !_readerNavigateToEnd)
         {
@@ -1193,7 +1194,7 @@ public sealed partial class MainWindow : Window
             // chapter's first line, fragment entries to their anchor, and
             // bookmark/annotation/search/AI locations to their own target.
             if (intent != ReaderNavigationIntent.None)
-                _ = RunSameChapterLocationAsync(intent, target);
+                _ = RunSameChapterLocationAsync(intent, target, locationSequence);
             return Task.CompletedTask;
         }
 
@@ -1348,7 +1349,7 @@ public sealed partial class MainWindow : Window
         _readerLayout = _readerLayout with { FlowMode = _readerFlowMode };
         UpdateReaderFlowButton();
         await ApplyReaderAppearanceAsync();
-        await ResetReaderPositionAsync();
+        await ResetReaderToChapterStartAsync();
         await PrimeReaderScrollEdgesAsync();
         _ = SaveReaderLayoutSettingsAsync();
         UpdateReaderLayoutStatus();
@@ -1489,22 +1490,6 @@ public sealed partial class MainWindow : Window
         _ = SaveReaderProgressThrottledAsync();
         await ShowReaderChapterAsync(direction, animate: _readerPageAnimation > 0);
         return true;
-    }
-
-    private async Task<bool> CanTurnWithinChapterAsync(int direction)
-    {
-        if (ReaderWebView.CoreWebView2 is null) return false;
-        var script = $$"""
-            (() => {
-              const el = document.scrollingElement;
-              if (!el) return false;
-              const max = Math.max(0, el.scrollWidth - el.clientWidth);
-              if ({{direction}} < 0) return el.scrollLeft > 4;
-              return el.scrollLeft < max - 4;
-            })();
-            """;
-        try { return await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script) == "true"; }
-        catch { return false; }
     }
 
     private async Task AnimateReaderPageTurnAsync(
@@ -1715,20 +1700,7 @@ public sealed partial class MainWindow : Window
                       return false;
                     })();
                     """
-            : $$"""
-                (() => {
-                  const el = document.scrollingElement;
-                  const step = window.innerWidth;
-                  const max = Math.max(0, el.scrollWidth - window.innerWidth);
-                  if ({{direction}} < 0 && el.scrollLeft > 4) {
-                    window.scrollTo({ left: Math.max(0, el.scrollLeft - step), top: 0, behavior: 'smooth' }); return true;
-                  }
-                  if ({{direction}} > 0 && el.scrollLeft < max - 4) {
-                    window.scrollTo({ left: Math.min(max, el.scrollLeft + step), top: 0, behavior: 'smooth' }); return true;
-                  }
-                  return false;
-                })();
-                """;
+            : ReaderPaginationScripts.CreateTurnScript(direction);
         try { return await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script) == "true"; }
         catch { return false; }
     }
@@ -1806,6 +1778,7 @@ public sealed partial class MainWindow : Window
         _readerChapterTransitionCancellation?.Dispose();
         _readerChapterTransitionCancellation = null;
         _readerTransitionActive = false;
+        _readerLocationSequence++;
         _readerPendingTurnInAnimation = null;
         _readerPendingNavigationTarget = null;
         _readerNavigationIntent = ReaderNavigationIntent.None;
@@ -2051,17 +2024,9 @@ public sealed partial class MainWindow : Window
         // pagination pins `writing-mode: horizontal-tb` to override any vertical
         // rule the EPUB itself may carry.
         var vertical = _readerFlowMode == 0 && _readerLayout.VerticalWriting;
-        var flowCss = _readerFlowMode == 1
-            ? "html { height: 100%; overflow: hidden !important; writing-mode: horizontal-tb !important; }"
-              + " body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !important; box-sizing: border-box;"
-              + " writing-mode: horizontal-tb !important;"
-              + " column-width: calc(100vw - 48px); column-gap: 48px; column-fill: auto;"
-              + " column-count: auto !important; max-width: none !important; }"
-            : vertical
-                ? "html { height: 100%; overflow: hidden !important; } body { height: 100%; overflow: visible !important; box-sizing: border-box; }"
-                : "html, body { min-height: 100%; overflow-x: hidden !important; }"
-                  + " body { column-width: auto !important; column-count: auto !important; column-gap: normal !important;"
-                  + " writing-mode: horizontal-tb !important; }";
+        var flowCss = ReaderPaginationScripts.CreateFlowCss(
+            pagination: _readerFlowMode == 1,
+            vertical: vertical);
         var lineHeight = _readerLayout.LineHeight.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
         var bodyLayoutCss = vertical
             ? $"max-width: none !important; writing-mode: vertical-rl !important; text-orientation: mixed;"
@@ -2105,8 +2070,14 @@ public sealed partial class MainWindow : Window
         ReaderWebView.DefaultBackgroundColor = Colors.White;
         var script = $$"""
             (() => {
+              const root = document.documentElement;
+              const viewportWidth = root?.clientWidth || window.innerWidth || 0;
+              if (root && viewportWidth > 0) {
+                root.style.setProperty('{{ReaderPaginationScripts.ViewportWidthVariable}}', viewportWidth + 'px');
+              }
               let style = document.getElementById('kkindle-reader-style');
               if (!style) {
+                if (!document.head) return;
                 style = document.createElement('style');
                 style.id = 'kkindle-reader-style';
                 document.head.appendChild(style);
@@ -2129,19 +2100,12 @@ public sealed partial class MainWindow : Window
                 a { color: {{link}} !important; }
                 pre, table { max-width: 100%; overflow-x: auto; }
                 hr { border: 0 !important; border-top: 1px solid {{link}} !important; opacity: 0.24; margin: 2em 0 !important; }
-                // Fragment-anchor navigation: a temporary break forces the
-                // target subchapter to start at the top of a NEW column in
-                // pagination mode (scrollIntoView alone leaves it mid-column
-                // sharing the page with the previous paragraph). The zeroed
-                // margin keeps the heading flush against the content box top.
-                // The class lives on the target element for the current chapter
-                // only (DOM is discarded on chapter switch) and is cleared by
-                // plain chapter-start navigation.
-                // NOTE: never add `page-break-before` here — the legacy alias
-                // overrides break-before to `page`, which does NOT create a
-                // column break in WebView2's screen multicol layout (verified
-                // against the real book: break-before:column moves the heading
-                // to a new column top, break-before:page leaves it mid-column).
+                /* Fragment-anchor navigation: the temporary break forces the
+                   target subchapter to start at the top of a new column in
+                   pagination mode. The marker is removed by plain
+                   chapter-start navigation.
+                   Never add page-break-before here: it overrides break-before
+                   and prevents a screen multicolumn break. */
                 .kkindle-fragment-break { break-before: column !important; }
                 .kkindle-fragment-zeroed { margin-top: 0 !important; }
               `;
@@ -2246,45 +2210,28 @@ public sealed partial class MainWindow : Window
         if (_readerFlowMode != 1) return;
         try
         {
-            // Pagination columns are laid out so each column advance equals the
-            // viewport width (column-width = 100vw - 48px + 48px gap = 100vw),
-            // offset by the body's left padding. Snapping scrollLeft to those
-            // boundaries keeps every viewport exactly one full page, and also
-            // clamps to the maximum scroll range.
-            await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
-                """
-                (() => {
-                  const el = document.scrollingElement || document.documentElement;
-                  if (!el) return;
-                  const step = el.clientWidth || window.innerWidth;
-                  if (step <= 0) return;
-                  const body = document.body;
-                  const padLeft = body ? (parseFloat(getComputedStyle(body).paddingLeft) || 0) : 0;
-                  const max = Math.max(0, el.scrollWidth - el.clientWidth);
-                  const nearest = padLeft + Math.round((el.scrollLeft - padLeft) / step) * step;
-                  window.scrollTo({ left: Math.max(0, Math.min(max, nearest)), top: 0 });
-                })();
-                """);
+            await ReaderWebView.CoreWebView2.ExecuteScriptAsync(ReaderPaginationScripts.Snap);
         }
         catch { }
     }
 
-    private async Task ResetReaderPositionAsync()
+    private async Task RunSameChapterLocationAsync(
+        ReaderNavigationIntent intent,
+        Uri target,
+        int locationSequence)
     {
-        if (ReaderWebView.CoreWebView2 is null) return;
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync("window.scrollTo({ left: 0, top: 0 });"); }
-        catch { }
-    }
-
-    private async Task RunSameChapterLocationAsync(ReaderNavigationIntent intent, Uri target)
-    {
+        if (IsStaleReaderLocation(locationSequence)) return;
         await ApplyReaderNavigationLocationAsync(intent, target);
+        if (IsStaleReaderLocation(locationSequence)) return;
         // A same-chapter re-position never goes through NavigationCompleted, so
         // re-align the scroll-edge state here: otherwise a reset-to-top could
         // look like "user scrolled to the top edge" and the continuous-scroll
         // poll would immediately jump backward to the previous chapter.
         await PrimeReaderScrollEdgesAsync();
     }
+
+    private bool IsStaleReaderLocation(int sequence) =>
+        _readerCloseRequested || sequence != _readerLocationSequence;
 
     // Only the pending location payload belonging to the current navigation
     // intent may survive a navigation start. Everything else is cleared so a
@@ -2376,65 +2323,12 @@ public sealed partial class MainWindow : Window
         if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
     }
 
-    // Safe chapter-opening normalization. This is deliberately conservative:
-    //   - only leading blank blocks are removed (whitespace-only text nodes,
-    //     empty br/p/div and wrappers that contain nothing but blank content);
-    //     anything with an image/svg/table/hr or an [id] anchor is never
-    //     removed, so cover pages and fragment targets survive untouched;
-    //   - only the FIRST visible element's margin-top (and, when it is a plain
-    //     wrapper, the first text block inside it) is zeroed via an inline
-    //     !important declaration so it wins over both the EPUB's own inline
-    //     margins and the reader stylesheet's !important element margins;
-    //   - everything else (paragraph spacing, heading hierarchy, list/table
-    //     styles, the image/cover viewport fit) keeps its layout.
-    // Repeated clicks on the same chapter are idempotent: the leading blank
-    // nodes are already gone and re-zeroing the same margin is harmless.
-    // A plain chapter-start navigation also clears any temporary fragment
-    // jump markers (`.kkindle-fragment-break` / `.kkindle-fragment-zeroed`)
-    // left on the page by a previous subchapter jump, so returning to the
-    // chapter top restores the book's original interleaved layout.
-    private static string GetReaderChapterStartNormalizationScript() =>
-        """
-        (() => {
-          const body = document.body;
-          if (!body) return;
-          document.querySelectorAll('.kkindle-fragment-break, .kkindle-fragment-zeroed').forEach(el => {
-            try { el.classList.remove('kkindle-fragment-break'); } catch (_) {}
-            try { el.classList.remove('kkindle-fragment-zeroed'); } catch (_) {}
-            try { el.style.removeProperty('margin-top'); } catch (_) {}
-          });
-          const isBlank = (el) => {
-            if (el.nodeType === Node.TEXT_NODE) return el.textContent.trim().length === 0;
-            if (el.nodeType !== Node.ELEMENT_NODE) return true;
-            const tag = el.tagName.toLowerCase();
-            if (tag === 'br') return true;
-            if (tag === 'img' || tag === 'svg' || tag === 'picture' || tag === 'canvas' || tag === 'hr'
-                || tag === 'table' || tag === 'video' || tag === 'audio' || tag === 'iframe'
-                || tag === 'object' || tag === 'embed') return false;
-            if (el.querySelector('img, svg, picture, canvas, hr, table, video, audio, iframe, object, embed')) return false;
-            if (el.querySelector('[id]')) return false;
-            return el.textContent.trim().length === 0;
-          };
-          while (body.firstChild && isBlank(body.firstChild)) body.removeChild(body.firstChild);
-          const zeroTop = (el) => { try { el.style.setProperty('margin-top', '0', 'important'); } catch (_) {} };
-          const first = body.firstElementChild;
-          if (!first) return;
-          zeroTop(first);
-          const tag = first.tagName.toLowerCase();
-          let firstText = null;
-          if (tag === 'div' || tag === 'section' || tag === 'article' || tag === 'main' || tag === 'header') {
-            firstText = first.querySelector('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, td, th, dd, dt, figcaption, div');
-          }
-          if (firstText && firstText !== first) zeroTop(firstText);
-        })();
-        """;
-
     private async Task NormalizeReaderChapterStartAsync()
     {
         if (ReaderWebView.CoreWebView2 is null) return;
         try
         {
-            await ReaderWebView.CoreWebView2.ExecuteScriptAsync(GetReaderChapterStartNormalizationScript());
+            await ReaderWebView.CoreWebView2.ExecuteScriptAsync(ReaderNavigationScripts.NormalizeChapterStart);
         }
         catch { }
     }
@@ -2479,7 +2373,7 @@ public sealed partial class MainWindow : Window
         try
         {
             result = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
-                GetReaderFragmentScrollScript(needle, flowMode, vertical)) ?? "null";
+                ReaderNavigationScripts.CreateFragmentScroll(needle, flowMode, vertical)) ?? "null";
         }
         catch
         {
@@ -2516,164 +2410,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    // Builds the fragment-positioning script. `needle` is the raw fragment
-    // (already unescaped for JS string embedding); `flowMode` 0 = scroll,
-    // 1 = pagination; `vertical` only affects scroll-mode alignment.
-    private static string GetReaderFragmentScrollScript(string needle, int flowMode, bool vertical) =>
-        $$"""
-        (() => {
-          const body = document.body;
-          if (!body) return { ok: false, reason: 'no-body' };
-          const flowMode = {{flowMode}};
-          const vertical = {{(vertical ? "true" : "false")}};
-          let id = '{{needle}}';
-          try { id = decodeURIComponent(id); } catch { }
 
-          const valid = (n) => {
-            if (!n || n.nodeType !== Node.ELEMENT_NODE) return false;
-            const tag = n.tagName.toLowerCase();
-            if (tag === 'script' || tag === 'style' || tag === 'noscript' || tag === 'body') return false;
-            const cs = getComputedStyle(n);
-            if (cs.display === 'none' || cs.visibility === 'hidden') return false;
-            const r = n.getBoundingClientRect();
-            if (r.width === 0 && r.height === 0) return false;
-            if (tag === 'img' || tag === 'svg' || tag === 'picture' || tag === 'canvas'
-                || tag === 'table' || tag === 'hr' || tag === 'figure') return true;
-            return (n.innerText || n.textContent || '').trim().length > 0;
-          };
-          const isHeading = (n) => n && /^H[1-6]$/i.test(n.tagName);
-          const blockSel = 'p,div,section,article,main,header,footer,h1,h2,h3,h4,h5,h6,li,blockquote,figure,pre,table,ul,ol,dl,dd,dt,aside,nav,address';
-
-          // 1. Resolve the anchor; hidden/empty/missing anchors forward-search
-          //    to the first valid heading/paragraph/image.
-          let el = null;
-          try { el = document.getElementById(id) || Array.from(document.getElementsByName(id))[0]; } catch { }
-          let content = null;
-          if (el && valid(el)) {
-            if (isHeading(el) || el.matches(blockSel)) content = el;
-            else {
-              const next = el.nextElementSibling;
-              if (next && isHeading(next) && valid(next)) content = next;
-              else {
-                let p = el.parentElement;
-                while (p && p !== body && !p.matches(blockSel)) p = p.parentElement;
-                content = (p && p !== body && valid(p)) ? p : null;
-              }
-            }
-          }
-          if (!content) {
-            const walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT);
-            if (el) {
-              while (walker.nextNode()) { if (walker.currentNode === el) break; }
-            }
-            while (walker.nextNode()) {
-              const n = walker.currentNode;
-              if (el && el.contains(n)) continue;
-              if (valid(n)) { content = n; break; }
-            }
-          }
-          if (!content) {
-            const w2 = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT);
-            while (w2.nextNode()) {
-              const n = w2.currentNode;
-              if (n !== body && valid(n)) { content = n; break; }
-            }
-          }
-          if (!content) return { ok: false, reason: 'no-content' };
-
-          // 2. The block whose box starts at the target.
-          let block = content;
-          if (!block.matches(blockSel)) {
-            let p = block.parentElement;
-            while (p && p !== body && !p.matches(blockSel)) p = p.parentElement;
-            block = (p && p !== body) ? p : block;
-          }
-
-          // 3. One-off temporary markers: clear any previous fragment jump so
-          //    rapid consecutive subchapter clicks leave exactly one break, and
-          //    the last target always wins.
-          document.querySelectorAll('.kkindle-fragment-break').forEach(n => {
-            try { n.classList.remove('kkindle-fragment-break'); } catch (_) {}
-          });
-          document.querySelectorAll('.kkindle-fragment-zeroed').forEach(n => {
-            try { n.classList.remove('kkindle-fragment-zeroed'); } catch (_) {}
-            try { n.style.removeProperty('margin-top'); } catch (_) {}
-          });
-          try { block.classList.add('kkindle-fragment-zeroed'); } catch (_) {}
-          try { block.style.setProperty('margin-top', '0', 'important'); } catch (_) {}
-          if (flowMode === 1) {
-            // Pagination: force the target to start at the top of a NEW column
-            // (break-before: column is supplied by the reader stylesheet via
-            // the marker class), so it can never share a column with the
-            // previous paragraph.
-            try { block.classList.add('kkindle-fragment-break'); } catch (_) {}
-          }
-          void block.offsetHeight; // force synchronous reflow for the new column layout
-
-          // 4. Align the real reading surface.
-          const scroller = document.scrollingElement || document.documentElement;
-          const bs = getComputedStyle(body);
-          const padTop = parseFloat(bs.paddingTop) || 0;
-          const rect = block.getBoundingClientRect();
-          const docTop = rect.top + scroller.scrollTop;
-          const docLeft = rect.left + scroller.scrollLeft;
-          if (flowMode === 1) {
-            // Pagination: show the target's column flush at the viewport left.
-            // Column n's left edge sits at paddingLeft + n × viewport, which is
-            // exactly the boundary SnapReaderPaginationAsync snaps to, so the
-            // position survives later image-fit/relayout passes.
-            const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-            window.scrollTo({ left: Math.max(0, Math.min(max, docLeft)), top: 0, behavior: 'instant' });
-          } else if (vertical) {
-            // Vertical writing: block-start (right edge) onto the content box's
-            // right edge, inline-start (top) onto the content box's top.
-            const padRight = parseFloat(bs.paddingRight) || 0;
-            const contentRight = scroller.clientWidth - padRight;
-            const docRight = rect.right + scroller.scrollLeft;
-            window.scrollTo({
-              left: Math.max(0, docRight - contentRight),
-              top: Math.max(0, docTop - padTop),
-              behavior: 'instant'
-            });
-          } else {
-            // Scroll mode: target top onto the content-box start line — the
-            // body's uniform reading padding stays above the heading.
-            window.scrollTo({ top: Math.max(0, docTop - padTop), behavior: 'instant' });
-          }
-
-          // 5. Diagnostics: real post-scroll measurements.
-          const r2 = block.getBoundingClientRect();
-          const cs2 = getComputedStyle(block);
-          const padLeft = parseFloat(bs.paddingLeft) || 0;
-          const step = scroller.clientWidth || 0;
-          const colInfo = flowMode === 1 ? {
-            step,
-            padLeft,
-            columnLeft: Math.round(r2.left * 100) / 100,
-            columnIndex: step > 0 ? Math.round((docLeft - padLeft) / step) : 0
-          } : null;
-          return {
-            ok: true,
-            reason: el ? 'anchor' : 'forward-search',
-            targetId: id,
-            resolvedTag: content.tagName.toLowerCase(),
-            resolvedId: content.id || '',
-            resolvedText: (content.innerText || content.textContent || '').trim().slice(0, 40),
-            blockTag: block.tagName.toLowerCase(),
-            padTop,
-            rectTop: Math.round(r2.top * 100) / 100,
-            rectLeft: Math.round(r2.left * 100) / 100,
-            marginTop: cs2.marginTop,
-            scrollTop: scroller.scrollTop,
-            scrollLeft: scroller.scrollLeft,
-            scrollWidth: scroller.scrollWidth,
-            scrollHeight: scroller.scrollHeight,
-            clientWidth: scroller.clientWidth,
-            clientHeight: scroller.clientHeight,
-            column: colInfo
-          };
-        })();
-        """;
 
     private async Task MoveReaderToEndAsync()
     {
@@ -2695,15 +2432,6 @@ public sealed partial class MainWindow : Window
         var boundary = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         return Path.GetFullPath(path).StartsWith(boundary, StringComparison.OrdinalIgnoreCase);
     }
-
-    private static int GetReadingFormatPriority(string format) => format.ToLowerInvariant() switch
-    {
-        "epub" => 0,
-        "pdf" => 1,
-        "mobi" => 2,
-        "azw3" => 3,
-        _ => 4
-    };
 
     private void SidebarSectionButton_Click(object sender, RoutedEventArgs e)
     {

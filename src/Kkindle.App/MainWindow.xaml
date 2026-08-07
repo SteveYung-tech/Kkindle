@@ -343,6 +343,7 @@
                           ItemsSource="{x:Bind ViewModel.Books}"
                           IsItemClickEnabled="True"
                           ItemClick="BookGrid_ItemClick"
+                          DoubleTapped="BookGrid_DoubleTapped"
                           SelectionMode="None"
                           ItemContainerStyle="{StaticResource BookCardItemStyle}">
                     <GridView.ItemsPanel>
@@ -400,6 +401,7 @@
                 <ListView x:Name="BookList"
                           Visibility="Collapsed"
                           ItemsSource="{x:Bind ViewModel.Books}"
+                          DoubleTapped="BookList_DoubleTapped"
                           SelectionChanged="BookList_SelectionChanged">
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:BookCardViewModel">
@@ -891,15 +893,17 @@
                         Background="#FFFFFF"
                         BorderBrush="#000000"
                         BorderThickness="0,0,0,1">
-                    <Grid Padding="14,8" ColumnSpacing="8">
+                    <Grid Padding="12,8" ColumnSpacing="10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="38" />
                         </Grid.ColumnDefinitions>
                         <Button x:Name="ReaderTocToggleButton"
                                 Content="目录"
-                                Style="{StaticResource ReaderToolbarButtonStyle}"
+                                Width="64"
+                                Style="{StaticResource ReaderHeaderButtonStyle}"
                                 ToolTipService.ToolTip="显示或隐藏目录"
                                 Click="ReaderTocToggleButton_Click" />
                         <StackPanel Grid.Column="1" Margin="4,0" VerticalAlignment="Center" Spacing="1">
@@ -912,31 +916,40 @@
                                        Foreground="#858585"
                                        TextTrimming="CharacterEllipsis" />
                         </StackPanel>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
+                        <ScrollViewer Grid.Column="2"
+                                      MaxWidth="920"
+                                      HorizontalScrollMode="Enabled"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollMode="Disabled"
+                                      VerticalScrollBarVisibility="Hidden"
+                                      VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
                             <Button x:Name="ReaderZoomOutButton"
                                     Content="A−"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    Style="{StaticResource ReaderHeaderIconButtonStyle}"
                                     AutomationProperties.Name="减小字号"
                                     Click="ReaderZoomOutButton_Click" />
                             <TextBlock x:Name="ReaderZoomText"
-                                       MinWidth="42"
+                                       Width="44"
                                        Text="100%"
                                        FontSize="11"
                                        TextAlignment="Center"
-                                       VerticalAlignment="Center" />
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Center" />
                             <Button x:Name="ReaderZoomInButton"
                                     Content="A+"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    Style="{StaticResource ReaderHeaderIconButtonStyle}"
                                     AutomationProperties.Name="增大字号"
                                     Click="ReaderZoomInButton_Click" />
+                            <Rectangle Width="1" Height="22" Margin="3,0" Fill="#D5D5D1" />
                             <Button x:Name="ReaderFlowButton"
                                     Content="滚动"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    Style="{StaticResource ReaderHeaderButtonStyle}"
                                     ToolTipService.ToolTip="切换滚动或分页"
                                     Click="ReaderFlowButton_Click" />
                             <Button x:Name="ReaderMoreButton"
                                     Content="更多"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    Style="{StaticResource ReaderHeaderButtonStyle}"
                                     ToolTipService.ToolTip="阅读设置"
                                     AutomationProperties.Name="阅读设置">
                                 <Button.Flyout>
@@ -966,40 +979,44 @@
                                     </MenuFlyout>
                                 </Button.Flyout>
                             </Button>
+                            <Rectangle Width="1" Height="22" Margin="3,0" Fill="#D5D5D1" />
                             <Button x:Name="ReaderHighlightButton"
                                     Content="划线"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    Style="{StaticResource ReaderHeaderButtonStyle}"
                                     ToolTipService.ToolTip="为正文中选中的文字添加划线"
                                     Click="ReaderHighlightButton_Click" />
                             <Button x:Name="ReaderAnnotateButton"
                                     Content="批注"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    Style="{StaticResource ReaderHeaderButtonStyle}"
                                     ToolTipService.ToolTip="为正文中选中的文字添加笔记"
                                     Click="ReaderAnnotateButton_Click" />
                             <Button x:Name="ReaderBookmarkButton"
                                     Content="书签"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    Style="{StaticResource ReaderHeaderButtonStyle}"
                                     AutomationProperties.Name="添加书签"
                                     ToolTipService.ToolTip="添加或取消当前阅读位置的书签（Ctrl+B）"
                                     Click="ReaderBookmarkButton_Click" />
+                            <Rectangle Width="1" Height="22" Margin="3,0" Fill="#D5D5D1" />
                             <Button x:Name="ReaderSearchToolbarButton"
                                     Content="搜索"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    Style="{StaticResource ReaderHeaderButtonStyle}"
                                     AutomationProperties.Name="书内搜索"
                                     ToolTipService.ToolTip="搜索整本书（Ctrl+F）"
                                     Click="ReaderSearchToolbarButton_Click" />
                             <Button x:Name="ReaderAssistantToggleButton"
                                     Content="助手"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    Style="{StaticResource ReaderHeaderButtonStyle}"
                                     ToolTipService.ToolTip="显示或隐藏阅读助手"
                                     Click="ReaderAssistantToggleButton_Click" />
-                            <Button Content="×"
-                                    FontSize="17"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
-                                    AutomationProperties.Name="关闭阅读器"
-                                    ToolTipService.ToolTip="返回书架"
-                                    Click="CloseReaderButton_Click" />
-                        </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                        <Button Grid.Column="3"
+                                Content="×"
+                                FontSize="17"
+                                Style="{StaticResource ReaderHeaderIconButtonStyle}"
+                                AutomationProperties.Name="关闭阅读器"
+                                ToolTipService.ToolTip="返回书架"
+                                Click="CloseReaderButton_Click" />
                     </Grid>
                 </Border>
 
@@ -1055,17 +1072,18 @@
                 </Grid>
 
                 <Border x:Name="ReaderFooterBar" Grid.Row="2" Background="#FFFFFF" BorderBrush="#000000" BorderThickness="0,1,0,0">
-                    <Grid Padding="10,6" ColumnSpacing="8">
+                    <Grid Padding="12,6" ColumnSpacing="10">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="40" />
+                            <ColumnDefinition Width="40" />
                             <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="96" />
+                            <ColumnDefinition Width="32" />
                         </Grid.ColumnDefinitions>
                         <Button x:Name="ReaderPreviousButton"
                                 Content="‹"
                                 FontSize="18"
+                                Width="40"
                                 Style="{StaticResource ReaderToolbarButtonStyle}"
                                 AutomationProperties.Name="上一页"
                                 Click="ReaderPreviousButton_Click" />
@@ -1073,12 +1091,14 @@
                                 Grid.Column="1"
                                 Content="›"
                                 FontSize="18"
+                                Width="40"
                                 Style="{StaticResource ReaderToolbarButtonStyle}"
                                 AutomationProperties.Name="下一页"
                                 Click="ReaderNextButton_Click" />
                         <Slider x:Name="ReaderProgressSlider"
                                 Grid.Column="2"
                                 Margin="4,0"
+                                MinWidth="120"
                                 Minimum="1"
                                 Maximum="1"
                                 Value="1"
@@ -1097,14 +1117,16 @@
                         </Slider>
                         <TextBlock x:Name="ReaderChapterText"
                                    Grid.Column="3"
-                                   MinWidth="76"
+                                   Width="96"
                                    TextAlignment="Center"
                                    VerticalAlignment="Center" />
                         <TextBlock x:Name="ReaderPdfBottomText"
                                    Grid.Column="4"
                                    Text="PDF"
+                                   Width="32"
                                    FontSize="11"
                                    Foreground="#777777"
+                                   TextAlignment="Center"
                                    VerticalAlignment="Center"
                                    Visibility="Collapsed" />
                     </Grid>
@@ -1138,11 +1160,12 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="AI 助手" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock Text="AI 助手" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
                             <TextBlock x:Name="ReaderAiProviderText"
-                                       Text="DeepSeek · 未配置"
-                                       FontSize="9"
-                                       Foreground="#888888"
+                                        Text="DeepSeek · 未配置"
+                                        FontSize="9"
+                                        MaxWidth="170"
+                                        Foreground="#888888"
                                        VerticalAlignment="Center"
                                        TextTrimming="CharacterEllipsis" />
                         </StackPanel>
@@ -1152,7 +1175,8 @@
                                     VerticalAlignment="Center">
                             <Button x:Name="ReaderAiSettingsButton"
                                     VerticalAlignment="Center"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    Style="{StaticResource ReaderHeaderIconButtonStyle}"
+                                    AutomationProperties.Name="配置 AI API"
                                     ToolTipService.ToolTip="配置 AI API"
                                     Click="ReaderAiSettingsButton_Click">
                                 <FontIcon Glyph="&#xE713;"
@@ -1163,7 +1187,8 @@
                             <Button Content="›"
                                     FontSize="20"
                                     VerticalAlignment="Center"
-                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    Style="{StaticResource ReaderHeaderIconButtonStyle}"
+                                    AutomationProperties.Name="收起阅读助手"
                                     ToolTipService.ToolTip="收起阅读助手"
                                     Click="ReaderAssistantToggleButton_Click" />
                         </StackPanel>

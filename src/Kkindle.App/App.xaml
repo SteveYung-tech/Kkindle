@@ -45,18 +45,6 @@
             <SolidColorBrush x:Key="AccentButtonBorderBrushPressed" Color="#000000" />
             <SolidColorBrush x:Key="AccentButtonBorderBrushDisabled" Color="#BFBFBF" />
 
-            <!-- Book shelf card border: hard black, square corners, no accent/blue.
-                 PointerOverBorderBrush drives the hover outline (normal hover),
-                 while the Selected* brushes drive the click-selected outline. Both are
-                 rendered by ListViewItemPresenter around the exact card footprint
-                 aligned by BookCardItemStyle (spacing lives outside the container). -->
-            <SolidColorBrush x:Key="GridViewItemPointerOverBorderBrush" Color="#000000" />
-            <SolidColorBrush x:Key="GridViewItemSelectedBorderBrush" Color="#000000" />
-            <SolidColorBrush x:Key="GridViewItemSelectedPointerOverBorderBrush" Color="#000000" />
-            <SolidColorBrush x:Key="GridViewItemSelectedPressedBorderBrush" Color="#000000" />
-            <SolidColorBrush x:Key="GridViewItemSelectedDisabledBorderBrush" Color="#000000" />
-            <CornerRadius x:Key="GridViewItemCornerRadius">0</CornerRadius>
-
             <SolidColorBrush x:Key="ContentDialogBackground" Color="#FFFFFF" />
             <SolidColorBrush x:Key="ContentDialogForeground" Color="#000000" />
             <SolidColorBrush x:Key="ContentDialogBorderBrush" Color="#000000" />
@@ -235,6 +223,25 @@
                 </Setter>
             </Style>
 
+            <!-- Stable chrome sizes keep the reader header aligned when the
+                 WebView area becomes narrow or an auxiliary panel is open. -->
+            <Style x:Key="ReaderHeaderButtonStyle"
+                   TargetType="Button"
+                   BasedOn="{StaticResource ReaderToolbarButtonStyle}">
+                <Setter Property="Width" Value="56" />
+                <Setter Property="MinWidth" Value="56" />
+                <Setter Property="Height" Value="34" />
+                <Setter Property="Padding" Value="6,4" />
+            </Style>
+            <Style x:Key="ReaderHeaderIconButtonStyle"
+                   TargetType="Button"
+                   BasedOn="{StaticResource ReaderToolbarButtonStyle}">
+                <Setter Property="Width" Value="38" />
+                <Setter Property="MinWidth" Value="38" />
+                <Setter Property="Height" Value="34" />
+                <Setter Property="Padding" Value="0" />
+            </Style>
+
             <Style x:Key="ReaderTocItemStyle" TargetType="ListViewItem">
                 <Setter Property="Padding" Value="0" />
                 <Setter Property="Margin" Value="0,1" />
@@ -367,13 +374,115 @@
                 </Setter>
             </Style>
 
-            <!-- Book cover shelf item container. Spacing lives on the container (outside the
-                 GridViewItem content area) so the default selection border wraps the card
-                 exactly instead of including extra right/bottom blank space. -->
+            <!-- Book cover shelf item container. Spacing (18/22) lives on the container, outside
+                 the GridViewItem content area, so the card footprint stays exactly 154 DIP and
+                 no border can ever include the inter-card spacing.
+                 This style replaces the default ListViewItemPresenter (which draws no border in
+                 the normal state and has no working pointer-over border thickness) with an
+                 explicit ControlTemplate that draws one outline Border over the exact card
+                 footprint (cover + title + author + format). VisualStateManager drives it:
+                 Normal = light default border, PointerOver/Pressed = pure black, Selected*
+                 states = monochrome black (keeps the Kindle device list selection behavior). -->
             <Style x:Key="BookCardItemStyle" TargetType="GridViewItem">
                 <Setter Property="Margin" Value="0,0,18,22" />
                 <Setter Property="HorizontalContentAlignment" Value="Left" />
                 <Setter Property="VerticalContentAlignment" Value="Top" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="0" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="GridViewItem">
+                            <Grid x:Name="BookCardItemRoot"
+                                  Background="Transparent"
+                                  controls:Control.IsTemplateFocusTarget="True">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BookCardOutline"
+                                                                               Storyboard.TargetProperty="BorderBrush">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#000000" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="Pressed">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BookCardOutline"
+                                                                               Storyboard.TargetProperty="BorderBrush">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#000000" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="Disabled">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BookCardOutline"
+                                                                               Storyboard.TargetProperty="BorderBrush">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#BFBFBF" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                    <VisualStateGroup x:Name="SelectionStates">
+                                        <VisualState x:Name="Unselected" />
+                                        <VisualState x:Name="Selected">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BookCardOutline"
+                                                                               Storyboard.TargetProperty="BorderBrush">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#000000" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="SelectedUnfocused">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BookCardOutline"
+                                                                               Storyboard.TargetProperty="BorderBrush">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#000000" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="SelectedDisabled">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BookCardOutline"
+                                                                               Storyboard.TargetProperty="BorderBrush">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#BFBFBF" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="PointerOverSelected">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BookCardOutline"
+                                                                               Storyboard.TargetProperty="BorderBrush">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#000000" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="PressedSelected">
+                                            <Storyboard>
+                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="BookCardOutline"
+                                                                               Storyboard.TargetProperty="BorderBrush">
+                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="#000000" />
+                                                </ObjectAnimationUsingKeyFrames>
+                                            </Storyboard>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <ContentPresenter x:Name="BookCardContent"
+                                                  Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                  ContentTransitions="{TemplateBinding ContentTransitions}"
+                                                  HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                                <Border x:Name="BookCardOutline"
+                                        BorderBrush="#BFBFBF"
+                                        BorderThickness="1"
+                                        CornerRadius="0"
+                                        IsHitTestVisible="False" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
 
             <Style x:Key="TitleBarCaptionButtonStyle" TargetType="Button">

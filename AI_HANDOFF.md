@@ -6,6 +6,8 @@
 >
 > 项目目录：`C:\Users\kings\Desktop\01_Projects\Kkindle`
 
+> 续作最新基线见第 33 节：目录章节首屏脚本已模块化并增强，Debug/Release 各 83 项测试通过；以下早期速览中的历史测试数字以各轮末尾记录为准。
+
 ## 0. 当前状态速览
 
 - 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。上一轮完成读者生产力工具大升级（阅读排版设置、进度断点恢复、书签、书内搜索、选区快捷工具栏、划线/批注导出、阅读统计、CJK 阅读增强），并修复了 WebView2 `IsScriptEnabled=false` 下真实交互失效的两个问题（连续滚动接章、分页点击翻页）与分页正文排版（默认横排分页每屏一个完整视口列、列宽对齐、列边界吸附、排版数据安全回退）。再上一轮修复 EPUB 图片/封面显示：分页模式下封面/大型插图按比例 contain 约束在当前正文内容盒内，滚动模式图片宽度跟随正文内容并保持比例、无横向溢出。再上一轮修复阅读器顶部自绘 X 退出按钮点击卡死/无响应（根因：低级鼠标钩子回调跨线程访问 XAML 与 `UnhookWindowsHookEx` 双向死锁 + 窗口关闭同步等待永不返回的 WebView 脚本；改为钩子只读缓存/投递 UI 线程、关闭流程幂等非阻塞、有界异步落库），并为所有真实章节切换路径加入平滑过渡。上一轮修复目录跳转/章节切换时的闪现与短暂卡顿（根因：旧实现在 `ReaderWebView.Source = target` 前先淡出/滑出旧内容，且 NavigationCompleted 的批注/脚注/进度等后置工作全部在入场动画前串行等待；改为导航期间保持旧内容可见、首屏准备完成后再短淡入/滑入，非首屏任务延迟到显示后并带导航序列守卫，杜绝旧导航/旧后置任务覆盖新章节）。上一轮修复目录跳转后正文未从新章节第一行开始（根因：目录跳转没有明确导航意图，旧 pending 位置/旧"移动章末"意图/同章节空操作会把新章滚到旧位置；改为 `ReaderNavigationIntent` 明确意图 + 导航前清理旧 pending 定位 + 目录/进度条跳转显式把滚动容器复位到章节首行：滚动模式 `scrollTop=0`、分页模式吸附第一列边界 `scrollLeft=24/top=0`，带 fragment 的目录锚点仍跳锚点，同章节点击也复位并重对齐滚动边沿）。再上一轮修复"scrollTop=0 但有的章节仍不顶格"（根因：`scrollTop=0` 只复位滚动容器，无法消除首元素自带的上边距/首行空白节点——真实《規模》的 EPUB 样式 `div.chatu-part{margin-top:30%}` 作用于全部部页/致谢/注释开篇，实测滚动模式首元素 marginTop 199.2px、分页 233.275px；改为目录/进度条/普通章节切换在复位滚动前先做章节开头安全归一化，带 fragment 或搜索/书签/批注/AI 目标不归一化）。**本轮修复"子章节 fragment 跳转后标题停在页面中部、顶部仍显示上一段正文"**（根因：fragment 定位旧实现只 `scrollIntoView` + 分页吸附，子章节与上一段正文处在同一个 CSS 列时标题停在列中部（报告例 `09.xhtml#sigil_toc_id_68` 分页 rectTop 256.38→大窗口 226.94，`scrollTop=0` 无效）；改为 fragment 导航专属定位：分页模式给目标块临时加 `.kkindle-fragment-break`（`break-before: column !important`）强制标题从新列顶部开始、归零目标块 margin-top 使标题贴内容起始线、`scrollLeft` 吸附目标列；滚动模式按正文内容盒顶部对齐（保留 body 阅读 padding）；隐藏/空目标向前找第一个有效标题/段落/图片，找不到安全回退章节首行；普通章节导航清理临时断点恢复原排版。实测 6 个真实子章节 × 滚动/分页全部顶格）。详见第 30 节。
@@ -1230,3 +1232,29 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - Debug/Release x64 完整解决方案构建：0 警告、0 错误；74 项测试（Debug/Release）全部通过。
 - 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（本轮更新，15:41），Release 启动存活 + 真实 EPUB 子章节 fragment 跳转/快速连续点击/关闭验证通过。
 - 本轮提交：`fix: align subchapter navigation`，仅包含 `MainWindow.xaml.cs`、`Core/ReaderModels.cs`、`tests/Kkindle.Tests/ReaderNavigationLocationTests.cs`、`AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。
+
+## 31. 分页边界与模块化修复（2026-08-07，工作区未提交）
+
+- 修复分页模式切换后先吸附、再被 `scrollLeft=0` 覆盖的问题；模式切换现在统一走章节首屏归一化和分页列吸附。
+- 修复分页翻页使用 `window.innerWidth` 而吸附使用 `clientWidth` 导致的逐页漂移；翻页、吸附、末页钳制统一以实际 `scrollingElement.clientWidth` 为页面步长。
+- 修复首列向左翻页误判和非整列末页反复翻页；末页 `maxScrollLeft` 作为合法终点，首列 padding 不再被误认为可回翻内容。
+- 新增 `src/Kkindle.Core/ReaderPagination.cs`，提供可测试的分页几何与边界策略；新增 `src/Kkindle.App/ReaderPaginationScripts.cs`，集中生成分页 CSS、吸附和翻页脚本，删除 `MainWindow` 中的重复分页脚本。
+- 分页 CSS 使用运行时 WebView `clientWidth` 写入的 CSS 变量，缩放、DPI 和合成岛尺寸变化时列宽与翻页步长保持一致；同时清理分页样式模板中的无效 `//` CSS 注释。
+- 新增 `ReaderPaginationTests`，Debug/Release 各 80 项测试全部通过；Release x64 构建和便携版发布均为 0 警告、0 错误，发布版启动 6 秒后响应正常并已正常关闭。
+- 本轮未提交、未 push；既有未提交的 `src/Kkindle.App/App.xaml` 和 `.opencode/` 保留。真实 EPUB 的人工鼠标/滚轮翻页仍需在交互桌面复核。
+
+## 32. 书架双击入口与 Kreader 控件整理（2026-08-07，工作区未提交）
+
+- 新增 `src/Kkindle.App/MainWindow.Library.cs`：书架网格和列表均支持双击打开 Kreader；通过 `VisualTreeHelper` 从双击源向上查找 `BookCardViewModel`，单击仍只负责选中书籍，双击事件先同步标记为已处理再异步打开，避免路由事件重复处理。
+- 新增 `src/Kkindle.Core/ReaderBookSelectionPolicy.cs`：统一 EPUB/PDF 可读格式判断与 EPUB 优先选择；详情按钮、右键菜单和双击入口共用同一策略。新增 `tests/Kkindle.Tests/ReaderBookSelectionTests.cs` 覆盖格式优先级、PDF 回退和不支持格式。
+- `MainWindow.xaml` / `App.xaml`：Kreader 顶栏按缩放、阅读模式、划线批注书签、搜索助手分组，增加分隔线和稳定按钮尺寸；动作区可横向收纳，关闭按钮独立固定在最右侧。底栏固定上一页/下一页、章节信息和 PDF 标记宽度，进度滑块设置最小可用宽度；助手设置/收起按钮与标题区对齐。
+- 修复 PDF 会继承 EPUB 的书签、书内搜索、划线、批注和分页控件状态的问题；打开 PDF 时隐藏不适用按钮，打开 EPUB 时显式恢复。新阅读会话强制回到目录页，避免上一个会话停留在书签页导致目录列表被遮挡。
+- 同页 TOC/书签/搜索/批注/AI 定位增加独立位置序列，快速连续点击时旧的异步定位不会再覆盖最后一次请求；关闭阅读器也会使未完成的同页定位失效。打开操作增加并发保护，避免双击重复启动多个阅读会话。
+- 验证：Debug/Release 测试各 **83 项全部通过**；Debug 应用构建和 Release x64 完整解决方案构建均为 0 警告、0 错误。尚未提交、未 push；既有 `App.xaml`、`.opencode/` 及分页模块改动保留。双击和窄窗口按钮的真实鼠标/像素级人工复核仍建议在交互桌面执行。
+
+## 33. 目录章节首屏顶格与导航脚本模块化（2026-08-07，工作区未提交）
+
+- 新增 `src/Kkindle.App/ReaderNavigationScripts.cs`，把章节首屏归一化和 fragment 定位 JavaScript 从 `MainWindow.xaml.cs` 移出；窗口类只负责导航意图、WebView 调用、分页吸附和失败回退。
+- 普通目录章节跳转继续复位真实滚动容器，并沿 `body` 的首个有效内容路径清理包裹层、首个文本块和首张图片的顶部 margin；因此 `div`/`section` 嵌套、图片开篇和 EPUB 的 `margin-top:30%` 都能在正文内容区顶部开始，不改变后续段落间距、书籍原始文件或正文阅读内边距。
+- fragment 目录项复用独立脚本，保留分页 `break-before: column`、滚动/竖排定位、临时标记清理和最后一次快速点击优先行为；删除 `MainWindow.xaml.cs` 中的重复旧脚本，避免两套定位逻辑漂移。
+- 验证：Debug/Release 测试各 **83 项全部通过**；Debug 应用构建、Release x64 完整解决方案构建均为 0 警告、0 错误；新模块两段 JavaScript 通过语法解析。未提交、未 push、未重新发布便携版；工作区既有双击、分页、按钮布局等改动全部保留。
