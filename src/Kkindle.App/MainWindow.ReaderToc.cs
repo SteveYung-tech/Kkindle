@@ -1,8 +1,10 @@
 using Microsoft.UI;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 
@@ -21,7 +23,13 @@ public sealed record ReaderTocMarker(EpubReaderNavigationItem Item, bool IsCurre
 public sealed partial class MainWindow
 {
     private const double ReaderTocMinimalWidth = 30d;
+    private const double ReaderCompactScrollAnimationDurationMs = 160d;
     private IReadOnlyList<EpubReaderNavigationItem> _readerCompactNavigationItems = [];
+    private DispatcherQueueTimer? _readerCompactScrollTimer;
+    private bool _readerCompactScrollAnimating;
+    private double _readerCompactScrollStart;
+    private double _readerCompactScrollTarget;
+    private DateTimeOffset _readerCompactScrollStartedAt;
 
     private void ReaderTocMinimalToggleButton_Click(object sender, RoutedEventArgs e)
     {
@@ -50,12 +58,82 @@ public sealed partial class MainWindow
         var delta = e.GetCurrentPoint(scrollViewer).Properties.MouseWheelDelta;
         if (delta == 0) return;
 
-        var target = Math.Clamp(
-            scrollViewer.VerticalOffset - delta * 0.45,
+        var baseOffset = _readerCompactScrollAnimating
+            ? _readerCompactScrollTarget
+            : scrollViewer.VerticalOffset;
+        _readerCompactScrollStart = scrollViewer.VerticalOffset;
+        _readerCompactScrollTarget = Math.Clamp(
+            baseOffset - delta * 0.45,
             0,
             scrollViewer.ScrollableHeight);
-        scrollViewer.ChangeView(null, target, null);
+        _readerCompactScrollStartedAt = DateTimeOffset.UtcNow;
+        _readerCompactScrollAnimating = true;
+        EnsureReaderCompactScrollTimer();
+        _readerCompactScrollTimer!.Start();
         e.Handled = true;
+    }
+
+    private void EnsureReaderCompactScrollTimer()
+    {
+        if (_readerCompactScrollTimer is not null) return;
+        _readerCompactScrollTimer = DispatcherQueue.CreateTimer();
+        _readerCompactScrollTimer.Interval = TimeSpan.FromMilliseconds(16);
+        _readerCompactScrollTimer.Tick += ReaderCompactScrollTimer_Tick;
+    }
+
+    private void ReaderCompactScrollTimer_Tick(DispatcherQueueTimer sender, object args)
+    {
+        if (!_readerCompactScrollAnimating
+            || ReaderTocCompactScrollViewer.Visibility != Visibility.Visible)
+        {
+            StopReaderCompactScrollAnimation();
+            return;
+        }
+
+        var progress = Math.Clamp(
+            (DateTimeOffset.UtcNow - _readerCompactScrollStartedAt).TotalMilliseconds
+                / ReaderCompactScrollAnimationDurationMs,
+            0,
+            1);
+        var eased = 1 - Math.Pow(1 - progress, 3);
+        var offset = _readerCompactScrollStart
+            + (_readerCompactScrollTarget - _readerCompactScrollStart) * eased;
+        ReaderTocCompactScrollViewer.ChangeView(null, offset, null, disableAnimation: true);
+
+        if (progress >= 1) StopReaderCompactScrollAnimation();
+    }
+
+    private void StopReaderCompactScrollAnimation()
+    {
+        _readerCompactScrollAnimating = false;
+        _readerCompactScrollTimer?.Stop();
+    }
+
+    private void ReaderCompactTocMarker_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is Border marker) AnimateCompactMarker(marker, 1.18);
+    }
+
+    private void ReaderCompactTocMarker_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is Border marker) AnimateCompactMarker(marker, 1);
+    }
+
+    private static void AnimateCompactMarker(Border marker, double targetScale)
+    {
+        if (marker.RenderTransform is not ScaleTransform scale) return;
+
+        var animation = new DoubleAnimation
+        {
+            To = targetScale,
+            Duration = new Duration(TimeSpan.FromMilliseconds(120)),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        var storyboard = new Storyboard();
+        Storyboard.SetTarget(animation, scale);
+        Storyboard.SetTargetProperty(animation, "ScaleX");
+        storyboard.Children.Add(animation);
+        storyboard.Begin();
     }
 
     private void SetReaderTocMinimal(bool minimal)
@@ -67,12 +145,14 @@ public sealed partial class MainWindow
 
     private void SetReaderCompactNavigationItems(IReadOnlyList<EpubReaderNavigationItem> items)
     {
+        StopReaderCompactScrollAnimation();
         _readerCompactNavigationItems = items;
         RefreshReaderCompactMarkers();
     }
 
     private void ClearReaderCompactNavigationItems()
     {
+        StopReaderCompactScrollAnimation();
         _readerCompactNavigationItems = [];
         ReaderTocCompactList.ItemsSource = null;
     }

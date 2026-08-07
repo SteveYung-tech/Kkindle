@@ -963,7 +963,14 @@
                                                 Height="5"
                                                 Background="{x:Bind Fill}"
                                                 BorderBrush="{x:Bind Stroke}"
-                                                BorderThickness="1" />
+                                                BorderThickness="1"
+                                                RenderTransformOrigin="0.5,0.5"
+                                                PointerEntered="ReaderCompactTocMarker_PointerEntered"
+                                                PointerExited="ReaderCompactTocMarker_PointerExited">
+                                            <Border.RenderTransform>
+                                                <ScaleTransform ScaleX="1" ScaleY="1" />
+                                            </Border.RenderTransform>
+                                        </Border>
                                     </Button>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
