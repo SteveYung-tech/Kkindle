@@ -501,7 +501,7 @@ public sealed partial class MainWindow
         if (ReaderWebView.Source?.AbsoluteUri.Equals(target, StringComparison.OrdinalIgnoreCase) == true)
             _ = ScrollToPendingReaderBookmarkAsync();
         else
-            _ = NavigateReaderSourceAsync(new Uri(target), 1, animate: true, jump: true);
+            _ = NavigateReaderSourceAsync(new Uri(target), 1, animate: true, jump: true, ReaderNavigationIntent.Bookmark);
     }
 
     private async void ReaderBookmarkDeleteButton_Click(object sender, RoutedEventArgs e)
@@ -676,7 +676,7 @@ public sealed partial class MainWindow
         if (ReaderWebView.Source?.LocalPath.Equals(target.LocalPath, StringComparison.OrdinalIgnoreCase) == true)
             await ScrollToPendingReaderChunkAsync();
         else
-            await NavigateReaderSourceAsync(target, 1, animate: true, jump: true);
+            await NavigateReaderSourceAsync(target, 1, animate: true, jump: true, ReaderNavigationIntent.Search);
         ReaderSearchStatusText.Text = $"已跳转到《{source.ChapterTitle}》相关位置。";
     }
 

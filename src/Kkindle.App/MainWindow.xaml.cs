@@ -77,6 +77,11 @@ public sealed partial class MainWindow : Window
     // superseded navigation must be ignored, otherwise a stale handler could
     // consume the pending turn-in and run preparation against an older page.
     private Uri? _readerPendingNavigationTarget;
+    // Why the pending navigation was requested (TOC / search / bookmark /
+    // annotation / AI source / progress slider / open-book restore). An
+    // explicit user target outranks any automatic breakpoint restore, and the
+    // pending location work in NavigationCompleted is chosen from this intent.
+    private ReaderNavigationIntent _readerNavigationIntent = ReaderNavigationIntent.None;
     private CancellationTokenSource? _readerRelayoutCancellation;
     private DispatcherQueueTimer? _readerScrollPollTimer;
     private bool _readerPollRunning;
@@ -863,6 +868,7 @@ public sealed partial class MainWindow : Window
             _readerTransitionActive = false;
             _readerPendingTurnInAnimation = null;
             _readerPendingNavigationTarget = null;
+            _readerNavigationIntent = ReaderNavigationIntent.None;
             _readerChapterTransitionCancellation?.Cancel();
             _readerChapterTransitionCancellation?.Dispose();
             _readerChapterTransitionCancellation = null;
@@ -1144,15 +1150,24 @@ public sealed partial class MainWindow : Window
     //      thread and is cancelled immediately when the reader closes.
     // ------------------------------------------------------------------
 
-    private async Task ShowReaderChapterAsync(int direction = 1, bool animate = true, bool jump = false)
+    private async Task ShowReaderChapterAsync(
+        int direction = 1,
+        bool animate = true,
+        bool jump = false,
+        ReaderNavigationIntent intent = ReaderNavigationIntent.None)
     {
         if (_readerChapterIndex < 0 || _readerChapterIndex >= _readerChapters.Count) return;
         UpdateReaderChapterControls();
         SelectReaderTocItem(_readerNavigation.FirstOrDefault(item => item.ChapterIndex == _readerChapterIndex));
-        await NavigateReaderSourceAsync(new Uri(_readerChapters[_readerChapterIndex]), direction, animate, jump);
+        await NavigateReaderSourceAsync(new Uri(_readerChapters[_readerChapterIndex]), direction, animate, jump, intent);
     }
 
-    private Task NavigateReaderSourceAsync(Uri target, int direction, bool animate, bool jump = false)
+    private Task NavigateReaderSourceAsync(
+        Uri target,
+        int direction,
+        bool animate,
+        bool jump = false,
+        ReaderNavigationIntent intent = ReaderNavigationIntent.None)
     {
         if (target is null || ReaderWebView.CoreWebView2 is null)
         {
@@ -1160,11 +1175,25 @@ public sealed partial class MainWindow : Window
             return Task.CompletedTask;
         }
 
+        // An explicit user target must win over any automatic breakpoint
+        // restore, and a navigation must never inherit the pending location of
+        // the navigation it superseded (rapid TOC clicks, or a TOC click right
+        // after a search/bookmark/annotation jump). Only the location payload
+        // belonging to THIS intent survives the pruning.
+        PruneReaderPendingLocations(intent);
+        _readerNavigationIntent = intent;
+
         var sameChapter = ReaderWebView.Source?.AbsoluteUri.Equals(target.AbsoluteUri, StringComparison.OrdinalIgnoreCase) == true;
         if (sameChapter && !_readerNavigateToEnd)
         {
             // Already on this exact chapter/fragment: no navigation, no animation.
             _readerPendingTurnInAnimation = null;
+            // Even without a WebView navigation, an explicit user click must
+            // still move the reading position: TOC chapter entries go to the
+            // chapter's first line, fragment entries to their anchor, and
+            // bookmark/annotation/search/AI locations to their own target.
+            if (intent != ReaderNavigationIntent.None)
+                _ = RunSameChapterLocationAsync(intent, target);
             return Task.CompletedTask;
         }
 
@@ -1223,10 +1252,14 @@ public sealed partial class MainWindow : Window
     private void ReaderTocList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isUpdatingReaderToc || ReaderTocList.SelectedItem is not EpubReaderNavigationItem item) return;
+        // A TOC click is an explicit user target: it must start at the target
+        // chapter's first line (or its own anchor), never inherit a leftover
+        // "move to chapter end" intent from a superseded previous-chapter turn.
         _readerContinuousLocked = false;
         _readerChapterIndex = item.ChapterIndex;
+        _readerNavigateToEnd = false;
         UpdateReaderChapterControls();
-        _ = NavigateReaderSourceAsync(new Uri(item.Target), 1, animate: true, jump: true);
+        _ = NavigateReaderSourceAsync(new Uri(item.Target), 1, animate: true, jump: true, ReaderNavigationIntent.Toc);
     }
 
     private void SelectReaderTocItem(EpubReaderNavigationItem? item)
@@ -1272,7 +1305,7 @@ public sealed partial class MainWindow : Window
         _readerContinuousLocked = false;
         _readerChapterIndex = chapterIndex;
         _readerNavigateToEnd = false;
-        _ = ShowReaderChapterAsync(previousIndex < chapterIndex ? 1 : -1, jump: true);
+        _ = ShowReaderChapterAsync(previousIndex < chapterIndex ? 1 : -1, jump: true, intent: ReaderNavigationIntent.Progress);
     }
 
     private async void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
@@ -1775,6 +1808,7 @@ public sealed partial class MainWindow : Window
         _readerTransitionActive = false;
         _readerPendingTurnInAnimation = null;
         _readerPendingNavigationTarget = null;
+        _readerNavigationIntent = ReaderNavigationIntent.None;
         _readerRelayoutCancellation?.Cancel();
         _readerRelayoutCancellation?.Dispose();
         _readerRelayoutCancellation = null;
@@ -1918,10 +1952,15 @@ public sealed partial class MainWindow : Window
             if (turnIn is not null) ReaderWebViewHost.Opacity = 0;
             await ApplyReaderAppearanceAsync();
             if (IsStaleReaderNavigation(sequence, token)) return;
-            await ScrollToPendingReaderAnnotationAsync();
-            await ScrollToPendingReaderChunkAsync();
-            await ScrollToPendingReaderBookmarkAsync();
-            await ApplyReaderRestorePositionAsync();
+            // The first screen is positioned according to WHY this navigation
+            // was requested. An explicit user target (TOC chapter first line,
+            // fragment anchor, search/bookmark/annotation/AI location, progress
+            // slider) always wins; automatic breakpoint restore only runs for
+            // the open-book flow (intent None). Stale pending locations from a
+            // superseded navigation were already pruned when this navigation
+            // started, so a TOC jump can never inherit the old chapter's offset.
+            var intent = _readerNavigationIntent;
+            await ApplyReaderNavigationLocationAsync(intent, pendingTarget);
             if (IsStaleReaderNavigation(sequence, token)) return;
             if (_readerNavigateToEnd)
             {
@@ -2220,6 +2259,105 @@ public sealed partial class MainWindow : Window
         if (ReaderWebView.CoreWebView2 is null) return;
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync("window.scrollTo({ left: 0, top: 0 });"); }
         catch { }
+    }
+
+    private async Task RunSameChapterLocationAsync(ReaderNavigationIntent intent, Uri target)
+    {
+        await ApplyReaderNavigationLocationAsync(intent, target);
+        // A same-chapter re-position never goes through NavigationCompleted, so
+        // re-align the scroll-edge state here: otherwise a reset-to-top could
+        // look like "user scrolled to the top edge" and the continuous-scroll
+        // poll would immediately jump backward to the previous chapter.
+        await PrimeReaderScrollEdgesAsync();
+    }
+
+    // Only the pending location payload belonging to the current navigation
+    // intent may survive a navigation start. Everything else is cleared so a
+    // superseded navigation's pending scroll target can never re-position the
+    // new chapter (rapid TOC clicks, or a TOC click right after a search /
+    // bookmark / annotation jump).
+    private void PruneReaderPendingLocations(ReaderNavigationIntent intent)
+    {
+        if (!ReaderNavigationLocationPolicy.KeepsChunkOffset(intent)) _pendingReaderChunkOffset = null;
+        if (!ReaderNavigationLocationPolicy.KeepsBookmarkQuote(intent)) _pendingReaderBookmarkQuote = null;
+        if (!ReaderNavigationLocationPolicy.KeepsAnnotationScroll(intent)) _pendingReaderAnnotationScroll = null;
+        if (!ReaderNavigationLocationPolicy.KeepsRestorePosition(intent)) _pendingReaderRestorePosition = null;
+    }
+
+    // Positions the newly loaded chapter according to WHY the navigation was
+    // requested. Runs as part of the first-screen preparation (before reveal)
+    // and also directly against the current page for same-chapter clicks.
+    private async Task ApplyReaderNavigationLocationAsync(ReaderNavigationIntent intent, Uri target)
+    {
+        switch (intent)
+        {
+            case ReaderNavigationIntent.Toc when ReaderNavigationLocationPolicy.TocTargetHasAnchor(target):
+                // A TOC entry that explicitly carries a fragment anchor goes to
+                // that anchor (the browser already scrolled there on load; this
+                // re-applies it after our CSS pass for layout shifts).
+                await ScrollToReaderFragmentAsync(ReaderNavigationLocationPolicy.TocAnchorId(target));
+                return;
+            case ReaderNavigationIntent.Toc:
+            case ReaderNavigationIntent.Progress:
+                // Plain chapter entries / progress-slider jumps: start at the
+                // chapter's first line, never inherit the old chapter's offset.
+                await ResetReaderToChapterStartAsync();
+                return;
+            case ReaderNavigationIntent.Bookmark:
+                await ScrollToPendingReaderBookmarkAsync();
+                return;
+            case ReaderNavigationIntent.Annotation:
+                await ScrollToPendingReaderAnnotationAsync();
+                return;
+            case ReaderNavigationIntent.Search:
+            case ReaderNavigationIntent.AiSource:
+                await ScrollToPendingReaderChunkAsync();
+                return;
+            case ReaderNavigationIntent.None:
+            default:
+                // Open-book breakpoint restore (only armed by the open-book
+                // flow) or a plain prev/next/continuous chapter switch.
+                await ApplyReaderRestorePositionAsync();
+                return;
+        }
+    }
+
+    // Moves the actual scroll container back to the start of the chapter body.
+    // Scroll mode: scrollTop = 0 keeps the chapter's own top padding, so the
+    // first line starts at the viewport's top inner padding (never flush
+    // against the window edge). Pagination: scrollTop is pinned to 0 and
+    // scrollLeft is snapped onto the first column boundary (paddingLeft + 0 ×
+    // viewport), so the chapter can never open mid-column from a previous page.
+    private async Task ResetReaderToChapterStartAsync()
+    {
+        if (ReaderWebView.CoreWebView2 is null) return;
+        try
+        {
+            await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                "window.scrollTo({ left: 0, top: 0, behavior: 'instant' });");
+        }
+        catch { }
+        if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
+    }
+
+    // Jumps to an explicit fragment anchor (a genuine TOC heading anchor).
+    // Uses the element's id/name lookup and scrolls to it; pagination re-snaps
+    // the reading area onto the nearest column boundary afterwards.
+    private async Task ScrollToReaderFragmentAsync(string fragment)
+    {
+        if (ReaderWebView.CoreWebView2 is null || string.IsNullOrWhiteSpace(fragment)) return;
+        var needle = Uri.UnescapeDataString(fragment).Replace("\\", "\\\\").Replace("'", "\\'");
+        var script = $$"""
+            (() => {
+              let id = '{{needle}}';
+              try { id = decodeURIComponent(id); } catch { }
+              const el = document.getElementById(id) || Array.from(document.getElementsByName(id))[0];
+              if (el) el.scrollIntoView({ block: 'start', behavior: 'instant' });
+            })();
+            """;
+        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
+        catch { }
+        if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
     }
 
     private async Task MoveReaderToEndAsync()

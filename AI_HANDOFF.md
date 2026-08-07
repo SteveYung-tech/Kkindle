@@ -8,11 +8,11 @@
 
 ## 0. 当前状态速览
 
-- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。上一轮完成读者生产力工具大升级（阅读排版设置、进度断点恢复、书签、书内搜索、选区快捷工具栏、划线/批注导出、阅读统计、CJK 阅读增强），并修复了 WebView2 `IsScriptEnabled=false` 下真实交互失效的两个问题（连续滚动接章、分页点击翻页）与分页正文排版（默认横排分页每屏一个完整视口列、列宽对齐、列边界吸附、排版数据安全回退）。再上一轮修复 EPUB 图片/封面显示：分页模式下封面/大型插图按比例 contain 约束在当前正文内容盒内，滚动模式图片宽度跟随正文内容并保持比例、无横向溢出。再上一轮修复阅读器顶部自绘 X 退出按钮点击卡死/无响应（根因：低级鼠标钩子回调跨线程访问 XAML 与 `UnhookWindowsHookEx` 双向死锁 + 窗口关闭同步等待永不返回的 WebView 脚本；改为钩子只读缓存/投递 UI 线程、关闭流程幂等非阻塞、有界异步落库），并为所有真实章节切换路径加入平滑过渡。本轮修复目录跳转/章节切换时的闪现与短暂卡顿（根因：旧实现在 `ReaderWebView.Source = target` 前先淡出/滑出旧内容，且 NavigationCompleted 的批注/脚注/进度等后置工作全部在入场动画前串行等待；改为导航期间保持旧内容可见、首屏准备完成后再短淡入/滑入，非首屏任务延迟到显示后并带导航序列守卫，杜绝旧导航/旧后置任务覆盖新章节）。详见第 27 节。
-- 当前分支：`master`；最新本地提交为本轮最终提交 `fix: reduce reader chapter switch jank`（详见第 27 节）。
-- GitHub：`origin/master` 仍为 `4e8009b`，本地领先 15 个提交，按开发约定未自动推送。
-- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 本轮发布（13:44）。
-- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；33 项测试全部通过。Release 已重新发布，并用真实中文 EPUB《規模/Scale》（发布数据 `data/library/6efd4f1ba0ed4a2abdc2f0390edc7299/…(z-library.sk,…).epub`，SVG 封面 `cover.jpg` 1536×2048）做真实运行定向验证：目录远章节跳转 4 次（13/31→1→12→13→1）全部通过、无长时间全白/假卡死、章节进度正确；上一章/下一章跨章（1→2）正文可读；快速连续点目录最终只显示最后一次目标；X 关闭 123–133ms 返回书架且进程存活（详见第 27 节）。
+- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。上一轮完成读者生产力工具大升级（阅读排版设置、进度断点恢复、书签、书内搜索、选区快捷工具栏、划线/批注导出、阅读统计、CJK 阅读增强），并修复了 WebView2 `IsScriptEnabled=false` 下真实交互失效的两个问题（连续滚动接章、分页点击翻页）与分页正文排版（默认横排分页每屏一个完整视口列、列宽对齐、列边界吸附、排版数据安全回退）。再上一轮修复 EPUB 图片/封面显示：分页模式下封面/大型插图按比例 contain 约束在当前正文内容盒内，滚动模式图片宽度跟随正文内容并保持比例、无横向溢出。再上一轮修复阅读器顶部自绘 X 退出按钮点击卡死/无响应（根因：低级鼠标钩子回调跨线程访问 XAML 与 `UnhookWindowsHookEx` 双向死锁 + 窗口关闭同步等待永不返回的 WebView 脚本；改为钩子只读缓存/投递 UI 线程、关闭流程幂等非阻塞、有界异步落库），并为所有真实章节切换路径加入平滑过渡。上一轮修复目录跳转/章节切换时的闪现与短暂卡顿（根因：旧实现在 `ReaderWebView.Source = target` 前先淡出/滑出旧内容，且 NavigationCompleted 的批注/脚注/进度等后置工作全部在入场动画前串行等待；改为导航期间保持旧内容可见、首屏准备完成后再短淡入/滑入，非首屏任务延迟到显示后并带导航序列守卫，杜绝旧导航/旧后置任务覆盖新章节）。本轮修复目录跳转后正文未从新章节第一行开始、仍保留旧章节/旧位置偏移或目标章节首屏未对齐正文顶部（根因：目录跳转没有明确导航意图，旧 pending 位置/上一页的"移动章末"意图/同章节空操作会把新章滚到旧位置；改为 `ReaderNavigationIntent` 明确意图 + 导航开始前清理不属本次的 pending 定位 + 目录/进度条跳转显式把滚动容器复位到章节首行：滚动模式 `scrollTop=0`、分页模式吸附第一列边界 `scrollLeft=24/top=0`，带 fragment 的目录锚点仍跳锚点，同章节点击也复位并重对齐滚动边沿）。详见第 28 节。
+- 当前分支：`master`；最新本地提交为本轮最终提交 `fix: reset reader position on toc navigation`（详见第 28 节）。
+- GitHub：`origin/master` 仍为 `4e8009b`，本地领先 17 个提交，按开发约定未自动推送。
+- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 本轮发布（14:23）。
+- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；60 项测试全部通过（新增 `ReaderNavigationLocationTests` 27 项）。Release 已重新发布，并用真实中文 EPUB《規模/Scale》（发布数据 `data/library/6efd4f1ba0ed4a2abdc2f0390edc7299/…(z-library.sk,…).epub`，SVG 封面 `cover.jpg` 1536×2048）做真实运行定向验证：滚动/分页模式目录中间章节跳转各 3 次以上全部从新章节第一行/第一列开始（记录 `scrollTop/scrollLeft`：滚动 `st=0`、分页 `sl=24 st=0`），读到中间位置后点目录不继承旧偏移（滚动 `st=2160→0`、分页 `sl=1857→24`），快速连续点目录最终只显示最后一次目标且首屏从其开头开始，带 fragment 的目录锚点仍跳锚点（`#sigil_toc_id_1` → `sl=7352`），上一章/下一页/进度恢复不受影响，Release smoke 通过（详见第 28 节）。
 - 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环；2026-08-06 又完成 64 MiB EPUB 发送、大小校验和删除，设备端无测试残留。
 - 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
 
@@ -536,15 +536,16 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 ## 8. Git 状态
 
-当前工作分支为 `master`；`origin/master` 最新为 `4e8009b`，本地领先 16 个提交，未自动推送。当前工作区另有未提交的 `src/Kkindle.App/App.xaml` 修改和未跟踪的 `.opencode/` 目录，均不是本轮章节切换卡顿修复的一部分，必须保留。构建输出由 `.gitignore` 排除，不纳入版本控制。
+当前工作分支为 `master`；`origin/master` 最新为 `4e8009b`，本地领先 17 个提交，未自动推送。当前工作区另有未提交的 `src/Kkindle.App/App.xaml` 修改和未跟踪的 `.opencode/` 目录，均不是本轮目录定位修复的一部分，必须保留。构建输出由 `.gitignore` 排除，不纳入版本控制。
 
 当前开发基线及最近提交（本轮最终提交位于最上方）：
 
 ```text
-fix: reduce reader chapter switch jank  ← 本轮最终提交（章节切换闪现/卡顿：导航期间保持旧内容可见 + 首屏准备完成后短淡入/滑入 + 非首屏任务延迟并带导航序列守卫 + 跳转一律短淡入）
-fix: smooth reader chapter transitions  ← 上一轮最终提交（X 卡死修复：钩子跨线程锁死/同步等待 WebView 根因 + 幂等非阻塞关闭/有界落库 + 章节平滑过渡统一收敛/默认仿真）
-fix: fit epub images to reader viewport  ← 上上轮最终提交（EPUB 图片/封面按正文视口自适应：分页 contain 拟合 + 按尺寸识别封面 + 滚动模式防横向溢出）
-fix: restore reader pagination layout  ← 上上上轮最终提交（分页正文排版修复/列宽对齐/列吸附/排版数据安全回退）
+fix: reset reader position on toc navigation  ← 本轮最终提交（目录跳转定位修复：ReaderNavigationIntent 明确导航意图 + 导航前清理旧 pending 定位 + 目录/进度条跳转显式复位到章节首行/分页首列 + 带 fragment 锚点仍跳锚点 + 同章节点击复位并重对齐滚动边沿）
+fix: reduce reader chapter switch jank  ← 上一轮最终提交（章节切换闪现/卡顿：导航期间保持旧内容可见 + 首屏准备完成后短淡入/滑入 + 非首屏任务延迟并带导航序列守卫 + 跳转一律短淡入）
+fix: smooth reader chapter transitions  ← 上上轮最终提交（X 卡死修复：钩子跨线程锁死/同步等待 WebView 根因 + 幂等非阻塞关闭/有界落库 + 章节平滑过渡统一收敛/默认仿真）
+fix: fit epub images to reader viewport  ← 上上上轮最终提交（EPUB 图片/封面按正文视口自适应：分页 contain 拟合 + 按尺寸识别封面 + 滚动模式防横向溢出）
+fix: restore reader pagination layout  ← 上上上上轮最终提交（分页正文排版修复/列宽对齐/列吸附/排版数据安全回退）
 feat: expand reader productivity tools
 c91972b fix: repair reader page interaction
 37e2057 docs: refresh handoff timestamp
@@ -1062,3 +1063,52 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - Debug/Release x64 完整解决方案构建：0 警告、0 错误；33 项测试（Debug/Release）全部通过。
 - 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（本轮更新，13:44），Release 启动存活 + 真实 EPUB 定向验证通过。
 - 本轮提交：`fix: reduce reader chapter switch jank`，仅包含 `MainWindow.xaml.cs`、`MainWindow.ReaderFeatures.cs`、`MainWindow.ReaderTools.cs`、`MainWindow.ReaderAi.cs`、`AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。
+
+## 28. 目录跳转定位修复：明确导航意图与章节首屏对齐（2026-08-07）
+
+### 根因（真实 EPUB《規模》31 章 + Release/Debug 实测路径，非推测）
+
+用户反馈点击左侧目录跳转到章节后，正文没有从新章节第一行顶格开始，仍保留旧章节/旧位置偏移，或目标章节首屏没有对齐到正文顶部。定位到旧实现四个问题：
+
+1. **目录跳转没有明确导航意图**：`ReaderTocList_SelectionChanged` 只设 `_readerChapterIndex` 后调 `NavigateReaderSourceAsync`，`NavigationCompleted` 无条件依次执行批注/搜索/书签/断点恢复的待定位滚动。任何残留的 pending 位置（上一次打开保存的 `_pendingReaderRestorePosition`、被取代的搜索/书签/批注 pending）都可能被新的目录章节消费，把新章滚到旧位置。
+2. **同章节目录点击是空操作**：`NavigateReaderSourceAsync` 对 `sameChapter` 直接 return，点当前章节既不能回顶也不能定位。
+3. **`_readerNavigateToEnd` 泄漏**：上一章翻页设置 `_readerNavigateToEnd=true` 后若被目录点击取代，旧的"移动到章末"意图会覆盖目录目标，把新章滚到章末。
+4. **首屏位置依赖浏览器默认行为**：新文档加载后没有显式把滚动容器复位到章节开头；若 WebView2 恢复旧滚动位置或目标 URL 带 fragment，首屏就不在正文顶部。
+
+### 本次改动（定位意图 + 章节首屏对齐；未动标题栏/无关 UI）
+
+1. `src/Kkindle.Core/ReaderModels.cs` — 新增 `ReaderNavigationIntent` 枚举与 `ReaderNavigationLocationPolicy`：`None`（打开书籍恢复/上一页下一页/滚动接章）、`Toc`（目录）、`Progress`（进度条）、`Bookmark/Annotation/Search/AiSource`（命名定位）。策略纯函数判定"哪些 pending 位置属于本次导航"。
+2. `MainWindow.xaml.cs` — `NavigateReaderSourceAsync` 增加 `intent` 参数，导航开始前 `PruneReaderPendingLocations(intent)`：只保留属于本次导航的 pending（搜索/AI 保留 chunk，书签保留 quote，批注保留 annotation，打开书籍保留 restore），其余全部清空，杜绝旧导航/旧进度/旧后置任务覆盖新目标。
+3. `MainWindow.xaml.cs` — `NavigationCompleted` 首屏位置改为 `ApplyReaderNavigationLocationAsync(intent, target)`：
+   - `Toc` 无 fragment / `Progress`：`ResetReaderToChapterStartAsync()` —— 滚动模式 `window.scrollTo({left:0, top:0})`（正文自带顶部内边距，第一行从视口顶部内边距开始，不贴窗口边框）；分页模式先把 `scrollTop` 钉 0，再 `SnapReaderPaginationAsync()` 吸附到第一列边界 `paddingLeft + 0×视口`（实测 24px）。
+   - `Toc` 带 fragment：`ScrollToReaderFragmentAsync()` 跳到锚点（id/name 查找 + `scrollIntoView`），不再统一回顶。
+   - `Bookmark/Annotation/Search/AiSource`：各自原定位方法。
+   - `None`：仅打开书籍的 `ApplyReaderRestorePositionAsync()`（未武装则为空操作），上一页/下一页/滚动接章/进度恢复不受影响。
+4. `ReaderTocList_SelectionChanged` 传 `ReaderNavigationIntent.Toc` 并清 `_readerNavigateToEnd`；进度条跳转传 `Progress`；书签/批注/搜索/AI 来源分别传各自 intent。
+5. **同章节目录点击**：`NavigateReaderSourceAsync` 的 `sameChapter` 分支不再空操作，改调 `RunSameChapterLocationAsync`（定位 + `PrimeReaderScrollEdgesAsync` 重对齐边沿，防止连续滚动轮询把"复位到顶"误判为"滚到顶"而弹回上一章）。
+6. 保留：`WebView2 IsScriptEnabled=false`、EPUB 路径白名单、三栏布局、禅模式、翻页动画、分页/滚动模式、搜索/书签/批注/AI 定位、视口自适应与关闭流程。
+
+### 真实定向验证（真实 EPUB《規模》31 章，Release 发布版 + Debug 实测 DOM 数值）
+
+用 UIA 真实点击目录 + 生产代码路径翻页（键盘左右键、分页右 2/3 真实鼠标点击），逐次读取 `document.scrollingElement` 的 `scrollTop/scrollLeft`、章节 URL 与章节计数：
+
+- 滚动模式目录跳转（3 次以上）：`intent=Toc` 后 `01.xhtml` → `st=0 sl=0`；`chapter05.xhtml` → `st=0`；正文首屏从第一行顶格开始（正文自带 `padding-top` 保留设计内边距）。
+- 分页模式目录跳转：`chapter05.xhtml` → `sl=24 st=0`（第一列边界 = `paddingLeft + 0×视口`）；`01.xhtml` → `sl=24 st=0`；不继承上一章分页列。
+- 读到中间再点目录（不继承旧位置）：滚动模式先 4 次生产翻页把 `05.xhtml` 滚到 `st=2160`，再点目录（同一章）→ `st=0`；分页模式 4 次真实右键点击把 `01.xhtml` 翻到 `sl=1857`，再点目录 `chapter01.xhtml` → `sl=24 st=0`。旧偏移不再继承。
+- 快速连续点击目录：最终只显示最后一次目标（`chapter01.xhtml`，已读 4/31），且 `st=0`；旧导航/旧后置任务未覆盖。
+- 带 fragment 的 TOC 锚点：点"2. 我们生活在一个呈指数级不断扩张的世界中"（`01.xhtml#sigil_toc_id_1`）→ `sl=7352`（锚点所在列），不是统一回顶，明确锚点仍跳锚点。
+- 上一页/下一页跨章：`intent=None` 新章从顶部开始（`st=0`），回退章末逻辑不变；打开书籍进度恢复仍生效（恢复到章节 7/31 等保存位置）。
+- Release 发布版 smoke：打开真实 EPUB 恢复进度、目录点击"05 从人类世到城市世"→ 已读 12/31，进程存活响应。
+
+### 自动化边界（未验证项，需人工复核）
+
+- 与前几轮一致，自动化无法把真实滚轮可靠投递到 WebView2 合成岛，滚动自动接章未端到端复跑；本次验证用生产代码路径（`TurnReaderPageAsync`、真实鼠标钩子分区点击、键盘左右键）驱动真实 DOM 滚动，并记录真实 `scrollTop/scrollLeft` 数值。
+- 分页页内 `page-turn` 记录的是平滑滚动中值（`sl=482/940/1399/1857`），最终由 `SnapReaderPaginationAsync` 吸附到列边界；目录跳转后的位置是吸附后的精确值（`sl=24`）。
+- 竖排滚动模式目录跳转未专项复跑（与横排走同一 `window.scrollTo({left:0,top:0})` 路径）；建议人工在交互桌面竖排模式点一次目录确认。
+- 自动化环境 UIA 无法枚举阅读器底部上一页/下一页按钮（WebView2 合成岛相关的 UIA 剪枝），翻页改由键盘左右键与分页鼠标钩子分区点击驱动；两种路径都复用生产 `TurnReaderPageAsync`。
+
+### 构建、测试与发布
+
+- Debug/Release x64 完整解决方案构建：0 警告、0 错误；60 项测试（Debug/Release）全部通过。新增 `tests/Kkindle.Tests/ReaderNavigationLocationTests.cs`（27 项）：意图分类（哪些目标回章节首行）、pending 位置保留/清理（chunk/quote/annotation/restore 只属于各自意图）、TOC fragment 锚点判定。
+- 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（本轮更新，14:23），Release 启动存活 + 真实 EPUB 目录跳转验证通过。
+- 本轮提交：`fix: reset reader position on toc navigation`，仅包含 `MainWindow.xaml.cs`、`MainWindow.ReaderFeatures.cs`、`MainWindow.ReaderTools.cs`、`MainWindow.ReaderAi.cs`、`Core/ReaderModels.cs`、`tests/Kkindle.Tests/ReaderNavigationLocationTests.cs`、`AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。

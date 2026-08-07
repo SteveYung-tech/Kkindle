@@ -163,3 +163,68 @@ public static class ReaderFormatting
     public static string FormatPercent(double percent) =>
         $"{Math.Clamp((int)Math.Round(percent), 0, 100)}%";
 }
+
+// ------------------------------------------------------------------
+// Chapter-navigation intent. Every real chapter switch funnels through
+// NavigateReaderSourceAsync with an explicit intent so the reader knows
+// WHY it navigated:
+//   - None      open-book breakpoint restore, prev/next chapter,
+//               continuous scroll edge transitions.
+//   - Toc       a TOC click. Plain chapter entries must start at the
+//               chapter's first line; entries that explicitly carry a
+//               fragment anchor jump to that anchor.
+//   - Progress  progress-slider jump: chapter first line.
+//   - Bookmark / Annotation / Search / AiSource:
+//               explicit named locations that scroll to their own target.
+// An explicit user target must win over any automatic breakpoint restore,
+// and a navigation must never inherit the stale pending location of the
+// navigation it superseded (rapid TOC clicks, or a TOC click right after
+// a search/bookmark/annotation jump).
+// ------------------------------------------------------------------
+public enum ReaderNavigationIntent
+{
+    None = 0,
+    Toc = 1,
+    Progress = 2,
+    Bookmark = 3,
+    Annotation = 4,
+    Search = 5,
+    AiSource = 6
+}
+
+public static class ReaderNavigationLocationPolicy
+{
+    // A plain chapter navigation (TOC without an explicit anchor, or the
+    // progress slider) always starts at the chapter's first line: the actual
+    // scroll container goes back to the content-box start (scrollTop = 0 in
+    // scroll mode; first column boundary + scrollTop = 0 in pagination).
+    public static bool GoesToChapterStart(ReaderNavigationIntent intent) =>
+        intent is ReaderNavigationIntent.Toc or ReaderNavigationIntent.Progress;
+
+    // Automatic breakpoint restore is only used when the user did not ask
+    // for a specific target (open-book restore, plain chapter switches).
+    public static bool UsesRestorePosition(ReaderNavigationIntent intent) =>
+        intent == ReaderNavigationIntent.None;
+
+    public static bool KeepsChunkOffset(ReaderNavigationIntent intent) =>
+        intent is ReaderNavigationIntent.Search or ReaderNavigationIntent.AiSource;
+
+    public static bool KeepsBookmarkQuote(ReaderNavigationIntent intent) =>
+        intent == ReaderNavigationIntent.Bookmark;
+
+    public static bool KeepsAnnotationScroll(ReaderNavigationIntent intent) =>
+        intent == ReaderNavigationIntent.Annotation;
+
+    public static bool KeepsRestorePosition(ReaderNavigationIntent intent) =>
+        intent == ReaderNavigationIntent.None;
+
+    // A TOC entry that explicitly carries a fragment anchor goes to that
+    // anchor; a plain chapter entry starts at the first line. This keeps
+    // genuine heading anchors working while ordinary chapter entries always
+    // open at the chapter top.
+    public static bool TocTargetHasAnchor(Uri target) =>
+        !string.IsNullOrEmpty(target?.Fragment);
+
+    public static string TocAnchorId(Uri target) =>
+        target?.Fragment.TrimStart('#') ?? string.Empty;
+}
