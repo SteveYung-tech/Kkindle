@@ -6,15 +6,15 @@
 >
 > 项目目录：`C:\Users\kings\Desktop\01_Projects\Kkindle`
 
-> 续作最新基线见第 34 节：Kreader 左侧信息区已整理并完成 Release 发布；以下早期速览中的历史测试数字以各轮末尾记录为准。
+> 续作最新基线见第 48 节：Kreader 正文脚注悬停浮窗已修复并完成 Release 发布；以下早期速览中的历史测试数字以各轮末尾记录为准。
 
 ## 0. 当前状态速览
 
 - 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。上一轮完成读者生产力工具大升级（阅读排版设置、进度断点恢复、书签、书内搜索、选区快捷工具栏、划线/批注导出、阅读统计、CJK 阅读增强），并修复了 WebView2 `IsScriptEnabled=false` 下真实交互失效的两个问题（连续滚动接章、分页点击翻页）与分页正文排版（默认横排分页每屏一个完整视口列、列宽对齐、列边界吸附、排版数据安全回退）。再上一轮修复 EPUB 图片/封面显示：分页模式下封面/大型插图按比例 contain 约束在当前正文内容盒内，滚动模式图片宽度跟随正文内容并保持比例、无横向溢出。再上一轮修复阅读器顶部自绘 X 退出按钮点击卡死/无响应（根因：低级鼠标钩子回调跨线程访问 XAML 与 `UnhookWindowsHookEx` 双向死锁 + 窗口关闭同步等待永不返回的 WebView 脚本；改为钩子只读缓存/投递 UI 线程、关闭流程幂等非阻塞、有界异步落库），并为所有真实章节切换路径加入平滑过渡。上一轮修复目录跳转/章节切换时的闪现与短暂卡顿（根因：旧实现在 `ReaderWebView.Source = target` 前先淡出/滑出旧内容，且 NavigationCompleted 的批注/脚注/进度等后置工作全部在入场动画前串行等待；改为导航期间保持旧内容可见、首屏准备完成后再短淡入/滑入，非首屏任务延迟到显示后并带导航序列守卫，杜绝旧导航/旧后置任务覆盖新章节）。上一轮修复目录跳转后正文未从新章节第一行开始（根因：目录跳转没有明确导航意图，旧 pending 位置/旧"移动章末"意图/同章节空操作会把新章滚到旧位置；改为 `ReaderNavigationIntent` 明确意图 + 导航前清理旧 pending 定位 + 目录/进度条跳转显式把滚动容器复位到章节首行：滚动模式 `scrollTop=0`、分页模式吸附第一列边界 `scrollLeft=24/top=0`，带 fragment 的目录锚点仍跳锚点，同章节点击也复位并重对齐滚动边沿）。再上一轮修复"scrollTop=0 但有的章节仍不顶格"（根因：`scrollTop=0` 只复位滚动容器，无法消除首元素自带的上边距/首行空白节点——真实《規模》的 EPUB 样式 `div.chatu-part{margin-top:30%}` 作用于全部部页/致谢/注释开篇，实测滚动模式首元素 marginTop 199.2px、分页 233.275px；改为目录/进度条/普通章节切换在复位滚动前先做章节开头安全归一化，带 fragment 或搜索/书签/批注/AI 目标不归一化）。**本轮修复"子章节 fragment 跳转后标题停在页面中部、顶部仍显示上一段正文"**（根因：fragment 定位旧实现只 `scrollIntoView` + 分页吸附，子章节与上一段正文处在同一个 CSS 列时标题停在列中部（报告例 `09.xhtml#sigil_toc_id_68` 分页 rectTop 256.38→大窗口 226.94，`scrollTop=0` 无效）；改为 fragment 导航专属定位：分页模式给目标块临时加 `.kkindle-fragment-break`（`break-before: column !important`）强制标题从新列顶部开始、归零目标块 margin-top 使标题贴内容起始线、`scrollLeft` 吸附目标列；滚动模式按正文内容盒顶部对齐（保留 body 阅读 padding）；隐藏/空目标向前找第一个有效标题/段落/图片，找不到安全回退章节首行；普通章节导航清理临时断点恢复原排版。实测 6 个真实子章节 × 滚动/分页全部顶格）。详见第 30 节。
-- 当前分支：`master`；本轮发布包含 AI 助手增强、Kindle 邮件功能和内置京华老宋体，提交哈希以 Git 最新记录为准。
+- 当前分支：`master`；本轮发布包含脚注浮窗修复，提交哈希以 Git 最新记录为准。
 - GitHub：`origin/master` 为 `9b1583a`；本地已包含本轮功能与交接文档更新，尚未推送。
-- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-08 07:28:33。
-- 最新源码验证：Release x64 完整解决方案构建 0 警告、0 错误；89 项 Release 测试全部通过；发布版已生成。当前工作区仅保留未跟踪 `.opencode/`，未加入提交。
+- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-08 07:44:52。
+- 最新源码验证：Release x64 完整解决方案构建 0 警告、0 错误；90 项 Release 测试全部通过；发布版已生成。当前工作区仅保留未跟踪 `.opencode/`，未加入提交。
 - 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环；2026-08-06 又完成 64 MiB EPUB 发送、大小校验和删除，设备端无测试残留。
 - 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
 
@@ -538,12 +538,13 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 ## 8. Git 状态
 
-当前工作分支为 `master`；`origin/master` 最新为 `4e8009b`，本地领先 18 个提交，未自动推送。当前工作区另有未提交的 `src/Kkindle.App/App.xaml` 修改和未跟踪的 `.opencode/` 目录，均不是本轮目录定位修复的一部分，必须保留。构建输出由 `.gitignore` 排除，不纳入版本控制。
+当前工作分支为 `master`；`origin/master` 最新为 `9b1583a`，本地领先 16 个提交，未自动推送。当前工作区仅保留未跟踪的 `.opencode/` 目录，必须保留。构建输出由 `.gitignore` 排除，不纳入版本控制。
 
 当前开发基线及最近提交（本轮最终提交位于最上方）：
 
 ```text
-fix: normalize reader chapter start  ← 本轮最终提交（目录跳转首行归一化：根因是 EPUB 首元素自带上边距/首行空白节点，scrollTop=0 无法消除；新增 ShouldNormalizeChapterStart 策略 + 章节开头安全归一化脚本——删除首行空白块、把第一个有效内容元素 margin-top 以 inline !important 归零，保留段落间距/标题层级/图片封面 fit；带 fragment 或搜索/书签/批注/AI 目标不归一化）
+fix: repair reader footnote popup  ← 本轮最终提交（脚注标记改为提取所在段落正文；悬停链接统一规范化并支持预加载未完成时按目标即时解析）
+fix: normalize reader chapter start  ← 上一轮最终提交（目录跳转首行归一化：根因是 EPUB 首元素自带上边距/首行空白节点，scrollTop=0 无法消除；新增 ShouldNormalizeChapterStart 策略 + 章节开头安全归一化脚本——删除首行空白块、把第一个有效内容元素 margin-top 以 inline !important 归零，保留段落间距/标题层级/图片封面 fit；带 fragment 或搜索/书签/批注/AI 目标不归一化）
 fix: reset reader position on toc navigation  ← 上轮最终提交（目录跳转定位修复：ReaderNavigationIntent 明确导航意图 + 导航前清理旧 pending 定位 + 目录/进度条跳转显式复位到章节首行/分页首列 + 带 fragment 锚点仍跳锚点 + 同章节点击复位并重对齐滚动边沿）
 fix: reduce reader chapter switch jank  ← 上上轮最终提交（章节切换闪现/卡顿：导航期间保持旧内容可见 + 首屏准备完成后短淡入/滑入 + 非首屏任务延迟并带导航序列守卫 + 跳转一律短淡入）
 fix: smooth reader chapter transitions  ← 上上上轮最终提交（X 卡死修复：钩子跨线程锁死/同步等待 WebView 根因 + 幂等非阻塞关闭/有界落库 + 章节平滑过渡统一收敛/默认仿真）
@@ -1361,3 +1362,13 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - Release x64 完整解决方案构建 0 警告、0 错误；89 项测试全部通过。
 - 标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`；6 秒启动存活检查通过并正常关闭。
 - 本轮代码、测试、字体资源与交接文档一并提交，未 push；`.opencode/` 保留为未跟踪目录，不加入提交。
+
+## 48. 脚注悬停浮窗解析与显示修复（2026-08-08）
+
+- 修复脚注目标 ID 位于回链标记 `<a>` 上时只显示 `[1]`、不显示同段落详细内容的问题；解析器现在优先读取最近的段落、列表或脚注内容块。
+- 统一脚注目标的文件 URL 与 fragment 规范化，避免预加载链接和悬停实时识别结果因编码或路径表示不同而匹配失败。
+- 预加载尚未完成或当前目标未进入预加载列表时，悬停逻辑会对当前脚注目标即时解析，并用版本号与取消令牌防止旧章节结果覆盖新章节。
+- 悬停脚本改为识别所有带有效 fragment 的链接，并增强视口尺寸与链接祖先节点处理；浮窗显示前重新测量内容尺寸。
+- 新增脚注标记段落解析回归测试；Release x64 完整解决方案构建 0 警告、0 错误，90 项测试全部通过。
+- 标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-08 07:44:52），内置京华老宋体资源仍随发布目录提供。
+- 本轮代码、测试、交接文档与发布对应提交，未 push；`.opencode/` 保留为未跟踪目录，不加入提交。

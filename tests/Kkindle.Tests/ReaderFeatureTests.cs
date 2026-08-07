@@ -144,6 +144,33 @@ public sealed class ReaderFeatureTests
     }
 
     [Fact]
+    public async Task ResolvesFootnoteMarkerParagraphInsteadOfOnlyAnchorText()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var epubRoot = Path.Combine(root, "cache");
+            Directory.CreateDirectory(epubRoot);
+            var chapter = Path.Combine(epubRoot, "chapter.xhtml");
+            await File.WriteAllTextAsync(chapter, """
+                <html xmlns="http://www.w3.org/1999/xhtml"><body>
+                  <p><a href="chapter.xhtml#note1" id="note1n">[1]</a> full footnote details after the marker.</p>
+                </body></html>
+                """);
+
+            var service = new EpubFootnoteResolver();
+            var result = await service.ResolveAsync(
+                epubRoot,
+                [new Uri(chapter).AbsoluteUri + "#note1n"]);
+
+            var text = Assert.Single(result).Value;
+            Assert.Contains("[1]", text);
+            Assert.Contains("full footnote details after the marker", text);
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
     public async Task EncryptsAiApiKeyAtRestForCurrentWindowsUser()
     {
         var root = CreateTempDirectory();

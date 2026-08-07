@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Kkindle.Infrastructure;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -9,6 +10,7 @@ namespace Kkindle;
 public sealed partial class MainWindow
 {
     private readonly Dictionary<string, string> _readerFootnotes = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _readerFootnoteResolutionAttempts = new(StringComparer.Ordinal);
     private DispatcherQueueTimer? _readerFootnoteHoverTimer;
     private Popup? _readerFootnotePopup;
     private bool _readerFootnotePollRunning;
@@ -34,6 +36,7 @@ public sealed partial class MainWindow
     {
         _readerFootnoteConfigurationVersion++;
         _readerFootnotes.Clear();
+        _readerFootnoteResolutionAttempts.Clear();
         HideReaderFootnotePopup();
     }
 
@@ -62,7 +65,7 @@ public sealed partial class MainWindow
         try
         {
             targets = await ExecuteReaderJsonScriptAsync<string[]>(
-                "Array.from(document.querySelectorAll('a[href*=\"#\"]')).map(a => { try { return new URL(a.getAttribute('href') || '', location.href).href; } catch { return ''; } }).filter(Boolean);")
+                "Array.from(document.querySelectorAll('a[href]')).map(a => { try { const url = new URL(a.getAttribute('href') || '', location.href); return url.hash ? url.href : ''; } catch { return ''; } }).filter(Boolean);")
                 ?? [];
         }
         catch
@@ -95,8 +98,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        foreach (var pair in footnotes)
-            _readerFootnotes[pair.Key] = pair.Value;
+        StoreReaderFootnotes(footnotes);
     }
 
     private void StartReaderFootnoteHoverPoll()
@@ -123,8 +125,7 @@ public sealed partial class MainWindow
             || _readerCloseRequested
             || _readerTransitionActive
             || ReaderWebView.CoreWebView2 is null
-            || _readerAllowedRoot is null
-            || _readerFootnotes.Count == 0)
+            || _readerAllowedRoot is null)
         {
             HideReaderFootnotePopup();
             return;
@@ -174,10 +175,16 @@ public sealed partial class MainWindow
                 GetReaderFootnoteHoverScript(relativeX, relativeY, hostRect));
             if (info is null
                 || string.IsNullOrWhiteSpace(info.Href)
-                || !_readerFootnotes.TryGetValue(info.Href, out var text)
-                || string.IsNullOrWhiteSpace(text)
                 || info.Vw <= 0
                 || info.Vh <= 0)
+            {
+                HideReaderFootnotePopup();
+                return;
+            }
+
+            if (!TryGetReaderFootnoteText(info.Href, out var text))
+                text = await ResolveReaderFootnoteOnDemandAsync(info.Href);
+            if (string.IsNullOrWhiteSpace(text))
             {
                 HideReaderFootnotePopup();
                 return;
@@ -208,19 +215,21 @@ public sealed partial class MainWindow
         var heightText = height.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
         return $$"""
             (() => {
-              const doc = document.scrollingElement || document.documentElement;
-              const vw = doc.clientWidth || window.innerWidth || 0;
-              const vh = doc.clientHeight || window.innerHeight || 0;
+              const root = document.documentElement;
+              const vw = root.clientWidth || document.body?.clientWidth || window.innerWidth || 0;
+              const vh = root.clientHeight || document.body?.clientHeight || window.innerHeight || 0;
+              if (!vw || !vh) return null;
               const x = Math.max(0, Math.min(vw - 1, Math.round({{x}} * vw / {{widthText}})));
               const y = Math.max(0, Math.min(vh - 1, Math.round({{y}} * vh / {{heightText}})));
               const element = document.elementFromPoint(x, y);
-              const anchor = element && element.closest ? element.closest('a[href*="#"]') : null;
-              if (!anchor || !vw || !vh) return null;
-              let href = '';
-              try { href = new URL(anchor.getAttribute('href') || '', location.href).href; } catch { return null; }
+              const anchor = element && element.closest ? element.closest('a[href]') : null;
+              if (!anchor) return null;
+              let url;
+              try { url = new URL(anchor.getAttribute('href') || '', location.href); } catch { return null; }
+              if (!url.hash) return null;
               const rect = anchor.getBoundingClientRect();
               return {
-                href,
+                href: url.href,
                 left: rect.left,
                 top: rect.top,
                 right: rect.right,
@@ -230,6 +239,61 @@ public sealed partial class MainWindow
               };
             })()
             """;
+    }
+
+    private void StoreReaderFootnotes(IReadOnlyDictionary<string, string> footnotes)
+    {
+        foreach (var pair in footnotes)
+        {
+            _readerFootnotes[pair.Key] = pair.Value;
+            _readerFootnotes[EpubFootnoteResolver.NormalizeTargetKey(pair.Key)] = pair.Value;
+        }
+    }
+
+    private bool TryGetReaderFootnoteText(string href, out string text)
+    {
+        if (_readerFootnotes.TryGetValue(href, out text!)) return true;
+
+        var normalized = EpubFootnoteResolver.NormalizeTargetKey(href);
+        if (_readerFootnotes.TryGetValue(normalized, out text!)) return true;
+
+        text = string.Empty;
+        return false;
+    }
+
+    private async Task<string?> ResolveReaderFootnoteOnDemandAsync(string href)
+    {
+        if (_readerAllowedRoot is not { } root
+            || _readerFeatureCancellation is not { } cancellation)
+        {
+            return null;
+        }
+
+        var normalized = EpubFootnoteResolver.NormalizeTargetKey(href);
+        if (!_readerFootnoteResolutionAttempts.Add(normalized)) return null;
+
+        var requestVersion = _readerFootnoteConfigurationVersion;
+        try
+        {
+            var footnotes = await _footnotes.ResolveAsync(root, [href], cancellation.Token);
+            if (cancellation.IsCancellationRequested
+                || requestVersion != _readerFootnoteConfigurationVersion
+                || !string.Equals(_readerAllowedRoot, root, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            StoreReaderFootnotes(footnotes);
+            return TryGetReaderFootnoteText(href, out var text) ? text : null;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void ShowReaderFootnotePopup(
@@ -265,6 +329,7 @@ public sealed partial class MainWindow
         ReaderFootnotePopup.Visibility = Visibility.Visible;
         _readerFootnotePopup.XamlRoot = RootGrid.XamlRoot;
         ReaderFootnotePopup.Measure(new Windows.Foundation.Size(popupWidth, popupMaxHeight));
+        ReaderFootnotePopup.UpdateLayout();
 
         var popupHeight = Math.Clamp(ReaderFootnotePopup.DesiredSize.Height, 1, popupMaxHeight);
         var anchorCenter = (left + right) / 2;

@@ -5,6 +5,33 @@ namespace Kkindle.Infrastructure;
 
 public sealed partial class EpubFootnoteResolver
 {
+    public static string NormalizeTargetKey(string target)
+    {
+        if (!Uri.TryCreate(target, UriKind.Absolute, out var uri)
+            || !uri.IsFile
+            || string.IsNullOrEmpty(uri.Fragment))
+        {
+            return target;
+        }
+
+        try
+        {
+            var fileUri = new Uri(Path.GetFullPath(uri.LocalPath)).AbsoluteUri;
+            var fragment = Uri.UnescapeDataString(uri.Fragment.TrimStart('#'));
+            // EPUB paths are case-insensitive on Windows, while fragment IDs
+            // remain case-sensitive. Keep the two parts separate accordingly.
+            return $"{fileUri.ToLowerInvariant()}#{fragment}";
+        }
+        catch (UriFormatException)
+        {
+            return target;
+        }
+        catch (ArgumentException)
+        {
+            return target;
+        }
+    }
+
     public async Task<IReadOnlyDictionary<string, string>> ResolveAsync(
         string epubRoot,
         IEnumerable<string> absoluteTargets,
@@ -33,11 +60,18 @@ public sealed partial class EpubFootnoteResolver
                 var element = document.Descendants().FirstOrDefault(candidate => candidate.Attributes().Any(attribute =>
                     (attribute.Name.LocalName.Equals("id", StringComparison.OrdinalIgnoreCase)
                      || attribute.Name.LocalName.Equals("name", StringComparison.OrdinalIgnoreCase))
-                    && attribute.Value.Equals(fragment, StringComparison.Ordinal)));
+                     && attribute.Value.Equals(fragment, StringComparison.Ordinal)));
                 if (element is null) continue;
-                var text = NormalizeText(element.Value);
+
+                // In common EPUB markup the fragment ID is attached to the
+                // backlink marker (<a id="note1n">[1]</a>), while the actual
+                // footnote text is the rest of that paragraph. Resolve the
+                // nearest containing block so the popup shows the note, not
+                // just its marker.
+                var contentElement = SelectFootnoteContentElement(element);
+                var text = NormalizeText(contentElement.Value);
                 if (text.Length > 1200) text = text[..1200] + "…";
-                if (text.Length > 0) result[target] = text;
+                if (text.Length > 0) result[NormalizeTargetKey(target)] = text;
             }
             catch (System.Xml.XmlException)
             {
@@ -45,6 +79,43 @@ public sealed partial class EpubFootnoteResolver
             }
         }
         return result;
+    }
+
+    private static XElement SelectFootnoteContentElement(XElement target)
+    {
+        var targetText = NormalizeText(target.Value);
+        var localName = target.Name.LocalName;
+        var isInlineMarker = localName.Equals("a", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("area", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("sup", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("span", StringComparison.OrdinalIgnoreCase);
+        if (!isInlineMarker) return target;
+
+        for (var parent = target.Parent;
+             parent is not null && !parent.Name.LocalName.Equals("body", StringComparison.OrdinalIgnoreCase);
+             parent = parent.Parent)
+        {
+            if (!IsFootnoteBlock(parent.Name.LocalName)) continue;
+
+            var parentText = NormalizeText(parent.Value);
+            if (parentText.Length > targetText.Length + 1)
+                return parent;
+        }
+
+        return target;
+    }
+
+    private static bool IsFootnoteBlock(string localName)
+    {
+        return localName.Equals("p", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("li", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("dd", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("dt", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("aside", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("blockquote", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("section", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("article", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("div", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizeText(string value)
