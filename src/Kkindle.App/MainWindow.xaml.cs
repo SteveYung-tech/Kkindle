@@ -867,6 +867,7 @@ public sealed partial class MainWindow : Window
             ResetReaderWebViewTransform();
             BeginReaderSession(book, file);
             await LoadReaderSessionDataAsync(_readerFeatureCancellation!.Token);
+            ReaderBookInfoText.Text = $"{book.Title} · {file.Format.ToUpperInvariant()}";
             ReaderPane.Visibility = Visibility.Visible;
             ReaderBrandText.Visibility = Visibility.Visible;
             ReaderPane.UpdateLayout();
@@ -1893,6 +1894,7 @@ public sealed partial class MainWindow : Window
         ResetReaderChromeLayout();
         ReaderTocList.ItemsSource = null;
         ReaderTocSearchBox.Text = string.Empty;
+        ReaderBookInfoText.Text = string.Empty;
         ResetReaderAssistant();
         if (ReaderWebView.CoreWebView2 is not null)
         {

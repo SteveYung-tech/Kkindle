@@ -687,9 +687,11 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="书籍信息"
-                                   FontSize="20"
+                        <TextBlock x:Name="ReaderBookInfoText"
+                                   FontSize="16"
                                    FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis"
+                                   MaxLines="1"
                                    VerticalAlignment="Center" />
                         <Button Grid.Column="1"
                                 Content="‹"
@@ -863,12 +865,18 @@
                                    TextWrapping="Wrap" />
                     </StackPanel>
 
-                    <Button Grid.Row="5"
-                            Content="返回书架"
+                    <Border Grid.Row="5"
                             Margin="10,6"
-                            HorizontalAlignment="Stretch"
-                            Style="{StaticResource ReaderToolbarButtonStyle}"
-                            Click="CloseReaderButton_Click" />
+                            BorderBrush="#000000"
+                            BorderThickness="1"
+                            CornerRadius="0">
+                        <Button Content="返回书架"
+                                Margin="0"
+                                HorizontalAlignment="Stretch"
+                                BorderThickness="0"
+                                Style="{StaticResource ReaderToolbarButtonStyle}"
+                                Click="CloseReaderButton_Click" />
+                    </Border>
                 </Grid>
             </Border>
 
@@ -1130,7 +1138,16 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <Grid Padding="14,8" BorderBrush="#000000" BorderThickness="0,0,0,1">
+                    <!-- Long separator below the assistant header. -->
+                    <Rectangle Grid.Row="1"
+                               Grid.RowSpan="3"
+                               Width="1"
+                               HorizontalAlignment="Left"
+                               Fill="#000000"
+                               IsHitTestVisible="False" />
+
+                    <!-- The short header rule is intentionally omitted. -->
+                    <Grid Padding="14,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />

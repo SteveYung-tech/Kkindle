@@ -1266,3 +1266,10 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - 将“已读章节 / 百分比”移动到左侧面板底部左侧，阅读累计时间和本次阅读时间置于其下方；删除对应的废弃书籍信息绑定和清理逻辑。
 - Release x64 完整解决方案构建 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 22:25:47）。
 - 本轮提交：`cf8a7f8 fix: refine Kreader layout and pagination`，已提交未 push；未跟踪 `.opencode/` 保留且未加入提交。
+
+## 35. Kreader 助手分隔线与书籍信息修正（2026-08-07）
+
+- 恢复 AI 助手标题下方贯穿内容区的长竖向分隔线；移除标题区域持续显示的短底部横线，助手页签区域的下边界线保留。
+- 左侧信息标题改为当前书籍的 `书名 · 文件类型`，打开书籍时动态更新，关闭阅读器时清空；标题过长时省略显示。
+- 左下“返回书架”按钮增加独立的黑色矩形外框，按钮自身保持无重复边框。
+- Release x64 完整解决方案构建 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 22:39:38）。本轮代码与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。
