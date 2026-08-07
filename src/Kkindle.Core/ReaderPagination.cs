@@ -7,8 +7,10 @@ public static class ReaderPaginationDefaults
 {
     public const double HorizontalPadding = 24;
     public const double ColumnGap = 48;
-    public const double TopPadding = 48;
-    public const double BottomPadding = 64;
+    // Keep all four page edges on the same inset so each pagination viewport
+    // has balanced whitespace around its content.
+    public const double TopPadding = HorizontalPadding;
+    public const double BottomPadding = HorizontalPadding;
     public const double SnapTolerance = 4;
 
     public static double GetColumnWidth(double viewportWidth) =>
@@ -20,24 +22,19 @@ public static class ReaderPaginationPolicy
     public static double SnapScrollLeft(
         double scrollLeft,
         double clientWidth,
-        double scrollWidth,
-        double paddingLeft = ReaderPaginationDefaults.HorizontalPadding)
+        double scrollWidth)
     {
         if (!double.IsFinite(clientWidth) || clientWidth <= 0)
             return 0;
 
         var max = GetMaxScrollLeft(clientWidth, scrollWidth);
         var safeScrollLeft = double.IsFinite(scrollLeft) ? scrollLeft : 0;
-        var safePaddingLeft = double.IsFinite(paddingLeft)
-            ? Math.Max(0, paddingLeft)
-            : ReaderPaginationDefaults.HorizontalPadding;
         if (safeScrollLeft >= max - ReaderPaginationDefaults.SnapTolerance)
             return max;
 
-        var nearest = safePaddingLeft
-            + Math.Round(
-                (safeScrollLeft - safePaddingLeft) / clientWidth,
-                MidpointRounding.AwayFromZero)
+        var nearest = Math.Round(
+            safeScrollLeft / clientWidth,
+            MidpointRounding.AwayFromZero)
             * clientWidth;
 
         return Math.Clamp(nearest, 0, max);
@@ -47,19 +44,15 @@ public static class ReaderPaginationPolicy
         double scrollLeft,
         int direction,
         double clientWidth,
-        double scrollWidth,
-        double paddingLeft = ReaderPaginationDefaults.HorizontalPadding)
+        double scrollWidth)
     {
         if (direction == 0 || !double.IsFinite(clientWidth) || clientWidth <= 0)
             return false;
 
-        var current = SnapScrollLeft(scrollLeft, clientWidth, scrollWidth, paddingLeft);
+        var current = SnapScrollLeft(scrollLeft, clientWidth, scrollWidth);
         var max = GetMaxScrollLeft(clientWidth, scrollWidth);
-        var safePaddingLeft = double.IsFinite(paddingLeft)
-            ? Math.Max(0, paddingLeft)
-            : ReaderPaginationDefaults.HorizontalPadding;
         return direction < 0
-            ? current > safePaddingLeft + ReaderPaginationDefaults.SnapTolerance
+            ? current > ReaderPaginationDefaults.SnapTolerance
             : current < max - ReaderPaginationDefaults.SnapTolerance;
     }
 
@@ -67,10 +60,9 @@ public static class ReaderPaginationPolicy
         double scrollLeft,
         int direction,
         double clientWidth,
-        double scrollWidth,
-        double paddingLeft = ReaderPaginationDefaults.HorizontalPadding)
+        double scrollWidth)
     {
-        var current = SnapScrollLeft(scrollLeft, clientWidth, scrollWidth, paddingLeft);
+        var current = SnapScrollLeft(scrollLeft, clientWidth, scrollWidth);
         if (direction == 0 || !double.IsFinite(clientWidth) || clientWidth <= 0)
             return current;
 

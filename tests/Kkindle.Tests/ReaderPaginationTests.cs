@@ -5,14 +5,14 @@ namespace Kkindle.Tests;
 public sealed class ReaderPaginationTests
 {
     [Fact]
-    public void SnapStartsAtTheFirstColumnPadding()
+    public void SnapStartsAtViewportOriginSoPageMarginsStayEven()
     {
         var snapped = ReaderPaginationPolicy.SnapScrollLeft(
             scrollLeft: 0,
             clientWidth: 1000,
             scrollWidth: 6000);
 
-        Assert.Equal(ReaderPaginationDefaults.HorizontalPadding, snapped);
+        Assert.Equal(0, snapped);
         Assert.False(ReaderPaginationPolicy.CanTurn(0, -1, 1000, 6000));
         Assert.True(ReaderPaginationPolicy.CanTurn(0, 1, 1000, 6000));
     }
@@ -25,12 +25,12 @@ public sealed class ReaderPaginationTests
             clientWidth: 997.5,
             scrollWidth: 6000);
 
-        Assert.Equal(1021.5, snapped, precision: 6);
+        Assert.Equal(997.5, snapped, precision: 6);
     }
 
     [Theory]
-    [InlineData(-1, 1024, 24)]
-    [InlineData(1, 1024, 2024)]
+    [InlineData(-1, 1000, 0)]
+    [InlineData(1, 1000, 2000)]
     public void TurnTargetAdvancesByOneViewport(int direction, double expectedCurrent, double expectedTarget)
     {
         var target = ReaderPaginationPolicy.GetTurnTarget(

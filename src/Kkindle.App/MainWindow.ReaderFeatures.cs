@@ -583,7 +583,7 @@ public sealed partial class MainWindow
         }
         else
         {
-            _ = NavigateReaderSourceAsync(new Uri(target), 1, animate: true, jump: true, ReaderNavigationIntent.Annotation);
+            _ = NavigateReaderSourceAsync(new Uri(target), 1, animate: true, ReaderNavigationIntent.Annotation);
         }
     }
 

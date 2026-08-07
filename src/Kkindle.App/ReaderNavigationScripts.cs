@@ -206,7 +206,14 @@ internal static class ReaderNavigationScripts
           const docLeft = rect.left + scroller.scrollLeft;
           if (flowMode === 1) {
             const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-            window.scrollTo({ left: Math.max(0, Math.min(max, docLeft)), top: 0, behavior: 'instant' });
+            const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
+            const renderedWidth = scroller.getBoundingClientRect?.().width || 0;
+            const step = renderedWidth || scroller.clientWidth || 0;
+            const pageIndex = step > 0
+              ? Math.max(0, Math.round((docLeft - padLeft) / step))
+              : 0;
+            const pageLeft = pageIndex * step;
+            window.scrollTo({ left: Math.max(0, Math.min(max, pageLeft)), top: 0, behavior: 'instant' });
           } else if (vertical) {
             const padRight = parseFloat(bodyStyle.paddingRight) || 0;
             const contentRight = scroller.clientWidth - padRight;
@@ -223,12 +230,13 @@ internal static class ReaderNavigationScripts
           const after = block.getBoundingClientRect();
           const computed = getComputedStyle(block);
           const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
-          const step = scroller.clientWidth || 0;
+          const renderedWidth = scroller.getBoundingClientRect?.().width || 0;
+          const step = renderedWidth || scroller.clientWidth || 0;
           const column = flowMode === 1 ? {
             step,
             padLeft,
             columnLeft: Math.round(after.left * 100) / 100,
-            columnIndex: step > 0 ? Math.round((docLeft - padLeft) / step) : 0
+            columnIndex: step > 0 ? Math.max(0, Math.round((docLeft - padLeft) / step)) : 0
           } : null;
           return {
             ok: true,

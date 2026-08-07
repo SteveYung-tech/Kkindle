@@ -64,14 +64,17 @@ public sealed partial class MainWindow : Window
     private bool _readerZenMode;
     private bool _readerPreZenTocExpanded = true;
     private bool _readerPreZenAssistantExpanded = true;
-    private int _readerPageAnimation = 1; // 0 = none, 1 = simulated, 2 = slide (1 = default smooth chapter transition)
+    private const int ReaderAnimationNone = 0;
+    private const int ReaderAnimationFade = 1;
+    private const int ReaderAnimationSlide = 2;
+    private int _readerPageAnimation = ReaderAnimationFade;
     private bool _readerContinuousLocked;
     private int _readerContinuousDirection = 1;
     private DateTimeOffset _readerLastChapterChange = DateTimeOffset.MinValue;
     // The incoming transition to play once the new chapter's first screen is
     // ready (NavigationCompleted + essential preparation). The style is pinned
     // at navigation time so a "jump" navigation (TOC/search/bookmark/annotation/
-    // AI/progress slider) always fades in even when 左右滑动 is selected.
+    // AI/progress slider) uses the animation selected in the reader menu.
     private ReaderTurnInAnimation? _readerPendingTurnInAnimation;
     // The most recently requested navigation target. NavigationCompleted for a
     // superseded navigation must be ignored, otherwise a stale handler could
@@ -113,7 +116,7 @@ public sealed partial class MainWindow : Window
     private bool _readerOpenInProgress;
 
     // Direction + animation style for the incoming chapter transition. Style is
-    // 1 = fade (仿真), 2 = slide (左右滑动). Recorded when the navigation starts
+    // 1 = fade (淡入淡出), 2 = slide (左右滑动). Recorded when the navigation starts
     // so a far-chapter jump never plays a long per-page-looking slide.
     private readonly record struct ReaderTurnInAnimation(int Direction, int Style);
 
@@ -850,7 +853,6 @@ public sealed partial class MainWindow : Window
 
             await ReaderWebView.EnsureCoreWebView2Async();
             ConfigureReaderWebView();
-            ConfigureReaderBookInformation(book, file);
             // A fresh reader session: re-arm the close guard and clear any
             // leftover transition/animation state from a previous session.
             _readerCloseInProgress = false;
@@ -865,7 +867,6 @@ public sealed partial class MainWindow : Window
             ResetReaderWebViewTransform();
             BeginReaderSession(book, file);
             await LoadReaderSessionDataAsync(_readerFeatureCancellation!.Token);
-            ReaderTitleText.Text = book.Title;
             ReaderPane.Visibility = Visibility.Visible;
             ReaderBrandText.Visibility = Visibility.Visible;
             ReaderPane.UpdateLayout();
@@ -892,6 +893,7 @@ public sealed partial class MainWindow : Window
                 ReaderChapterText.Text = string.Empty;
                 ReaderReadingProgressText.Text = "PDF 文档";
                 ReaderProgressPercentText.Text = "—";
+                ReaderStatsText.Text = string.Empty;
                 ReaderTocList.ItemsSource = null;
                 ReaderTocList.Visibility = Visibility.Collapsed;
                 ReaderTocSearchBox.Visibility = Visibility.Collapsed;
@@ -977,20 +979,6 @@ public sealed partial class MainWindow : Window
         settings.AreDevToolsEnabled = false;
         settings.IsStatusBarEnabled = false;
         settings.AreDefaultScriptDialogsEnabled = false;
-    }
-
-    private void ConfigureReaderBookInformation(Book book, BookFile file)
-    {
-        ReaderBookTitleText.Text = book.Title;
-        ReaderBookAuthorText.Text = book.Authors;
-        ReaderBookFormatText.Text = file.Format.ToUpperInvariant();
-        ReaderCoverImage.Source = null;
-        if (string.IsNullOrWhiteSpace(book.CoverPath)) return;
-
-        var coverPath = Path.GetFullPath(Path.Combine(_paths.Data, book.CoverPath));
-        if (!File.Exists(coverPath)) return;
-        try { ReaderCoverImage.Source = new BitmapImage(new Uri(coverPath)); }
-        catch { ReaderCoverImage.Source = null; }
     }
 
     private void ResetReaderAssistant()
@@ -1141,9 +1129,9 @@ public sealed partial class MainWindow : Window
     //      (styling/viewport, cover/image fit, target position restore,
     //      pagination snap, scroll-edge priming) while the new page is held
     //      behind the pane's opaque background.
-    //   3. Only then does a short fade-in (仿真 / 远章节跳转) or slide-in
-    //      (左右滑动, sequential page turns) reveal the ready first screen;
-    //      无动画 shows it immediately. Slow non-first-screen work (annotations,
+    //   3. Only then does the selected fade or slide animation reveal the
+    //      ready first screen; 无动画 shows it immediately. Slow non-first-screen
+    //      work (annotations,
     //      footnote hover, stats/progress) is deferred behind the reveal and
     //      guarded by the navigation sequence so a stale chapter can never
     //      overwrite the current one. The transition never blocks the UI
@@ -1153,20 +1141,18 @@ public sealed partial class MainWindow : Window
     private async Task ShowReaderChapterAsync(
         int direction = 1,
         bool animate = true,
-        bool jump = false,
         ReaderNavigationIntent intent = ReaderNavigationIntent.None)
     {
         if (_readerChapterIndex < 0 || _readerChapterIndex >= _readerChapters.Count) return;
         UpdateReaderChapterControls();
         SelectReaderTocItem(_readerNavigation.FirstOrDefault(item => item.ChapterIndex == _readerChapterIndex));
-        await NavigateReaderSourceAsync(new Uri(_readerChapters[_readerChapterIndex]), direction, animate, jump, intent);
+        await NavigateReaderSourceAsync(new Uri(_readerChapters[_readerChapterIndex]), direction, animate, intent);
     }
 
     private Task NavigateReaderSourceAsync(
         Uri target,
         int direction,
         bool animate,
-        bool jump = false,
         ReaderNavigationIntent intent = ReaderNavigationIntent.None)
     {
         if (target is null || ReaderWebView.CoreWebView2 is null)
@@ -1201,15 +1187,13 @@ public sealed partial class MainWindow : Window
         // Animations are decorative: never run them while closing, while the
         // pane is hidden, or when the user selected "无动画". "Jump" navigations
         // (TOC/search/bookmark/annotation/AI/progress slider) always use the
-        // short fade instead of the directional slide, so jumping to a far
-        // chapter never looks like a slow per-page drag.
+        // selected animation style, so every navigation path has predictable
+        // behavior without pretending to drag through intermediate chapters.
         var shouldAnimate = animate
-            && _readerPageAnimation > 0
+            && _readerPageAnimation > ReaderAnimationNone
             && !_readerCloseRequested
             && ReaderPane.Visibility == Visibility.Visible;
-        var turnInStyle = shouldAnimate
-            ? (jump || _readerPageAnimation == 1 ? 1 : 2)
-            : 0;
+        var turnInStyle = shouldAnimate ? _readerPageAnimation : ReaderAnimationNone;
 
         _readerChapterTransitionCancellation?.Cancel();
         _readerChapterTransitionCancellation?.Dispose();
@@ -1260,7 +1244,7 @@ public sealed partial class MainWindow : Window
         _readerChapterIndex = item.ChapterIndex;
         _readerNavigateToEnd = false;
         UpdateReaderChapterControls();
-        _ = NavigateReaderSourceAsync(new Uri(item.Target), 1, animate: true, jump: true, ReaderNavigationIntent.Toc);
+        _ = NavigateReaderSourceAsync(new Uri(item.Target), 1, animate: true, ReaderNavigationIntent.Toc);
     }
 
     private void SelectReaderTocItem(EpubReaderNavigationItem? item)
@@ -1295,6 +1279,7 @@ public sealed partial class MainWindow : Window
         ReaderProgressSlider.Maximum = Math.Max(1, _readerChapters.Count);
         ReaderProgressSlider.Value = current;
         _isUpdatingReaderProgress = false;
+        UpdateReaderStatsDisplay();
     }
 
     private void ReaderProgressSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -1306,7 +1291,7 @@ public sealed partial class MainWindow : Window
         _readerContinuousLocked = false;
         _readerChapterIndex = chapterIndex;
         _readerNavigateToEnd = false;
-        _ = ShowReaderChapterAsync(previousIndex < chapterIndex ? 1 : -1, jump: true, intent: ReaderNavigationIntent.Progress);
+        _ = ShowReaderChapterAsync(previousIndex < chapterIndex ? 1 : -1, intent: ReaderNavigationIntent.Progress);
     }
 
     private async void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
@@ -1442,18 +1427,18 @@ public sealed partial class MainWindow : Window
     private void ReaderAnimationItem_Click(object sender, RoutedEventArgs e)
     {
         if (ReferenceEquals(sender, ReaderAnimationFadeItem))
-            _readerPageAnimation = 1;
+            _readerPageAnimation = ReaderAnimationFade;
         else if (ReferenceEquals(sender, ReaderAnimationSlideItem))
-            _readerPageAnimation = 2;
+            _readerPageAnimation = ReaderAnimationSlide;
         else
-            _readerPageAnimation = 0;
+            _readerPageAnimation = ReaderAnimationNone;
     }
 
     private void SyncReaderPageAnimationMenu()
     {
-        ReaderAnimationNoneItem.IsChecked = _readerPageAnimation == 0;
-        ReaderAnimationFadeItem.IsChecked = _readerPageAnimation == 1;
-        ReaderAnimationSlideItem.IsChecked = _readerPageAnimation == 2;
+        ReaderAnimationNoneItem.IsChecked = _readerPageAnimation == ReaderAnimationNone;
+        ReaderAnimationFadeItem.IsChecked = _readerPageAnimation == ReaderAnimationFade;
+        ReaderAnimationSlideItem.IsChecked = _readerPageAnimation == ReaderAnimationSlide;
     }
 
     // ------------------------------------------------------------------
@@ -1466,7 +1451,7 @@ public sealed partial class MainWindow : Window
         if (ReaderPane.Visibility != Visibility.Visible) return false;
         if (ReaderWebView.CoreWebView2 is null) return false;
         if (!_readerHasToc || _readerChapters.Count == 0) return false;
-        if (_readerCloseRequested) return false;
+        if (_readerCloseRequested || _readerTransitionActive) return false;
 
         // Turn within the current chapter when content remains (pagination
         // columns or scroll direction). Crossing a chapter funnels through
@@ -1488,7 +1473,7 @@ public sealed partial class MainWindow : Window
         _readerLastChapterChange = DateTimeOffset.UtcNow;
         UpdateReaderChapterControls();
         _ = SaveReaderProgressThrottledAsync();
-        await ShowReaderChapterAsync(direction, animate: _readerPageAnimation > 0);
+        await ShowReaderChapterAsync(direction, animate: _readerPageAnimation > ReaderAnimationNone);
         return true;
     }
 
@@ -1498,41 +1483,36 @@ public sealed partial class MainWindow : Window
         int style,
         CancellationToken cancellationToken = default)
     {
-        if (style == 0 || _readerCloseRequested)
+        if (style == ReaderAnimationNone)
         {
             ResetReaderWebViewTransform();
             return;
         }
-        if (cancellationToken.IsCancellationRequested)
+        if (_readerCloseRequested)
         {
             ResetReaderWebViewTransform();
-            return;
+            throw new OperationCanceledException();
         }
+        cancellationToken.ThrowIfCancellationRequested();
 
-        var width = ReaderWebViewHost.ActualWidth;
+        var width = Math.Max(1, ReaderWebViewHost.ActualWidth);
         var storyboard = new Storyboard();
         var duration = new Duration(TimeSpan.FromMilliseconds(isOut ? 130 : 180));
         var easing = new CubicEase { EasingMode = EasingMode.EaseInOut };
 
-        if (style == 1)
+        if (style == ReaderAnimationFade)
         {
-            // Simulated: gentle fade combined with a slight scale. The incoming
-            // page starts hidden (the pane's opaque background shows behind it
-            // while the first screen is prepared) and fades up to full opacity.
-            if (isOut)
-            {
-                ReaderWebViewHost.Opacity = 1;
-            }
-            else
-            {
-                ReaderWebViewHost.Opacity = 0;
-                ReaderWebViewTransform.ScaleX = 0.985;
-                ReaderWebViewTransform.ScaleY = 0.985;
-            }
+            // Fade: gentle opacity transition combined with a slight scale. The incoming
+            // page starts hidden and fades up to full opacity. For an in-place
+            // page turn, the old page fades out completely before the scroll
+            // position changes, so no two pages are blended together.
+            ReaderWebViewHost.Opacity = isOut ? 1 : 0;
+            ReaderWebViewTransform.ScaleX = isOut ? 1 : 0.985;
+            ReaderWebViewTransform.ScaleY = isOut ? 1 : 0.985;
             var opacity = new DoubleAnimation
             {
                 From = isOut ? 1 : 0,
-                To = isOut ? 0.2 : 1,
+                To = isOut ? 0 : 1,
                 Duration = duration,
                 EnableDependentAnimation = true,
                 EasingFunction = easing
@@ -1572,7 +1552,10 @@ public sealed partial class MainWindow : Window
             // opaque background shows while the first screen is prepared.
             var from = isOut ? 0d : (direction > 0 ? width : -width);
             var to = isOut ? (direction > 0 ? -width : width) : 0d;
-            if (!isOut) ReaderWebViewTransform.TranslateX = from;
+            // Cross-chapter preparation parks the host with Opacity=0. Reveal
+            // it before moving it in; otherwise the slide runs invisibly.
+            ReaderWebViewHost.Opacity = 1;
+            ReaderWebViewTransform.TranslateX = from;
             var translate = new DoubleAnimation
             {
                 From = from,
@@ -1586,20 +1569,53 @@ public sealed partial class MainWindow : Window
             storyboard.Children.Add(translate);
         }
 
-        storyboard.Begin();
         try
         {
+            storyboard.Begin();
             await Task.Delay(isOut ? 130 : 180, cancellationToken);
+            if (_readerCloseRequested) throw new OperationCanceledException();
+
+            // A completed storyboard still owns its animated properties. Stop
+            // it before writing the final base values, otherwise the next turn
+            // can inherit a stale opacity, scale, or translation.
+            StopReaderStoryboard(storyboard);
+            if (style == ReaderAnimationFade)
+            {
+                ReaderWebViewHost.Opacity = isOut ? 0 : 1;
+                ReaderWebViewTransform.ScaleX = isOut ? 0.985 : 1;
+                ReaderWebViewTransform.ScaleY = isOut ? 0.985 : 1;
+                ReaderWebViewTransform.TranslateX = 0;
+            }
+            else
+            {
+                ReaderWebViewHost.Opacity = 1;
+                ReaderWebViewTransform.TranslateX = isOut
+                    ? (direction > 0 ? -width : width)
+                    : 0;
+                ReaderWebViewTransform.ScaleX = 1;
+                ReaderWebViewTransform.ScaleY = 1;
+            }
         }
         catch (OperationCanceledException)
         {
             // A newer transition or a reader close superseded this one; stop the
             // storyboard and restore the identity transform so the content is
             // never left faded/slid off-screen.
-            try { storyboard.Stop(); } catch { }
+            StopReaderStoryboard(storyboard);
             ResetReaderWebViewTransform();
             throw;
         }
+        catch
+        {
+            StopReaderStoryboard(storyboard);
+            ResetReaderWebViewTransform();
+            throw;
+        }
+    }
+
+    private static void StopReaderStoryboard(Storyboard storyboard)
+    {
+        try { storyboard.Stop(); } catch { }
     }
 
     private void ResetReaderWebViewTransform()
@@ -1672,35 +1688,88 @@ public sealed partial class MainWindow : Window
     {
         if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return false;
         var vertical = _readerLayout.VerticalWriting;
-        var script = _readerFlowMode == 0
-            ? vertical
-                ? $$"""
-                    (() => {
-                      const el = document.scrollingElement;
-                      const step = Math.max(200, window.innerWidth * 0.86);
-                      if ({{direction}} < 0 && el.scrollLeft > 4) {
-                        window.scrollBy({ left: -step, behavior: 'smooth' }); return true;
-                      }
-                      if ({{direction}} > 0 && el.scrollLeft + window.innerWidth < el.scrollWidth - 4) {
-                        window.scrollBy({ left: step, behavior: 'smooth' }); return true;
-                      }
-                      return false;
-                    })();
-                    """
-                : $$"""
-                    (() => {
-                      const el = document.scrollingElement;
-                      const step = Math.max(200, window.innerHeight * 0.86);
-                      if ({{direction}} < 0 && el.scrollTop > 4) {
-                        window.scrollBy({ top: -step, behavior: 'smooth' }); return true;
-                      }
-                      if ({{direction}} > 0 && el.scrollTop + window.innerHeight < el.scrollHeight - 4) {
-                        window.scrollBy({ top: step, behavior: 'smooth' }); return true;
-                      }
-                      return false;
-                    })();
-                    """
-            : ReaderPaginationScripts.CreateTurnScript(direction);
+        var pagination = _readerFlowMode == 1;
+        var canTurnScript = pagination
+            ? ReaderPaginationScripts.CreateCanTurnScript(direction)
+            : CreateReaderScrollCanTurnScript(direction, vertical);
+        if (!await ExecuteReaderBooleanScriptAsync(canTurnScript)) return false;
+
+        var style = pagination ? _readerPageAnimation : ReaderAnimationNone;
+        var turnScript = pagination
+            ? ReaderPaginationScripts.CreateTurnScript(
+                direction,
+                smooth: false)
+            : CreateReaderScrollTurnScript(
+                direction,
+                vertical,
+                smooth: _readerPageAnimation != ReaderAnimationNone);
+        if (style == ReaderAnimationNone)
+            return await ExecuteReaderBooleanScriptAsync(turnScript);
+
+        _readerTransitionActive = true;
+        try
+        {
+            var token = _readerChapterTransitionCancellation?.Token ?? CancellationToken.None;
+            ResetReaderWebViewTransform();
+            await AnimateReaderPageTurnAsync(direction, isOut: true, style, token);
+            if (!await ExecuteReaderBooleanScriptAsync(turnScript)) return false;
+            await AnimateReaderPageTurnAsync(direction, isOut: false, style, token);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            ResetReaderWebViewTransform();
+            _readerTransitionActive = false;
+        }
+    }
+
+    private static string CreateReaderScrollCanTurnScript(int direction, bool vertical) =>
+        $$"""
+        (() => {
+          const el = document.scrollingElement || document.documentElement;
+          if (!el) return false;
+          const horizontal = {{(vertical ? "true" : "false")}};
+          const position = horizontal ? el.scrollLeft : el.scrollTop;
+          const viewport = horizontal ? el.clientWidth : el.clientHeight;
+          const extent = horizontal ? el.scrollWidth : el.scrollHeight;
+          return {{(direction < 0 ? -1 : 1)}} < 0
+            ? position > 4
+            : position + viewport < extent - 4;
+        })();
+        """;
+
+    private static string CreateReaderScrollTurnScript(int direction, bool vertical, bool smooth) =>
+        $$"""
+        (() => {
+          const el = document.scrollingElement || document.documentElement;
+          if (!el) return false;
+          const horizontal = {{(vertical ? "true" : "false")}};
+          const viewport = horizontal ? window.innerWidth : window.innerHeight;
+          const step = Math.max(200, viewport * 0.86);
+          const delta = {{(direction < 0 ? -1 : 1)}} < 0 ? -step : step;
+          const position = horizontal ? el.scrollLeft : el.scrollTop;
+          const extent = horizontal ? el.scrollWidth : el.scrollHeight;
+          const currentViewport = horizontal ? el.clientWidth : el.clientHeight;
+          if (delta < 0 && position <= 4) return false;
+          if (delta > 0 && position + currentViewport >= extent - 4) return false;
+          window.scrollBy(horizontal
+            ? { left: delta, top: 0, behavior: '{{(smooth ? "smooth" : "instant")}}' }
+            : { left: 0, top: delta, behavior: '{{(smooth ? "smooth" : "instant")}}' });
+          return true;
+        })();
+        """;
+
+    private async Task<bool> ExecuteReaderBooleanScriptAsync(string script)
+    {
+        if (ReaderWebView.CoreWebView2 is null) return false;
         try { return await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script) == "true"; }
         catch { return false; }
     }
@@ -1824,7 +1893,6 @@ public sealed partial class MainWindow : Window
         ResetReaderChromeLayout();
         ReaderTocList.ItemsSource = null;
         ReaderTocSearchBox.Text = string.Empty;
-        ReaderCoverImage.Source = null;
         ResetReaderAssistant();
         if (ReaderWebView.CoreWebView2 is not null)
         {
@@ -2028,11 +2096,16 @@ public sealed partial class MainWindow : Window
             pagination: _readerFlowMode == 1,
             vertical: vertical);
         var lineHeight = _readerLayout.LineHeight.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+        var bodyPadding = _readerFlowMode == 1
+            ? (int)ReaderPaginationDefaults.HorizontalPadding
+            : vertical
+                ? 24
+                : (int)_readerLayout.BodyPadding;
         var bodyLayoutCss = vertical
             ? $"max-width: none !important; writing-mode: vertical-rl !important; text-orientation: mixed;"
-              + " margin: 0 auto !important; padding: 58px 24px 100px 24px !important;"
+              + $" margin: 0 auto !important; padding: {bodyPadding}px !important;"
             : $"max-width: {(int)_readerLayout.MaxWidth}px; margin: 0 auto !important;"
-              + $" padding: 58px {(int)_readerLayout.BodyPadding}px 100px !important;"
+              + $" padding: {bodyPadding}px !important;"
               + " writing-mode: horizontal-tb !important;";
         var bodyTextCss = vertical
             ? "overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal;"
@@ -2071,10 +2144,6 @@ public sealed partial class MainWindow : Window
         var script = $$"""
             (() => {
               const root = document.documentElement;
-              const viewportWidth = root?.clientWidth || window.innerWidth || 0;
-              if (root && viewportWidth > 0) {
-                root.style.setProperty('{{ReaderPaginationScripts.ViewportWidthVariable}}', viewportWidth + 'px');
-              }
               let style = document.getElementById('kkindle-reader-style');
               if (!style) {
                 if (!document.head) return;
@@ -2084,11 +2153,14 @@ public sealed partial class MainWindow : Window
               }
               style.textContent = `
                 html { font-size: {{fontPercent}}% !important; text-rendering: optimizeLegibility; }
-                html, body { background: {{background}} !important; color: {{foreground}} !important; }
+                html, body { background: {{background}} !important; color: {{foreground}} !important;
+                             border: 0 !important; outline: 0 !important; box-shadow: none !important; }
                 body { {{bodyLayoutCss}}
                        font-family: {{fontFamily}} !important;
                        font-size: 1rem !important; line-height: {{lineHeight}} !important; letter-spacing: 0.012em;
                        {{bodyTextCss}} }
+                body { margin-left: auto !important; margin-right: auto !important;
+                       padding: {{bodyPadding}}px !important; }
                 ruby { ruby-align: center !important; }
                 rt { font-size: 0.5em !important; color: inherit !important; }
                 p { margin: 0.55em 0 1.05em !important; }
@@ -2109,6 +2181,17 @@ public sealed partial class MainWindow : Window
                 .kkindle-fragment-break { break-before: column !important; }
                 .kkindle-fragment-zeroed { margin-top: 0 !important; }
               `;
+              // Apply the flow rules before measuring the viewport. A newly
+              // loaded XHTML document can still have a vertical scrollbar at
+              // this point; measuring root.clientWidth before html overflow is
+              // hidden would make the pagination columns narrower than the
+              // actual reading surface and expose a clipped right edge.
+              const kkScroller = document.scrollingElement || root;
+              const renderedWidth = kkScroller?.getBoundingClientRect?.().width || 0;
+              const viewportWidth = renderedWidth || kkScroller?.clientWidth || root?.clientWidth || window.innerWidth || 0;
+              if (root && viewportWidth > 0) {
+                root.style.setProperty('{{ReaderPaginationScripts.ViewportWidthVariable}}', viewportWidth + 'px');
+              }
               // Expose the real body content box (WebView viewport minus the
               // body's top/bottom padding) so image max-heights target the
               // actual page box instead of guessing from the window size.
@@ -2297,8 +2380,8 @@ public sealed partial class MainWindow : Window
     // Scroll mode: scrollTop = 0 keeps the chapter's own top padding, so the
     // first line starts at the viewport's top inner padding (never flush
     // against the window edge). Pagination: scrollTop is pinned to 0 and
-    // scrollLeft is snapped onto the first column boundary (paddingLeft + 0 ×
-    // viewport), so the chapter can never open mid-column from a previous page.
+    // scrollLeft is snapped onto the first viewport boundary (0), so the
+    // chapter can never open mid-column from a previous page.
     //
     // scrollTop = 0 alone is NOT enough: some chapters carry a large top
     // margin on their FIRST element (e.g. the EPUB stylesheet `div.chatu-part
@@ -2359,8 +2442,8 @@ public sealed partial class MainWindow : Window
     //        - scroll mode: target's document top minus the body's padding-top,
     //          so the heading lands on the content-box start line (padding
     //          retained, never flush against the window edge);
-    //        - pagination: scrollLeft = target column's document-left (a
-    //          snap-stable `paddingLeft + n × viewport` boundary), scrollTop = 0;
+    //        - pagination: scrollLeft = target column's viewport boundary (a
+    //          snap-stable `n × viewport` boundary), scrollTop = 0;
     //        - vertical writing: block-start (right edge) aligned to the
     //          content box's right edge, inline-start (top) to its top.
     private async Task ScrollToReaderFragmentAsync(string fragment)
@@ -2402,7 +2485,7 @@ public sealed partial class MainWindow : Window
         if (flowMode == 1)
         {
             // The script already placed the target's column at the viewport
-            // left edge on an exact `paddingLeft + n × viewport` boundary;
+            // left edge on an exact `n × viewport` boundary;
             // re-snap idempotently so later image-fit / relayout passes keep
             // the page (and the post-navigation tasks never rewind the reader
             // to an old column).

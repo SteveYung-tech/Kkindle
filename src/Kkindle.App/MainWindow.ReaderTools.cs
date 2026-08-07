@@ -501,7 +501,7 @@ public sealed partial class MainWindow
         if (ReaderWebView.Source?.AbsoluteUri.Equals(target, StringComparison.OrdinalIgnoreCase) == true)
             _ = ScrollToPendingReaderBookmarkAsync();
         else
-            _ = NavigateReaderSourceAsync(new Uri(target), 1, animate: true, jump: true, ReaderNavigationIntent.Bookmark);
+            _ = NavigateReaderSourceAsync(new Uri(target), 1, animate: true, ReaderNavigationIntent.Bookmark);
     }
 
     private async void ReaderBookmarkDeleteButton_Click(object sender, RoutedEventArgs e)
@@ -676,7 +676,7 @@ public sealed partial class MainWindow
         if (ReaderWebView.Source?.LocalPath.Equals(target.LocalPath, StringComparison.OrdinalIgnoreCase) == true)
             await ScrollToPendingReaderChunkAsync();
         else
-            await NavigateReaderSourceAsync(target, 1, animate: true, jump: true, ReaderNavigationIntent.Search);
+            await NavigateReaderSourceAsync(target, 1, animate: true, ReaderNavigationIntent.Search);
         ReaderSearchStatusText.Text = $"已跳转到《{source.ChapterTitle}》相关位置。";
     }
 
@@ -1062,11 +1062,8 @@ public sealed partial class MainWindow
             ReaderStatsText.Text = string.Empty;
             return;
         }
-        var chapters = _readerChapters.Count;
-        var completed = _readerChapterIndex + 1;
-        var percent = _readerLastProgress?.ProgressPercent ?? completed * 100d / chapters;
         var cumulative = _readerStatsBaseSeconds + _readerActiveSeconds;
-        ReaderStatsText.Text = $"已读 {completed} / {chapters} 章 · 全书 {ReaderFormatting.FormatPercent(percent)}\n累计阅读 {FormatReaderDuration(cumulative)} · 本次 {FormatReaderDuration(_readerActiveSeconds)}";
+        ReaderStatsText.Text = $"累计阅读 {FormatReaderDuration(cumulative)} · 本次 {FormatReaderDuration(_readerActiveSeconds)}";
     }
 
     private static string FormatReaderDuration(long seconds)
@@ -1119,4 +1116,3 @@ public sealed partial class MainWindow
         public double Vh { get; set; }
     }
 }
-
