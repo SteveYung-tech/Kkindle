@@ -135,6 +135,8 @@ public sealed partial class MainWindow : Window
         _paths = paths;
         _library = library;
         _kindle = kindle;
+        _kindleEmailSettingsStore = new KindleEmailSettingsStore(paths);
+        _kindleEmailSender = new KindleEmailSender();
         _readerData = readerData;
         _bookContent = bookContent;
         _footnotes = footnotes;
@@ -295,6 +297,9 @@ public sealed partial class MainWindow : Window
         _readerFeatureCancellation?.Dispose();
         _readerAiCancellation?.Cancel();
         _readerAiCancellation?.Dispose();
+        _readerAiModelListCancellation?.Cancel();
+        _readerAiModelListCancellation?.Dispose();
+        _kindleEmailSendCancellation?.Cancel();
         _ = FlushReaderSessionSafelyAsync(skipWebViewCapture: true);
 
         _deviceTimer.Stop();
@@ -2105,6 +2110,19 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private static string BuildBundledReaderFontFaceCss()
+    {
+        var fontPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "Assets",
+            "Fonts",
+            ReaderFontDefaults.BundledFontFileName);
+        if (!File.Exists(fontPath)) return string.Empty;
+
+        var fontUri = new Uri(Path.GetFullPath(fontPath)).AbsoluteUri;
+        return $"@font-face{{font-family:\"{ReaderFontDefaults.BundledFamily}\";src:url(\"{fontUri}\") format(\"truetype\");font-style:normal;font-weight:400;font-display:swap;}}";
+    }
+
     private async Task ApplyReaderAppearanceAsync()
     {
         if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return;
@@ -2136,6 +2154,7 @@ public sealed partial class MainWindow : Window
             ? "overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal;"
             : "overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal; text-align: justify;";
         var fontFamily = BuildReaderFontStack(_readerLayout.FontFamily);
+        var bundledFontFaceCss = BuildBundledReaderFontFaceCss();
         // EPUB image sizing is driven by the real WebView viewport/content box,
         // never the whole window. Inside this page 100vw/100vh are exactly the
         // WebView's own viewport, and --kkindle-page-content-h is the measured
@@ -2177,6 +2196,7 @@ public sealed partial class MainWindow : Window
                 document.head.appendChild(style);
               }
               style.textContent = `
+                {{bundledFontFaceCss}}
                 html { font-size: {{fontPercent}}% !important; text-rendering: optimizeLegibility; }
                 html, body { background: {{background}} !important; color: {{foreground}} !important;
                              border: 0 !important; outline: 0 !important; box-shadow: none !important; }

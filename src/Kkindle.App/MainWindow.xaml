@@ -179,6 +179,7 @@
                             </Button>
                             <StackPanel x:Name="SystemChildren" Spacing="3" Visibility="Collapsed">
                                 <Button Content="设置" Style="{StaticResource SidebarButtonStyle}" Click="SettingsButton_Click" />
+                                <Button Content="Kindle 邮箱设置" Style="{StaticResource SidebarButtonStyle}" Click="KindleEmailSettingsButton_Click" />
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
@@ -368,6 +369,10 @@
                                                 <MenuFlyoutItem Text="打开书籍"
                                                                 Tag="{x:Bind Book}"
                                                                 Click="OpenBookMenuItem_Click" />
+                                                <MenuFlyoutSeparator />
+                                                <MenuFlyoutItem Text="发送到 Kindle 邮箱"
+                                                                Tag="{x:Bind Book}"
+                                                                Click="SendBookToKindleEmailMenuItem_Click" />
                                             </MenuFlyout>
                                         </Grid.ContextFlyout>
                                         <TextBlock Text="BOOK"
@@ -479,6 +484,97 @@
                                Foreground="{StaticResource MutedInkBrush}"
                                HorizontalAlignment="Center" />
                 </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Kindle email settings. The password is encrypted by the local settings store. -->
+        <Grid x:Name="KindleEmailSettingsOverlay"
+              Grid.ColumnSpan="3"
+              Margin="0,38,0,0"
+              Canvas.ZIndex="100"
+              Background="#66000000"
+              Visibility="Collapsed">
+            <Border Width="560"
+                    MaxHeight="720"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="#FFFFFF"
+                    BorderBrush="#000000"
+                    BorderThickness="2"
+                    CornerRadius="0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <ScrollViewer Grid.Row="0" MaxHeight="600" VerticalScrollBarVisibility="Auto">
+                        <StackPanel Padding="22,20,22,16" Spacing="12">
+                            <TextBlock Text="Kindle 邮箱设置" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock Text="通过 SMTP 将 EPUB 或 PDF 发送到你的 Kindle 个人文档邮箱。请把 Kindle 收件地址加入发件邮箱的信任列表；密码建议使用应用专用密码。"
+                                       FontSize="11"
+                                       Foreground="#666666"
+                                       TextWrapping="Wrap" />
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="Kindle 收件邮箱" FontSize="11" />
+                                <TextBox x:Name="KindleEmailRecipientBox"
+                                         PlaceholderText="例如 name@kindle.com" />
+                            </StackPanel>
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="发件邮箱" FontSize="11" />
+                                <TextBox x:Name="KindleEmailSenderBox"
+                                         PlaceholderText="例如 you@example.com" />
+                            </StackPanel>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="110" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Text="SMTP 服务器" FontSize="11" />
+                                    <TextBox x:Name="KindleEmailSmtpHostBox"
+                                             PlaceholderText="smtp.example.com" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Spacing="5">
+                                    <TextBlock Text="端口" FontSize="11" />
+                                    <TextBox x:Name="KindleEmailSmtpPortBox"
+                                             Text="587"
+                                             PlaceholderText="587" />
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="SMTP 用户名" FontSize="11" />
+                                <TextBox x:Name="KindleEmailUsernameBox" />
+                            </StackPanel>
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="SMTP 密码 / 应用专用密码" FontSize="11" />
+                                <PasswordBox x:Name="KindleEmailPasswordBox"
+                                             PlaceholderText="输入密码或应用专用密码" />
+                            </StackPanel>
+                            <CheckBox x:Name="KindleEmailSslCheck"
+                                      Content="使用 SSL/TLS"
+                                      IsChecked="True" />
+                        </StackPanel>
+                    </ScrollViewer>
+                    <Grid Grid.Row="1" Padding="22,12,22,20" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="KindleEmailSettingsStatusText"
+                                   FontSize="10"
+                                   Foreground="#777777"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap" />
+                        <Button Grid.Column="1"
+                                Content="取消"
+                                Style="{StaticResource QuietButtonStyle}"
+                                Click="KindleEmailSettingsCancelButton_Click" />
+                        <Button Grid.Column="2"
+                                Content="保存"
+                                Click="KindleEmailSettingsSaveButton_Click" />
+                    </Grid>
+                </Grid>
             </Border>
         </Grid>
 
@@ -641,6 +737,9 @@
                     </StackPanel>
                     <Button Content="保存修改" Click="SaveDetailsButton_Click" />
                     <Button Content="发送到 Kindle" Style="{StaticResource QuietButtonStyle}" Click="SendToKindleButton_Click" />
+                    <Button Content="发送到 Kindle 邮箱"
+                            Style="{StaticResource QuietButtonStyle}"
+                            Click="SendSelectedBookToKindleEmailButton_Click" />
                     <Button Content="从书库删除" Style="{StaticResource QuietButtonStyle}" Click="DeleteBookButton_Click" />
                 </StackPanel>
             </ScrollViewer>
@@ -1520,8 +1619,46 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
+                        <Grid Grid.Row="0" ColumnSpacing="8" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="思考深度"
+                                           FontSize="9"
+                                           Foreground="#777777" />
+                                <ComboBox x:Name="ReaderAiReasoningDepthBox"
+                                          HorizontalAlignment="Stretch"
+                                          MinHeight="32"
+                                          FontSize="10"
+                                          CornerRadius="0"
+                                          BorderBrush="#000000"
+                                          BorderThickness="1"
+                                          SelectionChanged="ReaderAiReasoningDepthBox_SelectionChanged"
+                                          AutomationProperties.Name="选择思考深度">
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="3">
+                                <TextBlock Text="模型"
+                                           FontSize="9"
+                                           Foreground="#777777" />
+                                <ComboBox x:Name="ReaderAiModelSelectorBox"
+                                          HorizontalAlignment="Stretch"
+                                          MinHeight="32"
+                                          FontSize="10"
+                                          CornerRadius="0"
+                                          BorderBrush="#000000"
+                                          BorderThickness="1"
+                                          PlaceholderText="选择模型"
+                                          SelectionChanged="ReaderAiModelSelectorBox_SelectionChanged"
+                                          AutomationProperties.Name="选择 AI 模型" />
+                            </StackPanel>
+                        </Grid>
                         <TextBox x:Name="ReaderAiQuestionBox"
+                                 Grid.Row="1"
                                  MinHeight="74"
                                  Padding="10,8"
                                  AcceptsReturn="True"
@@ -1530,7 +1667,7 @@
                                  BorderBrush="#000000"
                                  PlaceholderText="询问这本书…（Ctrl+Enter 发送）"
                                  KeyDown="ReaderAiQuestionBox_KeyDown" />
-                        <Grid Grid.Row="1" Margin="0,8,0,0">
+                        <Grid Grid.Row="2" Margin="0,8,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -1768,7 +1905,7 @@
                                               BorderBrush="#000000"
                                               BorderThickness="1"
                                               SelectionChanged="ReaderFontFamilyBox_SelectionChanged">
-                                        <ComboBoxItem Content="系统默认 CJK 字体" Tag="" />
+                                        <ComboBoxItem Content="京华老宋体" Tag="京华老宋体" />
                                         <ComboBoxItem Content="微软雅黑 Microsoft YaHei UI" Tag="Microsoft YaHei UI" />
                                         <ComboBoxItem Content="宋体 SimSun" Tag="SimSun" />
                                         <ComboBoxItem Content="黑体 SimHei" Tag="SimHei" />
@@ -1900,6 +2037,7 @@
                     Visibility="Collapsed">
                 <Border.Resources>
                     <Style x:Key="ReaderSelectionActionStyle" TargetType="Button">
+                        <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
                         <Setter Property="MinWidth" Value="52" />
                         <Setter Property="Height" Value="30" />
                         <Setter Property="Padding" Value="8,3" />

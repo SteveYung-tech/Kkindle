@@ -28,12 +28,17 @@ public sealed partial class MainWindow
     private BookFile? _readerBookFile;
     private EpubReaderDocument? _readerDocument;
     private AiConnectionSettings _readerAiSettings = new();
+    private readonly List<string> _readerAiAvailableModels = [];
+    private CancellationTokenSource? _readerAiModelListCancellation;
+    private string _readerAiReasoningDepth = "auto";
     private ReaderSelectionAnchor? _pendingReaderSelection;
     private Guid? _pendingReaderAnnotationScroll;
     private int? _pendingReaderChunkOffset;
     private bool _readerIndexAvailable;
     private bool _readerAiBusy;
     private bool _suppressAiProviderChange;
+    private bool _suppressAiModelChange;
+    private bool _suppressAiReasoningDepthChange;
     private Popup? _readerAssistantPopup;
     private Popup? _readerSettingsPopup;
     private Popup? _readerZenPopup;
@@ -131,6 +136,10 @@ public sealed partial class MainWindow
     {
         _readerFeatureCancellation?.Cancel();
         _readerFeatureCancellation?.Dispose();
+        _readerAiModelListCancellation?.Cancel();
+        _readerAiModelListCancellation?.Dispose();
+        _readerAiModelListCancellation = null;
+        _readerAiAvailableModels.Clear();
         _readerFeatureCancellation = new CancellationTokenSource();
         _readerBook = book;
         _readerBookFile = file;
@@ -150,6 +159,7 @@ public sealed partial class MainWindow
     {
         _readerAiSettings = await _aiSettingsStore.LoadAsync(cancellationToken);
         UpdateReaderAiHeader();
+        _ = RefreshReaderAiModelSelectorAsync(cancellationToken);
         if (_readerBookFile is null) return;
         var annotations = await _readerData.GetAnnotationsAsync(_readerBookFile.Id, cancellationToken);
         ReplaceReaderAnnotations(annotations);
@@ -178,6 +188,10 @@ public sealed partial class MainWindow
         _readerAiCancellation?.Cancel();
         _readerAiCancellation?.Dispose();
         _readerAiCancellation = null;
+        _readerAiModelListCancellation?.Cancel();
+        _readerAiModelListCancellation?.Dispose();
+        _readerAiModelListCancellation = null;
+        _readerAiAvailableModels.Clear();
         _readerFeatureCancellation?.Cancel();
         _readerFeatureCancellation?.Dispose();
         _readerFeatureCancellation = null;
@@ -211,6 +225,9 @@ public sealed partial class MainWindow
         ReaderAiEmptyState.Visibility = Visibility.Visible;
         ReaderAiQuestionBox.Text = string.Empty;
         ReaderAiSendButton.IsEnabled = true;
+        ReaderAiModelSelectorBox.IsEnabled = true;
+        ReaderAiReasoningDepthBox.IsEnabled = true;
+        _readerAiReasoningDepth = "auto";
         SetReaderAiSettingsVisible(false);
         ReaderAiStatusText.Text = "本地索引将在打开 EPUB 后自动准备";
         ResetReaderAiSources();

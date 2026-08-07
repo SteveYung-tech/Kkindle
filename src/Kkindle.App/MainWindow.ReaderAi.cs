@@ -47,6 +47,170 @@ public sealed partial class MainWindow
         if (ReaderAiProviderText is null) return;
         var configured = _readerAiSettings.IsConfigured ? _readerAiSettings.Model : "未配置 API Key";
         ReaderAiProviderText.Text = $"{_readerAiSettings.ProviderDisplayName} · {configured}";
+        UpdateReaderAiReasoningDepthSelector();
+        UpdateReaderAiModelSelector();
+    }
+
+    private void UpdateReaderAiModelSelector()
+    {
+        if (ReaderAiModelSelectorBox is null) return;
+        _suppressAiModelChange = true;
+        try
+        {
+            ReaderAiModelSelectorBox.Items.Clear();
+            var options = (_readerAiAvailableModels.Count > 0
+                    ? _readerAiAvailableModels
+                    : AiConnectionSettings.GetModelOptions(_readerAiSettings.Provider, _readerAiSettings.Model))
+                .Prepend(_readerAiSettings.Model)
+                .Where(model => !string.IsNullOrWhiteSpace(model))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            foreach (var model in options)
+            {
+                ReaderAiModelSelectorBox.Items.Add(new ComboBoxItem
+                {
+                    Content = model,
+                    Tag = model
+                });
+            }
+
+            ReaderAiModelSelectorBox.SelectedItem = ReaderAiModelSelectorBox.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item => string.Equals(
+                    item.Tag as string,
+                    _readerAiSettings.Model,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _suppressAiModelChange = false;
+        }
+    }
+
+    private void UpdateReaderAiReasoningDepthSelector()
+    {
+        if (ReaderAiReasoningDepthBox is null) return;
+
+        var options = _readerAiSettings.Provider.Equals("deepseek", StringComparison.OrdinalIgnoreCase)
+            ? new[]
+            {
+                (Tag: "auto", Label: "\u81ea\u52a8"),
+                (Tag: "high", Label: "\u6df1\u5165"),
+                (Tag: "max", Label: "\u6781\u81f4")
+            }
+            : new[]
+            {
+                (Tag: "auto", Label: "\u81ea\u52a8"),
+                (Tag: "low", Label: "\u5feb\u901f"),
+                (Tag: "medium", Label: "\u5e73\u8861"),
+                (Tag: "high", Label: "\u6df1\u5165")
+            };
+
+        var selectedDepth = options.Any(option => option.Tag.Equals(
+                _readerAiReasoningDepth,
+                StringComparison.OrdinalIgnoreCase))
+            ? _readerAiReasoningDepth
+            : "auto";
+
+        _suppressAiReasoningDepthChange = true;
+        try
+        {
+            ReaderAiReasoningDepthBox.Items.Clear();
+            foreach (var option in options)
+            {
+                ReaderAiReasoningDepthBox.Items.Add(new ComboBoxItem
+                {
+                    Content = option.Label,
+                    Tag = option.Tag
+                });
+            }
+
+            ReaderAiReasoningDepthBox.SelectedItem = ReaderAiReasoningDepthBox.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item => string.Equals(
+                    item.Tag as string,
+                    selectedDepth,
+                    StringComparison.OrdinalIgnoreCase));
+            _readerAiReasoningDepth = selectedDepth;
+        }
+        finally
+        {
+            _suppressAiReasoningDepthChange = false;
+        }
+    }
+
+    private async Task RefreshReaderAiModelSelectorAsync(CancellationToken sessionCancellationToken)
+    {
+        _readerAiModelListCancellation?.Cancel();
+        _readerAiModelListCancellation?.Dispose();
+        var refreshCancellation = CancellationTokenSource.CreateLinkedTokenSource(sessionCancellationToken);
+        refreshCancellation.CancelAfter(TimeSpan.FromSeconds(10));
+        _readerAiModelListCancellation = refreshCancellation;
+        _readerAiAvailableModels.Clear();
+        UpdateReaderAiModelSelector();
+
+        try
+        {
+            if (!Uri.TryCreate(_readerAiSettings.BaseUrl, UriKind.Absolute, out var endpoint)
+                || endpoint.Scheme is not ("http" or "https")
+                || string.IsNullOrWhiteSpace(_readerAiSettings.ApiKey))
+                return;
+
+            var models = await _aiChatClient.ListModelsAsync(
+                _readerAiSettings,
+                refreshCancellation.Token);
+            if (refreshCancellation.IsCancellationRequested || models.Count == 0) return;
+
+            if (_readerAiSettings.Provider.Equals("deepseek", StringComparison.OrdinalIgnoreCase)
+                && !models.Contains(_readerAiSettings.Model, StringComparer.OrdinalIgnoreCase))
+            {
+                _readerAiSettings.Model = models[0];
+                await _aiSettingsStore.SaveAsync(_readerAiSettings, CancellationToken.None);
+            }
+
+            _readerAiAvailableModels.AddRange(models);
+            UpdateReaderAiHeader();
+        }
+        catch (OperationCanceledException) when (refreshCancellation.IsCancellationRequested)
+        {
+        }
+        catch
+        {
+            // Keep the provider-specific fallback list when model discovery is
+            // unavailable (offline network, incompatible custom endpoint, etc.).
+        }
+        finally
+        {
+            if (ReferenceEquals(_readerAiModelListCancellation, refreshCancellation))
+                _readerAiModelListCancellation = null;
+            refreshCancellation.Dispose();
+        }
+    }
+
+    private void ReaderAiReasoningDepthBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressAiReasoningDepthChange) return;
+        if (ReaderAiReasoningDepthBox.SelectedItem is ComboBoxItem { Tag: string depth })
+            _readerAiReasoningDepth = depth;
+    }
+
+    private async void ReaderAiModelSelectorBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressAiModelChange
+            || ReaderAiModelSelectorBox.SelectedItem is not ComboBoxItem { Tag: string model }
+            || string.IsNullOrWhiteSpace(model)) return;
+
+        _readerAiSettings.Model = model;
+        UpdateReaderAiHeader();
+        try
+        {
+            await _aiSettingsStore.SaveAsync(_readerAiSettings);
+        }
+        catch
+        {
+            // The model remains active for this session even if the local preference
+            // cannot be persisted.
+        }
     }
 
     private void ReaderAiSettingsButton_Click(object sender, RoutedEventArgs e)
@@ -104,7 +268,7 @@ public sealed partial class MainWindow
         {
             Provider = provider,
             BaseUrl = baseUrl,
-            Model = model,
+            Model = AiConnectionSettings.NormalizeModel(provider, model),
             ApiKey = ReaderAiApiKeyBox.Password.Trim()
         };
         try
@@ -117,6 +281,7 @@ public sealed partial class MainWindow
             ReaderAiStatusText.Text = settings.IsConfigured
                 ? $"已连接配置：{settings.ProviderDisplayName} · {settings.Model}"
                 : "设置已保存；发送问题前还需要填写 API Key。";
+            _ = RefreshReaderAiModelSelectorAsync(_readerFeatureCancellation?.Token ?? CancellationToken.None);
         }
         catch (Exception exception)
         {
@@ -197,11 +362,19 @@ public sealed partial class MainWindow
 
         _readerAiBusy = true;
         ReaderAiSendButton.IsEnabled = false;
+        ReaderAiModelSelectorBox.IsEnabled = false;
+        ReaderAiReasoningDepthBox.IsEnabled = false;
         _readerAiCancellation?.Cancel();
         _readerAiCancellation?.Dispose();
         _readerAiCancellation = CancellationTokenSource.CreateLinkedTokenSource(_readerFeatureCancellation.Token);
         var cancellationToken = _readerAiCancellation.Token;
         var history = _readerAiConversation.ToArray();
+        var reasoningDepth = _readerAiReasoningDepth;
+        if (ReaderAiReasoningDepthBox.SelectedItem is ComboBoxItem { Tag: string selectedDepth })
+            reasoningDepth = selectedDepth;
+        var answerBuilder = new StringBuilder();
+        var reasoningBuilder = new StringBuilder();
+        ReaderAiMessageView? streamingMessage = null;
         ReaderAiQuestionBox.Text = string.Empty;
         AddReaderChatMessage("user", question);
         ResetReaderAiSources();
@@ -231,16 +404,35 @@ public sealed partial class MainWindow
                 currentSection,
                 sources);
 
-            ReaderAiStatusText.Text = $"正在请求 {_readerAiSettings.ProviderDisplayName} · {_readerAiSettings.Model}…";
-            var answer = await _aiChatClient.CompleteAsync(
+            var reasoningLabel = reasoningDepth switch
+            {
+                "low" => "快速",
+                "medium" => "平衡",
+                "high" => "深入",
+                _ => "自动"
+            };
+            ReaderAiStatusText.Text = $"正在请求 {_readerAiSettings.ProviderDisplayName} · {_readerAiSettings.Model} · {reasoningLabel}…";
+            streamingMessage = AddReaderChatMessage("assistant", string.Empty, streaming: true);
+            await foreach (var chunk in _aiChatClient.StreamAsync(
                 _readerAiSettings,
                 instructions,
                 question,
                 history,
-                cancellationToken);
+                reasoningDepth,
+                cancellationToken))
+            {
+                AppendReaderAiStreamChunk(reasoningBuilder, chunk.Reasoning);
+                AppendReaderAiStreamChunk(answerBuilder, chunk.Text);
+                UpdateReaderAiStreamingMessage(streamingMessage, reasoningBuilder.ToString(), answerBuilder.ToString(), isStreaming: true);
+            }
+
+            var answer = answerBuilder.ToString().Trim();
+            var reasoning = reasoningBuilder.ToString().Trim();
+            if (answer.Length == 0)
+                throw new InvalidDataException("AI 服务未返回可见回答。");
+            UpdateReaderAiStreamingMessage(streamingMessage, reasoning, answer, isStreaming: false);
             _readerAiConversation.Add(new AiConversationTurn("user", question));
             _readerAiConversation.Add(new AiConversationTurn("assistant", answer));
-            AddReaderChatMessage("assistant", answer);
             ShowReaderAiSources(sources);
             ReaderAiStatusText.Text = sources.Count > 0
                 ? $"回答完成 · 本地检索 {sources.Count} 个相关片段"
@@ -248,17 +440,54 @@ public sealed partial class MainWindow
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            if (streamingMessage is not null)
+            {
+                var hasPartialOutput = answerBuilder.Length > 0 || reasoningBuilder.Length > 0;
+                if (hasPartialOutput)
+                {
+                    var partialAnswer = answerBuilder.ToString();
+                    if (partialAnswer.Length == 0) partialAnswer = "（模型尚未返回可见回答）";
+                    UpdateReaderAiStreamingMessage(
+                        streamingMessage,
+                        reasoningBuilder.ToString().Trim(),
+                        partialAnswer + "\n\n（输出已取消）",
+                        isStreaming: false);
+                }
+                else
+                {
+                    ReaderChatMessagesPanel.Children.Remove(streamingMessage.Bubble);
+                }
+            }
             ReaderAiStatusText.Text = "请求已取消。";
         }
         catch (Exception exception)
         {
-            AddReaderChatMessage("assistant", $"请求失败：{exception.Message}");
+            var hasPartialOutput = answerBuilder.Length > 0 || reasoningBuilder.Length > 0;
+            if (streamingMessage is not null && hasPartialOutput)
+            {
+                var partialAnswer = answerBuilder.ToString();
+                if (partialAnswer.Length == 0) partialAnswer = "（模型尚未返回可见回答）";
+                UpdateReaderAiStreamingMessage(
+                    streamingMessage,
+                    reasoningBuilder.ToString().Trim(),
+                    partialAnswer + $"\n\n（输出中断：{exception.Message}）",
+                    isStreaming: false);
+            }
+            else if (streamingMessage is not null)
+            {
+                ReaderChatMessagesPanel.Children.Remove(streamingMessage.Bubble);
+            }
+
+            if (!hasPartialOutput)
+                AddReaderChatMessage("assistant", $"请求失败：{exception.Message}");
             ReaderAiStatusText.Text = "AI 请求失败；书籍和批注数据仍只保存在本机。";
         }
         finally
         {
             _readerAiBusy = false;
             ReaderAiSendButton.IsEnabled = true;
+            ReaderAiModelSelectorBox.IsEnabled = true;
+            ReaderAiReasoningDepthBox.IsEnabled = true;
         }
     }
 
@@ -297,7 +526,27 @@ public sealed partial class MainWindow
         ?? _readerNavigation.FirstOrDefault(item => item.ChapterIndex == _readerChapterIndex)?.Title
         ?? (_readerChapterIndex >= 0 ? $"第 {_readerChapterIndex + 1} 章" : "当前章节");
 
-    private void AddReaderChatMessage(string role, string content)
+    private sealed class ReaderAiMessageView
+    {
+        public ReaderAiMessageView(
+            Border bubble,
+            TextBlock contentText,
+            TextBlock? reasoningText,
+            Border? reasoningBorder)
+        {
+            Bubble = bubble;
+            ContentText = contentText;
+            ReasoningText = reasoningText;
+            ReasoningBorder = reasoningBorder;
+        }
+
+        public Border Bubble { get; }
+        public TextBlock ContentText { get; }
+        public TextBlock? ReasoningText { get; }
+        public Border? ReasoningBorder { get; }
+    }
+
+    private ReaderAiMessageView AddReaderChatMessage(string role, string content, bool streaming = false)
     {
         var isUser = role.Equals("user", StringComparison.OrdinalIgnoreCase);
         var foreground = new SolidColorBrush(isUser ? Colors.White : ColorHelper.FromArgb(255, 24, 24, 24));
@@ -309,7 +558,46 @@ public sealed partial class MainWindow
             Foreground = foreground,
             Opacity = 0.72
         });
-        stack.Children.Add(new TextBlock
+        TextBlock? reasoningText = null;
+        Border? reasoningBorder = null;
+        if (!isUser)
+        {
+            reasoningText = new TextBlock
+            {
+                FontSize = 10,
+                LineHeight = 17,
+                TextWrapping = TextWrapping.Wrap,
+                IsTextSelectionEnabled = true,
+                Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 95, 95, 95))
+            };
+            reasoningBorder = new Border
+            {
+                Padding = new Thickness(8, 6, 8, 7),
+                Margin = new Thickness(0, 2, 0, 3),
+                Background = new SolidColorBrush(ColorHelper.FromArgb(255, 247, 247, 244)),
+                BorderBrush = new SolidColorBrush(ColorHelper.FromArgb(255, 224, 224, 218)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(0),
+                Visibility = Visibility.Collapsed,
+                Child = new StackPanel
+                {
+                    Spacing = 3,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = "思考过程",
+                            FontSize = 9,
+                            Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 120, 120, 120))
+                        },
+                        reasoningText
+                    }
+                }
+            };
+            stack.Children.Add(reasoningBorder);
+        }
+
+        var contentText = new TextBlock
         {
             Text = content,
             FontSize = 12,
@@ -317,7 +605,13 @@ public sealed partial class MainWindow
             TextWrapping = TextWrapping.Wrap,
             IsTextSelectionEnabled = true,
             Foreground = foreground
-        });
+        };
+        if (streaming && !isUser)
+        {
+            contentText.Text = "正在生成…";
+            contentText.Opacity = 0.58;
+        }
+        stack.Children.Add(contentText);
         var bubble = new Border
         {
             MaxWidth = 306,
@@ -336,6 +630,46 @@ public sealed partial class MainWindow
             ReaderAiScrollViewer.UpdateLayout();
             ReaderAiScrollViewer.ChangeView(null, ReaderAiScrollViewer.ScrollableHeight, null, disableAnimation: false);
         });
+        return new ReaderAiMessageView(bubble, contentText, reasoningText, reasoningBorder);
+    }
+
+    private void UpdateReaderAiStreamingMessage(
+        ReaderAiMessageView message,
+        string reasoning,
+        string content,
+        bool isStreaming)
+    {
+        if (message.ReasoningText is not null && message.ReasoningBorder is not null)
+        {
+            message.ReasoningText.Text = reasoning;
+            message.ReasoningBorder.Visibility = reasoning.Length > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        message.ContentText.Text = content.Length > 0
+            ? content
+            : isStreaming ? "正在组织回答…" : string.Empty;
+        message.ContentText.Opacity = isStreaming && content.Length == 0 ? 0.58 : 1;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            ReaderAiScrollViewer.UpdateLayout();
+            ReaderAiScrollViewer.ChangeView(null, ReaderAiScrollViewer.ScrollableHeight, null, disableAnimation: true);
+        });
+    }
+
+    private static void AppendReaderAiStreamChunk(StringBuilder target, string chunk)
+    {
+        if (chunk.Length == 0) return;
+        var current = target.ToString();
+        if (current.Length > 0 && chunk.StartsWith(current, StringComparison.Ordinal))
+        {
+            target.Clear();
+            target.Append(chunk);
+            return;
+        }
+        if (current.Length > 0 && current.EndsWith(chunk, StringComparison.Ordinal)) return;
+        target.Append(chunk);
     }
 
     private void ResetReaderAiSources()

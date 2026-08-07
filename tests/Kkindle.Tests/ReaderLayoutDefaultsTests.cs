@@ -12,6 +12,7 @@ public sealed class ReaderLayoutDefaultsTests
         Assert.Equal(1.88, defaults.LineHeight);
         Assert.Equal(800, defaults.MaxWidth);
         Assert.Equal(68, defaults.BodyPadding);
+        Assert.Equal(ReaderFontDefaults.DefaultFamily, defaults.FontFamily);
         Assert.Equal(0, defaults.FlowMode);
         Assert.False(defaults.VerticalWriting);
         Assert.False(defaults.VerticalWriting && defaults.FlowMode == 1);
@@ -82,5 +83,13 @@ public sealed class ReaderLayoutDefaultsTests
 
         var normalized = ReaderLayoutDefaults.Normalize(valid);
         Assert.Equal(valid, normalized);
+    }
+
+    [Fact]
+    public void NormalizeMigratesLegacyEmptyFontToJinghuaLaosongti()
+    {
+        var normalized = ReaderLayoutDefaults.Normalize(new ReaderLayoutSettings(FontFamily: string.Empty));
+
+        Assert.Equal(ReaderFontDefaults.DefaultFamily, normalized.FontFamily);
     }
 }

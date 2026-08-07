@@ -78,12 +78,19 @@ public sealed class ReaderBookmark
     public string DisplayTime => CreatedAt.ToLocalTime().ToString("MM-dd HH:mm");
 }
 
+public static class ReaderFontDefaults
+{
+    public const string DefaultFamily = "京华老宋体";
+    public const string BundledFamily = "KingHwaOldSong";
+    public const string BundledFontFileName = "KingHwaOldSong-v3.0.ttf";
+}
+
 public sealed record ReaderLayoutSettings(
     double FontScale = 1.0,
     double LineHeight = 1.88,
     double MaxWidth = 800,
     double BodyPadding = 68,
-    string FontFamily = "",
+    string FontFamily = ReaderFontDefaults.DefaultFamily,
     int FlowMode = 0,
     bool VerticalWriting = false);
 
@@ -124,12 +131,16 @@ public static class ReaderLayoutDefaults
         var bodyPadding = double.IsFinite(settings.BodyPadding)
             ? Math.Clamp(settings.BodyPadding, MinBodyPadding, MaxBodyPadding)
             : DefaultBodyPadding;
+        var fontFamily = string.IsNullOrWhiteSpace(settings.FontFamily)
+            ? ReaderFontDefaults.DefaultFamily
+            : settings.FontFamily.Trim();
         return settings with
         {
             FontScale = fontScale,
             LineHeight = lineHeight,
             MaxWidth = maxWidth,
             BodyPadding = bodyPadding,
+            FontFamily = fontFamily,
             FlowMode = settings.FlowMode == 1 ? 1 : 0,
             VerticalWriting = settings.VerticalWriting
         };

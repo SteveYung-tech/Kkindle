@@ -292,7 +292,7 @@ public sealed partial class MainWindow
             LineHeight = 1.88,
             MaxWidth = 800,
             BodyPadding = 68,
-            FontFamily = string.Empty,
+            FontFamily = ReaderFontDefaults.DefaultFamily,
             VerticalWriting = false
         };
         ReaderFontScaleSlider.Value = 1.0;
@@ -1092,12 +1092,27 @@ public sealed partial class MainWindow
 
     private static string BuildReaderFontStack(string? fontFamily)
     {
-        const string fallback = "\"Source Han Serif SC\", \"Noto Serif CJK SC\", \"Microsoft YaHei UI\", sans-serif";
-        if (string.IsNullOrWhiteSpace(fontFamily)) return fallback;
-        var names = string.Join(", ", fontFamily
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(part => $"\"{part.Trim('"')}\""));
-        return $"{names}, {fallback}";
+        var names = new List<string>();
+        if (!string.IsNullOrWhiteSpace(fontFamily))
+        {
+            names.AddRange(fontFamily
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(part => part.Trim('"'))
+                .Where(part => !string.IsNullOrWhiteSpace(part))
+                .Select(part => part.Equals(ReaderFontDefaults.DefaultFamily, StringComparison.OrdinalIgnoreCase)
+                    ? ReaderFontDefaults.BundledFamily
+                    : part));
+        }
+
+        names.Add(ReaderFontDefaults.BundledFamily);
+        names.Add(ReaderFontDefaults.DefaultFamily);
+        names.Add("Source Han Serif SC");
+        names.Add("Noto Serif CJK SC");
+        names.Add("Microsoft YaHei UI");
+        return string.Join(", ", names
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(name => $"\"{name}\"")
+            .Append("sans-serif"));
     }
 
     // ------------------------------------------------------------------
