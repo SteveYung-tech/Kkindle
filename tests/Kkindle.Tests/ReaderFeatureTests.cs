@@ -171,6 +171,34 @@ public sealed class ReaderFeatureTests
     }
 
     [Fact]
+    public async Task ResolvesFootnoteFromHtmlContainingNamedEntities()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var epubRoot = Path.Combine(root, "cache");
+            Directory.CreateDirectory(epubRoot);
+            var notes = Path.Combine(epubRoot, "notes.html");
+            await File.WriteAllTextAsync(notes, """
+                <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+                <html xmlns="http://www.w3.org/1999/xhtml"><body>
+                  <p><a id="zw11" href="chapter.html#zww11">注11</a>&nbsp;&nbsp;footnote details after an HTML entity.</p>
+                </body></html>
+                """);
+
+            var service = new EpubFootnoteResolver();
+            var result = await service.ResolveAsync(
+                epubRoot,
+                [new Uri(notes).AbsoluteUri + "#zw11"]);
+
+            var text = Assert.Single(result).Value;
+            Assert.Contains("注11", text);
+            Assert.Contains("footnote details after an HTML entity", text);
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
     public async Task EncryptsAiApiKeyAtRestForCurrentWindowsUser()
     {
         var root = CreateTempDirectory();

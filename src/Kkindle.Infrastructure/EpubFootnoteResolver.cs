@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
@@ -51,8 +53,7 @@ public sealed partial class EpubFootnoteResolver
             {
                 if (!documents.TryGetValue(path, out var document))
                 {
-                    await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
-                    document = await XDocument.LoadAsync(stream, LoadOptions.PreserveWhitespace, cancellationToken);
+                    document = await LoadDocumentAsync(path, cancellationToken);
                     documents[path] = document;
                 }
 
@@ -79,6 +80,40 @@ public sealed partial class EpubFootnoteResolver
             }
         }
         return result;
+    }
+
+    private static async Task<XDocument> LoadDocumentAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
+            return await XDocument.LoadAsync(stream, LoadOptions.PreserveWhitespace, cancellationToken);
+        }
+        catch (System.Xml.XmlException)
+        {
+            // A number of otherwise readable EPUB files are authored as HTML
+            // and contain named entities such as &nbsp;, which are not valid
+            // XML. Decode those entities before the tolerant second parse.
+            var source = await File.ReadAllTextAsync(path, Encoding.UTF8, cancellationToken);
+            var normalized = NamedHtmlEntityRegex().Replace(source, match =>
+            {
+                var entity = match.Value;
+                if (entity.Equals("&amp;", StringComparison.OrdinalIgnoreCase)
+                    || entity.Equals("&lt;", StringComparison.OrdinalIgnoreCase)
+                    || entity.Equals("&gt;", StringComparison.OrdinalIgnoreCase)
+                    || entity.Equals("&quot;", StringComparison.OrdinalIgnoreCase)
+                    || entity.Equals("&apos;", StringComparison.OrdinalIgnoreCase))
+                {
+                    return entity;
+                }
+
+                var decoded = WebUtility.HtmlDecode(entity);
+                return string.Equals(decoded, entity, StringComparison.Ordinal) ? entity : decoded;
+            });
+            return XDocument.Parse(normalized, LoadOptions.PreserveWhitespace);
+        }
     }
 
     private static XElement SelectFootnoteContentElement(XElement target)
@@ -132,4 +167,7 @@ public sealed partial class EpubFootnoteResolver
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();
+
+    [GeneratedRegex(@"&[A-Za-z][A-Za-z0-9]+;")]
+    private static partial Regex NamedHtmlEntityRegex();
 }
