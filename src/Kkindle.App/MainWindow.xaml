@@ -954,19 +954,25 @@
                                             MinWidth="0"
                                             Padding="0"
                                             HorizontalAlignment="Center"
+                                            HorizontalContentAlignment="Center"
+                                            VerticalContentAlignment="Center"
                                             Background="Transparent"
                                             BorderThickness="0"
                                             AutomationProperties.Name="{x:Bind Title}"
+                                            ToolTipService.Placement="Right"
                                             ToolTipService.ToolTip="{x:Bind Title}"
+                                            PointerEntered="ReaderCompactTocMarker_PointerEntered"
+                                            PointerExited="ReaderCompactTocMarker_PointerExited"
                                             Click="ReaderCompactTocItem_Click">
                                         <Border Width="14"
                                                 Height="5"
                                                 Background="{x:Bind Fill}"
                                                 BorderBrush="{x:Bind Stroke}"
                                                 BorderThickness="1"
+                                                IsHitTestVisible="False"
                                                 RenderTransformOrigin="0.5,0.5"
-                                                PointerEntered="ReaderCompactTocMarker_PointerEntered"
-                                                PointerExited="ReaderCompactTocMarker_PointerExited">
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center">
                                             <Border.RenderTransform>
                                                 <ScaleTransform ScaleX="1" ScaleY="1" />
                                             </Border.RenderTransform>

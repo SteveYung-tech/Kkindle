@@ -1310,3 +1310,11 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - 将滚轮动画和矩形悬停动画集中在 `MainWindow.ReaderToc.cs`，XAML 仅保留视觉模板与事件绑定，保持目录导航逻辑与 UI 标记渲染边界清晰。
 - Release x64 完整解决方案构建 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 23:38:42）；发布版启动存活检查通过并正常关闭。
 - 本轮修改与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。
+
+## 42. Kreader 极简目录悬停与提示框修复（2026-08-07）
+
+- 极简目录章节提示框明确使用 `ToolTipService.Placement="Right"`，以固定尺寸的章节按钮为定位目标，提示文字与矩形中心对齐后显示在右侧。
+- 悬停进入/离开事件从会被缩放影响命中区域的矩形移到固定尺寸按钮；矩形设置为不参与命中测试，避免放大后立即触发 `PointerExited`，修复动画不可见和悬停后尺寸异常变短的问题。
+- 悬停动画使用当前缩放值作为起点，目标缩放约为 1.3 倍，离开后平滑恢复 1 倍，视觉上只增加少量横向长度。
+- Release x64 完整解决方案构建和发布 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 23:48:07）；发布版启动存活检查通过并正常关闭。
+- 本轮修改与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。

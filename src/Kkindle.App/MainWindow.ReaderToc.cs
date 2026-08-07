@@ -24,6 +24,8 @@ public sealed partial class MainWindow
 {
     private const double ReaderTocMinimalWidth = 30d;
     private const double ReaderCompactScrollAnimationDurationMs = 160d;
+    private const double ReaderCompactMarkerHoverScale = 1.3d;
+    private const double ReaderCompactMarkerAnimationDurationMs = 140d;
     private IReadOnlyList<EpubReaderNavigationItem> _readerCompactNavigationItems = [];
     private DispatcherQueueTimer? _readerCompactScrollTimer;
     private bool _readerCompactScrollAnimating;
@@ -111,12 +113,14 @@ public sealed partial class MainWindow
 
     private void ReaderCompactTocMarker_PointerEntered(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is Border marker) AnimateCompactMarker(marker, 1.18);
+        if (sender is Button { Content: Border marker })
+            AnimateCompactMarker(marker, ReaderCompactMarkerHoverScale);
     }
 
     private void ReaderCompactTocMarker_PointerExited(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is Border marker) AnimateCompactMarker(marker, 1);
+        if (sender is Button { Content: Border marker })
+            AnimateCompactMarker(marker, 1);
     }
 
     private static void AnimateCompactMarker(Border marker, double targetScale)
@@ -125,8 +129,9 @@ public sealed partial class MainWindow
 
         var animation = new DoubleAnimation
         {
+            From = scale.ScaleX,
             To = targetScale,
-            Duration = new Duration(TimeSpan.FromMilliseconds(120)),
+            Duration = new Duration(TimeSpan.FromMilliseconds(ReaderCompactMarkerAnimationDurationMs)),
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         };
         var storyboard = new Storyboard();
