@@ -75,6 +75,9 @@ public sealed partial class MainWindow
                 IsOpen = false
             };
         }
+
+        ConfigureReaderToolsPopupHosts();
+        SetReaderTocTab(bookmarkTab: false);
     }
 
     private void UpdateReaderZenPopup(bool visible)
@@ -137,6 +140,7 @@ public sealed partial class MainWindow
         _pendingReaderAnnotationScroll = null;
         _pendingReaderChunkOffset = null;
         ResetReaderFeatures();
+        ResetReaderToolsSession();
     }
 
     private async Task LoadReaderSessionDataAsync(CancellationToken cancellationToken)
@@ -146,10 +150,25 @@ public sealed partial class MainWindow
         if (_readerBookFile is null) return;
         var annotations = await _readerData.GetAnnotationsAsync(_readerBookFile.Id, cancellationToken);
         ReplaceReaderAnnotations(annotations);
+
+        _readerBookmarks.Clear();
+        foreach (var bookmark in await _readerData.GetBookmarksAsync(_readerBookFile.Id, cancellationToken))
+            _readerBookmarks.Add(bookmark);
+        RefreshReaderBookmarkList();
+
+        var savedLayout = await _readerData.GetLayoutSettingsAsync(_readerBookFile.Id, cancellationToken);
+        if (savedLayout is not null) _readerLayout = savedLayout;
+
+        var stats = await _readerData.GetReadingStatsAsync(_readerBookFile.Id, cancellationToken);
+        _readerStatsBaseSeconds = stats?.CumulativeSeconds ?? 0;
+
+        _savedReaderProgress = await _readerData.GetProgressAsync(_readerBookFile.Id, cancellationToken);
     }
 
     private void EndReaderSession()
     {
+        StopReaderToolsTimers();
+        _ = FlushReaderSessionAsync();
         _readerAiCancellation?.Cancel();
         _readerAiCancellation?.Dispose();
         _readerAiCancellation = null;
@@ -691,17 +710,25 @@ public sealed partial class MainWindow
         try
         {
             var json = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
-                "(function(){var el=document.scrollingElement||document.documentElement;return {st:el.scrollTop||0,sh:el.scrollHeight||0,ch:el.clientHeight||window.innerHeight||0};})()");
+                "(function(){var el=document.scrollingElement||document.documentElement;return {st:el.scrollTop||0,sl:el.scrollLeft||0,sh:el.scrollHeight||0,sw:el.scrollWidth||0,ch:el.clientHeight||window.innerHeight||0,cw:el.clientWidth||window.innerWidth||0};})()");
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
             var scrollTop = root.TryGetProperty("st", out var st) ? st.GetDouble() : 0;
+            var scrollLeft = root.TryGetProperty("sl", out var sl) ? sl.GetDouble() : 0;
             var scrollHeight = root.TryGetProperty("sh", out var sh) ? sh.GetDouble() : 0;
+            var scrollWidth = root.TryGetProperty("sw", out var sw) ? sw.GetDouble() : 0;
             var clientHeight = root.TryGetProperty("ch", out var ch) ? ch.GetDouble() : 0;
-            if (scrollHeight <= 0 || clientHeight <= 0) return;
+            var clientWidth = root.TryGetProperty("cw", out var cw) ? cw.GetDouble() : 0;
 
-            var nearTop = scrollTop <= 48;
-            var nearBottom = scrollTop + clientHeight >= scrollHeight - 48;
-            var overflows = scrollHeight > clientHeight + 16;
+            var vertical = _readerLayout.VerticalWriting;
+            var scrollSize = vertical ? scrollWidth : scrollHeight;
+            var clientSize = vertical ? clientWidth : clientHeight;
+            var scrollPosition = vertical ? scrollLeft : scrollTop;
+            if (scrollSize <= 0 || clientSize <= 0) return;
+
+            var nearTop = scrollPosition <= 48;
+            var nearBottom = scrollPosition + clientSize >= scrollSize - 48;
+            var overflows = scrollSize > clientSize + 16;
 
             if (!nearTop && !nearBottom)
             {
@@ -710,6 +737,7 @@ public sealed partial class MainWindow
                 _readerContinuousLocked = false;
                 _readerLastNearTop = nearTop;
                 _readerLastNearBottom = nearBottom;
+                _ = SaveReaderProgressThrottledAsync();
                 return;
             }
 
@@ -776,16 +804,23 @@ public sealed partial class MainWindow
         try
         {
             var json = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
-                "(function(){var el=document.scrollingElement||document.documentElement;return {st:el.scrollTop||0,sh:el.scrollHeight||0,ch:el.clientHeight||window.innerHeight||0};})()");
+                "(function(){var el=document.scrollingElement||document.documentElement;return {st:el.scrollTop||0,sl:el.scrollLeft||0,sh:el.scrollHeight||0,sw:el.scrollWidth||0,ch:el.clientHeight||window.innerHeight||0,cw:el.clientWidth||window.innerWidth||0};})()");
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
             var scrollTop = root.TryGetProperty("st", out var st) ? st.GetDouble() : 0;
+            var scrollLeft = root.TryGetProperty("sl", out var sl) ? sl.GetDouble() : 0;
             var scrollHeight = root.TryGetProperty("sh", out var sh) ? sh.GetDouble() : 0;
+            var scrollWidth = root.TryGetProperty("sw", out var sw) ? sw.GetDouble() : 0;
             var clientHeight = root.TryGetProperty("ch", out var ch) ? ch.GetDouble() : 0;
-            _readerLastNearTop = scrollTop <= 48;
-            _readerLastNearBottom = scrollHeight > 0
-                && clientHeight > 0
-                && scrollTop + clientHeight >= scrollHeight - 48;
+            var clientWidth = root.TryGetProperty("cw", out var cw) ? cw.GetDouble() : 0;
+            var vertical = _readerLayout.VerticalWriting;
+            var scrollSize = vertical ? scrollWidth : scrollHeight;
+            var clientSize = vertical ? clientWidth : clientHeight;
+            var scrollPosition = vertical ? scrollLeft : scrollTop;
+            _readerLastNearTop = scrollPosition <= 48;
+            _readerLastNearBottom = scrollSize > 0
+                && clientSize > 0
+                && scrollPosition + clientSize >= scrollSize - 48;
         }
         catch
         {
@@ -911,6 +946,7 @@ public sealed partial class MainWindow
     private async Task HandleReaderZoneClickAsync(POINT screenPoint)
     {
         if (_readerFlowMode != 1 || ReaderWebView.CoreWebView2 is null) return;
+        if (_readerSearchVisible) return; // The search panel is open: don't page-turn underneath it.
         var rect = GetReaderWebViewScreenRect();
         if (rect.Width <= 0 || rect.Height <= 0) return;
         var relativeX = screenPoint.X - rect.Left;

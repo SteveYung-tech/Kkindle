@@ -8,11 +8,11 @@
 
 ## 0. 当前状态速览
 
-- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。本轮完成正文视口修复（正文不再一次铺满整章）后，继续修复了两个真实交互失效：连续滚动滚到章节底部不再自动进入下一章、分页模式点击正文右侧不再翻页。根因是 `IsScriptEnabled=false` 下 WebView2 冻结了页面事件派发，注入的 scroll/click 监听永远不触发；已改为宿主侧轮询滚动位置 + 低级鼠标钩子，真实运行路径验证通过。
-- 当前分支：`master`；最新本地提交为 `1444cb9 fix: fit reader content to viewport`（详见第 21 节）。本轮修复提交见第 22 节。
-- GitHub：本地领先 `origin/master` 多个提交，按开发约定未自动推送。
+- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。本轮完成读者生产力工具大升级（阅读排版设置、进度断点恢复、书签、书内搜索、选区快捷工具栏、划线/批注导出、阅读统计、CJK 阅读增强），并修复了 WebView2 `IsScriptEnabled=false` 下真实交互失效的两个问题（连续滚动接章、分页点击翻页）。
+- 当前分支：`master`；最新本地提交为本轮最终提交 `feat: expand reader productivity tools`（详见第 23 节）。
+- GitHub：`origin/master` 仍为 `4e8009b`，本地领先 12 个提交，按开发约定未自动推送。
 - 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 本轮发布。
-- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；22 项测试两个配置全部通过。Release 已重新发布并用真实 EPUB（《策略思维》）验收：滚动模式滚到章节底部自动进入下一章且新章从顶部开始、分页模式左 1/3 上一页/右 2/3 下一页（含跨章）、目录跳转、禅模式等既有功能未破坏。
+- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；28 项测试（22 旧 + 6 新）两个配置全部通过。Release 已重新发布并用真实 EPUB 验收：进度保存/恢复、书签增删、FTS/LIKE 书内搜索、排版设置持久化、阅读统计累计、批注 Markdown/纯文本导出，以及 CJK 正文索引。
 - 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环；2026-08-06 又完成 64 MiB EPUB 发送、大小校验和删除，设备端无测试残留。
 - 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
 
@@ -536,18 +536,23 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 ## 8. Git 状态
 
-当前工作分支为 `master`；`origin/master` 已与本地同步（2026-08-06 已推送），远端最新为 `4e8009b`。构建输出由 `.gitignore` 排除，不纳入版本控制。
+当前工作分支为 `master`；`origin/master` 最新为 `4e8009b`，本地领先 12 个提交，未自动推送。当前工作区另有未提交的 `src/Kkindle.App/App.xaml` 修改和未跟踪的 `.opencode/` 目录，均不是本轮阅读器工具升级的一部分，必须保留。构建输出由 `.gitignore` 排除，不纳入版本控制。
 
-当前开发基线及最近提交：
+当前开发基线及最近提交（本轮最终提交位于最上方）：
 
 ```text
+feat: expand reader productivity tools   ← 本轮最终提交（阅读排版/进度/书签/搜索/选区工具/导出/统计/CJK）
+c91972b fix: repair reader page interaction
+37e2057 docs: refresh handoff timestamp
+d621d68 docs: record viewport fix commit hash
+1444cb9 fix: fit reader content to viewport
+5d875af feat: add reader zen mode and page navigation
+60b5683 fix: refine reader header controls
+e594863 fix: align reader header separators
+46c14d7 fix: show book details on click
+bb5e9c4 fix: add hover border to book cards
+3d3c3ec fix: emphasize selected book card border
 4e8009b feat: add reader AI assistant, highlights, notes, and book index
-abeb663 feat: redesign reader workspace
-d17bcb3 test: complete P2 import and Kindle validation
-bf36d34 feat: add reader flow modes and font sizing
-5c88d6a feat: add reader table of contents and controls
-f841cb1 feat: add minimal built-in book reader
-43c5849 docs: update agent handoff after P1
 ```
 
 继续工作前建议：
@@ -598,6 +603,8 @@ git status --short --branch
 - 正文阅读区视口规则（本轮修复）：WebView 宿主本身就是正文视口，宽高由目录/助手/窗口布局决定；滚动模式正文自然增长并在 WebView 内纵向滚动；分页模式用 CSS 多列按视口分页，`html { overflow: hidden }` 是唯一滚动容器，`body` 必须保持 `overflow: visible`，否则列溢出会被传播到视口裁切，出现"整章压进一屏"。
 - 阅读区尺寸变化（窗口缩放、目录/助手收起、禅模式切换）会触发 `ReaderContentPanel_SizeChanged` → `ScheduleReaderRelayout()`（防抖 120 ms）重新应用视口样式并收敛滚动位置；分页翻页脚本固定 `top: 0`，防止纵向漂移。
 - P1 已完成，P2 自动化场景已增至 18 项，Kindle Scribe 64 MiB 传输闭环也已通过。下一步只剩需要人工配合的物理拔出/重连；USB 磁盘安全弹出需等对应设备。不要再次重做标题栏架构，除非有新的可复现问题。
+- 本轮新增阅读工具基线（详见第 23 节）：每本书独立的排版设置（字号/行高/正文宽度/左右边距/CJK 字体/竖排）持久化到 SQLite `ReaderLayoutSettings`；阅读进度断点保存到 `ReaderProgress`（按 BookFile 一行，含章节路径/fragment/滚动位置/百分比/流动模式，滚动与分页/竖排按轴区分，避免把分页位置用在滚动模式）；书签存 `ReaderBookmarks`（工具栏按钮 + Ctrl+B，目录面板新增“目录/书签”标签页）；整本书搜索复用 `BookContentChunks` 本地 FTS（失败回退 LIKE），入口为工具栏“搜索”按钮和 Ctrl+F，面板用 Popup 浮于 WebView2 之上；选中文字会弹出黑白快捷工具条（复制/划线/批注/AI 解释/搜索），因 `IsScriptEnabled=false` 冻结页面事件，使用宿主侧 300ms 轮询读取选区矩形再换算屏幕坐标定位；划线/批注可在“划线与笔记”页导出 Markdown 与纯文本（`ReaderAnnotationExport`，走 FileSavePicker）；阅读统计累计“活动且可见”的阅读秒数（窗口激活 + 阅读面板可见，每秒累计、每 30 秒落库、关闭时强制落库）到 `ReaderReadingStats`，目录面板显示已读章节/全书百分比/累计与本次时长；CJK 增强包括可选的 CJK 字体覆盖、`line-break: strict` + `word-break: normal` + 两端对齐的严格断行/标点规则、ruby/furigana 居中显示，以及滚动模式下的 `writing-mode: vertical-rl` 竖排（分页模式竖排不生效，有提示）。
+- 本轮排查并修复一个必须记住的坑：`Slider`/`ComboBox` 的 `ValueChanged`/`SelectionChanged` 事件会在 XAML 解析过程中（给 `Minimum`/`Maximum`/`Value` 赋值时）提前触发，此时兄弟控件尚未创建；任何在该事件里访问其他 XAML 控件的事件处理器都会抛空引用，并被包装成 `XamlParseException: Failed to assign to property 'RangeBase.Minimum/Value'` 的启动崩溃。修复方式是 `ReaderLayoutSettingChanged`/`ReaderFontFamilyBox_SelectionChanged` 统一加 `AreReaderLayoutControlsReady()` 空值守卫。
 
 ## 13. P1 完成发布（2026-08-05）
 
@@ -780,4 +787,76 @@ body { column-width: calc(100vw - 144px); column-gap: 144px; column-fill: auto; 
 
 - Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；22 项测试两个配置全部通过。
 - 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（本轮更新），Release 启动存活、真实 EPUB 分页点击验收通过（右 2/3 跨章、左 1/3 回退），阅读控件齐全。
-- 本轮提交：`fix: repair reader page interaction`，仅包含 `MainWindow.xaml.cs`、`MainWindow.ReaderFeatures.cs`、`AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。
+- 本轮提交：`c91972b fix: repair reader page interaction`，仅包含 `MainWindow.xaml.cs`、`MainWindow.ReaderFeatures.cs`、`AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。
+
+## 23. 阅读器生产力工具大升级（2026-08-07）
+
+参考 Readest 的阅读排版、进度、书签、搜索、选区动作栏、标注导出、阅读统计和 CJK 思路（只借鉴功能与 UX，不复制其 AGPL 代码），在 Kreader 阅读器上完成本轮升级。
+
+### 功能与数据表
+
+1. **阅读排版设置**（每本书独立）
+   - “更多”菜单新增“阅读排版设置”弹层：字号（80%–180%，与工具栏 A−/A+ 同步）、行高（1.3–2.6）、正文最大宽度（480–1200 px）、左右边距（24–160 px）、正文字体/CJK 覆盖（系统默认/微软雅黑/宋体/黑体/楷体/等线/思源宋体-Noto Serif CJK）、竖排开关、恢复默认值。
+   - 持久化到 SQLite `ReaderLayoutSettings`（按 `BookFileId` 一行），下次打开自动恢复；设置变化经 160ms 防抖重新调用 `ApplyReaderAppearanceAsync()` + `ClampReaderScrollAsync()`，不破坏视口自适应与分页列宽重算。
+   - 未恢复颜色切换按钮（按用户要求移除）；滚动/分页与翻页动画沿用工具栏与“更多”菜单既有功能。
+2. **阅读进度与断点恢复**
+   - SQLite `ReaderProgress`（按 `BookFileId` 一行）：章节路径、fragment、章节索引、滚动位置、进度百分比、流动模式、更新时间；`CREATE TABLE IF NOT EXISTS` 安全初始化。
+   - 保存时机：章节导航完成、翻页、连续滚动轮询（≥4s 节流）、流动模式切换、关闭阅读器/窗口关闭（强制保存）。
+   - 重新打开自动恢复章节与位置；`FlowMode` 不同（如上次分页、本次滚动）时不复用上次像素位置，新章从顶部开始；滚动用 `scrollTop`、分页/竖排用 `scrollLeft`。
+3. **书签**
+   - 工具栏“书签”按钮 + `Ctrl+B`：在当前章节/fragment/文本锚点处添加或取消书签（带章节标题与简短引文）。
+   - 目录面板新增“目录 / 书签”标签页；书签列表显示标题、引文、创建时间，点击跳转到对应章节（按引文文本滚动画中），行内 × 删除。持久化到 `ReaderBookmarks`。
+4. **书内搜索**
+   - 工具栏“搜索”按钮 + `Ctrl+F` 打开 Popup 搜索面板（浮于 WebView2 之上，不遮挡三栏布局，窄窗口自适应）。
+   - 复用 `BookContentChunks` 本地 FTS（trigram），异常时 LIKE 回退；结果展示章节、匹配片段与数量；点击结果复用 `_pendingReaderChunkOffset` 跳到对应章节片段；全程不调用 AI、不上传正文。
+   - 搜索面板打开时禁用分页点击翻页（`HandleReaderZoneClickAsync` 增加 `_readerSearchVisible` 守卫）。
+5. **选中文字快捷工具栏**
+   - 黑白动作条：复制 / 划线 / 批注 / AI 解释 / 书内搜索。
+   - 因 `IsScriptEnabled=false` 冻结页面事件，不使用 JS click 监听；改为宿主侧 300ms 轮询 `window.getSelection()` 读取选区文本与 `getBoundingClientRect()`，按 WebView 宿主屏幕矩形换算 DIP 坐标后定位 Popup。
+   - 动作全部复用生产代码路径（`SaveReaderAnnotationAsync`、`ReaderAiExplainSelectionButton_Click`、`RunReaderSearchAsync`）；划线/批注沿用既有锚点、重叠规则与重新加载恢复。
+6. **划线/批注导出**
+   - “划线与笔记”页新增“导出 Markdown”和“导出文本”，内容含书名、作者、章节标题、原文、批注、创建时间与可回到原文的定位（chapterPath#fragment + 偏移）。
+   - 使用 `FileSavePicker`；取消有明确状态（“已取消导出，笔记未被修改”），写入失败显示原因；纯本地只读格式化，不上传。导出逻辑独立为 `src/Kkindle.Infrastructure/ReaderAnnotationExport.cs` 以便测试。
+7. **阅读统计**
+   - 目录面板新增统计行：已读 x/y 章、全书百分比、累计阅读时长、本次阅读时长；百分比用“章节索引 + 章节内比率”计算，与实际位置一致。
+   - 时间统计：仅窗口激活且阅读面板可见时每秒累计，每 30 秒落库，关闭阅读器/窗口强制落库；`ReaderReadingStats` 持久化累计秒数、进度快照、已读/总章节。
+8. **CJK 阅读增强**
+   - CJK 字体覆盖与 fallback 栈应用到正文；`line-break: strict`、`word-break: normal`、两端对齐、`overflow-wrap: anywhere` 保证中文长句不被强制挤成横向溢出；`ruby { ruby-align: center }` 与 `rt { font-size: 0.5em }` 支持 furigana/ruby 显示。
+   - 滚动模式下支持 `writing-mode: vertical-rl` 竖排（列沿水平方向流动，滚动/翻页/进度/接章逻辑均按横向轴处理）；分页模式竖排不生效并显示提示，未做假功能。
+   - 不破坏中文 EPUB 元数据、正文索引、脚注与划线/批注定位。
+
+### 工程约束保持
+
+- `WebView2.Settings.IsScriptEnabled=false` 不变；EPUB 自带脚本不运行，导航仍限制在当前 PDF/EPUB 缓存目录。
+- 未改 Kindle `system` 访问边界，未读取/修改 calibre 数据库。
+- SQLite 变更全部使用 `CREATE TABLE IF NOT EXISTS`，不影响既有表与数据；`ReaderDataService.InitializeAsync()` 保持幂等。
+- 三栏布局、禅模式、跨章节滚动、分页鼠标分区（左 1/3 上一页/右 2/3 下一页）、左右键、翻页动画、目录跳转、AI 问答与划线/批注既有功能均保留。
+
+### 数据库变更
+
+```text
+ReaderProgress        (BookFileId PRIMARY KEY, BookId, ChapterPath, Fragment, ChapterIndex, ScrollPosition, ProgressPercent, FlowMode, UpdatedAt)
+ReaderBookmarks       (Id PRIMARY KEY, BookId, BookFileId, ChapterPath, Fragment, ChapterIndex, Title, Quote, CreatedAt) + IX_ReaderBookmarks_BookFile
+ReaderLayoutSettings  (BookFileId PRIMARY KEY, BookId, FontScale, LineHeight, MaxWidth, BodyPadding, FontFamily, FlowMode, VerticalWriting, UpdatedAt)
+ReaderReadingStats    (BookFileId PRIMARY KEY, BookId, CumulativeSeconds, ProgressPercent, CompletedChapters, TotalChapters, UpdatedAt)
+```
+
+### 启动崩溃修复（本轮重要发现）
+
+本轮曾出现 `0xC000027B` + `Microsoft.UI.Xaml.dll` + `combase 0x802B000A` 的启动崩溃，日志定位为 `InitializeComponent()` 抛 `XamlParseException: Failed to assign to property 'RangeBase.Minimum/Value'`。根因：Slider/ComboBox 的 `ValueChanged`/`SelectionChanged` 在 XAML 解析给 `Minimum`/`Maximum`/`Value` 赋值时提前触发，处理器访问尚未创建的兄弟控件导致空引用。修复：`ReaderLayoutSettingChanged` 与 `ReaderFontFamilyBox_SelectionChanged` 增加 `AreReaderLayoutControlsReady()` 空值守卫。此坑已写入第 12 节基线备忘。
+
+### 验证结果
+
+- Debug/Release x64 完整解决方案构建：0 警告、0 错误；28 项测试（新增 `ReaderProductivityTests`：进度保存/恢复、书签增删列、排版设置持久化、阅读统计累计、FTS+LIKE 搜索、Markdown/纯文本导出）两个配置全部通过。
+- 真实 EPUB 定向验证（先《策略思维》4 章 146 目录项，后 CJK 测试 EPUB 3 章含 ruby/脚注）：
+  - 准备/索引：章节数与片段数正确；FTS 搜索“断行规则”与 LIKE 回退“标点”均命中正确章节。
+  - 进度保存/恢复、书签新增/删除、排版设置持久化、阅读统计累计、批注导出文件存在且内容含书名/章节/原文/批注/时间/定位、批注定位可回到原文章节文件，全部通过（验证程序退出码 0）。
+  - 生产库验证：发布版启动后 `data/kkindle.db` 已出现 `ReaderProgress`、`ReaderBookmarks`、`ReaderLayoutSettings`、`ReaderReadingStats` 四个新表。
+- Release 发布版启动存活验证通过（两次运行均 5 秒以上存活），标准 `publish` 目录已更新。
+- 自动化边界：与第 21/22 节一致，本会话无法把真实鼠标/键盘事件可靠投递到 WebView2 合成岛，因此“选区工具栏点击（复制/划线）”“书签列表点击跳转”“导出保存对话框”“竖排渲染效果”等端到端输入路径未在自动化中触发；已用生产代码可观测状态（同一代码路径、数据层结果、启动存活、DB 表结构）与真实 EPUB 数据层定向验证覆盖。竖排渲染与窗口内视觉验收建议人工在交互桌面复核一次。
+
+### 发布与提交
+
+- 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（本轮更新）。
+- 本轮提交：`feat: expand reader productivity tools`，仅包含本轮相关源码与测试：`MainWindow.xaml`、`MainWindow.xaml.cs`、`MainWindow.ReaderFeatures.cs`、新增 `MainWindow.ReaderTools.cs`、`Core/ReaderModels.cs`、`Infrastructure/ReaderDataService.cs`、新增 `Infrastructure/ReaderAnnotationExport.cs`、新增 `tests/ReaderProductivityTests.cs`、`AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。
+- 未完成风险（CJK/交互边界）：分页模式竖排暂不生效（有提示）；竖排与超长单元素布局未做专项视觉回归；选区工具栏、书签跳转、导出对话框与竖排渲染的端到端输入自动化受限，需人工复核。

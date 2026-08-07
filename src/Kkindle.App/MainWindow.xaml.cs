@@ -54,7 +54,6 @@ public sealed partial class MainWindow : Window
     private int _readerChapterIndex = -1;
     private string? _readerAllowedRoot;
     private string? _readerAllowedFile;
-    private double _readerFontScale = 1;
     private int _readerFlowMode;
     private bool _isUpdatingReaderToc;
     private bool _isUpdatingReaderProgress;
@@ -127,6 +126,8 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
     {
+        _windowActive = args.WindowActivationState == WindowActivationState.CodeActivated
+            || args.WindowActivationState == WindowActivationState.PointerActivated;
         if (_nativeChromeConfigured) return;
         _nativeChromeConfigured = true;
 
@@ -231,6 +232,8 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
+        try { FlushReaderSessionAsync().GetAwaiter().GetResult(); }
+        catch { }
         _deviceTimer.Stop();
         _transferCancellation?.Cancel();
         _transferCancellation?.Dispose();
@@ -818,8 +821,7 @@ public sealed partial class MainWindow : Window
             ReaderPane.UpdateLayout();
             _readerTocExpanded = true;
             _readerAssistantExpanded = true;
-            _readerFontScale = 1;
-            _readerFlowMode = 0;
+            _readerFlowMode = _readerLayout.FlowMode;
             _readerZenMode = false;
             _readerContinuousLocked = false;
             _readerPendingTurnInAnimation = null;
@@ -871,6 +873,14 @@ public sealed partial class MainWindow : Window
             _readerChapterIndex = 0;
             _readerAllowedRoot = document.RootPath;
             _readerAllowedFile = null;
+            if (_savedReaderProgress is { } savedProgress
+                && savedProgress.ChapterIndex >= 0
+                && savedProgress.ChapterIndex < _readerChapters.Count)
+            {
+                _readerChapterIndex = savedProgress.ChapterIndex;
+                if (savedProgress.FlowMode == _readerFlowMode)
+                    _pendingReaderRestorePosition = savedProgress.ScrollPosition;
+            }
             ReaderStatusText.Text = string.Empty;
             ReaderTocSearchBox.Text = string.Empty;
             ReaderTocSearchBox.Visibility = Visibility.Visible;
@@ -892,6 +902,7 @@ public sealed partial class MainWindow : Window
             StartReaderIndexing();
             StartReaderScrollPoll();
             InstallReaderMouseHook();
+            StartReaderToolsTimers();
         }
         catch (Exception ex)
         {
@@ -1089,9 +1100,11 @@ public sealed partial class MainWindow : Window
     {
         if (_readerChapterIndex < 0 || _readerChapters.Count == 0) return;
         var current = _readerChapterIndex + 1;
-        var percentage = (int)Math.Round(current * 100d / _readerChapters.Count);
+        var percentage = _readerLastProgress is { ProgressPercent: > 0 } progress
+            ? (int)Math.Round(progress.ProgressPercent)
+            : (int)Math.Round(current * 100d / _readerChapters.Count);
         ReaderReadingProgressText.Text = $"已读 {current} / {_readerChapters.Count} 章";
-        ReaderProgressPercentText.Text = $"{percentage}%";
+        ReaderProgressPercentText.Text = $"{Math.Clamp(percentage, 0, 100)}%";
         _isUpdatingReaderProgress = true;
         ReaderProgressSlider.Minimum = 1;
         ReaderProgressSlider.Maximum = Math.Max(1, _readerChapters.Count);
@@ -1124,19 +1137,21 @@ public sealed partial class MainWindow : Window
 
     private void ReaderZoomOutButton_Click(object sender, RoutedEventArgs e)
     {
-        _readerFontScale = Math.Max(0.8, _readerFontScale - 0.1);
+        _readerLayout = _readerLayout with { FontScale = Math.Max(0.8, _readerLayout.FontScale - 0.1) };
         UpdateReaderZoom();
+        _ = SaveReaderLayoutSettingsAsync();
     }
 
     private void ReaderZoomInButton_Click(object sender, RoutedEventArgs e)
     {
-        _readerFontScale = Math.Min(1.8, _readerFontScale + 0.1);
+        _readerLayout = _readerLayout with { FontScale = Math.Min(1.8, _readerLayout.FontScale + 0.1) };
         UpdateReaderZoom();
+        _ = SaveReaderLayoutSettingsAsync();
     }
 
     private void UpdateReaderZoom()
     {
-        ReaderZoomText.Text = $"{_readerFontScale:P0}";
+        UpdateReaderZoomLabel();
         _ = ApplyReaderAppearanceAsync();
     }
 
@@ -1145,10 +1160,13 @@ public sealed partial class MainWindow : Window
         _readerFlowMode = (_readerFlowMode + 1) % 2;
         _readerNavigateToEnd = false;
         _readerContinuousLocked = false;
+        _readerLayout = _readerLayout with { FlowMode = _readerFlowMode };
         UpdateReaderFlowButton();
         await ApplyReaderAppearanceAsync();
         await ResetReaderPositionAsync();
         await PrimeReaderScrollEdgesAsync();
+        _ = SaveReaderLayoutSettingsAsync();
+        UpdateReaderLayoutStatus();
     }
 
     private void UpdateReaderFlowButton()
@@ -1290,6 +1308,7 @@ public sealed partial class MainWindow : Window
         _readerContinuousLocked = false;
         _readerLastChapterChange = DateTimeOffset.UtcNow;
         UpdateReaderChapterControls();
+        _ = SaveReaderProgressThrottledAsync();
         ShowReaderChapter();
         if (animated && crossesChapter) _readerPendingTurnInAnimation = direction;
         return true;
@@ -1398,8 +1417,43 @@ public sealed partial class MainWindow : Window
 
     private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key != Windows.System.VirtualKey.Left && e.Key != Windows.System.VirtualKey.Right) return;
         if (ReaderPane.Visibility != Visibility.Visible) return;
+
+        if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            if (_readerSearchVisible)
+            {
+                e.Handled = true;
+                HideReaderSearchPanel();
+            }
+            else if (_readerLayoutPopup?.IsOpen == true)
+            {
+                e.Handled = true;
+                _readerLayoutPopup.IsOpen = false;
+            }
+            return;
+        }
+
+        var controlState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
+            Windows.System.VirtualKey.Control);
+        var controlDown = (controlState & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        if (controlDown)
+        {
+            if (e.Key == Windows.System.VirtualKey.F)
+            {
+                e.Handled = true;
+                ShowReaderSearchPanel();
+                return;
+            }
+            if (e.Key == Windows.System.VirtualKey.B && !IsReaderTextInputFocused())
+            {
+                e.Handled = true;
+                _ = ToggleReaderBookmarkAsync();
+                return;
+            }
+        }
+
+        if (e.Key != Windows.System.VirtualKey.Left && e.Key != Windows.System.VirtualKey.Right) return;
         if (IsReaderTextInputFocused()) return;
         e.Handled = true;
         var direction = e.Key == Windows.System.VirtualKey.Left ? -1 : 1;
@@ -1417,20 +1471,35 @@ public sealed partial class MainWindow : Window
     private async Task<bool> TryTurnWithinChapterAsync(int direction)
     {
         if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return false;
+        var vertical = _readerLayout.VerticalWriting;
         var script = _readerFlowMode == 0
-            ? $$"""
-                (() => {
-                  const el = document.scrollingElement;
-                  const step = Math.max(200, window.innerHeight * 0.86);
-                  if ({{direction}} < 0 && el.scrollTop > 4) {
-                    window.scrollBy({ top: -step, behavior: 'smooth' }); return true;
-                  }
-                  if ({{direction}} > 0 && el.scrollTop + window.innerHeight < el.scrollHeight - 4) {
-                    window.scrollBy({ top: step, behavior: 'smooth' }); return true;
-                  }
-                  return false;
-                })();
-                """
+            ? vertical
+                ? $$"""
+                    (() => {
+                      const el = document.scrollingElement;
+                      const step = Math.max(200, window.innerWidth * 0.86);
+                      if ({{direction}} < 0 && el.scrollLeft > 4) {
+                        window.scrollBy({ left: -step, behavior: 'smooth' }); return true;
+                      }
+                      if ({{direction}} > 0 && el.scrollLeft + window.innerWidth < el.scrollWidth - 4) {
+                        window.scrollBy({ left: step, behavior: 'smooth' }); return true;
+                      }
+                      return false;
+                    })();
+                    """
+                : $$"""
+                    (() => {
+                      const el = document.scrollingElement;
+                      const step = Math.max(200, window.innerHeight * 0.86);
+                      if ({{direction}} < 0 && el.scrollTop > 4) {
+                        window.scrollBy({ top: -step, behavior: 'smooth' }); return true;
+                      }
+                      if ({{direction}} > 0 && el.scrollTop + window.innerHeight < el.scrollHeight - 4) {
+                        window.scrollBy({ top: step, behavior: 'smooth' }); return true;
+                      }
+                      return false;
+                    })();
+                    """
             : $$"""
                 (() => {
                   const el = document.scrollingElement;
@@ -1510,12 +1579,14 @@ public sealed partial class MainWindow : Window
         ReaderPane.Visibility = Visibility.Collapsed;
         ReaderBrandText.Visibility = Visibility.Collapsed;
         StopReaderScrollPoll();
+        StopReaderToolsTimers();
         UninstallReaderMouseHook();
         _readerRelayoutCancellation?.Cancel();
         _readerRelayoutCancellation?.Dispose();
         _readerRelayoutCancellation = null;
         UpdateReaderAssistantPopup(false);
         SetReaderAiSettingsVisible(false);
+        SetReaderTocTab(bookmarkTab: false);
         _readerChapters = [];
         _readerNavigation = [];
         _readerChapterIndex = -1;
@@ -1588,12 +1659,16 @@ public sealed partial class MainWindow : Window
         await ConfigureReaderFootnoteHoverAsync();
         await ScrollToPendingReaderAnnotationAsync();
         await ScrollToPendingReaderChunkAsync();
+        await ScrollToPendingReaderBookmarkAsync();
+        await ApplyReaderRestorePositionAsync();
         if (_readerNavigateToEnd)
         {
             await MoveReaderToEndAsync();
             _readerNavigateToEnd = false;
         }
         await PrimeReaderScrollEdgesAsync();
+        await RefreshReaderProgressAsync();
+        _ = SaveReaderProgressThrottledAsync();
         if (_readerFlowMode == 0 && _readerContinuousLocked)
             _ = SkipShortChapterIfNeededAsync();
     }
@@ -1604,12 +1679,25 @@ public sealed partial class MainWindow : Window
         const string background = "#FFFFFF";
         const string foreground = "#111111";
         const string link = "#222222";
-        var fontPercent = (int)Math.Round(_readerFontScale * 100);
+        var fontPercent = (int)Math.Round(_readerLayout.FontScale * 100);
+        var vertical = _readerFlowMode == 0 && _readerLayout.VerticalWriting;
         var flowCss = _readerFlowMode == 0
-            ? "html, body { min-height: 100%; overflow-x: hidden !important; }"
+            ? vertical
+                ? "html { height: 100%; overflow: hidden !important; } body { height: 100%; overflow: visible !important; box-sizing: border-box; }"
+                : "html, body { min-height: 100%; overflow-x: hidden !important; }"
             : "html { height: 100%; overflow: hidden !important; }"
               + " body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !important; box-sizing: border-box;"
               + " column-width: calc(100vw - 96px); column-gap: 48px; column-fill: auto; max-width: none !important; }";
+        var lineHeight = _readerLayout.LineHeight.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+        var bodyLayoutCss = vertical
+            ? $"max-width: none !important; writing-mode: vertical-rl !important; text-orientation: mixed;"
+              + " margin: 0 auto !important; padding: 58px 24px 100px 24px !important;"
+            : $"max-width: {(int)_readerLayout.MaxWidth}px; margin: 0 auto !important;"
+              + $" padding: 58px {(int)_readerLayout.BodyPadding}px 100px !important;";
+        var bodyTextCss = vertical
+            ? "overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal;"
+            : "overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal; text-align: justify;";
+        var fontFamily = BuildReaderFontStack(_readerLayout.FontFamily);
         ReaderWebView.DefaultBackgroundColor = Colors.White;
         var script = $$"""
             (() => {
@@ -1622,10 +1710,12 @@ public sealed partial class MainWindow : Window
               style.textContent = `
                 html { font-size: {{fontPercent}}% !important; text-rendering: optimizeLegibility; }
                 html, body { background: {{background}} !important; color: {{foreground}} !important; }
-                body { max-width: 800px; margin: 0 auto !important; padding: 58px 68px 100px !important;
-                       font-family: "Source Han Serif SC", "Noto Serif CJK SC", "Microsoft YaHei UI", sans-serif !important;
-                       font-size: 1rem !important; line-height: 1.88 !important; letter-spacing: 0.012em;
-                       overflow-wrap: anywhere; box-sizing: border-box; }
+                body { {{bodyLayoutCss}}
+                       font-family: {{fontFamily}} !important;
+                       font-size: 1rem !important; line-height: {{lineHeight}} !important; letter-spacing: 0.012em;
+                       {{bodyTextCss}} }
+                ruby { ruby-align: center !important; }
+                rt { font-size: 0.5em !important; color: inherit !important; }
                 p { margin: 0.55em 0 1.05em !important; }
                 li, blockquote { font-size: 1rem !important; line-height: 1.78 !important; }
                 h1, h2, h3, h4 { color: {{foreground}} !important; line-height: 1.35 !important; margin: 1.35em 0 0.72em !important; }
@@ -1665,9 +1755,13 @@ public sealed partial class MainWindow : Window
     private async Task MoveReaderToEndAsync()
     {
         if (ReaderWebView.CoreWebView2 is null) return;
-        var script = _readerFlowMode == 0
-            ? "window.scrollTo({ top: document.scrollingElement.scrollHeight, behavior: 'instant' });"
-            : "window.scrollTo({ left: document.scrollingElement.scrollWidth, top: 0, behavior: 'instant' });";
+        var script = _readerFlowMode switch
+        {
+            0 when _readerLayout.VerticalWriting =>
+                "window.scrollTo({ left: document.scrollingElement.scrollWidth, top: 0, behavior: 'instant' });",
+            0 => "window.scrollTo({ top: document.scrollingElement.scrollHeight, behavior: 'instant' });",
+            _ => "window.scrollTo({ left: document.scrollingElement.scrollWidth, top: 0, behavior: 'instant' });"
+        };
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
     }

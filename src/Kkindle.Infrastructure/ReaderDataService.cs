@@ -67,6 +67,55 @@ public sealed partial class ReaderDataService
                     ON BookContentChunks(BookFileId, SourceHash, ChapterIndex, ChunkIndex);
                 CREATE INDEX IF NOT EXISTS IX_BookContentChunks_Book
                     ON BookContentChunks(BookId, ChapterIndex, ChunkIndex);
+
+                CREATE TABLE IF NOT EXISTS ReaderProgress (
+                    BookFileId TEXT PRIMARY KEY,
+                    BookId TEXT NOT NULL,
+                    ChapterPath TEXT NOT NULL,
+                    Fragment TEXT NULL,
+                    ChapterIndex INTEGER NOT NULL DEFAULT 0,
+                    ScrollPosition INTEGER NOT NULL DEFAULT 0,
+                    ProgressPercent REAL NOT NULL DEFAULT 0,
+                    FlowMode INTEGER NOT NULL DEFAULT 0,
+                    UpdatedAt TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS ReaderBookmarks (
+                    Id TEXT PRIMARY KEY,
+                    BookId TEXT NOT NULL,
+                    BookFileId TEXT NOT NULL,
+                    ChapterPath TEXT NOT NULL,
+                    Fragment TEXT NULL,
+                    ChapterIndex INTEGER NOT NULL DEFAULT 0,
+                    Title TEXT NOT NULL DEFAULT '',
+                    Quote TEXT NOT NULL DEFAULT '',
+                    CreatedAt TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS IX_ReaderBookmarks_BookFile
+                    ON ReaderBookmarks(BookFileId, ChapterIndex, CreatedAt);
+
+                CREATE TABLE IF NOT EXISTS ReaderLayoutSettings (
+                    BookFileId TEXT PRIMARY KEY,
+                    BookId TEXT NOT NULL,
+                    FontScale REAL NOT NULL DEFAULT 1.0,
+                    LineHeight REAL NOT NULL DEFAULT 1.88,
+                    MaxWidth REAL NOT NULL DEFAULT 800,
+                    BodyPadding REAL NOT NULL DEFAULT 68,
+                    FontFamily TEXT NULL,
+                    FlowMode INTEGER NOT NULL DEFAULT 0,
+                    VerticalWriting INTEGER NOT NULL DEFAULT 0,
+                    UpdatedAt TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS ReaderReadingStats (
+                    BookFileId TEXT PRIMARY KEY,
+                    BookId TEXT NOT NULL,
+                    CumulativeSeconds INTEGER NOT NULL DEFAULT 0,
+                    ProgressPercent REAL NOT NULL DEFAULT 0,
+                    CompletedChapters INTEGER NOT NULL DEFAULT 0,
+                    TotalChapters INTEGER NOT NULL DEFAULT 0,
+                    UpdatedAt TEXT NOT NULL
+                );
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
 
@@ -167,6 +216,334 @@ public sealed partial class ReaderDataService
             var command = connection.CreateCommand();
             command.CommandText = "DELETE FROM ReaderAnnotations WHERE Id = $id;";
             command.Parameters.AddWithValue("$id", annotationId.ToString());
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        finally
+        {
+            _databaseGate.Release();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Reading progress (breakpoint restore).
+    // ------------------------------------------------------------------
+
+    public async Task<ReaderProgressRow?> GetProgressAsync(
+        Guid bookFileId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT BookId, BookFileId, ChapterPath, Fragment, ChapterIndex, ScrollPosition,
+                   ProgressPercent, FlowMode, UpdatedAt
+            FROM ReaderProgress
+            WHERE BookFileId = $bookFileId;
+            """;
+        command.Parameters.AddWithValue("$bookFileId", bookFileId.ToString());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)) return null;
+        return new ReaderProgressRow(
+            Guid.Parse(reader.GetString(0)),
+            Guid.Parse(reader.GetString(1)),
+            reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3),
+            reader.GetInt32(4),
+            reader.GetInt32(5),
+            reader.GetDouble(6),
+            reader.GetInt32(7),
+            DateTimeOffset.Parse(reader.GetString(8)));
+    }
+
+    public async Task SaveProgressAsync(
+        ReaderProgressRow progress,
+        CancellationToken cancellationToken = default)
+    {
+        await _databaseGate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ReaderProgress (
+                    BookFileId, BookId, ChapterPath, Fragment, ChapterIndex, ScrollPosition,
+                    ProgressPercent, FlowMode, UpdatedAt)
+                VALUES (
+                    $bookFileId, $bookId, $chapterPath, $fragment, $chapterIndex, $scrollPosition,
+                    $progressPercent, $flowMode, $updatedAt)
+                ON CONFLICT(BookFileId) DO UPDATE SET
+                    BookId=$bookId, ChapterPath=$chapterPath, Fragment=$fragment,
+                    ChapterIndex=$chapterIndex, ScrollPosition=$scrollPosition,
+                    ProgressPercent=$progressPercent, FlowMode=$flowMode, UpdatedAt=$updatedAt;
+                """;
+            command.Parameters.AddWithValue("$bookFileId", progress.BookFileId.ToString());
+            command.Parameters.AddWithValue("$bookId", progress.BookId.ToString());
+            command.Parameters.AddWithValue("$chapterPath", progress.ChapterPath);
+            command.Parameters.AddWithValue("$fragment", (object?)progress.Fragment ?? DBNull.Value);
+            command.Parameters.AddWithValue("$chapterIndex", progress.ChapterIndex);
+            command.Parameters.AddWithValue("$scrollPosition", progress.ScrollPosition);
+            command.Parameters.AddWithValue("$progressPercent", progress.ProgressPercent);
+            command.Parameters.AddWithValue("$flowMode", progress.FlowMode);
+            command.Parameters.AddWithValue("$updatedAt", progress.UpdatedAt.ToString("O"));
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        finally
+        {
+            _databaseGate.Release();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Bookmarks.
+    // ------------------------------------------------------------------
+
+    public async Task<IReadOnlyList<ReaderBookmark>> GetBookmarksAsync(
+        Guid bookFileId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, BookId, BookFileId, ChapterPath, Fragment, ChapterIndex, Title, Quote, CreatedAt
+            FROM ReaderBookmarks
+            WHERE BookFileId = $bookFileId
+            ORDER BY ChapterIndex, CreatedAt;
+            """;
+        command.Parameters.AddWithValue("$bookFileId", bookFileId.ToString());
+        var result = new List<ReaderBookmark>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new ReaderBookmark
+            {
+                Id = Guid.Parse(reader.GetString(0)),
+                BookId = Guid.Parse(reader.GetString(1)),
+                BookFileId = Guid.Parse(reader.GetString(2)),
+                ChapterPath = reader.GetString(3),
+                Fragment = reader.IsDBNull(4) ? null : reader.GetString(4),
+                ChapterIndex = reader.GetInt32(5),
+                Title = reader.GetString(6),
+                Quote = reader.GetString(7),
+                CreatedAt = DateTimeOffset.Parse(reader.GetString(8))
+            });
+        }
+        return result;
+    }
+
+    public async Task SaveBookmarkAsync(ReaderBookmark bookmark, CancellationToken cancellationToken = default)
+    {
+        await _databaseGate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ReaderBookmarks (
+                    Id, BookId, BookFileId, ChapterPath, Fragment, ChapterIndex, Title, Quote, CreatedAt)
+                VALUES (
+                    $id, $bookId, $bookFileId, $chapterPath, $fragment, $chapterIndex, $title, $quote, $createdAt)
+                ON CONFLICT(Id) DO UPDATE SET
+                    BookId=$bookId, BookFileId=$bookFileId, ChapterPath=$chapterPath, Fragment=$fragment,
+                    ChapterIndex=$chapterIndex, Title=$title, Quote=$quote, CreatedAt=$createdAt;
+                """;
+            command.Parameters.AddWithValue("$id", bookmark.Id.ToString());
+            command.Parameters.AddWithValue("$bookId", bookmark.BookId.ToString());
+            command.Parameters.AddWithValue("$bookFileId", bookmark.BookFileId.ToString());
+            command.Parameters.AddWithValue("$chapterPath", bookmark.ChapterPath);
+            command.Parameters.AddWithValue("$fragment", (object?)bookmark.Fragment ?? DBNull.Value);
+            command.Parameters.AddWithValue("$chapterIndex", bookmark.ChapterIndex);
+            command.Parameters.AddWithValue("$title", bookmark.Title);
+            command.Parameters.AddWithValue("$quote", bookmark.Quote);
+            command.Parameters.AddWithValue("$createdAt", bookmark.CreatedAt.ToString("O"));
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        finally
+        {
+            _databaseGate.Release();
+        }
+    }
+
+    public async Task DeleteBookmarkAsync(Guid bookmarkId, CancellationToken cancellationToken = default)
+    {
+        await _databaseGate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM ReaderBookmarks WHERE Id = $id;";
+            command.Parameters.AddWithValue("$id", bookmarkId.ToString());
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        finally
+        {
+            _databaseGate.Release();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Per-book layout settings.
+    // ------------------------------------------------------------------
+
+    public async Task<ReaderLayoutSettings?> GetLayoutSettingsAsync(
+        Guid bookFileId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT FontScale, LineHeight, MaxWidth, BodyPadding, FontFamily, FlowMode, VerticalWriting
+            FROM ReaderLayoutSettings
+            WHERE BookFileId = $bookFileId;
+            """;
+        command.Parameters.AddWithValue("$bookFileId", bookFileId.ToString());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)) return null;
+        return new ReaderLayoutSettings(
+            reader.GetDouble(0),
+            reader.GetDouble(1),
+            reader.GetDouble(2),
+            reader.GetDouble(3),
+            reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+            reader.GetInt32(5),
+            reader.GetInt32(6) != 0);
+    }
+
+    public async Task SaveLayoutSettingsAsync(
+        Guid bookId,
+        Guid bookFileId,
+        ReaderLayoutSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        await _databaseGate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ReaderLayoutSettings (
+                    BookFileId, BookId, FontScale, LineHeight, MaxWidth, BodyPadding,
+                    FontFamily, FlowMode, VerticalWriting, UpdatedAt)
+                VALUES (
+                    $bookFileId, $bookId, $fontScale, $lineHeight, $maxWidth, $bodyPadding,
+                    $fontFamily, $flowMode, $verticalWriting, $updatedAt)
+                ON CONFLICT(BookFileId) DO UPDATE SET
+                    BookId=$bookId, FontScale=$fontScale, LineHeight=$lineHeight,
+                    MaxWidth=$maxWidth, BodyPadding=$bodyPadding, FontFamily=$fontFamily,
+                    FlowMode=$flowMode, VerticalWriting=$verticalWriting, UpdatedAt=$updatedAt;
+                """;
+            command.Parameters.AddWithValue("$bookFileId", bookFileId.ToString());
+            command.Parameters.AddWithValue("$bookId", bookId.ToString());
+            command.Parameters.AddWithValue("$fontScale", settings.FontScale);
+            command.Parameters.AddWithValue("$lineHeight", settings.LineHeight);
+            command.Parameters.AddWithValue("$maxWidth", settings.MaxWidth);
+            command.Parameters.AddWithValue("$bodyPadding", settings.BodyPadding);
+            command.Parameters.AddWithValue("$fontFamily", string.IsNullOrWhiteSpace(settings.FontFamily) ? DBNull.Value : settings.FontFamily);
+            command.Parameters.AddWithValue("$flowMode", settings.FlowMode);
+            command.Parameters.AddWithValue("$verticalWriting", settings.VerticalWriting ? 1 : 0);
+            command.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToString("O"));
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        finally
+        {
+            _databaseGate.Release();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Reading stats (cumulative active reading time + progress snapshot).
+    // ------------------------------------------------------------------
+
+    public async Task<ReaderReadingStats?> GetReadingStatsAsync(
+        Guid bookFileId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT BookId, BookFileId, CumulativeSeconds, ProgressPercent, CompletedChapters, TotalChapters, UpdatedAt
+            FROM ReaderReadingStats
+            WHERE BookFileId = $bookFileId;
+            """;
+        command.Parameters.AddWithValue("$bookFileId", bookFileId.ToString());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)) return null;
+        return new ReaderReadingStats
+        {
+            BookId = Guid.Parse(reader.GetString(0)),
+            BookFileId = Guid.Parse(reader.GetString(1)),
+            CumulativeSeconds = reader.GetInt64(2),
+            ProgressPercent = reader.GetDouble(3),
+            CompletedChapters = reader.GetInt32(4),
+            TotalChapters = reader.GetInt32(5),
+            UpdatedAt = DateTimeOffset.Parse(reader.GetString(6))
+        };
+    }
+
+    public async Task SaveReadingStatsAsync(ReaderReadingStats stats, CancellationToken cancellationToken = default)
+    {
+        await _databaseGate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ReaderReadingStats (
+                    BookFileId, BookId, CumulativeSeconds, ProgressPercent, CompletedChapters, TotalChapters, UpdatedAt)
+                VALUES (
+                    $bookFileId, $bookId, $cumulativeSeconds, $progressPercent, $completedChapters, $totalChapters, $updatedAt)
+                ON CONFLICT(BookFileId) DO UPDATE SET
+                    BookId=$bookId, CumulativeSeconds=$cumulativeSeconds, ProgressPercent=$progressPercent,
+                    CompletedChapters=$completedChapters, TotalChapters=$totalChapters, UpdatedAt=$updatedAt;
+                """;
+            command.Parameters.AddWithValue("$bookFileId", stats.BookFileId.ToString());
+            command.Parameters.AddWithValue("$bookId", stats.BookId.ToString());
+            command.Parameters.AddWithValue("$cumulativeSeconds", stats.CumulativeSeconds);
+            command.Parameters.AddWithValue("$progressPercent", stats.ProgressPercent);
+            command.Parameters.AddWithValue("$completedChapters", stats.CompletedChapters);
+            command.Parameters.AddWithValue("$totalChapters", stats.TotalChapters);
+            command.Parameters.AddWithValue("$updatedAt", stats.UpdatedAt.ToString("O"));
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        finally
+        {
+            _databaseGate.Release();
+        }
+    }
+
+    public async Task AddReadingTimeAsync(
+        Guid bookId,
+        Guid bookFileId,
+        long activeSeconds,
+        double progressPercent,
+        int completedChapters,
+        int totalChapters,
+        CancellationToken cancellationToken = default)
+    {
+        if (activeSeconds <= 0) return;
+        await _databaseGate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ReaderReadingStats (
+                    BookFileId, BookId, CumulativeSeconds, ProgressPercent, CompletedChapters, TotalChapters, UpdatedAt)
+                VALUES (
+                    $bookFileId, $bookId, $seconds, $progressPercent, $completedChapters, $totalChapters, $updatedAt)
+                ON CONFLICT(BookFileId) DO UPDATE SET
+                    CumulativeSeconds = CumulativeSeconds + $seconds,
+                    ProgressPercent = $progressPercent,
+                    CompletedChapters = $completedChapters,
+                    TotalChapters = $totalChapters,
+                    UpdatedAt = $updatedAt;
+                """;
+            command.Parameters.AddWithValue("$bookFileId", bookFileId.ToString());
+            command.Parameters.AddWithValue("$bookId", bookId.ToString());
+            command.Parameters.AddWithValue("$seconds", activeSeconds);
+            command.Parameters.AddWithValue("$progressPercent", progressPercent);
+            command.Parameters.AddWithValue("$completedChapters", completedChapters);
+            command.Parameters.AddWithValue("$totalChapters", totalChapters);
+            command.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToString("O"));
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
         finally
