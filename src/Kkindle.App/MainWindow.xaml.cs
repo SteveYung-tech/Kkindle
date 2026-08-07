@@ -59,10 +59,12 @@ public sealed partial class MainWindow : Window
     private bool _isUpdatingReaderProgress;
     private bool _readerNavigateToEnd;
     private bool _readerTocExpanded = true;
+    private bool _readerTocMinimal;
     private bool _readerAssistantExpanded = true;
     private bool _readerHasToc;
     private bool _readerZenMode;
     private bool _readerPreZenTocExpanded = true;
+    private bool _readerPreZenTocMinimal;
     private bool _readerPreZenAssistantExpanded = true;
     private const int ReaderAnimationNone = 0;
     private const int ReaderAnimationFade = 1;
@@ -872,6 +874,7 @@ public sealed partial class MainWindow : Window
             ReaderBrandText.Visibility = Visibility.Visible;
             ReaderPane.UpdateLayout();
             _readerTocExpanded = true;
+            _readerTocMinimal = false;
             _readerAssistantExpanded = true;
             _readerFlowMode = _readerLayout.FlowMode;
             _readerZenMode = false;
@@ -896,6 +899,7 @@ public sealed partial class MainWindow : Window
                 ReaderProgressPercentText.Text = "—";
                 ReaderStatsText.Text = string.Empty;
                 ReaderTocList.ItemsSource = null;
+                ReaderTocCompactList.ItemsSource = null;
                 ReaderTocList.Visibility = Visibility.Collapsed;
                 ReaderTocSearchBox.Visibility = Visibility.Collapsed;
                 ReaderTocEmptyText.Text = "PDF 使用内置查看器。可通过查看器工具栏搜索、缩放和翻页。";
@@ -1003,7 +1007,15 @@ public sealed partial class MainWindow : Window
 
     private void ReaderTocToggleButton_Click(object sender, RoutedEventArgs e)
     {
-        _readerTocExpanded = !_readerTocExpanded;
+        if (_readerTocMinimal)
+        {
+            _readerTocMinimal = false;
+            _readerTocExpanded = true;
+        }
+        else
+        {
+            _readerTocExpanded = !_readerTocExpanded;
+        }
         ApplyReaderPanelLayout();
     }
 
@@ -1024,17 +1036,23 @@ public sealed partial class MainWindow : Window
         // assistant is hosted in a Popup outside the reader grid.
         ReaderPane.Width = width;
         ReaderPane.HorizontalAlignment = HorizontalAlignment.Left;
-        var tocWidth = _readerTocExpanded ? 286d : 0d;
+        var tocWidth = _readerTocExpanded ? 286d : _readerTocMinimal ? ReaderTocMinimalWidth : 0d;
         ReaderTocColumn.Width = new GridLength(tocWidth);
         ReaderContentColumn.Width = new GridLength(Math.Max(0, readerWidth - tocWidth));
         ReaderAssistantColumn.Width = new GridLength(Math.Min(assistantWidth, width));
 
         ReaderTocPanel.Visibility = _readerTocExpanded ? Visibility.Visible : Visibility.Collapsed;
+        ReaderTocCompactPanel.Visibility = _readerTocMinimal ? Visibility.Visible : Visibility.Collapsed;
         Grid.SetColumn(ReaderTocPanel, 0);
         Grid.SetColumnSpan(ReaderTocPanel, 1);
         ReaderTocPanel.Width = double.NaN;
         ReaderTocPanel.HorizontalAlignment = HorizontalAlignment.Stretch;
         Canvas.SetZIndex(ReaderTocPanel, 0);
+        Grid.SetColumn(ReaderTocCompactPanel, 0);
+        Grid.SetColumnSpan(ReaderTocCompactPanel, 1);
+        ReaderTocCompactPanel.Width = double.NaN;
+        ReaderTocCompactPanel.HorizontalAlignment = HorizontalAlignment.Stretch;
+        Canvas.SetZIndex(ReaderTocCompactPanel, 0);
 
         UpdateReaderAssistantPopup(_readerAssistantExpanded);
         if (_readerZenMode) UpdateReaderZenPopup(true);
@@ -1111,14 +1129,17 @@ public sealed partial class MainWindow : Window
         if (!_readerHasToc)
         {
             ReaderTocList.ItemsSource = null;
+            ReaderTocCompactList.ItemsSource = null;
             return;
         }
 
         var query = ReaderTocSearchBox.Text.Trim();
-        ReaderTocList.ItemsSource = string.IsNullOrEmpty(query)
+        var items = string.IsNullOrEmpty(query)
             ? _readerNavigation
             : _readerNavigation.Where(item =>
                 item.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase)).ToArray();
+        ReaderTocList.ItemsSource = items;
+        ReaderTocCompactList.ItemsSource = items;
     }
 
     // ------------------------------------------------------------------
@@ -1240,14 +1261,7 @@ public sealed partial class MainWindow : Window
     private void ReaderTocList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isUpdatingReaderToc || ReaderTocList.SelectedItem is not EpubReaderNavigationItem item) return;
-        // A TOC click is an explicit user target: it must start at the target
-        // chapter's first line (or its own anchor), never inherit a leftover
-        // "move to chapter end" intent from a superseded previous-chapter turn.
-        _readerContinuousLocked = false;
-        _readerChapterIndex = item.ChapterIndex;
-        _readerNavigateToEnd = false;
-        UpdateReaderChapterControls();
-        _ = NavigateReaderSourceAsync(new Uri(item.Target), 1, animate: true, ReaderNavigationIntent.Toc);
+        NavigateToReaderTocItem(item);
     }
 
     private void SelectReaderTocItem(EpubReaderNavigationItem? item)
@@ -1383,8 +1397,10 @@ public sealed partial class MainWindow : Window
         if (_readerZenMode)
         {
             _readerPreZenTocExpanded = _readerTocExpanded;
+            _readerPreZenTocMinimal = _readerTocMinimal;
             _readerPreZenAssistantExpanded = _readerAssistantExpanded;
             _readerTocExpanded = false;
+            _readerTocMinimal = false;
             _readerAssistantExpanded = false;
             ReaderHeaderRow.Height = new GridLength(0);
             ReaderHeaderBar.Visibility = Visibility.Collapsed;
@@ -1401,6 +1417,7 @@ public sealed partial class MainWindow : Window
             ReaderFooterRow.Height = new GridLength(50);
             ReaderFooterBar.Visibility = Visibility.Visible;
             _readerTocExpanded = _readerPreZenTocExpanded;
+            _readerTocMinimal = _readerPreZenTocMinimal;
             _readerAssistantExpanded = _readerPreZenAssistantExpanded;
             ReaderTocToggleButton.Opacity = _readerTocExpanded ? 0.58 : 1;
             ReaderAssistantToggleButton.Opacity = _readerAssistantExpanded ? 0.58 : 1;
@@ -1891,10 +1908,12 @@ public sealed partial class MainWindow : Window
         _readerAllowedFile = null;
         _readerNavigateToEnd = false;
         _readerHasToc = false;
+        _readerTocMinimal = false;
         _readerZenMode = false;
         _readerContinuousLocked = false;
         ResetReaderChromeLayout();
         ReaderTocList.ItemsSource = null;
+        ReaderTocCompactList.ItemsSource = null;
         ReaderTocSearchBox.Text = string.Empty;
         ReaderBookInfoText.Text = string.Empty;
         ResetReaderAssistant();

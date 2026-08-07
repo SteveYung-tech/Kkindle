@@ -693,12 +693,31 @@
                                    TextTrimming="CharacterEllipsis"
                                    MaxLines="1"
                                    VerticalAlignment="Center" />
-                        <Button Grid.Column="1"
-                                Content="‹"
-                                FontSize="20"
-                                Style="{StaticResource ReaderToolbarButtonStyle}"
-                                ToolTipService.ToolTip="收起目录"
-                                Click="ReaderTocToggleButton_Click" />
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Spacing="4"
+                                    VerticalAlignment="Center">
+                            <Button Style="{StaticResource ReaderHeaderIconButtonStyle}"
+                                    AutomationProperties.Name="切换极简目录"
+                                    ToolTipService.ToolTip="切换极简目录"
+                                    Click="ReaderTocMinimalToggleButton_Click">
+                                <FontIcon Glyph="&#xE8A5;"
+                                          FontFamily="Segoe MDL2 Assets"
+                                          FontSize="13"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center" />
+                            </Button>
+                            <Button Style="{StaticResource ReaderHeaderIconButtonStyle}"
+                                    AutomationProperties.Name="收起目录"
+                                    ToolTipService.ToolTip="收起目录"
+                                    Click="ReaderTocToggleButton_Click">
+                                <FontIcon Glyph="&#xE76C;"
+                                          FontFamily="Segoe MDL2 Assets"
+                                          FontSize="13"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center" />
+                            </Button>
+                        </StackPanel>
                     </Grid>
 
                     <Grid Grid.Row="1" Padding="14,0,14,8" ColumnSpacing="6">
@@ -877,6 +896,75 @@
                                 Style="{StaticResource ReaderToolbarButtonStyle}"
                                 Click="CloseReaderButton_Click" />
                     </Border>
+                </Grid>
+            </Border>
+
+            <!-- Minimal TOC rail: small markers keep the chapter map visible without
+                 taking the reading column away from the正文. -->
+            <Border x:Name="ReaderTocCompactPanel"
+                    Grid.Column="0"
+                    Margin="0,38,0,0"
+                    Background="#FFFFFF"
+                    BorderBrush="#000000"
+                    BorderThickness="0,0,1,0"
+                    Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="52" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="50" />
+                    </Grid.RowDefinitions>
+
+                    <Button Grid.Row="0"
+                            Width="28"
+                            MinWidth="0"
+                            Height="34"
+                            Padding="0"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource ReaderHeaderIconButtonStyle}"
+                            AutomationProperties.Name="展开完整目录"
+                            ToolTipService.ToolTip="展开完整目录"
+                            Click="ReaderTocCompactExpandButton_Click">
+                        <FontIcon Glyph="&#xE8A5;"
+                                  FontFamily="Segoe MDL2 Assets"
+                                  FontSize="13"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center" />
+                    </Button>
+
+                    <ScrollViewer Grid.Row="1"
+                                  HorizontalScrollBarVisibility="Hidden"
+                                  HorizontalScrollMode="Disabled"
+                                  VerticalScrollBarVisibility="Hidden"
+                                  VerticalScrollMode="Enabled"
+                                  Padding="0,8">
+                        <ItemsControl x:Name="ReaderTocCompactList">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Spacing="3" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="infra:EpubReaderNavigationItem">
+                                    <Button Width="28"
+                                            Height="16"
+                                            MinWidth="0"
+                                            Padding="0"
+                                            HorizontalAlignment="Center"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            AutomationProperties.Name="{x:Bind Title}"
+                                            ToolTipService.ToolTip="{x:Bind Title}"
+                                            Click="ReaderCompactTocItem_Click">
+                                        <Border Width="14"
+                                                Height="5"
+                                                Background="#000000" />
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
                 </Grid>
             </Border>
 
