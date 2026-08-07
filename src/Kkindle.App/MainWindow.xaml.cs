@@ -71,6 +71,14 @@ public sealed partial class MainWindow : Window
     private DateTimeOffset _readerLastChapterChange = DateTimeOffset.MinValue;
     private int? _readerPendingTurnInAnimation;
     private CancellationTokenSource? _readerRelayoutCancellation;
+    private DispatcherQueueTimer? _readerScrollPollTimer;
+    private bool _readerPollRunning;
+    private bool _readerLastNearTop = true;
+    private bool _readerLastNearBottom;
+    private IntPtr _readerMouseHook;
+    private bool _readerMouseDownInside;
+    private POINT _readerMouseDownPoint;
+    private LowLevelMouseProc? _readerMouseProc;
 
     public MainWindow(
         AppPaths paths,
@@ -105,7 +113,6 @@ public sealed partial class MainWindow : Window
         _deviceTimer.Start();
         RootGrid.Loaded += MainWindow_Loaded;
         RootGrid.KeyDown += RootGrid_KeyDown;
-        ReaderWebView.WebMessageReceived += ReaderWebView_WebMessageReceived;
     }
 
     public LibraryViewModel ViewModel { get; }
@@ -231,6 +238,8 @@ public sealed partial class MainWindow : Window
         _readerFeatureCancellation?.Dispose();
         _readerRelayoutCancellation?.Cancel();
         _readerRelayoutCancellation?.Dispose();
+        StopReaderScrollPoll();
+        UninstallReaderMouseHook();
         _aiChatClient.Dispose();
         if (_deviceChangeMonitor is not null)
         {
@@ -881,6 +890,8 @@ public sealed partial class MainWindow : Window
             ApplyReaderPanelLayout();
             ShowReaderChapter();
             StartReaderIndexing();
+            StartReaderScrollPoll();
+            InstallReaderMouseHook();
         }
         catch (Exception ex)
         {
@@ -1137,6 +1148,7 @@ public sealed partial class MainWindow : Window
         UpdateReaderFlowButton();
         await ApplyReaderAppearanceAsync();
         await ResetReaderPositionAsync();
+        await PrimeReaderScrollEdgesAsync();
     }
 
     private void UpdateReaderFlowButton()
@@ -1497,6 +1509,8 @@ public sealed partial class MainWindow : Window
     {
         ReaderPane.Visibility = Visibility.Collapsed;
         ReaderBrandText.Visibility = Visibility.Collapsed;
+        StopReaderScrollPoll();
+        UninstallReaderMouseHook();
         _readerRelayoutCancellation?.Cancel();
         _readerRelayoutCancellation?.Dispose();
         _readerRelayoutCancellation = null;
@@ -1579,7 +1593,7 @@ public sealed partial class MainWindow : Window
             await MoveReaderToEndAsync();
             _readerNavigateToEnd = false;
         }
-        await InstallReaderNavigationHooksAsync();
+        await PrimeReaderScrollEdgesAsync();
         if (_readerFlowMode == 0 && _readerContinuousLocked)
             _ = SkipShortChapterIfNeededAsync();
     }

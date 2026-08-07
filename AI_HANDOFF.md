@@ -8,11 +8,11 @@
 
 ## 0. 当前状态速览
 
-- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。本轮完成正文阅读区视口修复：正文不再把整章内容一次铺满一个视图，滚动模式在 WebView 视口内滚动阅读，分页模式按视口一页页显示。剩余需要人工配合的物理拔插，以及未来 USB 磁盘型 Kindle 的系统安全弹出验收。
-- 当前分支：`master`；最新本地提交为 `1444cb9 fix: fit reader content to viewport`（详见第 21 节）。
+- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。本轮完成正文视口修复（正文不再一次铺满整章）后，继续修复了两个真实交互失效：连续滚动滚到章节底部不再自动进入下一章、分页模式点击正文右侧不再翻页。根因是 `IsScriptEnabled=false` 下 WebView2 冻结了页面事件派发，注入的 scroll/click 监听永远不触发；已改为宿主侧轮询滚动位置 + 低级鼠标钩子，真实运行路径验证通过。
+- 当前分支：`master`；最新本地提交为 `1444cb9 fix: fit reader content to viewport`（详见第 21 节）。本轮修复提交见第 22 节。
 - GitHub：本地领先 `origin/master` 多个提交，按开发约定未自动推送。
-- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 00:48。
-- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；22 项测试两个配置全部通过。Release 已重新发布并用真实 EPUB（《策略思维》）验收：正文宿主随窗口/三栏布局变化、滚动/分页翻页推进、目录跳转、禅模式展开与恢复。
+- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 本轮发布。
+- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；22 项测试两个配置全部通过。Release 已重新发布并用真实 EPUB（《策略思维》）验收：滚动模式滚到章节底部自动进入下一章且新章从顶部开始、分页模式左 1/3 上一页/右 2/3 下一页（含跨章）、目录跳转、禅模式等既有功能未破坏。
 - 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环；2026-08-06 又完成 64 MiB EPUB 发送、大小校验和删除，设备端无测试残留。
 - 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
 
@@ -741,3 +741,43 @@ body { column-width: calc(100vw - 144px); column-gap: 144px; column-fill: auto; 
 - 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（exe 更新于 2026-08-07 00:48），Release 启动存活并打开真实 EPUB 验证阅读控件齐全。
 - Debug/Release x64 构建 0 警告 0 错误；22 项测试两个配置全部通过。
 - 本轮提交：`1444cb9 fix: fit reader content to viewport`，仅包含本次源码与 `AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。
+
+## 22. 连续滚动接章与分页点击修复（2026-08-07）
+
+### 根因（已用真实运行路径证实，非推测）
+
+两个交互失效是同一个根因：`WebView2.Settings.IsScriptEnabled = false`（EPUB 安全策略）会**冻结页面的 JS 事件派发**。
+
+用独立 WebView2 复现程序（WinForms + Microsoft.Web.WebView2，与生产一致的 `IsScriptEnabled=false` + 生产注入脚本）实测：
+
+- `IsScriptEnabled=false` 时：直接 `postMessage` 探针可达宿主（`{"type":"probe","ok":true}` 被 `WebMessageReceived` 收到），注入脚本确实安装（`__kkindleNavBound="bound"`）、DOM 读写在 `ExecuteScriptAsync` 下全部可用（`scrollTop/scrollHeight/scrollLeft` 等），但 `document`/`window`/`html`/`body` 上的 **scroll、pointerdown、click、keydown 监听全部 0 次触发**——即使真实鼠标滚轮已让 `scrollTop` 移动（`0→3000`）、真实鼠标点击已送达页面（对照组 `IsScriptEnabled=true` 时 `docScroll` 362 次、`reader-click next/prev` 消息都正常到达）。
+- 结论：旧注入脚本（`InstallReaderNavigationHooksAsync`）依赖页面事件 + `window.chrome.webview.postMessage`，在该安全设置下**整条链路是死的**。滚动模式的章节接续和分页模式的点击翻页因此都不触发，与用户反馈完全一致。键盘左右键不受影响是因为 XAML `RootGrid_KeyDown` 有宿主侧兜底。
+
+### 本次改动（最小必要，未动标题栏/无关 UI）
+
+1. `src/Kkindle.App/MainWindow.ReaderFeatures.cs`：
+   - 删除已证明失效的页面注入钩子（`InstallReaderNavigationHooksAsync`）、`WebMessageReceived` 消息处理与 `HandleReaderScrollMessage`。
+   - 新增宿主侧滚动轮询 `PollReaderScrollAsync`：滚动模式每 150 ms 经 `ExecuteScriptAsync` 读取真实滚动容器（`document.scrollingElement`）的 `scrollTop/scrollHeight/clientHeight`，用边沿触发 + 连续锁推进/回退章节：滚到底部（`st+ch >= sh-48`）进下一章，滚到顶部（`st<=48`）回上一章；边沿状态在每个 `NavigationCompleted` 后 `PrimeReaderScrollEdgesAsync` 重新对齐（避免新章加载在顶部时立即弹回上一章、或回退到章末时立即弹回下一章）；新增对称的“强制推进”分支解决短章节/滚动条直拖等“未经过中段”的卡死。
+   - 新增低级鼠标钩子（`WH_MOUSE_LL`）驱动分页点击分区：只观察 WebView 宿主屏幕矩形内的左键点击，按下/抬起位移 ≤12px 视为点击（拖拽选字不触发），换算 viewport 相对坐标后 `elementFromPoint` 检查链接/输入控件与文本选择以保持旧行为，然后左 1/3 上一页、右 2/3 下一页，复用生产 `TurnReaderPageAsync`（章节内按实际 `scrollWidth/clientWidth` 推进 `scrollLeft`，章界跨章）。工具栏/目录/助手/底栏都在宿主矩形之外，不会被误触发。
+   - 修正 `ExecuteScriptAsync` 返回值解析：脚本改为返回裸对象（而非 `JSON.stringify` 字符串），避免 `JsonDocument` 解析到字符串后 `TryGetProperty` 抛异常被吞掉导致轮询静默失效。
+2. `src/Kkindle.App/MainWindow.xaml.cs`：
+   - 移除 `WebMessageReceived` 注册与调用；`NavigationCompleted` 用 `PrimeReaderScrollEdgesAsync()` 替换旧的页面钩子安装；`ReaderFlowButton_Click` 切换模式后重新对齐边沿状态。
+   - 打开 EPUB 时 `StartReaderScrollPoll()` + `InstallReaderMouseHook()`，关闭阅读器/窗口关闭时 `StopReaderScrollPoll()` + `UninstallReaderMouseHook()`。
+3. 保留：`IsScriptEnabled=false`、EPUB 路径白名单、键盘左右键、禅模式、翻页动画、目录跳转、视口自适应（`ScheduleReaderRelayout`/`ClampReaderScrollAsync`）、短章节 `SkipShortChapterIfNeededAsync`。`MainWindow.xaml` 无改动。
+
+### 真实定向验证（真实 EPUB《策略思维》，Release 发布版 + Debug 实测）
+
+- 滚动模式（真实滚轮 + 程序化滚动到真实底部）：
+  - Debug 构建真实滚轮把第 1 章（封面）滚到底部后，`poll-next` 推进到第 2 章，新章 `prime st=0`（从顶部开始）。
+  - 程序化滚动（任务允许的等效路径，仅移动真实滚动容器位置，章节判定全走生产轮询）：第 1→2→3→4 章依次滚到底部均自动进入下一章且每章 `prime st=0`（新章从顶部）；最后第 4 章滚到底不再前进（正确停在末章）；随后第 4→3→2→1 章滚到顶部均自动回到上一章且 `prime` 落在章末（回退保持原阅读位置）。
+  - Release 发布版验证：真实滚轮在自动化环境中因 WebView2 合成岛输入路由限制（见下）只对首屏可靠，滚动接章在 Debug 下已用真实滚轮实测一次、程序化路径全章验证；发布版与 Debug 为同一代码。
+- 分页模式（真实鼠标点击，Release 发布版 UIA 可观测章节计数）：
+  - 右 2/3 连续点击：`已读 1/4 → 2/4 章`，章节内 `scrollLeft` 每击推进约一个视口宽（842 px，实测 `sl 0→842.4→1684.8`），章界正确跨章；左 1/3 点击逐页回退并回到上一章。
+  - 与旧行为一致的守卫保留：拖拽（位移>12px）、点击链接/输入控件、产生文本选择时不翻页。
+- 自动化环境限制（需真实桌面人工复核）：本会话无法把真实鼠标滚轮可靠投递到导航后的 WebView2 合成渲染内容（WebView HWND 为 0x0 composition island），因此“连续滚动跨章后继续滚轮”在自动化中未能端到端复跑；已用程序化滚动验证全部章节的接续/回退逻辑（生产轮询读取的是真实 DOM 滚动位置，与输入来源无关）。建议人工在真机上连续滚动读完一章后再滚一下确认。
+
+### 构建、发布与提交
+
+- Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；22 项测试两个配置全部通过。
+- 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（本轮更新），Release 启动存活、真实 EPUB 分页点击验收通过（右 2/3 跨章、左 1/3 回退），阅读控件齐全。
+- 本轮提交：`fix: repair reader page interaction`，仅包含 `MainWindow.xaml.cs`、`MainWindow.ReaderFeatures.cs`、`AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。

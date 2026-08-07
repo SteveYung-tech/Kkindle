@@ -1,9 +1,12 @@
 using System.Collections.ObjectModel;
+using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.Web.WebView2.Core;
+using WinRT.Interop;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 
@@ -644,160 +647,312 @@ public sealed partial class MainWindow
     }
 
     // ------------------------------------------------------------------
-    // Injected page hooks: continuous chapter scrolling (scroll mode),
-    // pagination click zones and reader key handling. EPUB page scripts
-    // stay disabled (IsScriptEnabled=false); these scripts are injected by
-    // the host and only post read-only status messages back to the app.
+    // Host-side reading input.
+    //
+    // EPUB page scripts stay disabled (IsScriptEnabled=false). Under that
+    // setting WebView2 freezes the page's event dispatch, so injected
+    // document listeners (scroll/click/key) never fire and the old
+    // `window.chrome.webview.postMessage` navigation path is dead. The host
+    // therefore observes input directly:
+    //   - Scroll mode continuously polls the real scrolling element and
+    //     advances/recedes chapters at the bottom/top edges.
+    //   - Pagination mode watches a low-level mouse hook for clicks inside
+    //     the WebView host rect and maps left 1/3 -> previous, right 2/3 ->
+    //     next.
+    // All DOM access uses ExecuteScriptAsync (read/write), which works even
+    // with page scripts disabled; the EPUB path whitelist is unchanged.
     // ------------------------------------------------------------------
 
-    private async Task InstallReaderNavigationHooksAsync()
+    private void StartReaderScrollPoll()
     {
-        if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return;
-        var scrollEnabled = _readerFlowMode == 0 ? "true" : "false";
-        var script = $$"""
-            (() => {
-              if (window.__kkindleNavBound) return;
-              window.__kkindleNavBound = true;
-              const post = (payload) => {
-                try { window.chrome.webview.postMessage(JSON.stringify(payload)); } catch (err) {}
-              };
-              const scrollEl = () => document.scrollingElement || document.documentElement;
-
-              const installScroll = {{scrollEnabled}};
-              if (installScroll) {
-                let wasNear = false;
-                document.addEventListener('scroll', () => {
-                  const el = scrollEl();
-                  const scrollTop = el.scrollTop || 0;
-                  const clientHeight = el.clientHeight || window.innerHeight || 0;
-                  const scrollHeight = el.scrollHeight || clientHeight;
-                  const nearBottom = scrollTop + clientHeight >= scrollHeight - 48;
-                  const nearTop = scrollTop <= 48;
-                  const near = nearTop || nearBottom;
-                  if (near || wasNear) {
-                    post({ type: 'reader-scroll', nearTop, nearBottom, clientHeight, scrollHeight });
-                  }
-                  wasNear = near;
-                }, { passive: true });
-              }
-
-              let down = null;
-              document.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; }, true);
-              document.addEventListener('click', (e) => {
-                if (!down) return;
-                const dx = e.clientX - down.x;
-                const dy = e.clientY - down.y;
-                down = null;
-                if (Math.abs(dx) + Math.abs(dy) > 12) return;
-                try { if (window.getSelection && window.getSelection().toString()) return; } catch (err) {}
-                const target = e.target && e.target.closest
-                  ? e.target.closest('a, button, input, textarea, select, [contenteditable]') : null;
-                if (target) return;
-                const width = document.documentElement.clientWidth || document.body.clientWidth || 0;
-                if (width <= 0) return;
-                post({ type: 'reader-click', action: e.clientX < width / 3 ? 'prev' : 'next' });
-              }, true);
-
-              document.addEventListener('keydown', (e) => {
-                if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-                const active = document.activeElement;
-                const tag = active ? active.tagName : '';
-                if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
-                    || (active && active.isContentEditable)) return;
-                e.preventDefault();
-                e.stopPropagation();
-                post({ type: 'reader-key', key: e.key });
-              }, true);
-            })();
-            """;
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
-        catch { }
+        if (_readerScrollPollTimer is null)
+        {
+            _readerScrollPollTimer = DispatcherQueue.CreateTimer();
+            _readerScrollPollTimer.Interval = TimeSpan.FromMilliseconds(150);
+            _readerScrollPollTimer.Tick += async (_, _) => await PollReaderScrollAsync();
+        }
+        _readerScrollPollTimer.Start();
     }
 
-    private void ReaderWebView_WebMessageReceived(
-        WebView2 sender,
-        CoreWebView2WebMessageReceivedEventArgs args)
+    private void StopReaderScrollPoll()
     {
-        string json;
-        try { json = args.TryGetWebMessageAsString(); }
-        catch { return; }
-        if (string.IsNullOrWhiteSpace(json)) return;
+        _readerScrollPollTimer?.Stop();
+    }
 
+    private async Task PollReaderScrollAsync()
+    {
+        if (_readerPollRunning) return;
+        if (ReaderPane.Visibility != Visibility.Visible) return;
+        if (_readerFlowMode != 0 || !_readerHasToc || _readerChapters.Count <= 1) return;
+        if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
+        if (_readerChapterIndex < 0 || _readerChapterIndex >= _readerChapters.Count) return;
+
+        _readerPollRunning = true;
         try
         {
+            var json = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                "(function(){var el=document.scrollingElement||document.documentElement;return {st:el.scrollTop||0,sh:el.scrollHeight||0,ch:el.clientHeight||window.innerHeight||0};})()");
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
-            if (!root.TryGetProperty("type", out var typeProperty)) return;
-            switch (typeProperty.GetString())
+            var scrollTop = root.TryGetProperty("st", out var st) ? st.GetDouble() : 0;
+            var scrollHeight = root.TryGetProperty("sh", out var sh) ? sh.GetDouble() : 0;
+            var clientHeight = root.TryGetProperty("ch", out var ch) ? ch.GetDouble() : 0;
+            if (scrollHeight <= 0 || clientHeight <= 0) return;
+
+            var nearTop = scrollTop <= 48;
+            var nearBottom = scrollTop + clientHeight >= scrollHeight - 48;
+            var overflows = scrollHeight > clientHeight + 16;
+
+            if (!nearTop && !nearBottom)
             {
-                case "reader-scroll":
-                    HandleReaderScrollMessage(root);
-                    break;
-                case "reader-click" when _readerFlowMode == 1:
-                    var clickAction = root.TryGetProperty("action", out var actionProperty)
-                        ? actionProperty.GetString()
-                        : null;
-                    if (clickAction is "prev" or "next")
-                        _ = TurnReaderPageAsync(clickAction == "prev" ? -1 : 1);
-                    break;
-                case "reader-key":
-                    var key = root.TryGetProperty("key", out var keyProperty) ? keyProperty.GetString() : null;
-                    var direction = key switch
+                // Scrolled into the middle: release the continuous lock so the
+                // next edge transition is treated as a fresh user action.
+                _readerContinuousLocked = false;
+                _readerLastNearTop = nearTop;
+                _readerLastNearBottom = nearBottom;
+                return;
+            }
+
+            if (_readerContinuousLocked)
+            {
+                // A locked chapter that barely overflows can jump from one edge
+                // to the other without crossing the middle zone (e.g. scrollbar
+                // drag, PageUp/Down). Force the navigation instead of leaving
+                // the reader stuck. Forward-locked chapters force at the bottom,
+                // backward-locked chapters force at the top.
+                var forceForward = _readerContinuousDirection > 0
+                    && overflows
+                    && nearBottom
+                    && DateTimeOffset.UtcNow - _readerLastChapterChange > TimeSpan.FromMilliseconds(500);
+                var forceBackward = _readerContinuousDirection < 0
+                    && overflows
+                    && nearTop
+                    && DateTimeOffset.UtcNow - _readerLastChapterChange > TimeSpan.FromMilliseconds(500);
+                if (forceForward || forceBackward)
+                    _readerContinuousLocked = false;
+                else return;
+            }
+
+            if (nearBottom && !_readerLastNearBottom)
+            {
+                if (_readerChapterIndex + 1 < _readerChapters.Count)
+                {
+                    _readerChapterIndex++;
+                    _readerNavigateToEnd = false;
+                    _readerContinuousLocked = true;
+                    _readerContinuousDirection = 1;
+                    _readerLastChapterChange = DateTimeOffset.UtcNow;
+                    UpdateReaderChapterControls();
+                    ShowReaderChapter();
+                }
+            }
+            else if (nearTop && !_readerLastNearTop)
+            {
+                if (_readerChapterIndex > 0)
+                {
+                    _readerChapterIndex--;
+                    _readerNavigateToEnd = true;
+                    _readerContinuousLocked = true;
+                    _readerContinuousDirection = -1;
+                    _readerLastChapterChange = DateTimeOffset.UtcNow;
+                    UpdateReaderChapterControls();
+                    ShowReaderChapter();
+                }
+            }
+            _readerLastNearTop = nearTop;
+            _readerLastNearBottom = nearBottom;
+        }
+        catch
+        {
+            // Navigation or script interruption during chapter switches is
+            // expected; the next poll tick recovers.
+        }
+        finally { _readerPollRunning = false; }
+    }
+
+    private async Task PrimeReaderScrollEdgesAsync()
+    {
+        if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
+        try
+        {
+            var json = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                "(function(){var el=document.scrollingElement||document.documentElement;return {st:el.scrollTop||0,sh:el.scrollHeight||0,ch:el.clientHeight||window.innerHeight||0};})()");
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            var scrollTop = root.TryGetProperty("st", out var st) ? st.GetDouble() : 0;
+            var scrollHeight = root.TryGetProperty("sh", out var sh) ? sh.GetDouble() : 0;
+            var clientHeight = root.TryGetProperty("ch", out var ch) ? ch.GetDouble() : 0;
+            _readerLastNearTop = scrollTop <= 48;
+            _readerLastNearBottom = scrollHeight > 0
+                && clientHeight > 0
+                && scrollTop + clientHeight >= scrollHeight - 48;
+        }
+        catch
+        {
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Pagination click zones (host-side). WebView2 renders as a composition
+    // island inside the WinUI HWND, so XAML pointer events over the reading
+    // surface never fire. A low-level mouse hook observes the raw left-button
+    // click and maps it to the left 1/3 / right 2/3 zones of the WebView
+    // host rect; the header/footer/TOC/assistant live outside that rect, so
+    // their controls are never mis-triggered.
+    // ------------------------------------------------------------------
+
+    private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    private const int WhMouseLl = 14;
+    private const uint WmLButtonDown = 0x0201;
+    private const uint WmLButtonUp = 0x0202;
+    private const int ClickDragTolerance = 12;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MsLlHookStruct
+    {
+        public POINT pt;
+        public uint mouseData;
+        public uint flags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+    [DllImport("user32.dll")]
+    private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+    private void InstallReaderMouseHook()
+    {
+        if (_readerMouseHook != IntPtr.Zero) return;
+        _readerMouseProc = ReaderMouseHookCallback;
+        _readerMouseHook = SetWindowsHookEx(WhMouseLl, _readerMouseProc, GetModuleHandle(null), 0);
+    }
+
+    private void UninstallReaderMouseHook()
+    {
+        if (_readerMouseHook == IntPtr.Zero) return;
+        _ = UnhookWindowsHookEx(_readerMouseHook);
+        _readerMouseHook = IntPtr.Zero;
+        _readerMouseProc = null;
+    }
+
+    private IntPtr ReaderMouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0
+            && ReaderPane.Visibility == Visibility.Visible
+            && _readerFlowMode == 1
+            && ReaderWebView.CoreWebView2 is not null)
+        {
+            var data = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
+            switch ((uint)wParam.ToInt64())
+            {
+                case WmLButtonDown:
+                    if (IsInsideReaderWebViewScreenRect(data.pt))
                     {
-                        "ArrowLeft" => -1,
-                        "ArrowRight" => 1,
-                        _ => 0
-                    };
-                    if (direction != 0)
-                        _ = TurnReaderPageAsync(direction);
+                        _readerMouseDownInside = true;
+                        _readerMouseDownPoint = data.pt;
+                    }
+                    break;
+                case WmLButtonUp:
+                    if (_readerMouseDownInside && IsInsideReaderWebViewScreenRect(data.pt))
+                    {
+                        var moved = Math.Abs(data.pt.X - _readerMouseDownPoint.X)
+                            + Math.Abs(data.pt.Y - _readerMouseDownPoint.Y);
+                        if (moved <= ClickDragTolerance)
+                            _ = HandleReaderZoneClickAsync(data.pt);
+                    }
+                    _readerMouseDownInside = false;
                     break;
             }
         }
-        catch { }
+        return CallNextHookEx(_readerMouseHook, nCode, wParam, lParam);
     }
 
-    private void HandleReaderScrollMessage(JsonElement root)
+    private Windows.Foundation.Rect GetReaderWebViewScreenRect()
     {
-        if (_readerFlowMode != 0 || !_readerHasToc) return;
-        if (ReaderPane.Visibility != Visibility.Visible) return;
+        var hwnd = WindowNative.GetWindowHandle(this);
+        var clientOrigin = new POINT { X = 0, Y = 0 };
+        _ = ClientToScreen(hwnd, ref clientOrigin);
+        var origin = ReaderWebViewHost.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, 0));
+        var scale = ReaderWebViewHost.XamlRoot?.RasterizationScale ?? 1.0;
+        return new Windows.Foundation.Rect(
+            clientOrigin.X + origin.X * scale,
+            clientOrigin.Y + origin.Y * scale,
+            ReaderWebViewHost.ActualWidth * scale,
+            ReaderWebViewHost.ActualHeight * scale);
+    }
 
-        var nearTop = root.TryGetProperty("nearTop", out var topProperty) && topProperty.GetBoolean();
-        var nearBottom = root.TryGetProperty("nearBottom", out var bottomProperty) && bottomProperty.GetBoolean();
-        var overflows = root.TryGetProperty("scrollHeight", out var heightProperty)
-            && root.TryGetProperty("clientHeight", out var clientProperty)
-            && heightProperty.GetDouble() > clientProperty.GetDouble() + 16;
+    private bool IsInsideReaderWebViewScreenRect(POINT point)
+    {
+        var rect = GetReaderWebViewScreenRect();
+        return point.X >= rect.Left && point.X <= rect.Right
+            && point.Y >= rect.Top && point.Y <= rect.Bottom;
+    }
 
-        if (!overflows) return;
-        if (!nearTop && !nearBottom)
-        {
-            _readerContinuousLocked = false;
-            return;
-        }
-        if (_readerContinuousLocked) return;
-        if (DateTimeOffset.UtcNow - _readerLastChapterChange < TimeSpan.FromMilliseconds(350)) return;
+    private async Task HandleReaderZoneClickAsync(POINT screenPoint)
+    {
+        if (_readerFlowMode != 1 || ReaderWebView.CoreWebView2 is null) return;
+        var rect = GetReaderWebViewScreenRect();
+        if (rect.Width <= 0 || rect.Height <= 0) return;
+        var relativeX = screenPoint.X - rect.Left;
+        var relativeY = screenPoint.Y - rect.Top;
+        if (relativeX < 0 || relativeX > rect.Width || relativeY < 0 || relativeY > rect.Height) return;
 
-        if (nearBottom)
+        // Keep parity with the old in-page guard: ignore clicks on links /
+        // form controls and clicks that produced a text selection.
+        try
         {
-            if (_readerChapterIndex + 1 >= _readerChapters.Count) return;
-            _readerChapterIndex++;
-            _readerNavigateToEnd = false;
-            _readerContinuousLocked = true;
-            _readerContinuousDirection = 1;
-            _readerLastChapterChange = DateTimeOffset.UtcNow;
-            UpdateReaderChapterControls();
-            ShowReaderChapter();
+            var viewport = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                "({w:document.documentElement.clientWidth||document.body.clientWidth||0,h:window.innerHeight||0})");
+            using var document = JsonDocument.Parse(viewport);
+            var root = document.RootElement;
+            var cssWidth = root.TryGetProperty("w", out var widthProperty) ? widthProperty.GetDouble() : 0;
+            var cssHeight = root.TryGetProperty("h", out var heightProperty) ? heightProperty.GetDouble() : 0;
+            if (cssWidth > 0 && cssHeight > 0)
+            {
+                var cssX = (int)(relativeX * cssWidth / rect.Width);
+                var cssY = (int)(relativeY * cssHeight / rect.Height);
+                var guard = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                    $$"""
+                    (function(){
+                      const el = document.elementFromPoint({{cssX}}, {{cssY}});
+                      const control = el && el.closest ? el.closest('a, button, input, textarea, select, [contenteditable]') : null;
+                      let selected = false;
+                      try { selected = !!window.getSelection && !!window.getSelection().toString(); } catch (err) {}
+                      return JSON.stringify({ blocked: !!(control || selected) });
+                    })();
+                    """);
+                using var guardDocument = JsonDocument.Parse(guard);
+                if (guardDocument.RootElement.TryGetProperty("blocked", out var blocked)
+                    && blocked.GetBoolean())
+                    return;
+            }
         }
-        else if (nearTop)
+        catch
         {
-            if (_readerChapterIndex <= 0) return;
-            _readerChapterIndex--;
-            _readerNavigateToEnd = true;
-            _readerContinuousLocked = true;
-            _readerContinuousDirection = -1;
-            _readerLastChapterChange = DateTimeOffset.UtcNow;
-            UpdateReaderChapterControls();
-            ShowReaderChapter();
         }
+
+        var direction = relativeX < rect.Width / 3 ? -1 : 1;
+        await TurnReaderPageAsync(direction);
     }
 
     private async Task SkipShortChapterIfNeededAsync()
