@@ -1279,3 +1279,8 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - 移除左侧导航右边框，避免阅读器顶部露出不需要的竖线；助手正文下方的长竖向分隔线保持不变。
 - 助手“AI 对话 / 划线与笔记”按钮组改为只显示上边线，恢复按钮上方横线并移除按钮组下方横线；按钮自身的选中和未选中边框保持不变。
 - Release x64 完整解决方案构建 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 23:00:51）。本轮修改与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。
+
+## 37. Kreader 正文左侧分隔线延伸（2026-08-07）
+
+- 将目录面板右侧、正文左侧的竖向分隔线从目录内容区域扩展到包含底部返回书架区域，保持顶部起点不变并贯穿到面板底部。
+- Release x64 完整解决方案构建 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 23:03:28）。本轮修改与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。

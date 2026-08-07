@@ -674,9 +674,9 @@
                         <RowDefinition Height="50" />
                     </Grid.RowDefinitions>
 
-                    <!-- Vertical separator below the header, aligned to the header rule. -->
+                    <!-- Keep the content divider continuous through the footer. -->
                     <Rectangle Grid.Row="1"
-                               Grid.RowSpan="4"
+                               Grid.RowSpan="5"
                                Width="1"
                                HorizontalAlignment="Right"
                                Fill="#000000"
