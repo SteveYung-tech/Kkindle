@@ -133,4 +133,49 @@ public sealed class ReaderNavigationLocationTests
     {
         Assert.False(ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(ReaderNavigationIntent.Toc, null, false));
     }
+
+    // A subchapter TOC entry (legit fragment) must keep its anchor intent and
+    // never be treated like a plain chapter entry, no matter what stale state
+    // (old progress / breakpoint restore / a superseded pending location) is
+    // still around: the anchor wins, chapter-start normalization stays off.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FragmentTocAnchorNeverNormalizedEvenWithPendingRestore(bool hasPendingRestorePosition)
+    {
+        var anchored = new Uri("file:///c:/cache/EPUB/09.xhtml#sigil_toc_id_68");
+        Assert.True(ReaderNavigationLocationPolicy.TocTargetHasAnchor(anchored));
+        Assert.Equal("sigil_toc_id_68", ReaderNavigationLocationPolicy.TocAnchorId(anchored));
+        Assert.False(ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(
+            ReaderNavigationIntent.Toc, anchored, hasPendingRestorePosition));
+    }
+
+    [Fact]
+    public void FragmentTocAnchorIsNeverChapterStartAndNeverRestore()
+    {
+        var anchored = new Uri("file:///c:/cache/EPUB/01.xhtml#sec-2");
+        // GoesToChapterStart covers the plain-Toc switch branch; an anchored
+        // TOC entry is routed to the anchor BEFORE that branch by
+        // TocTargetHasAnchor, so the anchored target never reaches it.
+        Assert.True(ReaderNavigationLocationPolicy.GoesToChapterStart(ReaderNavigationIntent.Toc));
+        Assert.False(ReaderNavigationLocationPolicy.UsesRestorePosition(ReaderNavigationIntent.Toc));
+        Assert.False(ReaderNavigationLocationPolicy.KeepsRestorePosition(ReaderNavigationIntent.Toc));
+        Assert.False(ReaderNavigationLocationPolicy.KeepsChunkOffset(ReaderNavigationIntent.Toc));
+        Assert.False(ReaderNavigationLocationPolicy.KeepsBookmarkQuote(ReaderNavigationIntent.Toc));
+        Assert.False(ReaderNavigationLocationPolicy.KeepsAnnotationScroll(ReaderNavigationIntent.Toc));
+    }
+
+    // A URI ending in a bare '#' is not a genuine anchor (.NET Uri.Fragment
+    // reports "#" for it, but the EPUB navigation parser never emits such
+    // targets), so it must be treated as a plain chapter entry — first-line
+    // normalization applies, never a fragment jump.
+    [Fact]
+    public void EmptyFragmentIsNotAnAnchor()
+    {
+        var bareHash = new Uri("file:///c:/cache/EPUB/chapter.xhtml#");
+        Assert.False(ReaderNavigationLocationPolicy.TocTargetHasAnchor(bareHash));
+        Assert.Equal(string.Empty, ReaderNavigationLocationPolicy.TocAnchorId(bareHash));
+        Assert.True(ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(
+            ReaderNavigationIntent.Toc, bareHash, hasPendingRestorePosition: false));
+    }
 }

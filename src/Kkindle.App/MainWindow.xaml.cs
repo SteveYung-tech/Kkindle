@@ -2129,6 +2129,21 @@ public sealed partial class MainWindow : Window
                 a { color: {{link}} !important; }
                 pre, table { max-width: 100%; overflow-x: auto; }
                 hr { border: 0 !important; border-top: 1px solid {{link}} !important; opacity: 0.24; margin: 2em 0 !important; }
+                // Fragment-anchor navigation: a temporary break forces the
+                // target subchapter to start at the top of a NEW column in
+                // pagination mode (scrollIntoView alone leaves it mid-column
+                // sharing the page with the previous paragraph). The zeroed
+                // margin keeps the heading flush against the content box top.
+                // The class lives on the target element for the current chapter
+                // only (DOM is discarded on chapter switch) and is cleared by
+                // plain chapter-start navigation.
+                // NOTE: never add `page-break-before` here — the legacy alias
+                // overrides break-before to `page`, which does NOT create a
+                // column break in WebView2's screen multicol layout (verified
+                // against the real book: break-before:column moves the heading
+                // to a new column top, break-before:page leaves it mid-column).
+                .kkindle-fragment-break { break-before: column !important; }
+                .kkindle-fragment-zeroed { margin-top: 0 !important; }
               `;
               // Expose the real body content box (WebView viewport minus the
               // body's top/bottom padding) so image max-heights target the
@@ -2374,11 +2389,20 @@ public sealed partial class MainWindow : Window
     //     styles, the image/cover viewport fit) keeps its layout.
     // Repeated clicks on the same chapter are idempotent: the leading blank
     // nodes are already gone and re-zeroing the same margin is harmless.
+    // A plain chapter-start navigation also clears any temporary fragment
+    // jump markers (`.kkindle-fragment-break` / `.kkindle-fragment-zeroed`)
+    // left on the page by a previous subchapter jump, so returning to the
+    // chapter top restores the book's original interleaved layout.
     private static string GetReaderChapterStartNormalizationScript() =>
         """
         (() => {
           const body = document.body;
           if (!body) return;
+          document.querySelectorAll('.kkindle-fragment-break, .kkindle-fragment-zeroed').forEach(el => {
+            try { el.classList.remove('kkindle-fragment-break'); } catch (_) {}
+            try { el.classList.remove('kkindle-fragment-zeroed'); } catch (_) {}
+            try { el.style.removeProperty('margin-top'); } catch (_) {}
+          });
           const isBlank = (el) => {
             if (el.nodeType === Node.TEXT_NODE) return el.textContent.trim().length === 0;
             if (el.nodeType !== Node.ELEMENT_NODE) return true;
@@ -2415,25 +2439,241 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
-    // Jumps to an explicit fragment anchor (a genuine TOC heading anchor).
-    // Uses the element's id/name lookup and scrolls to it; pagination re-snaps
-    // the reading area onto the nearest column boundary afterwards.
+    // Jumps to an explicit fragment anchor (a genuine TOC heading anchor) and
+    // pins the target subchapter to the TOP of the reading area in both modes.
+    //
+    // This is NOT a plain scrollIntoView: the reported bug is that a subchapter
+    // fragment inside one XHTML lands mid-column in pagination mode even after
+    // scrollTop=0 — the target heading shares a CSS column with the previous
+    // paragraph, so it stops in the middle of the page (y≈405 in the reported
+    // screenshot). scrollIntoView only moves the scroll container; it cannot
+    // move the heading to the top of a column.
+    //
+    // The fix therefore:
+    //   1. Resolves the anchor by id/name; hidden/empty targets fall back to
+    //      the next valid heading/paragraph/image, and a completely missing
+    //      target falls back to the chapter's first line (host-side).
+    //   2. Marks the target's block with a one-off `.kkindle-fragment-break`
+    //      class so `break-before: column` forces it to start a NEW column in
+    //      pagination mode (never sharing a column with the previous text).
+    //      The class stays for the current chapter only and is cleared by
+    //      plain chapter-start navigation / chapter switches — the book's
+    //      source structure is never modified.
+    //   3. Zeroes the target block's top margin so the heading text is flush
+    //      with the content-box start line (body padding is preserved).
+    //   4. Scrolls the real reading surface:
+    //        - scroll mode: target's document top minus the body's padding-top,
+    //          so the heading lands on the content-box start line (padding
+    //          retained, never flush against the window edge);
+    //        - pagination: scrollLeft = target column's document-left (a
+    //          snap-stable `paddingLeft + n × viewport` boundary), scrollTop = 0;
+    //        - vertical writing: block-start (right edge) aligned to the
+    //          content box's right edge, inline-start (top) to its top.
     private async Task ScrollToReaderFragmentAsync(string fragment)
     {
         if (ReaderWebView.CoreWebView2 is null || string.IsNullOrWhiteSpace(fragment)) return;
         var needle = Uri.UnescapeDataString(fragment).Replace("\\", "\\\\").Replace("'", "\\'");
-        var script = $$"""
-            (() => {
-              let id = '{{needle}}';
-              try { id = decodeURIComponent(id); } catch { }
-              const el = document.getElementById(id) || Array.from(document.getElementsByName(id))[0];
-              if (el) el.scrollIntoView({ block: 'start', behavior: 'instant' });
-            })();
-            """;
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
-        catch { }
-        if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
+        var flowMode = _readerFlowMode;
+        var vertical = _readerLayout.VerticalWriting;
+        string result;
+        try
+        {
+            result = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                GetReaderFragmentScrollScript(needle, flowMode, vertical)) ?? "null";
+        }
+        catch
+        {
+            result = "null";
+        }
+
+        var positioned = false;
+        try
+        {
+            using var document = JsonDocument.Parse(result);
+            positioned = document.RootElement.TryGetProperty("ok", out var ok) && ok.GetBoolean();
+        }
+        catch
+        {
+        }
+
+        if (!positioned)
+        {
+            // The fragment points to a hidden/empty/missing node and no valid
+            // fallback content exists in front of it: land on the chapter's
+            // first line instead of leaving a blank or mispositioned page.
+            await ResetReaderToChapterStartAsync();
+            return;
+        }
+
+        if (flowMode == 1)
+        {
+            // The script already placed the target's column at the viewport
+            // left edge on an exact `paddingLeft + n × viewport` boundary;
+            // re-snap idempotently so later image-fit / relayout passes keep
+            // the page (and the post-navigation tasks never rewind the reader
+            // to an old column).
+            await SnapReaderPaginationAsync();
+        }
     }
+
+    // Builds the fragment-positioning script. `needle` is the raw fragment
+    // (already unescaped for JS string embedding); `flowMode` 0 = scroll,
+    // 1 = pagination; `vertical` only affects scroll-mode alignment.
+    private static string GetReaderFragmentScrollScript(string needle, int flowMode, bool vertical) =>
+        $$"""
+        (() => {
+          const body = document.body;
+          if (!body) return { ok: false, reason: 'no-body' };
+          const flowMode = {{flowMode}};
+          const vertical = {{(vertical ? "true" : "false")}};
+          let id = '{{needle}}';
+          try { id = decodeURIComponent(id); } catch { }
+
+          const valid = (n) => {
+            if (!n || n.nodeType !== Node.ELEMENT_NODE) return false;
+            const tag = n.tagName.toLowerCase();
+            if (tag === 'script' || tag === 'style' || tag === 'noscript' || tag === 'body') return false;
+            const cs = getComputedStyle(n);
+            if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+            const r = n.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) return false;
+            if (tag === 'img' || tag === 'svg' || tag === 'picture' || tag === 'canvas'
+                || tag === 'table' || tag === 'hr' || tag === 'figure') return true;
+            return (n.innerText || n.textContent || '').trim().length > 0;
+          };
+          const isHeading = (n) => n && /^H[1-6]$/i.test(n.tagName);
+          const blockSel = 'p,div,section,article,main,header,footer,h1,h2,h3,h4,h5,h6,li,blockquote,figure,pre,table,ul,ol,dl,dd,dt,aside,nav,address';
+
+          // 1. Resolve the anchor; hidden/empty/missing anchors forward-search
+          //    to the first valid heading/paragraph/image.
+          let el = null;
+          try { el = document.getElementById(id) || Array.from(document.getElementsByName(id))[0]; } catch { }
+          let content = null;
+          if (el && valid(el)) {
+            if (isHeading(el) || el.matches(blockSel)) content = el;
+            else {
+              const next = el.nextElementSibling;
+              if (next && isHeading(next) && valid(next)) content = next;
+              else {
+                let p = el.parentElement;
+                while (p && p !== body && !p.matches(blockSel)) p = p.parentElement;
+                content = (p && p !== body && valid(p)) ? p : null;
+              }
+            }
+          }
+          if (!content) {
+            const walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT);
+            if (el) {
+              while (walker.nextNode()) { if (walker.currentNode === el) break; }
+            }
+            while (walker.nextNode()) {
+              const n = walker.currentNode;
+              if (el && el.contains(n)) continue;
+              if (valid(n)) { content = n; break; }
+            }
+          }
+          if (!content) {
+            const w2 = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT);
+            while (w2.nextNode()) {
+              const n = w2.currentNode;
+              if (n !== body && valid(n)) { content = n; break; }
+            }
+          }
+          if (!content) return { ok: false, reason: 'no-content' };
+
+          // 2. The block whose box starts at the target.
+          let block = content;
+          if (!block.matches(blockSel)) {
+            let p = block.parentElement;
+            while (p && p !== body && !p.matches(blockSel)) p = p.parentElement;
+            block = (p && p !== body) ? p : block;
+          }
+
+          // 3. One-off temporary markers: clear any previous fragment jump so
+          //    rapid consecutive subchapter clicks leave exactly one break, and
+          //    the last target always wins.
+          document.querySelectorAll('.kkindle-fragment-break').forEach(n => {
+            try { n.classList.remove('kkindle-fragment-break'); } catch (_) {}
+          });
+          document.querySelectorAll('.kkindle-fragment-zeroed').forEach(n => {
+            try { n.classList.remove('kkindle-fragment-zeroed'); } catch (_) {}
+            try { n.style.removeProperty('margin-top'); } catch (_) {}
+          });
+          try { block.classList.add('kkindle-fragment-zeroed'); } catch (_) {}
+          try { block.style.setProperty('margin-top', '0', 'important'); } catch (_) {}
+          if (flowMode === 1) {
+            // Pagination: force the target to start at the top of a NEW column
+            // (break-before: column is supplied by the reader stylesheet via
+            // the marker class), so it can never share a column with the
+            // previous paragraph.
+            try { block.classList.add('kkindle-fragment-break'); } catch (_) {}
+          }
+          void block.offsetHeight; // force synchronous reflow for the new column layout
+
+          // 4. Align the real reading surface.
+          const scroller = document.scrollingElement || document.documentElement;
+          const bs = getComputedStyle(body);
+          const padTop = parseFloat(bs.paddingTop) || 0;
+          const rect = block.getBoundingClientRect();
+          const docTop = rect.top + scroller.scrollTop;
+          const docLeft = rect.left + scroller.scrollLeft;
+          if (flowMode === 1) {
+            // Pagination: show the target's column flush at the viewport left.
+            // Column n's left edge sits at paddingLeft + n × viewport, which is
+            // exactly the boundary SnapReaderPaginationAsync snaps to, so the
+            // position survives later image-fit/relayout passes.
+            const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+            window.scrollTo({ left: Math.max(0, Math.min(max, docLeft)), top: 0, behavior: 'instant' });
+          } else if (vertical) {
+            // Vertical writing: block-start (right edge) onto the content box's
+            // right edge, inline-start (top) onto the content box's top.
+            const padRight = parseFloat(bs.paddingRight) || 0;
+            const contentRight = scroller.clientWidth - padRight;
+            const docRight = rect.right + scroller.scrollLeft;
+            window.scrollTo({
+              left: Math.max(0, docRight - contentRight),
+              top: Math.max(0, docTop - padTop),
+              behavior: 'instant'
+            });
+          } else {
+            // Scroll mode: target top onto the content-box start line — the
+            // body's uniform reading padding stays above the heading.
+            window.scrollTo({ top: Math.max(0, docTop - padTop), behavior: 'instant' });
+          }
+
+          // 5. Diagnostics: real post-scroll measurements.
+          const r2 = block.getBoundingClientRect();
+          const cs2 = getComputedStyle(block);
+          const padLeft = parseFloat(bs.paddingLeft) || 0;
+          const step = scroller.clientWidth || 0;
+          const colInfo = flowMode === 1 ? {
+            step,
+            padLeft,
+            columnLeft: Math.round(r2.left * 100) / 100,
+            columnIndex: step > 0 ? Math.round((docLeft - padLeft) / step) : 0
+          } : null;
+          return {
+            ok: true,
+            reason: el ? 'anchor' : 'forward-search',
+            targetId: id,
+            resolvedTag: content.tagName.toLowerCase(),
+            resolvedId: content.id || '',
+            resolvedText: (content.innerText || content.textContent || '').trim().slice(0, 40),
+            blockTag: block.tagName.toLowerCase(),
+            padTop,
+            rectTop: Math.round(r2.top * 100) / 100,
+            rectLeft: Math.round(r2.left * 100) / 100,
+            marginTop: cs2.marginTop,
+            scrollTop: scroller.scrollTop,
+            scrollLeft: scroller.scrollLeft,
+            scrollWidth: scroller.scrollWidth,
+            scrollHeight: scroller.scrollHeight,
+            clientWidth: scroller.clientWidth,
+            clientHeight: scroller.clientHeight,
+            column: colInfo
+          };
+        })();
+        """;
 
     private async Task MoveReaderToEndAsync()
     {

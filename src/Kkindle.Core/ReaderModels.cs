@@ -221,12 +221,19 @@ public static class ReaderNavigationLocationPolicy
     // A TOC entry that explicitly carries a fragment anchor goes to that
     // anchor; a plain chapter entry starts at the first line. This keeps
     // genuine heading anchors working while ordinary chapter entries always
-    // open at the chapter top.
+    // open at the chapter top. A trailing bare '#' is not an anchor (.NET
+    // Uri.Fragment reports "#" for it, but the EPUB navigation parser never
+    // emits such targets — it only appends a fragment when the anchor text is
+    // non-empty — so it must fall back to the plain chapter entry).
     public static bool TocTargetHasAnchor(Uri target) =>
-        !string.IsNullOrEmpty(target?.Fragment);
+        target?.Fragment is { Length: > 0 } fragment
+        && !string.Equals(fragment, "#", StringComparison.Ordinal);
 
-    public static string TocAnchorId(Uri target) =>
-        target?.Fragment.TrimStart('#') ?? string.Empty;
+    public static string TocAnchorId(Uri target)
+    {
+        var fragment = target?.Fragment.TrimStart('#') ?? string.Empty;
+        return string.Equals(fragment, "#", StringComparison.Ordinal) ? string.Empty : fragment;
+    }
 
     // Chapter-start normalization (drop leading blank blocks, zero the first
     // element's top margin) may only run when the navigation is ABOUT to show
