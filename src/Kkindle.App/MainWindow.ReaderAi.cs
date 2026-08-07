@@ -424,6 +424,7 @@ public sealed partial class MainWindow
             """;
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
+        if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
     }
 
     private static string LimitReaderText(string value, int maximum)

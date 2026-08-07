@@ -395,6 +395,9 @@ public sealed partial class MainWindow
             : $"window.scrollTo({{ top: {restore} }});";
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
+        // A breakpoint saved from an older layout can land mid-column; snap it
+        // onto the nearest full page so pagination never opens on a split view.
+        if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
     }
 
     // ------------------------------------------------------------------
@@ -551,6 +554,7 @@ public sealed partial class MainWindow
             """;
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
+        if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
     }
 
     private void ReaderTocTabButton_Click(object sender, RoutedEventArgs e) => SetReaderTocTab(bookmarkTab: false);
@@ -1039,6 +1043,19 @@ public sealed partial class MainWindow
             .Select(part => $"\"{part.Trim('"')}\""));
         return $"{names}, {fallback}";
     }
+
+    // ------------------------------------------------------------------
+    // Layout settings safety net. Persisted per-book settings can carry
+    // stale or corrupted values (NaN, out-of-range widths, invalid flow
+    // modes) from older builds. Clamp every field to the supported ranges
+    // so a bad row can never force an EPUB into an unreadable layout; the
+    // rest of the user's reading data is never touched. The normalization
+    // itself lives in Kkindle.Core.ReaderLayoutDefaults so it stays
+    // unit-testable without the WinUI shell.
+    // ------------------------------------------------------------------
+
+    private static ReaderLayoutSettings NormalizeReaderLayoutSettings(ReaderLayoutSettings settings) =>
+        ReaderLayoutDefaults.Normalize(settings);
 
     private void UpdateReaderZoomLabel()
     {

@@ -157,7 +157,7 @@ public sealed partial class MainWindow
         RefreshReaderBookmarkList();
 
         var savedLayout = await _readerData.GetLayoutSettingsAsync(_readerBookFile.Id, cancellationToken);
-        if (savedLayout is not null) _readerLayout = savedLayout;
+        if (savedLayout is not null) _readerLayout = NormalizeReaderLayoutSettings(savedLayout);
 
         var stats = await _readerData.GetReadingStatsAsync(_readerBookFile.Id, cancellationToken);
         _readerStatsBaseSeconds = stats?.CumulativeSeconds ?? 0;
@@ -589,6 +589,7 @@ public sealed partial class MainWindow
         var script = $"document.querySelector('[data-kkindle-annotation=\"{id}\"]')?.scrollIntoView({{ block: 'center', behavior: 'smooth' }});";
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
+        if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
     }
 
     private async Task ConfigureReaderFootnoteHoverAsync()

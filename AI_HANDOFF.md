@@ -8,11 +8,11 @@
 
 ## 0. 当前状态速览
 
-- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。本轮完成读者生产力工具大升级（阅读排版设置、进度断点恢复、书签、书内搜索、选区快捷工具栏、划线/批注导出、阅读统计、CJK 阅读增强），并修复了 WebView2 `IsScriptEnabled=false` 下真实交互失效的两个问题（连续滚动接章、分页点击翻页）。
-- 当前分支：`master`；最新本地提交为本轮最终提交 `feat: expand reader productivity tools`（详见第 23 节）。
-- GitHub：`origin/master` 仍为 `4e8009b`，本地领先 12 个提交，按开发约定未自动推送。
+- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。上一轮完成读者生产力工具大升级（阅读排版设置、进度断点恢复、书签、书内搜索、选区快捷工具栏、划线/批注导出、阅读统计、CJK 阅读增强），并修复了 WebView2 `IsScriptEnabled=false` 下真实交互失效的两个问题（连续滚动接章、分页点击翻页）。本轮修复分页模式正文排版：默认横排分页每屏显示一个完整视口列，修复列宽与视口不对齐导致的“多个窄列 + 大空白 + 左侧裁切”，并加入列边界吸附与旧排版数据安全回退。
+- 当前分支：`master`；最新本地提交为本轮最终提交 `fix: restore reader pagination layout`（详见第 24 节）。
+- GitHub：`origin/master` 仍为 `4e8009b`，本地领先 13 个提交，按开发约定未自动推送。
 - 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 本轮发布。
-- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；28 项测试（22 旧 + 6 新）两个配置全部通过。Release 已重新发布并用真实 EPUB 验收：进度保存/恢复、书签增删、FTS/LIKE 书内搜索、排版设置持久化、阅读统计累计、批注 Markdown/纯文本导出，以及 CJK 正文索引。
+- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；33 项测试（28 旧 + 5 新增排版默认值/归一化测试）全部通过。Release 已重新发布并用真实中文 EPUB《策略思维》章节做无头 Chromium 布局验证：分页列宽 = 视口宽、翻页 `scrollLeft` 每次推进一个视口且落在列边界、正文不被左侧裁剪、无异常窄列；滚动模式为单列自然纵向流。
 - 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环；2026-08-06 又完成 64 MiB EPUB 发送、大小校验和删除，设备端无测试残留。
 - 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
 
@@ -536,12 +536,13 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 ## 8. Git 状态
 
-当前工作分支为 `master`；`origin/master` 最新为 `4e8009b`，本地领先 12 个提交，未自动推送。当前工作区另有未提交的 `src/Kkindle.App/App.xaml` 修改和未跟踪的 `.opencode/` 目录，均不是本轮阅读器工具升级的一部分，必须保留。构建输出由 `.gitignore` 排除，不纳入版本控制。
+当前工作分支为 `master`；`origin/master` 最新为 `4e8009b`，本地领先 13 个提交，未自动推送。当前工作区另有未提交的 `src/Kkindle.App/App.xaml` 修改和未跟踪的 `.opencode/` 目录，均不是本轮阅读器排版修复的一部分，必须保留。构建输出由 `.gitignore` 排除，不纳入版本控制。
 
 当前开发基线及最近提交（本轮最终提交位于最上方）：
 
 ```text
-feat: expand reader productivity tools   ← 本轮最终提交（阅读排版/进度/书签/搜索/选区工具/导出/统计/CJK）
+fix: restore reader pagination layout  ← 本轮最终提交（分页正文排版修复/列宽对齐/列吸附/排版数据安全回退）
+feat: expand reader productivity tools
 c91972b fix: repair reader page interaction
 37e2057 docs: refresh handoff timestamp
 d621d68 docs: record viewport fix commit hash
@@ -600,7 +601,8 @@ git status --short --branch
 - 阅读状态下 `ReaderPane` 必须保持全窗口覆盖、`Canvas.ZIndex="40"`；`WindowChromeLayer` 保持 `Canvas.ZIndex="50"`。目录、正文和助手面板各自使用 `Margin="0,38,0,0"` 为自绘标题栏让位，避免露出旧书架 Logo/标题。
 - 目录栏宽度为 286 logical px，助手栏宽度为 310 logical px；窗口宽度低于 1180 logical px 自动隐藏助手，低于 760 logical px 自动隐藏目录。
 - `ConfigureReaderWebView()` 继续保持 `IsScriptEnabled = false`。阅读助手通过应用主动执行的只读脚本提取当前 EPUB 片段，不能为了助手功能直接启用 EPUB 自带脚本。
-- 正文阅读区视口规则（本轮修复）：WebView 宿主本身就是正文视口，宽高由目录/助手/窗口布局决定；滚动模式正文自然增长并在 WebView 内纵向滚动；分页模式用 CSS 多列按视口分页，`html { overflow: hidden }` 是唯一滚动容器，`body` 必须保持 `overflow: visible`，否则列溢出会被传播到视口裁切，出现"整章压进一屏"。
+- 正文阅读区视口规则（1444cb9 + 本轮修复）：WebView 宿主本身就是正文视口，宽高由目录/助手/窗口布局决定；滚动模式正文自然增长并在 WebView 内纵向滚动；分页模式用 CSS 多列按视口分页，`html { overflow: hidden }` 是唯一滚动容器，`body` 必须保持 `overflow: visible`，否则列溢出会被传播到视口裁切，出现"整章压进一屏"。
+- 分页列宽规则（本轮修复，必读）：分页列宽 + 列间距必须严格等于视口宽，否则翻页按 `window.innerWidth` 推进时与列边界错位，累计漂移会把屏幕切成多个半列并出现大空白、左侧裁切。正确写法是 `body { column-width: calc(100vw - 48px); column-gap: 48px; column-fill: auto; padding: 48px 24px 64px; writing-mode: horizontal-tb !important; }`（24px 左右内边距各形成一页的左右留白，`column-width + column-gap == 100vw`）。分页正文必须显式 `writing-mode: horizontal-tb !important`，防止 EPUB 自带的竖排规则污染默认横排；竖排只允许在滚动模式下由 `VerticalWriting` 开关显式启用。分页翻页/恢复/目录/搜索/书签/批注/注释跳转后统一调用 `SnapReaderPaginationAsync()`（把 `scrollLeft` 吸附到 `paddingLeft + N × 视口宽` 的列边界并钳制到最大范围、固定 `top:0`）。
 - 阅读区尺寸变化（窗口缩放、目录/助手收起、禅模式切换）会触发 `ReaderContentPanel_SizeChanged` → `ScheduleReaderRelayout()`（防抖 120 ms）重新应用视口样式并收敛滚动位置；分页翻页脚本固定 `top: 0`，防止纵向漂移。
 - P1 已完成，P2 自动化场景已增至 18 项，Kindle Scribe 64 MiB 传输闭环也已通过。下一步只剩需要人工配合的物理拔出/重连；USB 磁盘安全弹出需等对应设备。不要再次重做标题栏架构，除非有新的可复现问题。
 - 本轮新增阅读工具基线（详见第 23 节）：每本书独立的排版设置（字号/行高/正文宽度/左右边距/CJK 字体/竖排）持久化到 SQLite `ReaderLayoutSettings`；阅读进度断点保存到 `ReaderProgress`（按 BookFile 一行，含章节路径/fragment/滚动位置/百分比/流动模式，滚动与分页/竖排按轴区分，避免把分页位置用在滚动模式）；书签存 `ReaderBookmarks`（工具栏按钮 + Ctrl+B，目录面板新增“目录/书签”标签页）；整本书搜索复用 `BookContentChunks` 本地 FTS（失败回退 LIKE），入口为工具栏“搜索”按钮和 Ctrl+F，面板用 Popup 浮于 WebView2 之上；选中文字会弹出黑白快捷工具条（复制/划线/批注/AI 解释/搜索），因 `IsScriptEnabled=false` 冻结页面事件，使用宿主侧 300ms 轮询读取选区矩形再换算屏幕坐标定位；划线/批注可在“划线与笔记”页导出 Markdown 与纯文本（`ReaderAnnotationExport`，走 FileSavePicker）；阅读统计累计“活动且可见”的阅读秒数（窗口激活 + 阅读面板可见，每秒累计、每 30 秒落库、关闭时强制落库）到 `ReaderReadingStats`，目录面板显示已读章节/全书百分比/累计与本次时长；CJK 增强包括可选的 CJK 字体覆盖、`line-break: strict` + `word-break: normal` + 两端对齐的严格断行/标点规则、ruby/furigana 居中显示，以及滚动模式下的 `writing-mode: vertical-rl` 竖排（分页模式竖排不生效，有提示）。
@@ -860,3 +862,58 @@ ReaderReadingStats    (BookFileId PRIMARY KEY, BookId, CumulativeSeconds, Progre
 - 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（本轮更新）。
 - 本轮提交：`feat: expand reader productivity tools`，仅包含本轮相关源码与测试：`MainWindow.xaml`、`MainWindow.xaml.cs`、`MainWindow.ReaderFeatures.cs`、新增 `MainWindow.ReaderTools.cs`、`Core/ReaderModels.cs`、`Infrastructure/ReaderDataService.cs`、新增 `Infrastructure/ReaderAnnotationExport.cs`、新增 `tests/ReaderProductivityTests.cs`、`AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。
 - 未完成风险（CJK/交互边界）：分页模式竖排暂不生效（有提示）；竖排与超长单元素布局未做专项视觉回归；选区工具栏、书签跳转、导出对话框与竖排渲染的端到端输入自动化受限，需人工复核。
+
+## 24. 分页正文排版修复：默认横排、列宽对齐与列边界吸附（2026-08-07）
+
+### 根因（用真实 EPUB + 生产注入 CSS 在无头 Chromium 复现，非推测）
+
+用户反馈分页模式下中文正文被拆成多个很窄的横向文字列/片段、列间大空白、左边第一段被裁掉、阅读顺序错乱。复现《策略思维》EPUB 第 1 章 + 生产注入 CSS（当前库中 80% 字号、`FlowMode=1`、`MaxWidth=800`）：
+
+```css
+/* 修复前 */
+html { height: 100%; overflow: hidden !important; }
+body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !important;
+       box-sizing: border-box; column-width: calc(100vw - 96px); column-gap: 48px;
+       column-fill: auto; max-width: none !important; }
+```
+
+实测（视口 `innerWidth=1318`，窗口 1344）：
+
+- 生产当前 CSS：`column-width` 计算值 1222px + 间距 48px = **1270px ≠ 1318px 视口宽**。整章水平分成 12 列（`scrollWidth=15792`），但翻页脚本按 `window.innerWidth`（1318px）推进 `scrollLeft`，与列边界（每 1270px 一列）错位。每翻一页漂移 48px，累计几页后屏幕中央出现两个半列 + 大空白；断点恢复（库中 `ScrollPosition=842`）落在一列中间，正好复现“左边第一段被裁掉”。
+- 根因一句话：**列宽 + 列间距 ≠ 视口宽**。分页列必须在正文左右内边距之内排布，`column-width` 应取 `calc(100vw - 48px)`（与左右 24px 内边距之和正好等于视口宽），而不是 `calc(100vw - 96px)`。
+- 附带风险：分页 CSS 未显式重置 `writing-mode`，若 EPUB 自带竖排规则会污染默认横排；持久化的 `ReaderLayoutSettings` 若有 NaN/越界值会把字号/宽度推到不可读范围。
+
+### 本次改动
+
+1. `src/Kkindle.App/MainWindow.xaml.cs` — `ApplyReaderAppearanceAsync()` 分页 CSS 修正：
+   ```css
+   html { height: 100%; overflow: hidden !important; writing-mode: horizontal-tb !important; }
+   body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !important; box-sizing: border-box;
+          writing-mode: horizontal-tb !important; column-width: calc(100vw - 48px); column-gap: 48px;
+          column-fill: auto; column-count: auto !important; max-width: none !important; }
+   ```
+   `column-width + column-gap = 100vw`，每列恰好一视口宽；默认横排（`writing-mode: horizontal-tb !important`），竖排只在滚动模式显式开启。
+2. `MainWindow.xaml.cs` — 新增 `SnapReaderPaginationAsync()`：把 `scrollLeft` 吸附到 `paddingLeft + N × clientWidth` 列边界并钳制到最大滚动范围、固定 `top: 0`。分页模式下每次应用外观后自动吸附；`ClampReaderScrollAsync()` 分页分支改为走吸附；`MoveReaderToEndAsync()` 分页回退到章末后吸附。
+3. `MainWindow.ReaderTools.cs` / `ReaderFeatures.cs` / `ReaderAi.cs` — 断点恢复 `ApplyReaderRestorePositionAsync()`、书签 `ScrollToPendingReaderBookmarkAsync()`、批注 `ScrollToPendingReaderAnnotationAsync()`、搜索片段 `ScrollToPendingReaderChunkAsync()` 在分页模式下均追加列边界吸附，避免任意 `scrollIntoView` 停在半列。
+4. 滚动模式 CSS 追加显式清场：`body { column-width: auto !important; column-count: auto !important; column-gap: normal !important; writing-mode: horizontal-tb !important; }`，清除分页残留列与竖排污染，回到单列自然纵向流。
+5. `src/Kkindle.Core/ReaderModels.cs` — 新增 `ReaderLayoutDefaults.Normalize()`：对持久化排版设置做有限值收敛（字号 0.8–1.8、行高 1.3–2.6、正文宽度 480–1200、边距 24–160、NaN/非有限值回退默认、FlowMode 非法归 0）。`LoadReaderSessionDataAsync()` 加载设置时统一归一化；不清空任何用户阅读数据，只修正非法排版字段。
+6. 未改：`IsScriptEnabled=false`、导航白名单、三栏布局、禅模式、翻页动画、书签/搜索/选区/导出/统计/AI 等全部既有功能；`MainWindow.xaml` 无改动。
+
+### 真实定向验证（《策略思维》EPUB 第 1 章，无头 Chromium + 生产注入 CSS/吸附脚本，视口 1344×1000）
+
+- 分页首页：`innerWidth=1318`、`colW=1270px`、`colGap=48px`、`colW+colGap=1318=视口宽`；`scrollWidth=15792`（整章按一视口一列分页）；可见段落矩形 `left≥0`、`right≤1270`，无左侧裁切、无窄列。
+- 列边界吸附：初始 `scrollLeft=0 → 吸附 24`（首列）；断点 842 → 吸附 1342（第 2 列整页），不再出现半列。
+- 翻页推进：`scrollLeft` 每击推进 1318px（`1342→2660→3978→5296→6614`），全部落在 `24 + N×1318` 列边界；`scrollTop` 恒为 0；每页可见段落矩形 `left≥0`、`right≤1270`（跨列段落的 union box 允许超出，但其可见片段完整）。
+- 换视口重排：窗口 900×800（`innerW=874`、`colW=826`、列边界 `24+N×874`）与 1600×1000（`innerW=1574`、`colW=1526`、列边界 `24+N×1574`）均保持“一视口一列 + 翻页对齐”，证明缩放/收目录/收助手/禅模式后按新 viewport 重排成立。
+- 滚动模式：`bodyMaxW=800px` 居中单列、`colW=auto/colGap=normal`、`writing-mode=horizontal-tb`、`scrollHeight=13697` 自然纵向滚动；分页列与竖排残留被清除。
+- Release 发布版启动存活 5 秒以上（smoke test 通过）。
+
+### 自动化边界
+
+- 与第 21/22 节一致，本会话无法向 WebView2 合成岛可靠投递真实鼠标/滚轮，因此分页点击/键盘翻页未在自动化中触发；已用生产代码同路径的无头 Chromium 验证列对齐数学与吸附脚本（`scrollLeft` 推进量、可见段落矩形、计算样式全部为可观测真实数据）。建议人工在交互桌面翻几页 + 收放目录/助手各确认一次。
+
+### 构建、测试与发布
+
+- Debug/Release x64 完整构建 0 警告 0 错误；33 项测试全部通过（新增 `tests/Kkindle.Tests/ReaderLayoutDefaultsTests.cs`：默认值横排可读、越界收敛、NaN 回退、FlowMode 非法归 0、合法设置原样保留）。
+- 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（本轮更新）。
+- 本轮提交：`fix: restore reader pagination layout`，仅包含 `MainWindow.xaml.cs`、`MainWindow.ReaderTools.cs`、`MainWindow.ReaderFeatures.cs`、`MainWindow.ReaderAi.cs`、`Core/ReaderModels.cs`、`tests/Kkindle.Tests/ReaderLayoutDefaultsTests.cs`、`AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。

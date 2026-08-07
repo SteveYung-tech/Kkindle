@@ -1037,9 +1037,14 @@ public sealed partial class MainWindow : Window
     private async Task ClampReaderScrollAsync()
     {
         if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
-        var script = _readerFlowMode == 0
-            ? "(function(){var el=document.scrollingElement;var max=Math.max(0,el.scrollHeight-el.clientHeight);if(el.scrollTop>max)window.scrollTo({top:max});})()"
-            : "(function(){var el=document.scrollingElement;var max=Math.max(0,el.scrollWidth-el.clientWidth);if(el.scrollLeft>max)window.scrollTo({left:max,top:0});})()";
+        if (_readerFlowMode == 1)
+        {
+            // Pagination: snap to the nearest column boundary (also clamps the
+            // maximum scroll range so the reader never rests past the last page).
+            await SnapReaderPaginationAsync();
+            return;
+        }
+        var script = "(function(){var el=document.scrollingElement;var max=Math.max(0,el.scrollHeight-el.clientHeight);if(el.scrollTop>max)window.scrollTo({top:max});})()";
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
     }
@@ -1680,20 +1685,29 @@ public sealed partial class MainWindow : Window
         const string foreground = "#111111";
         const string link = "#222222";
         var fontPercent = (int)Math.Round(_readerLayout.FontScale * 100);
+        // Pagination mode always renders horizontal CJK. Vertical writing is a
+        // scroll-mode-only setting (the status text states this explicitly), so
+        // pagination pins `writing-mode: horizontal-tb` to override any vertical
+        // rule the EPUB itself may carry.
         var vertical = _readerFlowMode == 0 && _readerLayout.VerticalWriting;
-        var flowCss = _readerFlowMode == 0
-            ? vertical
+        var flowCss = _readerFlowMode == 1
+            ? "html { height: 100%; overflow: hidden !important; writing-mode: horizontal-tb !important; }"
+              + " body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !important; box-sizing: border-box;"
+              + " writing-mode: horizontal-tb !important;"
+              + " column-width: calc(100vw - 48px); column-gap: 48px; column-fill: auto;"
+              + " column-count: auto !important; max-width: none !important; }"
+            : vertical
                 ? "html { height: 100%; overflow: hidden !important; } body { height: 100%; overflow: visible !important; box-sizing: border-box; }"
                 : "html, body { min-height: 100%; overflow-x: hidden !important; }"
-            : "html { height: 100%; overflow: hidden !important; }"
-              + " body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !important; box-sizing: border-box;"
-              + " column-width: calc(100vw - 96px); column-gap: 48px; column-fill: auto; max-width: none !important; }";
+                  + " body { column-width: auto !important; column-count: auto !important; column-gap: normal !important;"
+                  + " writing-mode: horizontal-tb !important; }";
         var lineHeight = _readerLayout.LineHeight.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
         var bodyLayoutCss = vertical
             ? $"max-width: none !important; writing-mode: vertical-rl !important; text-orientation: mixed;"
               + " margin: 0 auto !important; padding: 58px 24px 100px 24px !important;"
             : $"max-width: {(int)_readerLayout.MaxWidth}px; margin: 0 auto !important;"
-              + $" padding: 58px {(int)_readerLayout.BodyPadding}px 100px !important;";
+              + $" padding: 58px {(int)_readerLayout.BodyPadding}px 100px !important;"
+              + " writing-mode: horizontal-tb !important;";
         var bodyTextCss = vertical
             ? "overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal;"
             : "overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal; text-align: justify;";
@@ -1733,16 +1747,42 @@ public sealed partial class MainWindow : Window
         if (_readerFlowMode == 1)
         {
             // Pagination mode: the document may still carry a vertical scroll
-            // position from a previous flow/zoom/layout state. Pin the reading
-            // area to the top of the current column so each viewport shows one
-            // full page instead of a vertically offset strip.
-            try
-            {
-                await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
-                    "window.scrollTo({ left: (document.scrollingElement||document.documentElement).scrollLeft, top: 0 });");
-            }
-            catch { }
+            // position from a previous flow/zoom/layout state, and a restored
+            // breakpoint can land mid-column. Snap the reading area onto the
+            // nearest column boundary (top pinned to 0) so each viewport shows
+            // exactly one full page instead of a vertically offset strip or
+            // two partial columns split by the column gap.
+            await SnapReaderPaginationAsync();
         }
+    }
+
+    private async Task SnapReaderPaginationAsync()
+    {
+        if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
+        if (_readerFlowMode != 1) return;
+        try
+        {
+            // Pagination columns are laid out so each column advance equals the
+            // viewport width (column-width = 100vw - 48px + 48px gap = 100vw),
+            // offset by the body's left padding. Snapping scrollLeft to those
+            // boundaries keeps every viewport exactly one full page, and also
+            // clamps to the maximum scroll range.
+            await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                """
+                (() => {
+                  const el = document.scrollingElement || document.documentElement;
+                  if (!el) return;
+                  const step = el.clientWidth || window.innerWidth;
+                  if (step <= 0) return;
+                  const body = document.body;
+                  const padLeft = body ? (parseFloat(getComputedStyle(body).paddingLeft) || 0) : 0;
+                  const max = Math.max(0, el.scrollWidth - el.clientWidth);
+                  const nearest = padLeft + Math.round((el.scrollLeft - padLeft) / step) * step;
+                  window.scrollTo({ left: Math.max(0, Math.min(max, nearest)), top: 0 });
+                })();
+                """);
+        }
+        catch { }
     }
 
     private async Task ResetReaderPositionAsync()
@@ -1764,6 +1804,7 @@ public sealed partial class MainWindow : Window
         };
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
+        if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
     }
 
     private static bool IsPathInside(string root, string path)
