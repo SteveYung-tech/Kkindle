@@ -6,15 +6,15 @@
 >
 > 项目目录：`C:\Users\kings\Desktop\01_Projects\Kkindle`
 
-> 续作最新基线见第 33 节：目录章节首屏脚本已模块化并增强，Debug/Release 各 83 项测试通过；以下早期速览中的历史测试数字以各轮末尾记录为准。
+> 续作最新基线见第 34 节：Kreader 左侧信息区已整理并完成 Release 发布；以下早期速览中的历史测试数字以各轮末尾记录为准。
 
 ## 0. 当前状态速览
 
 - 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。上一轮完成读者生产力工具大升级（阅读排版设置、进度断点恢复、书签、书内搜索、选区快捷工具栏、划线/批注导出、阅读统计、CJK 阅读增强），并修复了 WebView2 `IsScriptEnabled=false` 下真实交互失效的两个问题（连续滚动接章、分页点击翻页）与分页正文排版（默认横排分页每屏一个完整视口列、列宽对齐、列边界吸附、排版数据安全回退）。再上一轮修复 EPUB 图片/封面显示：分页模式下封面/大型插图按比例 contain 约束在当前正文内容盒内，滚动模式图片宽度跟随正文内容并保持比例、无横向溢出。再上一轮修复阅读器顶部自绘 X 退出按钮点击卡死/无响应（根因：低级鼠标钩子回调跨线程访问 XAML 与 `UnhookWindowsHookEx` 双向死锁 + 窗口关闭同步等待永不返回的 WebView 脚本；改为钩子只读缓存/投递 UI 线程、关闭流程幂等非阻塞、有界异步落库），并为所有真实章节切换路径加入平滑过渡。上一轮修复目录跳转/章节切换时的闪现与短暂卡顿（根因：旧实现在 `ReaderWebView.Source = target` 前先淡出/滑出旧内容，且 NavigationCompleted 的批注/脚注/进度等后置工作全部在入场动画前串行等待；改为导航期间保持旧内容可见、首屏准备完成后再短淡入/滑入，非首屏任务延迟到显示后并带导航序列守卫，杜绝旧导航/旧后置任务覆盖新章节）。上一轮修复目录跳转后正文未从新章节第一行开始（根因：目录跳转没有明确导航意图，旧 pending 位置/旧"移动章末"意图/同章节空操作会把新章滚到旧位置；改为 `ReaderNavigationIntent` 明确意图 + 导航前清理旧 pending 定位 + 目录/进度条跳转显式把滚动容器复位到章节首行：滚动模式 `scrollTop=0`、分页模式吸附第一列边界 `scrollLeft=24/top=0`，带 fragment 的目录锚点仍跳锚点，同章节点击也复位并重对齐滚动边沿）。再上一轮修复"scrollTop=0 但有的章节仍不顶格"（根因：`scrollTop=0` 只复位滚动容器，无法消除首元素自带的上边距/首行空白节点——真实《規模》的 EPUB 样式 `div.chatu-part{margin-top:30%}` 作用于全部部页/致谢/注释开篇，实测滚动模式首元素 marginTop 199.2px、分页 233.275px；改为目录/进度条/普通章节切换在复位滚动前先做章节开头安全归一化，带 fragment 或搜索/书签/批注/AI 目标不归一化）。**本轮修复"子章节 fragment 跳转后标题停在页面中部、顶部仍显示上一段正文"**（根因：fragment 定位旧实现只 `scrollIntoView` + 分页吸附，子章节与上一段正文处在同一个 CSS 列时标题停在列中部（报告例 `09.xhtml#sigil_toc_id_68` 分页 rectTop 256.38→大窗口 226.94，`scrollTop=0` 无效）；改为 fragment 导航专属定位：分页模式给目标块临时加 `.kkindle-fragment-break`（`break-before: column !important`）强制标题从新列顶部开始、归零目标块 margin-top 使标题贴内容起始线、`scrollLeft` 吸附目标列；滚动模式按正文内容盒顶部对齐（保留 body 阅读 padding）；隐藏/空目标向前找第一个有效标题/段落/图片，找不到安全回退章节首行；普通章节导航清理临时断点恢复原排版。实测 6 个真实子章节 × 滚动/分页全部顶格）。详见第 30 节。
-- 当前分支：`master`；最新本地提交为本轮最终提交 `fix: align subchapter navigation`（详见第 30 节）。
-- GitHub：`origin/master` 仍为 `4e8009b`，本地领先 19 个提交，按开发约定未自动推送。
-- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 本轮发布（15:41）。
-- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；74 项测试全部通过（新增 `ReaderNavigationLocationTests` 子章节 fragment 优先级 / 空 fragment 安全 4 项）。Release 已重新发布，并用真实中文 EPUB《規模/Scale》（发布数据 `data/library/6efd4f1ba0ed4a2abdc2f0390edc7299/…(z-library.sk,…).epub`，SVG 封面 `cover.jpg` 1536×2048）做真实运行定向验证：WebView2 复现工具用生产注入 CSS + 生产 fragment 定位脚本对 6 个真实子章节 fragment（`01.xhtml#sigil_toc_id_1/5`、`02.xhtml#sigil_toc_id_10`、`03.xhtml#sigil_toc_id_24`、`05.xhtml#sigil_toc_id_38`、报告例 `09.xhtml#sigil_toc_id_68`）逐一读取真实 DOM：滚动模式标题 rectTop 57.78–58.28（正文内容盒起始线 58，修复前 0.23/0.29/-0.37 贴窗口边）；分页模式标题 rectTop=56（新列顶部，修复前 226.94–538.44 停在列中部）、目标列左边界 0、`scrollLeft` 吸附列边界；报告例截图对应验证（09.xhtml#68：分页 256.38→56，滚动 0.23→58.08）；快速连续子章节点击只保留最后一次目标的断点（breakCount=1，前一次目标的断点已清除）；普通章节导航归一化后断点清除、标题回到自然位置（原排版恢复）。Release 发布版 UIA 端到端：启动存活、打开真实 EPUB（恢复 21/31）、目录子章节 fragment 跳转（`frag-01-1` 21→5、`frag-02-10` 5→7、报告例同章 fragment 重定位不卡）、快速连续 3 次目录点击最终只落在最后一次目标且 2 秒后计数稳定、全程无冻结、X 关闭 190ms（详见第 30 节）。
+- 当前分支：`master`；最新功能提交为 `cf8a7f8 fix: refine Kreader layout and pagination`（详见第 34 节）。
+- GitHub：`origin/master` 为 `9b1583a`；本地已包含本轮功能与交接文档更新，尚未推送。
+- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 22:25:47。
+- 最新源码验证：Release x64 完整解决方案构建 0 警告、0 错误；83 项 Release 测试全部通过；发布版已生成。当前工作区仅保留未跟踪 `.opencode/`，未加入提交。
 - 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环；2026-08-06 又完成 64 MiB EPUB 发送、大小校验和删除，设备端无测试残留。
 - 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
 
@@ -1258,3 +1258,11 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - 普通目录章节跳转继续复位真实滚动容器，并沿 `body` 的首个有效内容路径清理包裹层、首个文本块和首张图片的顶部 margin；因此 `div`/`section` 嵌套、图片开篇和 EPUB 的 `margin-top:30%` 都能在正文内容区顶部开始，不改变后续段落间距、书籍原始文件或正文阅读内边距。
 - fragment 目录项复用独立脚本，保留分页 `break-before: column`、滚动/竖排定位、临时标记清理和最后一次快速点击优先行为；删除 `MainWindow.xaml.cs` 中的重复旧脚本，避免两套定位逻辑漂移。
 - 验证：Debug/Release 测试各 **83 项全部通过**；Debug 应用构建、Release x64 完整解决方案构建均为 0 警告、0 错误；新模块两段 JavaScript 通过语法解析。未提交、未 push、未重新发布便携版；工作区既有双击、分页、按钮布局等改动全部保留。
+
+## 34. Kreader 左侧信息区整理与发布提交（2026-08-07）
+
+- 主阅读区目录按钮旁移除 `ReaderTitleText` 书籍名称，保留加载和 PDF 状态提示，避免标题与工具栏挤占空间。
+- 左侧展开面板标题改为“书籍信息”；移除 Kreader 面板下方的封面、书名、作者和格式卡片，目录/书签页签、搜索框和目录列表保持不变。书架详情页的封面逻辑未受影响。
+- 将“已读章节 / 百分比”移动到左侧面板底部左侧，阅读累计时间和本次阅读时间置于其下方；删除对应的废弃书籍信息绑定和清理逻辑。
+- Release x64 完整解决方案构建 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 22:25:47）。
+- 本轮提交：`cf8a7f8 fix: refine Kreader layout and pagination`，已提交未 push；未跟踪 `.opencode/` 保留且未加入提交。
