@@ -1326,3 +1326,10 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - 新增 `ReaderAppearanceScripts.cs`，为 WebView2 正文注入与原始目录一致的黑白 10px、无圆角 CSS 滚动条，兼容正文滚动模式、分页模式内部元素和竖排内容。
 - Release x64 完整解决方案构建和发布 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 23:52:02）；发布版启动存活检查通过并正常关闭。
 - 本轮修改与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。
+
+## 44. Kreader 极简目录隐藏滑块与矩形裁切修复（2026-08-07）
+
+- 极简目录垂直滚动条恢复隐藏，继续使用已有的鼠标滚轮缓动和实际滚动范围钳制，不再在 30px 窄条内为原生滑块占用布局宽度。
+- 极简目录 `ItemsControl` 改为按自身内容宽度居中布局，28px 章节按钮和 1.3 倍悬停矩形均能在窄条剩余宽度内完整显示；原始目录、正文和其他阅读器区域的自定义滚动条保持不变。
+- Release x64 完整解决方案构建和发布 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 23:56:14）；发布版启动存活检查通过并正常关闭。
+- 本轮修改与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。

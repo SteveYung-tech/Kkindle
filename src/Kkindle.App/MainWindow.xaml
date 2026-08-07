@@ -936,11 +936,12 @@
                                   x:Name="ReaderTocCompactScrollViewer"
                                   HorizontalScrollBarVisibility="Hidden"
                                   HorizontalScrollMode="Disabled"
-                                  VerticalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Hidden"
                                   VerticalScrollMode="Enabled"
                                   Padding="0,8"
                                   PointerWheelChanged="ReaderTocCompactScrollViewer_PointerWheelChanged">
-                        <ItemsControl x:Name="ReaderTocCompactList">
+                        <ItemsControl x:Name="ReaderTocCompactList"
+                                      HorizontalAlignment="Center">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <StackPanel Spacing="3" />
