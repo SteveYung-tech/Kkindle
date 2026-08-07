@@ -1284,3 +1284,8 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 
 - 将目录面板右侧、正文左侧的竖向分隔线从目录内容区域扩展到包含底部返回书架区域，保持顶部起点不变并贯穿到面板底部。
 - Release x64 完整解决方案构建 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 23:03:28）。本轮修改与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。
+
+## 38. Kreader 助手展开时顶部露线修复（2026-08-07）
+
+- 修复助手 Popup 展开时阅读器区域被缩窄，导致标题栏下方露出底层布局竖线的问题；阅读器背景现在始终覆盖整个窗口，正文列仍按助手宽度正确预留，助手收起/展开的内容布局保持一致。
+- Release x64 完整解决方案构建 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 23:10:08）。本轮修改与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。

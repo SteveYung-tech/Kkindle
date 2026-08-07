@@ -1020,12 +1020,14 @@ public sealed partial class MainWindow : Window
         if (width <= 0) return;
         var assistantWidth = _readerAssistantExpanded ? 360d : 0d;
         var readerWidth = Math.Max(0, width - assistantWidth);
-        ReaderPane.Width = readerWidth;
+        // Keep the reader background across the title-bar area while the
+        // assistant is hosted in a Popup outside the reader grid.
+        ReaderPane.Width = width;
         ReaderPane.HorizontalAlignment = HorizontalAlignment.Left;
         var tocWidth = _readerTocExpanded ? 286d : 0d;
         ReaderTocColumn.Width = new GridLength(tocWidth);
         ReaderContentColumn.Width = new GridLength(Math.Max(0, readerWidth - tocWidth));
-        ReaderAssistantColumn.Width = new GridLength(0);
+        ReaderAssistantColumn.Width = new GridLength(Math.Min(assistantWidth, width));
 
         ReaderTocPanel.Visibility = _readerTocExpanded ? Visibility.Visible : Visibility.Collapsed;
         Grid.SetColumn(ReaderTocPanel, 0);
