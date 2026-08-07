@@ -227,4 +227,22 @@ public static class ReaderNavigationLocationPolicy
 
     public static string TocAnchorId(Uri target) =>
         target?.Fragment.TrimStart('#') ?? string.Empty;
+
+    // Chapter-start normalization (drop leading blank blocks, zero the first
+    // element's top margin) may only run when the navigation is ABOUT to show
+    // the chapter's first line:
+    //   - a plain TOC entry (no explicit anchor),
+    //   - a progress-slider jump,
+    //   - a plain chapter switch (None) with no breakpoint restore pending.
+    // It must never run for fragment anchors, bookmarks, annotations, search
+    // or AI-source targets: those carry their own precise scroll target and
+    // their offset math depends on the untouched DOM.
+    public static bool ShouldNormalizeChapterStart(ReaderNavigationIntent intent, Uri? target, bool hasPendingRestorePosition) =>
+        intent switch
+        {
+            ReaderNavigationIntent.Toc => target is not null && !TocTargetHasAnchor(target),
+            ReaderNavigationIntent.Progress => true,
+            ReaderNavigationIntent.None => !hasPendingRestorePosition,
+            _ => false
+        };
 }

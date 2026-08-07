@@ -93,4 +93,44 @@ public sealed class ReaderNavigationLocationTests
         Assert.False(ReaderNavigationLocationPolicy.TocTargetHasAnchor(null!));
         Assert.Equal(string.Empty, ReaderNavigationLocationPolicy.TocAnchorId(null!));
     }
+
+    // Chapter-start normalization may only run when the navigation shows the
+    // chapter's first line; explicit targets (fragment/bookmark/annotation/
+    // search/AI) and breakpoint restore must never be touched.
+    [Theory]
+    [InlineData(ReaderNavigationIntent.Toc, true)]
+    [InlineData(ReaderNavigationIntent.Progress, true)]
+    [InlineData(ReaderNavigationIntent.None, true)]
+    [InlineData(ReaderNavigationIntent.Bookmark, false)]
+    [InlineData(ReaderNavigationIntent.Annotation, false)]
+    [InlineData(ReaderNavigationIntent.Search, false)]
+    [InlineData(ReaderNavigationIntent.AiSource, false)]
+    public void ChapterStartNormalizationRunsOnlyForPlainChapterTargets(
+        ReaderNavigationIntent intent,
+        bool expected)
+    {
+        var plain = new Uri("file:///c:/cache/EPUB/chapter.xhtml");
+        Assert.Equal(expected, ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(intent, plain, hasPendingRestorePosition: false));
+    }
+
+    [Fact]
+    public void ChapterStartNormalizationSkipsTocAnchorTargets()
+    {
+        var anchored = new Uri("file:///c:/cache/EPUB/chapter.xhtml#sec-2");
+        Assert.False(ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(ReaderNavigationIntent.Toc, anchored, false));
+    }
+
+    [Fact]
+    public void ChapterStartNormalizationSkipsBreakpointRestore()
+    {
+        var plain = new Uri("file:///c:/cache/EPUB/chapter.xhtml");
+        Assert.False(ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(ReaderNavigationIntent.None, plain, hasPendingRestorePosition: true));
+        Assert.True(ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(ReaderNavigationIntent.None, plain, hasPendingRestorePosition: false));
+    }
+
+    [Fact]
+    public void ChapterStartNormalizationIsAlwaysSafeForNullTarget()
+    {
+        Assert.False(ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(ReaderNavigationIntent.Toc, null, false));
+    }
 }

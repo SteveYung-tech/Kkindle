@@ -2316,7 +2316,16 @@ public sealed partial class MainWindow : Window
             case ReaderNavigationIntent.None:
             default:
                 // Open-book breakpoint restore (only armed by the open-book
-                // flow) or a plain prev/next/continuous chapter switch.
+                // flow) or a plain prev/next/continuous chapter switch. When no
+                // breakpoint is pending the fresh chapter should also start at
+                // its first line (with the opening normalization), not inherit
+                // an old position or an EPUB opener margin.
+                if (ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(
+                        intent, target, _pendingReaderRestorePosition is not null))
+                {
+                    await ResetReaderToChapterStartAsync();
+                    return;
+                }
                 await ApplyReaderRestorePositionAsync();
                 return;
         }
@@ -2328,9 +2337,21 @@ public sealed partial class MainWindow : Window
     // against the window edge). Pagination: scrollTop is pinned to 0 and
     // scrollLeft is snapped onto the first column boundary (paddingLeft + 0 ×
     // viewport), so the chapter can never open mid-column from a previous page.
+    //
+    // scrollTop = 0 alone is NOT enough: some chapters carry a large top
+    // margin on their FIRST element (e.g. the EPUB stylesheet `div.chatu-part
+    // { margin-top: 30% }` used by every part/thanks/reference opener of this
+    // book, or an opener heading's own margin), or start with blank nodes
+    // (empty br/p/div). Those push the first visible line away from the design
+    // start line even though the scroll container is at 0. So before scrolling
+    // we first normalize the chapter opening: drop the leading blank blocks and
+    // zero only the first content element's top margin (heading hierarchy,
+    // interior paragraph spacing, image/cover fit and anchor targets stay
+    // untouched).
     private async Task ResetReaderToChapterStartAsync()
     {
         if (ReaderWebView.CoreWebView2 is null) return;
+        await NormalizeReaderChapterStartAsync();
         try
         {
             await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
@@ -2338,6 +2359,60 @@ public sealed partial class MainWindow : Window
         }
         catch { }
         if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
+    }
+
+    // Safe chapter-opening normalization. This is deliberately conservative:
+    //   - only leading blank blocks are removed (whitespace-only text nodes,
+    //     empty br/p/div and wrappers that contain nothing but blank content);
+    //     anything with an image/svg/table/hr or an [id] anchor is never
+    //     removed, so cover pages and fragment targets survive untouched;
+    //   - only the FIRST visible element's margin-top (and, when it is a plain
+    //     wrapper, the first text block inside it) is zeroed via an inline
+    //     !important declaration so it wins over both the EPUB's own inline
+    //     margins and the reader stylesheet's !important element margins;
+    //   - everything else (paragraph spacing, heading hierarchy, list/table
+    //     styles, the image/cover viewport fit) keeps its layout.
+    // Repeated clicks on the same chapter are idempotent: the leading blank
+    // nodes are already gone and re-zeroing the same margin is harmless.
+    private static string GetReaderChapterStartNormalizationScript() =>
+        """
+        (() => {
+          const body = document.body;
+          if (!body) return;
+          const isBlank = (el) => {
+            if (el.nodeType === Node.TEXT_NODE) return el.textContent.trim().length === 0;
+            if (el.nodeType !== Node.ELEMENT_NODE) return true;
+            const tag = el.tagName.toLowerCase();
+            if (tag === 'br') return true;
+            if (tag === 'img' || tag === 'svg' || tag === 'picture' || tag === 'canvas' || tag === 'hr'
+                || tag === 'table' || tag === 'video' || tag === 'audio' || tag === 'iframe'
+                || tag === 'object' || tag === 'embed') return false;
+            if (el.querySelector('img, svg, picture, canvas, hr, table, video, audio, iframe, object, embed')) return false;
+            if (el.querySelector('[id]')) return false;
+            return el.textContent.trim().length === 0;
+          };
+          while (body.firstChild && isBlank(body.firstChild)) body.removeChild(body.firstChild);
+          const zeroTop = (el) => { try { el.style.setProperty('margin-top', '0', 'important'); } catch (_) {} };
+          const first = body.firstElementChild;
+          if (!first) return;
+          zeroTop(first);
+          const tag = first.tagName.toLowerCase();
+          let firstText = null;
+          if (tag === 'div' || tag === 'section' || tag === 'article' || tag === 'main' || tag === 'header') {
+            firstText = first.querySelector('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, td, th, dd, dt, figcaption, div');
+          }
+          if (firstText && firstText !== first) zeroTop(firstText);
+        })();
+        """;
+
+    private async Task NormalizeReaderChapterStartAsync()
+    {
+        if (ReaderWebView.CoreWebView2 is null) return;
+        try
+        {
+            await ReaderWebView.CoreWebView2.ExecuteScriptAsync(GetReaderChapterStartNormalizationScript());
+        }
+        catch { }
     }
 
     // Jumps to an explicit fragment anchor (a genuine TOC heading anchor).
