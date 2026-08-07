@@ -580,7 +580,7 @@ public sealed partial class MainWindow
         }
         else
         {
-            _ = NavigateReaderSourceAsync(new Uri(target), 1, animate: true);
+            _ = NavigateReaderSourceAsync(new Uri(target), 1, animate: true, jump: true);
         }
     }
 

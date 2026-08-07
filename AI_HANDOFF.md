@@ -8,11 +8,11 @@
 
 ## 0. 当前状态速览
 
-- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。上一轮完成读者生产力工具大升级（阅读排版设置、进度断点恢复、书签、书内搜索、选区快捷工具栏、划线/批注导出、阅读统计、CJK 阅读增强），并修复了 WebView2 `IsScriptEnabled=false` 下真实交互失效的两个问题（连续滚动接章、分页点击翻页）与分页正文排版（默认横排分页每屏一个完整视口列、列宽对齐、列边界吸附、排版数据安全回退）。再上一轮修复 EPUB 图片/封面显示：分页模式下封面/大型插图按比例 contain 约束在当前正文内容盒内，滚动模式图片宽度跟随正文内容并保持比例、无横向溢出。本轮修复阅读器顶部自绘 X 退出按钮点击卡死/无响应（根因：低级鼠标钩子回调跨线程访问 XAML 与 `UnhookWindowsHookEx` 双向死锁 + 窗口关闭同步等待永不返回的 WebView 脚本；改为钩子只读缓存/投递 UI 线程、关闭流程幂等非阻塞、有界异步落库），并为所有真实章节切换路径加入平滑过渡（默认“仿真”淡入淡出，复用既有宿主变换翻页动画；无动画保持立即切换）。详见第 26 节。
-- 当前分支：`master`；最新本地提交为本轮最终提交 `fix: smooth reader chapter transitions`（详见第 26 节）。
-- GitHub：`origin/master` 仍为 `4e8009b`，本地领先 14 个提交，按开发约定未自动推送。
-- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 本轮发布（12:15）。
-- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；33 项测试全部通过。Release 已重新发布，并用真实中文 EPUB《規模/Scale》（发布数据 `data/library/6efd4f1ba0ed4a2abdc2f0390edc7299/…(z-library.sk,…).epub`，SVG 封面 `cover.jpg` 1536×2048）做真实运行定向验证：X 退出按钮关闭 176–196ms 无冻结、返回书架正常、连续双击 X 幂等；TOC 搜索过滤后跨章跳转在默认“仿真”/“无动画”/“左右滑动”三种模式下均完成导航且进程存活（5/31→1/31→22/31→23/31 等，见第 26 节）。
+- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。上一轮完成读者生产力工具大升级（阅读排版设置、进度断点恢复、书签、书内搜索、选区快捷工具栏、划线/批注导出、阅读统计、CJK 阅读增强），并修复了 WebView2 `IsScriptEnabled=false` 下真实交互失效的两个问题（连续滚动接章、分页点击翻页）与分页正文排版（默认横排分页每屏一个完整视口列、列宽对齐、列边界吸附、排版数据安全回退）。再上一轮修复 EPUB 图片/封面显示：分页模式下封面/大型插图按比例 contain 约束在当前正文内容盒内，滚动模式图片宽度跟随正文内容并保持比例、无横向溢出。再上一轮修复阅读器顶部自绘 X 退出按钮点击卡死/无响应（根因：低级鼠标钩子回调跨线程访问 XAML 与 `UnhookWindowsHookEx` 双向死锁 + 窗口关闭同步等待永不返回的 WebView 脚本；改为钩子只读缓存/投递 UI 线程、关闭流程幂等非阻塞、有界异步落库），并为所有真实章节切换路径加入平滑过渡。本轮修复目录跳转/章节切换时的闪现与短暂卡顿（根因：旧实现在 `ReaderWebView.Source = target` 前先淡出/滑出旧内容，且 NavigationCompleted 的批注/脚注/进度等后置工作全部在入场动画前串行等待；改为导航期间保持旧内容可见、首屏准备完成后再短淡入/滑入，非首屏任务延迟到显示后并带导航序列守卫，杜绝旧导航/旧后置任务覆盖新章节）。详见第 27 节。
+- 当前分支：`master`；最新本地提交为本轮最终提交 `fix: reduce reader chapter switch jank`（详见第 27 节）。
+- GitHub：`origin/master` 仍为 `4e8009b`，本地领先 15 个提交，按开发约定未自动推送。
+- 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 本轮发布（13:44）。
+- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；33 项测试全部通过。Release 已重新发布，并用真实中文 EPUB《規模/Scale》（发布数据 `data/library/6efd4f1ba0ed4a2abdc2f0390edc7299/…(z-library.sk,…).epub`，SVG 封面 `cover.jpg` 1536×2048）做真实运行定向验证：目录远章节跳转 4 次（13/31→1→12→13→1）全部通过、无长时间全白/假卡死、章节进度正确；上一章/下一章跨章（1→2）正文可读；快速连续点目录最终只显示最后一次目标；X 关闭 123–133ms 返回书架且进程存活（详见第 27 节）。
 - 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环；2026-08-06 又完成 64 MiB EPUB 发送、大小校验和删除，设备端无测试残留。
 - 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
 
@@ -536,14 +536,15 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 ## 8. Git 状态
 
-当前工作分支为 `master`；`origin/master` 最新为 `4e8009b`，本地领先 15 个提交，未自动推送。当前工作区另有未提交的 `src/Kkindle.App/App.xaml` 修改和未跟踪的 `.opencode/` 目录，均不是本轮关闭卡死修复与章节平滑过渡的一部分，必须保留。构建输出由 `.gitignore` 排除，不纳入版本控制。
+当前工作分支为 `master`；`origin/master` 最新为 `4e8009b`，本地领先 16 个提交，未自动推送。当前工作区另有未提交的 `src/Kkindle.App/App.xaml` 修改和未跟踪的 `.opencode/` 目录，均不是本轮章节切换卡顿修复的一部分，必须保留。构建输出由 `.gitignore` 排除，不纳入版本控制。
 
 当前开发基线及最近提交（本轮最终提交位于最上方）：
 
 ```text
-fix: smooth reader chapter transitions  ← 本轮最终提交（X 卡死修复：钩子跨线程锁死/同步等待 WebView 根因 + 幂等非阻塞关闭/有界落库 + 章节平滑过渡统一收敛/默认仿真）
-fix: fit epub images to reader viewport  ← 上一轮最终提交（EPUB 图片/封面按正文视口自适应：分页 contain 拟合 + 按尺寸识别封面 + 滚动模式防横向溢出）
-fix: restore reader pagination layout  ← 上上轮最终提交（分页正文排版修复/列宽对齐/列吸附/排版数据安全回退）
+fix: reduce reader chapter switch jank  ← 本轮最终提交（章节切换闪现/卡顿：导航期间保持旧内容可见 + 首屏准备完成后短淡入/滑入 + 非首屏任务延迟并带导航序列守卫 + 跳转一律短淡入）
+fix: smooth reader chapter transitions  ← 上一轮最终提交（X 卡死修复：钩子跨线程锁死/同步等待 WebView 根因 + 幂等非阻塞关闭/有界落库 + 章节平滑过渡统一收敛/默认仿真）
+fix: fit epub images to reader viewport  ← 上上轮最终提交（EPUB 图片/封面按正文视口自适应：分页 contain 拟合 + 按尺寸识别封面 + 滚动模式防横向溢出）
+fix: restore reader pagination layout  ← 上上上轮最终提交（分页正文排版修复/列宽对齐/列吸附/排版数据安全回退）
 feat: expand reader productivity tools
 c91972b fix: repair reader page interaction
 37e2057 docs: refresh handoff timestamp
@@ -611,6 +612,7 @@ git status --short --branch
 - 本轮排查并修复一个必须记住的坑：`Slider`/`ComboBox` 的 `ValueChanged`/`SelectionChanged` 事件会在 XAML 解析过程中（给 `Minimum`/`Maximum`/`Value` 赋值时）提前触发，此时兄弟控件尚未创建；任何在该事件里访问其他 XAML 控件的事件处理器都会抛空引用，并被包装成 `XamlParseException: Failed to assign to property 'RangeBase.Minimum/Value'` 的启动崩溃。修复方式是 `ReaderLayoutSettingChanged`/`ReaderFontFamilyBox_SelectionChanged` 统一加 `AreReaderLayoutControlsReady()` 空值守卫。
 - 本轮新增 EPUB 图片/封面基线（详见第 25 节，必读）：分页模式对 `img`/`svg` 强制 `width:auto !important; height:auto !important; max-width:100% !important`，并用实测内容盒高度 CSS 变量 `--kkindle-page-content-h`（注入脚本读 `body.clientHeight - paddingTop - paddingBottom` 写到 `documentElement`）做 `max-height: calc(var(--kkindle-page-content-h) - 3.6em)` 的 contain 拟合（3.6em 即图片自身 1.8em 上下外边距），保证图片+边距整体不超当前页内容盒、不被底部裁切、不变形，且基于真实 WebView viewport/内容盒而非整个窗口；首个大图（`naturalWidth/naturalHeight` 未解码时回退 `width/height` 属性，阈值：面积 ≥ 视口 35% 或宽高分别 ≥ 60% 视口，与书名/文件名无关）加 `.kkindle-cover` 类收紧到 `- 6em` 并把外边距缩为 1em，让封面与标题同页；滚动模式只保留 `height:auto !important; max-width:100% !important`（不强制 `width`，保留 EPUB 自身百分比宽度如本书 `div.chatu-part img{width:40%}` 装饰图），自然高度不压缩、无横向溢出。图片适配在 `ApplyReaderAppearanceAsync()` 内执行，`NavigationCompleted` 后经 `RetryReaderImageFitAsync()` 在 250ms/950ms 主机侧重试（图片延迟解码后补加封面类并重新吸附）；窗口缩放/收目录/收助手/禅模式/字号排版变化仍经 `ScheduleReaderRelayout()` 自动重适配。`IsScriptEnabled=false` 与导航白名单不变。
 - 本轮新增关闭卡死与章节过渡基线（详见第 26 节，必读）：**低级鼠标钩子回调严禁触碰 XAML**——钩子线程只读 `_readerHookEnabled` + 缓存屏幕矩形 `_readerWebViewScreenRect`，点击经 `DispatcherQueue.TryEnqueue` 投递 UI 线程；否则 `UnhookWindowsHookEx` 会与在途回调的跨线程 XAML 访问双向死锁，用户点 X 时整窗卡死。**关闭流程必须幂等且不阻塞 UI 线程**：`CloseReader()`/`MainWindow_Closed()` 先停钩子/轮询/计时器/取消动画与重排令牌、关全部 Popup，再发起有界（1500ms `WaitAsync`）异步落库，`skipWebViewCapture=true` 时用 `_readerLastProgress` 而不调 `ExecuteScriptAsync`（WebView 导航/关闭中脚本可能永不返回）；绝不在 UI 线程 `.Wait()/.Result`。进度/统计保存失败不能阻止关闭。所有真实章节切换路径收敛到 `ShowReaderChapterAsync`/`NavigateReaderSourceAsync`：默认动画改为“仿真”（淡入淡出+轻微缩放），左右滑动按方向平移，无动画保持立即切换；过渡用既有宿主变换（`ReaderWebViewHost` Opacity/Scale/TranslateX）播放 130ms 出/190ms 入，带取消令牌与 3 秒看门狗，`_readerTransitionActive` 在过渡期间抑制滚动轮询/分区点击，`NavigationCompleted` 之后释放；关闭第一时间取消动画并复位变换，动画与关闭互不等待。
+- 本轮新增章节切换时序与首屏拆分基线（详见第 27 节，必读）：**不要在导航前把唯一 WebView 淡出/滑出**。导航期间当前章节保持完全可见；`NavigationCompleted` 后先隐藏宿主（`ReaderWebViewHost.Opacity=0`，白底而非黑屏）做首屏准备（排版 CSS/视口/图片适配/目标位置恢复/分页吸附/边沿校准），首屏就绪后播放 180ms 淡入或滑入，无动画立即显示；入动画时长 180ms 落在 120–220ms 目标区间。**首屏/非首屏必须拆分**：批注还原、脚注 hover、进度/统计刷新等非首屏工作延迟到 `RunReaderPostNavigationWorkAsync`（fire-and-forget），每个 await 后检查 `IsStaleReaderNavigation(sequence, token)`（序列号 `_readerChapterTransitionSequence` + `_readerChapterTransitionCancellation` + `_readerCloseRequested`），旧章节/关闭的后置任务立即中止，绝不允许覆盖新章节或卡住关闭。**导航序列守卫**：`_readerPendingNavigationTarget` 只允许最后一次请求的导航走首屏/入场/后置流程；被取消/取代的旧导航 `NavigationCompleted`（`IsSuccess=false`）不提前释放过渡守卫；守卫由最新章节成功完成或 3 秒看门狗释放，且每次导航（含无动画）都武装看门狗。**跳转一律短淡入**：目录/搜索/书签/批注/AI 来源/进度条跳转传 `jump: true`，即使选“左右滑动”也播淡入，避免远章节跳转看起来像逐页拖动；上一/下一章、滚动接章、分页跨章保持滑动/仿真。未做双 WebView 相邻章节预加载（避免新架构引入卡死风险）。
 
 ## 13. P1 完成发布（2026-08-05）
 
@@ -1013,3 +1015,50 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - Debug/Release x64 完整解决方案构建：0 警告、0 错误；33 项测试（Debug/Release）全部通过。
 - 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（本轮更新，12:15），Release 启动存活 + 真实 EPUB 定向验证通过。
 - 本轮提交：`fix: smooth reader chapter transitions`，仅包含 `MainWindow.xaml.cs`、`MainWindow.ReaderFeatures.cs`、`MainWindow.ReaderTools.cs`、`MainWindow.ReaderAi.cs`、`MainWindow.xaml`、`AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。
+
+## 27. 目录跳转/章节切换闪现与短暂卡顿修复（2026-08-07）
+
+### 根因（真实 EPUB 实测路径，非推测）
+
+用户反馈点击目录跳转时仍先把旧章节淡出/滑出，然后单 WebView2 经 `ReaderWebView.Source = target` 导航新 XHTML；新文档加载、排版 CSS、图片适配、批注/脚注/定位/分页吸附等一系列工作完成前，画面闪白或像卡死一会。定位到上一轮"章节平滑过渡"实现的三个问题：
+
+1. **导航前先播"出"动画**：`NavigateReaderSourceAsync` 在 `ReaderWebView.Source = target` 之前把唯一 WebView 淡出到 0.2 或左右滑出（130ms），旧内容提前不可见；WebView2 导航期间画面只剩 0.2 透明度的旧页或空白，看起来像卡死。
+2. **`NavigationCompleted` 把非首屏工作全部串行 await 在入场动画之前**：批注还原（`ApplyReaderAnnotationsToPageAsync`）、脚注 hover（`ConfigureReaderFootnoteHoverAsync`，最多解析 120 个脚注目标）、定位（批注/搜索片段/书签/断点）、进度刷新等全部完成后才播放"入"动画，期间画面长时间空白。
+3. **没有导航序列守卫**：快速连续点击目录时，被取代的旧导航的 `NavigationCompleted`（`IsSuccess=false`）会消耗最新章节的入场动画、提前释放过渡守卫，旧章节的延迟任务也可能覆盖新章节。
+
+### 本次改动（时序、拆分、守卫；未动标题栏/无关 UI）
+
+`src/Kkindle.App/MainWindow.xaml.cs` + `MainWindow.ReaderFeatures.cs` / `ReaderTools.cs` / `ReaderAi.cs`：
+
+1. **过渡时序重排**：
+   - 删除导航前的"出"动画：导航期间当前章节保持完全可见，`NavigateReaderSourceAsync` 只是设置 `_readerTransitionActive` 守卫并 `ReaderWebView.Source = target`，不再等 130ms 淡出。
+   - `NavigationCompleted` 确认这是最后一次请求的导航（`_readerPendingNavigationTarget` 与当前 `Source` 一致）后：若有待入动画则先把宿主 `ReaderWebViewHost.Opacity = 0`（保持不透明白底，永不黑屏），跑首屏准备，就绪后再播放 180ms 淡入/滑入（`AnimateReaderPageTurnAsync` 入动画 180ms，落在 120–220ms 目标区间）；无动画模式立即显示。
+   - `AnimateReaderPageTurnAsync` 增加 `style` 参数（1=淡入，2=滑入），入动画显式设置起始态（淡入 Opacity=0/Scale=0.985，滑入 TranslateX=±宽），不再依赖上一轮遗留的出动画结束态。
+2. **首屏/非首屏任务拆分**：
+   - 首屏（显示前必须完成）：`ApplyReaderAppearanceAsync()`（排版 CSS/视口/图片 contain 适配/分页吸附 `SnapReaderPaginationAsync`）、目标位置恢复（`ScrollToPendingReaderAnnotationAsync`/`ScrollToPendingReaderChunkAsync`/`ScrollToPendingReaderBookmarkAsync`/`ApplyReaderRestorePositionAsync`）、`MoveReaderToEndAsync`（`_readerNavigateToEnd`，只在本导航仍为当前时清除）、`PrimeReaderScrollEdgesAsync()`。
+   - 非首屏（显示后执行）：新增 `RunReaderPostNavigationWorkAsync(sequence, token)`，fire-and-forget，顺序执行 `RetryReaderImageFitAsync(sequence)`（延迟重试带序列守卫）、`ApplyReaderAnnotationsToPageAsync`、`ConfigureReaderFootnoteHoverAsync`、`RefreshReaderProgressAsync`、`SaveReaderProgressThrottledAsync`、`SkipShortChapterIfNeededAsync`；每个 await 后检查 `IsStaleReaderNavigation(sequence, token)`（`_readerCloseRequested` || token 取消 || 序列号已变），旧章节/关闭的后置任务立即中止，异常隔离（catch 吞掉，绝不崩进事件循环）。
+3. **所有导航路径一致 + 跳转语义**：目录点击（`ReaderTocList_SelectionChanged`）、书签（`NavigateToReaderBookmark`）、批注（`NavigateToReaderAnnotation`）、搜索片段（`NavigateToReaderChunkAsync`）、AI 来源（`ReaderAiSourceButton_Click`）、进度条跳转（`ReaderProgressSlider_ValueChanged`）一律传 `jump: true` → 即使动画菜单选"左右滑动"也播放短淡入，避免远章节跳转看起来像逐页拖动；上一/下一章（`TurnReaderPageAsync` 章界）、滚动接章（`PollReaderScrollAsync`）、分页跨章保持原滑动/仿真。待入动画以 `ReaderTurnInAnimation(Direction, Style)` 在导航开始时固定，不随中途改菜单而变化。
+4. **导航守卫与失败路径**：
+   - `_readerPendingNavigationTarget`：只有最后一次请求的导航允许走首屏/入场/后置流程；被取代的旧导航 `NavigationCompleted` 直接返回（不跑准备、不消耗入场动画）。
+   - `!args.IsSuccess` 不再提前清守卫/清入场动画：被取消/取代的导航绝不能释放过渡守卫或吃掉最新章节的动画；守卫由最新章节的成功 `NavigationCompleted` 或 3 秒看门狗释放。每次导航（含无动画模式）都武装看门狗，失败导航不会永久卡住滚动轮询/分区点击。
+   - `RetryReaderImageFitAsync` 接收导航序列号，延迟 250ms/700ms 的回调在旧章节或关闭时中止，不会给新章节补错封面类。
+5. **关闭流程不受影响**：`CloseReader()`/`MainWindow_Closed()` 仍第一时间取消章节过渡令牌、清 `_readerPendingTurnInAnimation`/`_readerPendingNavigationTarget`、复位变换；后置任务因令牌/关闭标志立即中止，X 点击非阻塞顺序保持。未做双 WebView 相邻章节预加载（避免新架构引入更多卡死风险）。
+
+### 定向验证（真实 EPUB《規模》31 章，Release 发布版 + UIA + 正文区域暗度采样）
+
+- **目录远章节跳转（默认"仿真"淡入，至少 3 次）**：13→1（封面）、1→12（05 部分首页）、12→13（1. 生活在…正文）、13→1 共 4 次跳转全部通过。逐次记录：章节进度文本正确更新（13/31→1/31→12/31→13/31→1/31）；正文区域暗度（全白/冻结代理指标）无长时间全白——正文章节最长为入场淡入产生的约 234ms，无 1 秒级空白；文字正文章节最终暗度 0.10（正文可见），稀疏章节（部分标题页）最终暗度 0.0038 为真实内容而非冻结。开发期临时加入的 `nav.log` 计时（发布前已移除）确认 app 侧每次跳转 REQ→`NavigationCompleted`→首屏准备→入场完成 = **200–450ms**。
+- **上一章/下一章**：从第 1 章（封面）点"下一页"1 次跨到第 2 章（进度 1/31→2/31），正文可见（finalDark=0.0202），跨章短过渡正常。
+- **目录连续快速点击**：快速依次点 封面→05 部分→1. 生活在（选中成功的轮次）最终只显示最后一次目标（已读 13/31），无旧导航/旧后置任务覆盖，无全白/假卡死。（UIA 对虚拟化 TOC 项的查找偶发选不中，属测量工具限制，已用 `ItemContainerPattern` 缓解；"最终只显示最后一次目标"以全部选中的轮次为准。）
+- **关闭验证**：点击 Kreader 顶部 X，阅读器面板 123–133ms 内移除，返回书架（"开始阅读"重新可见），进程存活响应。关闭不被动画/后置任务阻塞。
+
+### 自动化边界（未验证项，需人工复核）
+
+- 与前几轮一致，无法把真实鼠标/滚轮可靠投递到 WebView2 合成岛，**滚动自动接章、分页分区点击跨章**的端到端输入未在自动化中触发；其代码路径与已验证的目录/按钮跨章完全一致（`ShowReaderChapterAsync`/`NavigateReaderSourceAsync`）。
+- 屏显时序用正文区域暗度采样（200ms 粒度）验证，动画观感（淡入曲线、有无闪烁）建议人工在交互桌面翻几页确认一次。
+- 自动化环境曾出现"快速目录连续点击时个别 TOC 项选不中"，以及重负载全帧捕获（25ms/帧 BitBlt + 逐像素分析）会拖慢 WebView2 渲染导致"10 秒全白"假象；改用 200ms 轻量采样后确认真实切换为 200–450ms。后续人工验收无需处理此问题。
+
+### 构建、测试与发布
+
+- Debug/Release x64 完整解决方案构建：0 警告、0 错误；33 项测试（Debug/Release）全部通过。
+- 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（本轮更新，13:44），Release 启动存活 + 真实 EPUB 定向验证通过。
+- 本轮提交：`fix: reduce reader chapter switch jank`，仅包含 `MainWindow.xaml.cs`、`MainWindow.ReaderFeatures.cs`、`MainWindow.ReaderTools.cs`、`MainWindow.ReaderAi.cs`、`AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。

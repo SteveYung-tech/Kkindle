@@ -68,7 +68,15 @@ public sealed partial class MainWindow : Window
     private bool _readerContinuousLocked;
     private int _readerContinuousDirection = 1;
     private DateTimeOffset _readerLastChapterChange = DateTimeOffset.MinValue;
-    private int? _readerPendingTurnInAnimation;
+    // The incoming transition to play once the new chapter's first screen is
+    // ready (NavigationCompleted + essential preparation). The style is pinned
+    // at navigation time so a "jump" navigation (TOC/search/bookmark/annotation/
+    // AI/progress slider) always fades in even when 左右滑动 is selected.
+    private ReaderTurnInAnimation? _readerPendingTurnInAnimation;
+    // The most recently requested navigation target. NavigationCompleted for a
+    // superseded navigation must be ignored, otherwise a stale handler could
+    // consume the pending turn-in and run preparation against an older page.
+    private Uri? _readerPendingNavigationTarget;
     private CancellationTokenSource? _readerRelayoutCancellation;
     private DispatcherQueueTimer? _readerScrollPollTimer;
     private bool _readerPollRunning;
@@ -94,6 +102,11 @@ public sealed partial class MainWindow : Window
     private bool _readerTransitionActive;
     private CancellationTokenSource? _readerChapterTransitionCancellation;
     private int _readerChapterTransitionSequence;
+
+    // Direction + animation style for the incoming chapter transition. Style is
+    // 1 = fade (仿真), 2 = slide (左右滑动). Recorded when the navigation starts
+    // so a far-chapter jump never plays a long per-page-looking slide.
+    private readonly record struct ReaderTurnInAnimation(int Direction, int Style);
 
     public MainWindow(
         AppPaths paths,
@@ -849,6 +862,7 @@ public sealed partial class MainWindow : Window
             _readerCloseRequested = false;
             _readerTransitionActive = false;
             _readerPendingTurnInAnimation = null;
+            _readerPendingNavigationTarget = null;
             _readerChapterTransitionCancellation?.Cancel();
             _readerChapterTransitionCancellation?.Dispose();
             _readerChapterTransitionCancellation = null;
@@ -1112,26 +1126,38 @@ public sealed partial class MainWindow : Window
 
     // ------------------------------------------------------------------
     // Chapter navigation. Every real chapter-switch path funnels through
-    // ShowReaderChapterAsync / NavigateReaderSourceAsync so a short smooth
-    // transition (fade "仿真" or directional "左右滑动", disabled in "无动画")
-    // plays on the verified host transform. The transition never blocks the
-    // UI thread and is cancelled immediately when the reader closes.
+    // ShowReaderChapterAsync / NavigateReaderSourceAsync. The transition
+    // timing is deliberate:
+    //   1. The CURRENT chapter stays fully visible while the new document
+    //      loads — we never fade/slide the old page away up front, so the
+    //      navigation never shows a blank/frozen screen for its whole duration.
+    //   2. After NavigationCompleted the essential first-screen work runs
+    //      (styling/viewport, cover/image fit, target position restore,
+    //      pagination snap, scroll-edge priming) while the new page is held
+    //      behind the pane's opaque background.
+    //   3. Only then does a short fade-in (仿真 / 远章节跳转) or slide-in
+    //      (左右滑动, sequential page turns) reveal the ready first screen;
+    //      无动画 shows it immediately. Slow non-first-screen work (annotations,
+    //      footnote hover, stats/progress) is deferred behind the reveal and
+    //      guarded by the navigation sequence so a stale chapter can never
+    //      overwrite the current one. The transition never blocks the UI
+    //      thread and is cancelled immediately when the reader closes.
     // ------------------------------------------------------------------
 
-    private async Task ShowReaderChapterAsync(int direction = 1, bool animate = true)
+    private async Task ShowReaderChapterAsync(int direction = 1, bool animate = true, bool jump = false)
     {
         if (_readerChapterIndex < 0 || _readerChapterIndex >= _readerChapters.Count) return;
         UpdateReaderChapterControls();
         SelectReaderTocItem(_readerNavigation.FirstOrDefault(item => item.ChapterIndex == _readerChapterIndex));
-        await NavigateReaderSourceAsync(new Uri(_readerChapters[_readerChapterIndex]), direction, animate);
+        await NavigateReaderSourceAsync(new Uri(_readerChapters[_readerChapterIndex]), direction, animate, jump);
     }
 
-    private async Task NavigateReaderSourceAsync(Uri target, int direction, bool animate)
+    private Task NavigateReaderSourceAsync(Uri target, int direction, bool animate, bool jump = false)
     {
         if (target is null || ReaderWebView.CoreWebView2 is null)
         {
             if (target is not null) ReaderWebView.Source = target;
-            return;
+            return Task.CompletedTask;
         }
 
         var sameChapter = ReaderWebView.Source?.AbsoluteUri.Equals(target.AbsoluteUri, StringComparison.OrdinalIgnoreCase) == true;
@@ -1139,15 +1165,21 @@ public sealed partial class MainWindow : Window
         {
             // Already on this exact chapter/fragment: no navigation, no animation.
             _readerPendingTurnInAnimation = null;
-            return;
+            return Task.CompletedTask;
         }
 
         // Animations are decorative: never run them while closing, while the
-        // pane is hidden, or when the user selected "无动画".
+        // pane is hidden, or when the user selected "无动画". "Jump" navigations
+        // (TOC/search/bookmark/annotation/AI/progress slider) always use the
+        // short fade instead of the directional slide, so jumping to a far
+        // chapter never looks like a slow per-page drag.
         var shouldAnimate = animate
             && _readerPageAnimation > 0
             && !_readerCloseRequested
             && ReaderPane.Visibility == Visibility.Visible;
+        var turnInStyle = shouldAnimate
+            ? (jump || _readerPageAnimation == 1 ? 1 : 2)
+            : 0;
 
         _readerChapterTransitionCancellation?.Cancel();
         _readerChapterTransitionCancellation?.Dispose();
@@ -1155,27 +1187,14 @@ public sealed partial class MainWindow : Window
         var token = _readerChapterTransitionCancellation.Token;
         var sequence = ++_readerChapterTransitionSequence;
 
-        if (shouldAnimate)
-        {
-            _readerTransitionActive = true;
-            try
-            {
-                await AnimateReaderPageTurnAsync(direction, isOut: true, token);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-            if (token.IsCancellationRequested
-                || sequence != _readerChapterTransitionSequence
-                || _readerCloseRequested)
-            {
-                ResetReaderWebViewTransform();
-                return;
-            }
-        }
-
-        _readerPendingTurnInAnimation = shouldAnimate ? direction : null;
+        // The current page is kept on screen while the document loads; the
+        // reader surface is hidden only after the new chapter commits and its
+        // first screen is prepared (see ReaderWebView_NavigationCompleted).
+        _readerTransitionActive = true;
+        _readerPendingTurnInAnimation = shouldAnimate
+            ? new ReaderTurnInAnimation(direction, turnInStyle)
+            : null;
+        _readerPendingNavigationTarget = target;
         try
         {
             ReaderWebView.Source = target;
@@ -1185,19 +1204,20 @@ public sealed partial class MainWindow : Window
             // A stale navigation is fine; make sure the reader surface is never
             // left in a transformed/hidden state.
             _readerPendingTurnInAnimation = null;
+            _readerPendingNavigationTarget = null;
             ResetReaderWebViewTransform();
             _readerTransitionActive = false;
-            return;
+            return Task.CompletedTask;
         }
-        if (shouldAnimate)
-        {
-            // Watchdog: NavigationCompleted normally releases the transition
-            // guard; if the navigation never reports back, release it after a
-            // few seconds so the scroll poll can never be blocked permanently.
-            _ = Task.Delay(3000).ContinueWith(
-                _ => _readerTransitionActive = false,
-                TaskScheduler.Default);
-        }
+        // Watchdog: NavigationCompleted normally releases the transition guard;
+        // if the navigation never reports back (or fails while a still-pending
+        // target is waiting), release it after a few seconds so the scroll poll
+        // can never be blocked permanently. Armed for every navigation, not just
+        // animated ones, so a failed chapter in 无动画 mode is never stuck.
+        _ = Task.Delay(3000).ContinueWith(
+            _ => _readerTransitionActive = false,
+            TaskScheduler.Default);
+        return Task.CompletedTask;
     }
 
     private void ReaderTocList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1206,7 +1226,7 @@ public sealed partial class MainWindow : Window
         _readerContinuousLocked = false;
         _readerChapterIndex = item.ChapterIndex;
         UpdateReaderChapterControls();
-        _ = NavigateReaderSourceAsync(new Uri(item.Target), 1, animate: true);
+        _ = NavigateReaderSourceAsync(new Uri(item.Target), 1, animate: true, jump: true);
     }
 
     private void SelectReaderTocItem(EpubReaderNavigationItem? item)
@@ -1252,7 +1272,7 @@ public sealed partial class MainWindow : Window
         _readerContinuousLocked = false;
         _readerChapterIndex = chapterIndex;
         _readerNavigateToEnd = false;
-        _ = ShowReaderChapterAsync(previousIndex < chapterIndex ? 1 : -1);
+        _ = ShowReaderChapterAsync(previousIndex < chapterIndex ? 1 : -1, jump: true);
     }
 
     private async void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
@@ -1457,9 +1477,10 @@ public sealed partial class MainWindow : Window
     private async Task AnimateReaderPageTurnAsync(
         int direction,
         bool isOut,
+        int style,
         CancellationToken cancellationToken = default)
     {
-        if (_readerPageAnimation == 0 || _readerCloseRequested)
+        if (style == 0 || _readerCloseRequested)
         {
             ResetReaderWebViewTransform();
             return;
@@ -1472,14 +1493,27 @@ public sealed partial class MainWindow : Window
 
         var width = ReaderWebViewHost.ActualWidth;
         var storyboard = new Storyboard();
-        var duration = new Duration(TimeSpan.FromMilliseconds(isOut ? 130 : 190));
+        var duration = new Duration(TimeSpan.FromMilliseconds(isOut ? 130 : 180));
         var easing = new CubicEase { EasingMode = EasingMode.EaseInOut };
 
-        if (_readerPageAnimation == 1)
+        if (style == 1)
         {
-            // Simulated: gentle fade combined with a slight scale.
+            // Simulated: gentle fade combined with a slight scale. The incoming
+            // page starts hidden (the pane's opaque background shows behind it
+            // while the first screen is prepared) and fades up to full opacity.
+            if (isOut)
+            {
+                ReaderWebViewHost.Opacity = 1;
+            }
+            else
+            {
+                ReaderWebViewHost.Opacity = 0;
+                ReaderWebViewTransform.ScaleX = 0.985;
+                ReaderWebViewTransform.ScaleY = 0.985;
+            }
             var opacity = new DoubleAnimation
             {
+                From = isOut ? 1 : 0,
                 To = isOut ? 0.2 : 1,
                 Duration = duration,
                 EnableDependentAnimation = true,
@@ -1491,6 +1525,7 @@ public sealed partial class MainWindow : Window
 
             var scaleX = new DoubleAnimation
             {
+                From = isOut ? 1 : 0.985,
                 To = isOut ? 0.985 : 1,
                 Duration = duration,
                 EnableDependentAnimation = true,
@@ -1502,6 +1537,7 @@ public sealed partial class MainWindow : Window
 
             var scaleY = new DoubleAnimation
             {
+                From = isOut ? 1 : 0.985,
                 To = isOut ? 0.985 : 1,
                 Duration = duration,
                 EnableDependentAnimation = true,
@@ -1514,9 +1550,11 @@ public sealed partial class MainWindow : Window
         else
         {
             // Slide: horizontal translation. Incoming content enters from the
-            // direction of travel; the off-screen jump is hidden by the clip.
+            // direction of travel; it starts parked off-screen so the pane's
+            // opaque background shows while the first screen is prepared.
             var from = isOut ? 0d : (direction > 0 ? width : -width);
             var to = isOut ? (direction > 0 ? -width : width) : 0d;
+            if (!isOut) ReaderWebViewTransform.TranslateX = from;
             var translate = new DoubleAnimation
             {
                 From = from,
@@ -1533,7 +1571,7 @@ public sealed partial class MainWindow : Window
         storyboard.Begin();
         try
         {
-            await Task.Delay(isOut ? 130 : 190, cancellationToken);
+            await Task.Delay(isOut ? 130 : 180, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -1736,6 +1774,7 @@ public sealed partial class MainWindow : Window
         _readerChapterTransitionCancellation = null;
         _readerTransitionActive = false;
         _readerPendingTurnInAnimation = null;
+        _readerPendingNavigationTarget = null;
         _readerRelayoutCancellation?.Cancel();
         _readerRelayoutCancellation?.Dispose();
         _readerRelayoutCancellation = null;
@@ -1835,49 +1874,129 @@ public sealed partial class MainWindow : Window
         }
         try
         {
-            // Always restore the page-turn transform, even on a failed navigation,
-            // so the reader content is never left off-screen.
-            if (_readerPendingTurnInAnimation is int pendingDirection)
+            // Only the most recently requested navigation may complete the flow.
+            // A stale NavigationCompleted for a superseded chapter must not run
+            // first-screen preparation or consume the pending turn-in, otherwise
+            // rapid TOC clicks could let an old chapter's tasks overwrite the
+            // newest one.
+            var pendingTarget = _readerPendingNavigationTarget;
+            if (pendingTarget is null
+                || ReaderWebView.Source is not { } source
+                || !source.AbsoluteUri.Equals(pendingTarget.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
             {
-                _readerPendingTurnInAnimation = null;
-                await AnimateReaderPageTurnAsync(pendingDirection, isOut: false);
-            }
-            if (!args.IsSuccess)
-            {
-                _readerTransitionActive = false;
                 return;
             }
+
+            if (!args.IsSuccess)
+            {
+                // A superseded (canceled) navigation reports failure while a
+                // newer chapter is already requested and still loading; clearing
+                // the guard/turn-in here would let the newer chapter reveal
+                // without its transition and could also release the guard while
+                // the newer document is mid-flight. So a failed/canceled
+                // completion never tears down state for a still-pending newer
+                // navigation: the successful NavigationCompleted of the newest
+                // chapter (or the 3s watchdog for a genuinely-failed chapter)
+                // is what releases the transition guard. The host is only ever
+                // parked for the reveal, so a failure leaves it at the identity
+                // transform automatically.
+                return;
+            }
+
+            var token = _readerChapterTransitionCancellation?.Token ?? CancellationToken.None;
+            var sequence = _readerChapterTransitionSequence;
+            var turnIn = _readerPendingTurnInAnimation;
+            _readerPendingTurnInAnimation = null;
+
+            // Essential first-screen work: style/layout/viewport, cover/image
+            // fit, target position restore and pagination snap must all be done
+            // before the new chapter is revealed, so the user never sees a raw
+            // unstyled or wrongly-positioned page. While this runs the host is
+            // hidden behind the pane's opaque background (never a black flash).
+            // Slow, non-first-screen work (annotations, footnotes, stats,
+            // progress) is deferred to RunReaderPostNavigationWorkAsync.
+            if (turnIn is not null) ReaderWebViewHost.Opacity = 0;
             await ApplyReaderAppearanceAsync();
-            // Cover images can finish decoding after the navigation completes; retry
-            // the cover fit so late-loading raster/SVG covers still get the tight
-            // page fit instead of a bottom-clipped render.
-            _ = RetryReaderImageFitAsync();
-            await ApplyReaderAnnotationsToPageAsync();
-            await ConfigureReaderFootnoteHoverAsync();
+            if (IsStaleReaderNavigation(sequence, token)) return;
             await ScrollToPendingReaderAnnotationAsync();
             await ScrollToPendingReaderChunkAsync();
             await ScrollToPendingReaderBookmarkAsync();
             await ApplyReaderRestorePositionAsync();
+            if (IsStaleReaderNavigation(sequence, token)) return;
             if (_readerNavigateToEnd)
             {
                 await MoveReaderToEndAsync();
-                _readerNavigateToEnd = false;
+                // Only clear the intent if this navigation is still current; a
+                // newer navigation may have re-armed it for its own chapter.
+                if (!IsStaleReaderNavigation(sequence, token))
+                    _readerNavigateToEnd = false;
             }
             // Edge state is aligned only after the new chapter is styled and
             // positioned; release the transition guard right after so the poll
             // can never misfire on a not-yet-primed page.
             await PrimeReaderScrollEdgesAsync();
+            if (IsStaleReaderNavigation(sequence, token)) return;
+
+            // The new first screen is ready: short fade/slide reveal (or show
+            // immediately in 无动画 mode), then let the deferred work run.
+            if (turnIn is { } pending)
+            {
+                await AnimateReaderPageTurnAsync(pending.Direction, isOut: false, pending.Style, token);
+            }
+            else
+            {
+                ResetReaderWebViewTransform();
+            }
             _readerTransitionActive = false;
-            await RefreshReaderProgressAsync();
-            _ = SaveReaderProgressThrottledAsync();
-            if (_readerFlowMode == 0 && _readerContinuousLocked)
-                _ = SkipShortChapterIfNeededAsync();
+            _readerPendingNavigationTarget = null;
+
+            _ = RunReaderPostNavigationWorkAsync(sequence, token);
         }
         catch
         {
             // Post-navigation styling is best-effort; a failure here must never
             // leave the reader or the window in a broken state.
+            _readerPendingTurnInAnimation = null;
+            _readerPendingNavigationTarget = null;
+            ResetReaderWebViewTransform();
             _readerTransitionActive = false;
+        }
+    }
+
+    // True when a newer navigation started, the transition was cancelled (new
+    // navigation or reader close), or the reader is closing. Deferred work
+    // checks this before and after every await so a stale chapter's tasks can
+    // never apply to (or override) the current chapter.
+    private bool IsStaleReaderNavigation(int sequence, CancellationToken token) =>
+        _readerCloseRequested
+        || token.IsCancellationRequested
+        || sequence != _readerChapterTransitionSequence;
+
+    // Non-first-screen work runs after the first screen is revealed. It is
+    // fire-and-forget with a bounded lifecycle: every await is followed by the
+    // navigation-sequence guard, so a chapter that got superseded or the reader
+    // closing can stop it immediately. Failures are isolated (never throw into
+    // the UI event loop).
+    private async Task RunReaderPostNavigationWorkAsync(int sequence, CancellationToken token)
+    {
+        try
+        {
+            if (IsStaleReaderNavigation(sequence, token)) return;
+            _ = RetryReaderImageFitAsync(sequence);
+            if (IsStaleReaderNavigation(sequence, token)) return;
+            await ApplyReaderAnnotationsToPageAsync();
+            if (IsStaleReaderNavigation(sequence, token)) return;
+            await ConfigureReaderFootnoteHoverAsync();
+            if (IsStaleReaderNavigation(sequence, token)) return;
+            await RefreshReaderProgressAsync();
+            _ = SaveReaderProgressThrottledAsync();
+            if (IsStaleReaderNavigation(sequence, token)) return;
+            if (_readerFlowMode == 0 && _readerContinuousLocked)
+                await SkipShortChapterIfNeededAsync();
+        }
+        catch
+        {
+            // Deferred reader work is best-effort; never let it crash the loop.
         }
     }
 
@@ -2043,17 +2162,22 @@ public sealed partial class MainWindow : Window
     // Images inside file:// EPUB chapters can finish decoding after
     // NavigationCompleted. Page scripts stay disabled (no load events fire), so
     // retry the cover fit a couple of times from the host side and re-snap the
-    // page if the cover sizing changed the column layout.
-    private async Task RetryReaderImageFitAsync()
+    // page if the cover sizing changed the column layout. The retry is guarded
+    // by the navigation sequence that requested it: if a newer chapter started
+    // (or the reader closed), the delayed calls bail out before touching the DOM.
+    private async Task RetryReaderImageFitAsync(int sequence)
     {
         if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return;
         try
         {
             await Task.Delay(250);
+            if (sequence != _readerChapterTransitionSequence || _readerCloseRequested) return;
             if (ReaderWebView.CoreWebView2 is null || ReaderWebView.Source is not { IsFile: true }) return;
             await FitReaderImagesAsync();
+            if (sequence != _readerChapterTransitionSequence || _readerCloseRequested) return;
             if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
             await Task.Delay(700);
+            if (sequence != _readerChapterTransitionSequence || _readerCloseRequested) return;
             if (ReaderWebView.CoreWebView2 is null || ReaderWebView.Source is not { IsFile: true }) return;
             await FitReaderImagesAsync();
         }
