@@ -1341,3 +1341,12 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - 三角与展开目录按钮共用窄条顶部固定区域，不改变正文宽度和极简目录矩形尺寸；极简目录滚动条仍保持隐藏。
 - Release x64 完整解决方案构建和发布 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-08 00:02:22）；发布版启动存活检查通过并正常关闭。
 - 本轮修改与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。
+
+## 46. Kreader 正文脚注悬停浮窗（2026-08-08）
+
+- 新增 `src/Kkindle.App/MainWindow.ReaderFootnotes.cs`，正文鼠标悬停由宿主侧定时读取光标位置，再通过 `elementFromPoint` 识别当前脚注链接；不依赖 EPUB 页面事件，`WebView2.Settings.IsScriptEnabled=false` 安全配置保持不变。
+- 复用 `EpubFootnoteResolver` 解析当前章节脚注目标，跨章节、切换目录、关闭阅读器和打开搜索/设置浮层时清理旧脚注状态；浮窗会根据链接位置在上下方选择空间并限制在窗口范围内。
+- 新增独立 WinUI `Popup` 脚注浮窗，使用白底、黑色边框、直角和无阴影；选中文字操作条同步改为白底黑字黑框，阅读器浮窗视觉统一为空心矩形。
+- 脚注逻辑从 `MainWindow.ReaderFeatures.cs` 拆出，Popup 生命周期接入阅读器工具计时器，避免页面脚本与宿主 UI 状态耦合。
+- Release x64 测试 83 项全部通过；发布版构建 0 警告、0 错误，标准便携版已重新发布并启动存活验证通过。
+- 本轮改动待提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。

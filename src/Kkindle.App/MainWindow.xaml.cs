@@ -1944,6 +1944,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        ClearReaderFootnotePage();
         if (_readerAllowedRoot is not null)
         {
             var chapterIndex = _readerChapters.ToList().FindIndex(chapter =>

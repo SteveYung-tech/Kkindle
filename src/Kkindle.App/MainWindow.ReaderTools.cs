@@ -78,10 +78,21 @@ public sealed partial class MainWindow
             IsLightDismissEnabled = false,
             IsOpen = false
         };
+
+        ReaderPane.Children.Remove(ReaderFootnotePopup);
+        ReaderFootnotePopup.Margin = new Thickness(0);
+        ReaderFootnotePopup.Visibility = Visibility.Visible;
+        _readerFootnotePopup = new Popup
+        {
+            Child = ReaderFootnotePopup,
+            IsLightDismissEnabled = false,
+            IsOpen = false
+        };
     }
 
     private void ResetReaderToolsSession()
     {
+        ResetReaderFootnoteSession();
         _readerLayout = new ReaderLayoutSettings();
         _readerBookmarks.Clear();
         _readerSelectionText = null;
@@ -99,6 +110,7 @@ public sealed partial class MainWindow
 
     private void StopReaderToolsTimers()
     {
+        StopReaderFootnoteHoverPoll();
         StopReaderSelectionPoll();
         StopReaderStatsTimer();
         HideReaderSearchPanel();
@@ -111,6 +123,7 @@ public sealed partial class MainWindow
 
     private void StartReaderToolsTimers()
     {
+        StartReaderFootnoteHoverPoll();
         StartReaderSelectionPoll();
         StartReaderStatsTimer();
     }

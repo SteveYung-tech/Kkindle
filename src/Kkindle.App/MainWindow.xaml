@@ -1892,7 +1892,7 @@
                  positioned above the current selection in the WebView. -->
             <Border x:Name="ReaderSelectionBar"
                     Padding="3"
-                    Background="#000000"
+                    Background="#FFFFFF"
                     BorderBrush="#000000"
                     BorderThickness="1"
                     CornerRadius="0"
@@ -1903,8 +1903,8 @@
                         <Setter Property="MinWidth" Value="52" />
                         <Setter Property="Height" Value="30" />
                         <Setter Property="Padding" Value="8,3" />
-                        <Setter Property="Background" Value="#000000" />
-                        <Setter Property="Foreground" Value="#FFFFFF" />
+                        <Setter Property="Background" Value="#FFFFFF" />
+                        <Setter Property="Foreground" Value="#000000" />
                         <Setter Property="BorderBrush" Value="#000000" />
                         <Setter Property="BorderThickness" Value="1" />
                         <Setter Property="CornerRadius" Value="0" />
@@ -1922,7 +1922,7 @@
                                                 <VisualState x:Name="PointerOver">
                                                     <Storyboard>
                                                         <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SelectionActionBackground" Storyboard.TargetProperty="Background">
-                                                            <DiscreteObjectKeyFrame KeyTime="0" Value="#FFFFFF" />
+                                                            <DiscreteObjectKeyFrame KeyTime="0" Value="#F2F2F2" />
                                                         </ObjectAnimationUsingKeyFrames>
                                                         <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SelectionActionContent" Storyboard.TargetProperty="Foreground">
                                                             <DiscreteObjectKeyFrame KeyTime="0" Value="#000000" />
@@ -1972,6 +1972,30 @@
                             Style="{StaticResource ReaderSelectionActionStyle}"
                             Click="ReaderSelectionSearchButton_Click" />
                 </StackPanel>
+            </Border>
+
+            <!-- Footnote preview hosted in a Popup so it stays above the WebView2
+                 composition island. It is deliberately monochrome and square. -->
+            <Border x:Name="ReaderFootnotePopup"
+                    Width="360"
+                    MaxHeight="260"
+                    Padding="12,10"
+                    Background="#FFFFFF"
+                    BorderBrush="#000000"
+                    BorderThickness="2"
+                    CornerRadius="0"
+                    Canvas.ZIndex="95"
+                    IsHitTestVisible="False"
+                    Visibility="Collapsed">
+                <ScrollViewer MaxHeight="236"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="ReaderFootnoteText"
+                               Foreground="#000000"
+                               FontSize="12"
+                               LineHeight="20"
+                               TextWrapping="Wrap" />
+                </ScrollViewer>
             </Border>
         </Grid>
 

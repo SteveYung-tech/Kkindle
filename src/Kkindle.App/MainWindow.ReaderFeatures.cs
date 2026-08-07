@@ -181,6 +181,7 @@ public sealed partial class MainWindow
         _readerFeatureCancellation?.Cancel();
         _readerFeatureCancellation?.Dispose();
         _readerFeatureCancellation = null;
+        ResetReaderFootnoteSession();
         _readerBook = null;
         _readerBookFile = null;
         _readerDocument = null;
@@ -193,6 +194,7 @@ public sealed partial class MainWindow
 
     private void ResetReaderFeatures()
     {
+        ResetReaderFootnoteSession();
         _readerAiCancellation?.Cancel();
         _readerAiCancellation?.Dispose();
         _readerAiCancellation = null;
@@ -596,80 +598,6 @@ public sealed partial class MainWindow
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
         if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
-    }
-
-    private async Task ConfigureReaderFootnoteHoverAsync()
-    {
-        if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null || _readerFeatureCancellation is null) return;
-        var targets = await ExecuteReaderJsonScriptAsync<string[]>(
-            "Array.from(document.querySelectorAll('a[href*=\"#\"]')).map(a => { try { return new URL(a.getAttribute('href'), location.href).href; } catch { return ''; } }).filter(Boolean);")
-            ?? [];
-        IReadOnlyDictionary<string, string> footnotes;
-        try
-        {
-            footnotes = await _footnotes.ResolveAsync(_readerAllowedRoot, targets, _readerFeatureCancellation.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-
-        var data = JsonSerializer.Serialize(footnotes);
-        var script = $$"""
-            (() => {
-              const noteMap = {{data}};
-              let popup = document.getElementById('kkindle-footnote-popup');
-              if (!popup) {
-                popup = document.createElement('div');
-                popup.id = 'kkindle-footnote-popup';
-                popup.setAttribute('role', 'tooltip');
-                Object.assign(popup.style, {
-                  position: 'fixed', display: 'none', zIndex: '2147483647', maxWidth: '360px',
-                  maxHeight: '260px', overflow: 'auto', padding: '12px 14px', background: '#ffffff',
-                  color: '#000000', border: '2px solid #000000', borderRadius: '0',
-                  boxShadow: 'none', fontSize: '.9rem', lineHeight: '1.65',
-                  pointerEvents: 'none', whiteSpace: 'normal'
-                });
-                document.body.appendChild(popup);
-              }
-
-              const hide = () => { popup.style.display = 'none'; };
-              document.querySelectorAll('a[href*="#"]').forEach(anchor => {
-                if (anchor.dataset.kkindleFootnoteBound) return;
-                anchor.dataset.kkindleFootnoteBound = '1';
-                anchor.addEventListener('mouseenter', () => {
-                  let url;
-                  try { url = new URL(anchor.getAttribute('href'), location.href); } catch { return; }
-                  let text = noteMap[url.href] || '';
-                  if (url.pathname === location.pathname && url.hash) {
-                    let id = url.hash.slice(1);
-                    try { id = decodeURIComponent(id); } catch { }
-                    const target = document.getElementById(id) || Array.from(document.getElementsByName(id))[0];
-                    text = (target?.innerText || target?.textContent || text || '').trim();
-                  }
-                  text = text.replace(/\s+/g, ' ').replace(/[↩↵↑]+$/g, '').trim();
-                  if (!text || text === (anchor.innerText || '').trim()) return;
-                  popup.textContent = text;
-                  popup.style.display = 'block';
-                  const rect = anchor.getBoundingClientRect();
-                  const width = Math.min(360, Math.max(220, window.innerWidth - 24));
-                  popup.style.width = width + 'px';
-                  const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.left));
-                  popup.style.left = left + 'px';
-                  const popupHeight = popup.getBoundingClientRect().height;
-                  const below = rect.bottom + 10;
-                  popup.style.top = (below + popupHeight < window.innerHeight
-                    ? below
-                    : Math.max(12, rect.top - popupHeight - 10)) + 'px';
-                });
-                anchor.addEventListener('mouseleave', hide);
-                anchor.addEventListener('blur', hide);
-              });
-              document.addEventListener('scroll', hide, { passive: true });
-            })();
-            """;
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
-        catch { }
     }
 
     // ------------------------------------------------------------------
