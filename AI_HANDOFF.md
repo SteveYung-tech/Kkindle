@@ -1318,3 +1318,11 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - 悬停动画使用当前缩放值作为起点，目标缩放约为 1.3 倍，离开后平滑恢复 1 倍，视觉上只增加少量横向长度。
 - Release x64 完整解决方案构建和发布 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 23:48:07）；发布版启动存活检查通过并正常关闭。
 - 本轮修改与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。
+
+## 43. Kreader 阅读器滚动条统一（2026-08-07）
+
+- 将原始目录使用的黑白无圆角 WinUI 滚动条资源提升到 `ReaderPane` 根容器，原始目录、极简目录、书签和助手等阅读器内置滚动容器共用同一套 10px 滑块、白色轨道和黑色滑块配置。
+- 极简目录的垂直滚动条从隐藏改为 `Auto`，章节矩形仍支持滚轮平滑滚动和拖动滑块；滑块显示在窄条右侧，不改变正文导航逻辑。
+- 新增 `ReaderAppearanceScripts.cs`，为 WebView2 正文注入与原始目录一致的黑白 10px、无圆角 CSS 滚动条，兼容正文滚动模式、分页模式内部元素和竖排内容。
+- Release x64 完整解决方案构建和发布 0 警告、0 错误；83 项 Release 测试全部通过；标准便携版已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（2026-08-07 23:52:02）；发布版启动存活检查通过并正常关闭。
+- 本轮修改与交接文档一起提交，未 push；未跟踪 `.opencode/` 保留且未加入提交。

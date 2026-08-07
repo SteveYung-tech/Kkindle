@@ -653,6 +653,34 @@
               Canvas.ZIndex="40"
               Background="#FFFFFF"
               Visibility="Collapsed">
+            <Grid.Resources>
+                <!-- Keep every native scrollbar inside the reader consistent
+                     with the original directory scrollbar. -->
+                <SolidColorBrush x:Key="ScrollBarBackground" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="ScrollBarBackgroundPointerOver" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="ScrollBarBackgroundDisabled" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="ScrollBarBorderBrush" Color="#000000" />
+                <SolidColorBrush x:Key="ScrollBarBorderBrushPointerOver" Color="#000000" />
+                <SolidColorBrush x:Key="ScrollBarBorderBrushDisabled" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#000000" />
+                <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#111111" />
+                <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#000000" />
+                <SolidColorBrush x:Key="ScrollBarThumbFillDisabled" Color="#777777" />
+                <SolidColorBrush x:Key="ScrollBarThumbBorderBrush" Color="#000000" />
+                <SolidColorBrush x:Key="ScrollBarTrackFill" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="ScrollBarTrackFillDisabled" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="ScrollBarTrackStroke" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="ScrollBarTrackStrokePointerOver" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="ScrollBarTrackStrokeDisabled" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="ScrollBarThumbBackground" Color="#000000" />
+                <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#000000" />
+                <SolidColorBrush x:Key="ScrollBarPanningThumbBackgroundDisabled" Color="#777777" />
+                <x:Double x:Key="ScrollBarSize">10</x:Double>
+                <x:Double x:Key="ScrollBarVerticalThumbMinWidth">8</x:Double>
+                <x:Double x:Key="ScrollBarThumbOffset">1</x:Double>
+                <CornerRadius x:Key="ScrollBarCornerRadius">0</CornerRadius>
+            </Grid.Resources>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="ReaderTocColumn" Width="286" />
                 <ColumnDefinition x:Name="ReaderContentColumn" Width="*" />
@@ -757,35 +785,6 @@
                                   SelectionChanged="ReaderTocList_SelectionChanged"
                                   ScrollViewer.HorizontalScrollMode="Disabled"
                                   ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                            <!-- Keep the directory scrollbar deliberately monochrome and
-                                 scoped to the directory list; the reader and bookmark panes
-                                 retain their normal platform scrollbar behavior. -->
-                            <ListView.Resources>
-                                <SolidColorBrush x:Key="ScrollBarBackground" Color="#FFFFFF" />
-                                <SolidColorBrush x:Key="ScrollBarBackgroundPointerOver" Color="#FFFFFF" />
-                                <SolidColorBrush x:Key="ScrollBarBackgroundDisabled" Color="#FFFFFF" />
-                                <SolidColorBrush x:Key="ScrollBarBorderBrush" Color="#000000" />
-                                <SolidColorBrush x:Key="ScrollBarBorderBrushPointerOver" Color="#000000" />
-                                <SolidColorBrush x:Key="ScrollBarBorderBrushDisabled" Color="#FFFFFF" />
-                                <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#000000" />
-                                <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#111111" />
-                                <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#000000" />
-                                <SolidColorBrush x:Key="ScrollBarThumbFillDisabled" Color="#777777" />
-                                <SolidColorBrush x:Key="ScrollBarThumbBorderBrush" Color="#000000" />
-                                <SolidColorBrush x:Key="ScrollBarTrackFill" Color="#FFFFFF" />
-                                <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#FFFFFF" />
-                                <SolidColorBrush x:Key="ScrollBarTrackFillDisabled" Color="#FFFFFF" />
-                                <SolidColorBrush x:Key="ScrollBarTrackStroke" Color="#FFFFFF" />
-                                <SolidColorBrush x:Key="ScrollBarTrackStrokePointerOver" Color="#FFFFFF" />
-                                <SolidColorBrush x:Key="ScrollBarTrackStrokeDisabled" Color="#FFFFFF" />
-                                <SolidColorBrush x:Key="ScrollBarThumbBackground" Color="#000000" />
-                                <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#000000" />
-                                <SolidColorBrush x:Key="ScrollBarPanningThumbBackgroundDisabled" Color="#777777" />
-                                <x:Double x:Key="ScrollBarSize">10</x:Double>
-                                <x:Double x:Key="ScrollBarVerticalThumbMinWidth">8</x:Double>
-                                <x:Double x:Key="ScrollBarThumbOffset">1</x:Double>
-                                <CornerRadius x:Key="ScrollBarCornerRadius">0</CornerRadius>
-                            </ListView.Resources>
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="infra:EpubReaderNavigationItem">
                                     <TextBlock Text="{x:Bind Title}"
@@ -937,7 +936,7 @@
                                   x:Name="ReaderTocCompactScrollViewer"
                                   HorizontalScrollBarVisibility="Hidden"
                                   HorizontalScrollMode="Disabled"
-                                  VerticalScrollBarVisibility="Hidden"
+                                  VerticalScrollBarVisibility="Auto"
                                   VerticalScrollMode="Enabled"
                                   Padding="0,8"
                                   PointerWheelChanged="ReaderTocCompactScrollViewer_PointerWheelChanged">

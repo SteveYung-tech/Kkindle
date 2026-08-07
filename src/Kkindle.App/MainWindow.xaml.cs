@@ -2193,6 +2193,7 @@ public sealed partial class MainWindow : Window
                 blockquote { margin: 1.4em 0 !important; padding: 0.2em 1.1em !important; border-left: 3px solid {{link}} !important; opacity: 0.88; }
                 {{flowCss}}
                 {{imageCss}}
+                {{ReaderAppearanceScripts.MonochromeScrollbarCss}}
                 a { color: {{link}} !important; }
                 pre, table { max-width: 100%; overflow-x: auto; }
                 hr { border: 0 !important; border-top: 1px solid {{link}} !important; opacity: 0.24; margin: 2em 0 !important; }
