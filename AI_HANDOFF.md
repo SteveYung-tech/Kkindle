@@ -8,11 +8,11 @@
 
 ## 0. 当前状态速览
 
-- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。上一轮完成读者生产力工具大升级（阅读排版设置、进度断点恢复、书签、书内搜索、选区快捷工具栏、划线/批注导出、阅读统计、CJK 阅读增强），并修复了 WebView2 `IsScriptEnabled=false` 下真实交互失效的两个问题（连续滚动接章、分页点击翻页）。本轮修复分页模式正文排版：默认横排分页每屏显示一个完整视口列，修复列宽与视口不对齐导致的“多个窄列 + 大空白 + 左侧裁切”，并加入列边界吸附与旧排版数据安全回退。
-- 当前分支：`master`；最新本地提交为本轮最终提交 `fix: restore reader pagination layout`（详见第 24 节）。
-- GitHub：`origin/master` 仍为 `4e8009b`，本地领先 13 个提交，按开发约定未自动推送。
+- 当前阶段：P0、P1 已完成；P2 自动化和真机大文件传输已完成；内置阅读器已完成三栏界面重设计，并在阅读助手中新增本地书库索引、AI 问答和划线/批注。上一轮完成读者生产力工具大升级（阅读排版设置、进度断点恢复、书签、书内搜索、选区快捷工具栏、划线/批注导出、阅读统计、CJK 阅读增强），并修复了 WebView2 `IsScriptEnabled=false` 下真实交互失效的两个问题（连续滚动接章、分页点击翻页）与分页正文排版（默认横排分页每屏一个完整视口列、列宽对齐、列边界吸附、排版数据安全回退）。本轮修复 EPUB 图片/封面显示：分页模式下封面/大型插图按比例 contain 约束在当前正文内容盒内（不再按整列宽铺开导致底部裁切、不变形），首个大图按尺寸语义识别为封面收紧拟合以同页显示标题；滚动模式图片宽度跟随正文内容并保持比例、无横向溢出，普通插图按自然尺寸清晰可读。
+- 当前分支：`master`；最新本地提交为本轮最终提交 `fix: fit epub images to reader viewport`（详见第 25 节）。
+- GitHub：`origin/master` 仍为 `4e8009b`，本地领先 14 个提交，按开发约定未自动推送。
 - 最新便携版：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`，exe 更新于 2026-08-07 本轮发布。
-- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；33 项测试（28 旧 + 5 新增排版默认值/归一化测试）全部通过。Release 已重新发布并用真实中文 EPUB《策略思维》章节做无头 Chromium 布局验证：分页列宽 = 视口宽、翻页 `scrollLeft` 每次推进一个视口且落在列边界、正文不被左侧裁剪、无异常窄列；滚动模式为单列自然纵向流。
+- 最新源码验证：Debug/Release x64 完整解决方案构建均为 0 警告、0 错误；33 项测试全部通过。Release 已重新发布，并用截图对应的真实中文 EPUB《規模/Scale》（发布数据 `data/library/6efd4f1ba0ed4a2abdc2f0390edc7299/…(z-library.sk,…).epub`，SVG 封面 `cover.jpg` 1536×2048）在无头 Chromium 中做真实 DOM 数值验证：分页封面 426.6×568.8 完全落在内容盒内、宽高比 0.75 不变、无底部/左右裁切；900×700 窄视口自动重排；普通插图章节滚动模式 19 张图无横向溢出、比例保持、640×1200 竖图按自然尺寸显示。
 - 真机验证：Kindle Scribe 上的真实 EPUB 已完成发送、重新扫描和删除闭环；2026-08-06 又完成 64 MiB EPUB 发送、大小校验和删除，设备端无测试残留。
 - 开发约定：后续代码修改必须编译；每次重新发布 EXE 只创建一个对应 Git 提交。
 
@@ -536,12 +536,13 @@ Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
 
 ## 8. Git 状态
 
-当前工作分支为 `master`；`origin/master` 最新为 `4e8009b`，本地领先 13 个提交，未自动推送。当前工作区另有未提交的 `src/Kkindle.App/App.xaml` 修改和未跟踪的 `.opencode/` 目录，均不是本轮阅读器排版修复的一部分，必须保留。构建输出由 `.gitignore` 排除，不纳入版本控制。
+当前工作分支为 `master`；`origin/master` 最新为 `4e8009b`，本地领先 14 个提交，未自动推送。当前工作区另有未提交的 `src/Kkindle.App/App.xaml` 修改和未跟踪的 `.opencode/` 目录，均不是本轮 EPUB 图片/封面自适应修复的一部分，必须保留。构建输出由 `.gitignore` 排除，不纳入版本控制。
 
 当前开发基线及最近提交（本轮最终提交位于最上方）：
 
 ```text
-fix: restore reader pagination layout  ← 本轮最终提交（分页正文排版修复/列宽对齐/列吸附/排版数据安全回退）
+fix: fit epub images to reader viewport  ← 本轮最终提交（EPUB 图片/封面按正文视口自适应：分页 contain 拟合 + 按尺寸识别封面 + 滚动模式防横向溢出）
+fix: restore reader pagination layout  ← 上一轮最终提交（分页正文排版修复/列宽对齐/列吸附/排版数据安全回退）
 feat: expand reader productivity tools
 c91972b fix: repair reader page interaction
 37e2057 docs: refresh handoff timestamp
@@ -607,6 +608,7 @@ git status --short --branch
 - P1 已完成，P2 自动化场景已增至 18 项，Kindle Scribe 64 MiB 传输闭环也已通过。下一步只剩需要人工配合的物理拔出/重连；USB 磁盘安全弹出需等对应设备。不要再次重做标题栏架构，除非有新的可复现问题。
 - 本轮新增阅读工具基线（详见第 23 节）：每本书独立的排版设置（字号/行高/正文宽度/左右边距/CJK 字体/竖排）持久化到 SQLite `ReaderLayoutSettings`；阅读进度断点保存到 `ReaderProgress`（按 BookFile 一行，含章节路径/fragment/滚动位置/百分比/流动模式，滚动与分页/竖排按轴区分，避免把分页位置用在滚动模式）；书签存 `ReaderBookmarks`（工具栏按钮 + Ctrl+B，目录面板新增“目录/书签”标签页）；整本书搜索复用 `BookContentChunks` 本地 FTS（失败回退 LIKE），入口为工具栏“搜索”按钮和 Ctrl+F，面板用 Popup 浮于 WebView2 之上；选中文字会弹出黑白快捷工具条（复制/划线/批注/AI 解释/搜索），因 `IsScriptEnabled=false` 冻结页面事件，使用宿主侧 300ms 轮询读取选区矩形再换算屏幕坐标定位；划线/批注可在“划线与笔记”页导出 Markdown 与纯文本（`ReaderAnnotationExport`，走 FileSavePicker）；阅读统计累计“活动且可见”的阅读秒数（窗口激活 + 阅读面板可见，每秒累计、每 30 秒落库、关闭时强制落库）到 `ReaderReadingStats`，目录面板显示已读章节/全书百分比/累计与本次时长；CJK 增强包括可选的 CJK 字体覆盖、`line-break: strict` + `word-break: normal` + 两端对齐的严格断行/标点规则、ruby/furigana 居中显示，以及滚动模式下的 `writing-mode: vertical-rl` 竖排（分页模式竖排不生效，有提示）。
 - 本轮排查并修复一个必须记住的坑：`Slider`/`ComboBox` 的 `ValueChanged`/`SelectionChanged` 事件会在 XAML 解析过程中（给 `Minimum`/`Maximum`/`Value` 赋值时）提前触发，此时兄弟控件尚未创建；任何在该事件里访问其他 XAML 控件的事件处理器都会抛空引用，并被包装成 `XamlParseException: Failed to assign to property 'RangeBase.Minimum/Value'` 的启动崩溃。修复方式是 `ReaderLayoutSettingChanged`/`ReaderFontFamilyBox_SelectionChanged` 统一加 `AreReaderLayoutControlsReady()` 空值守卫。
+- 本轮新增 EPUB 图片/封面基线（详见第 25 节，必读）：分页模式对 `img`/`svg` 强制 `width:auto !important; height:auto !important; max-width:100% !important`，并用实测内容盒高度 CSS 变量 `--kkindle-page-content-h`（注入脚本读 `body.clientHeight - paddingTop - paddingBottom` 写到 `documentElement`）做 `max-height: calc(var(--kkindle-page-content-h) - 3.6em)` 的 contain 拟合（3.6em 即图片自身 1.8em 上下外边距），保证图片+边距整体不超当前页内容盒、不被底部裁切、不变形，且基于真实 WebView viewport/内容盒而非整个窗口；首个大图（`naturalWidth/naturalHeight` 未解码时回退 `width/height` 属性，阈值：面积 ≥ 视口 35% 或宽高分别 ≥ 60% 视口，与书名/文件名无关）加 `.kkindle-cover` 类收紧到 `- 6em` 并把外边距缩为 1em，让封面与标题同页；滚动模式只保留 `height:auto !important; max-width:100% !important`（不强制 `width`，保留 EPUB 自身百分比宽度如本书 `div.chatu-part img{width:40%}` 装饰图），自然高度不压缩、无横向溢出。图片适配在 `ApplyReaderAppearanceAsync()` 内执行，`NavigationCompleted` 后经 `RetryReaderImageFitAsync()` 在 250ms/950ms 主机侧重试（图片延迟解码后补加封面类并重新吸附）；窗口缩放/收目录/收助手/禅模式/字号排版变化仍经 `ScheduleReaderRelayout()` 自动重适配。`IsScriptEnabled=false` 与导航白名单不变。
 
 ## 13. P1 完成发布（2026-08-05）
 
@@ -917,3 +919,47 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - Debug/Release x64 完整构建 0 警告 0 错误；33 项测试全部通过（新增 `tests/Kkindle.Tests/ReaderLayoutDefaultsTests.cs`：默认值横排可读、越界收敛、NaN 回退、FlowMode 非法归 0、合法设置原样保留）。
 - 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（本轮更新）。
 - 本轮提交：`fix: restore reader pagination layout`，仅包含 `MainWindow.xaml.cs`、`MainWindow.ReaderTools.cs`、`MainWindow.ReaderFeatures.cs`、`MainWindow.ReaderAi.cs`、`Core/ReaderModels.cs`、`tests/Kkindle.Tests/ReaderLayoutDefaultsTests.cs`、`AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。
+
+## 25. EPUB 图片/封面视口自适应（2026-08-07）
+
+### 根因（用截图对应真实 EPUB + 生产注入 CSS 在无头 Chromium 复现，非推测）
+
+用户反馈：分页模式打开《規模/Scale》EPUB 封面章节，封面从正文区域内开始但被按很大宽度铺开，底部和标题明显超出正文可视高度，在 WebView 底部被裁切；滚动模式担心普通插图横向溢出或全部变成小缩略图。
+
+真实 EPUB：`data/library/6efd4f1ba0ed4a2abdc2f0390edc7299/…(z-library.sk, 1lib.sk, z-lib.sk).epub`（《規模》[英]傑佛瑞·韋斯特，zh-CN）。封面章节 `Text/cover.xhtml` 是 `<svg width="100%" height="100%" viewBox="0 0 1536 2048" preserveAspectRatio="xMidYMid meet"><image width="1536" height="2048" xlink:href="../Images/cover.jpg"/></svg>`，封面位图 `Images/cover.jpg` 1536×2048（3:4 竖版）。
+
+修复前分页 CSS 只有 `img, svg { display: block; max-width: 100% !important; height: auto !important; margin: 1.8em auto !important; }`。在截图对应视口 1053×796 实测（无头 Chromium + 生产 CSS）：
+
+- 修复前：`svg` 计算宽 1005px（= 整列宽）、高 1340px，`getBoundingClientRect` 底部到 1388，而正文内容盒底部仅 732 → 底部被裁切 656px，标题被推到可视区外，正是截图现象。
+- 根因一句话：分页图片只约束了 `max-width`，没有按当前页内容盒高度约束 `max-height`，且 `svg` 未强制 `width:auto`，高竖版封面被按整列宽铺开。
+
+### 本次改动
+
+1. `src/Kkindle.App/MainWindow.xaml.cs` — `ApplyReaderAppearanceAsync()` 图片 CSS 重做（分页/滚动两套）：
+   - 分页：`img { width:auto !important; height:auto !important; max-width:100% !important; max-height:calc(var(--kkindle-page-content-h, 100vh) - 3.6em) !important; object-fit:contain; margin:1.8em auto !important; }`，`svg` 同样 `width:auto/height:auto`（封面 svg 贴合 3:4 比例而非铺满列宽）；`--kkindle-page-content-h` 由注入脚本用 `body.clientHeight - paddingTop - paddingBottom` 实测正文内容盒高度并写到 `documentElement`，图片 `max-height` 基于真实 WebView viewport/内容盒，不是整个窗口的 `100vw/100vh`；`3.6em` 即图片自身 1.8em 上下外边距，图片+边距整体不超当前页，不裁切、不变形（width/height 双 auto + max 双约束即 contain 语义，可覆盖 EPUB 内联/样式 width/height）。
+   - `.kkindle-cover`：首个大图（按 `naturalWidth/naturalHeight`，未解码时回退 `width/height` 属性，与书名/文件名无关）加类后 `max-height` 收紧到 `calc(var(--kkindle-page-content-h) - 6em)`、外边距 1em，封面与其后标题可同页显示；SVG `<image>` 命中时把类加回父 `svg`。
+   - 滚动：只保留 `height:auto !important; max-width:100% !important`（不强制 `width`，保留 EPUB 自身百分比宽度如 `div.chatu-part img{width:40%}` 装饰图），图片按自然比例显示、可纵向滚动、无横向溢出；`svg`/`svg image` 同步约束。
+   - 新增 `FitReaderImagesAsync()`（分页封面识别，在 `ApplyReaderAppearanceAsync` 内调用）与 `RetryReaderImageFitAsync()`（`NavigationCompleted` 后 250ms/950ms 主机侧重试，图片延迟解码后补加封面类并重新吸附）。保留 `IsScriptEnabled=false`、导航白名单、列宽/翻页/吸附/跨章逻辑不变。
+2. 未改：`WebView2.Settings.IsScriptEnabled=false`（`ConfigureReaderWebView()`）、EPUB 路径白名单、三栏布局、禅模式、书签/搜索/选区/导出/统计/AI、既有未提交的 `App.xaml` 与 `.opencode/`。
+
+### 真实定向验证（真实《規模/Scale》EPUB，无头 Chromium + 生产 CSS/识别脚本）
+
+- 封面章节分页（视口 1053×796，与截图 WebView 一致）：
+  - 封面 `image` 渲染 `getBoundingClientRect` = 426.6×568.8，宽高比 0.75 与自然 1536/2048 完全一致（aspectPreserved=true）；矩形 top 67.2 / bottom 636，落在正文内容盒 [48, 732] 内（withinHoriz/withinVert/noBottomClip 全 true）；coverClass=true。
+  - 修复前对照：svg 1005×1340、底部 1388，超内容盒底部 732 达 656px（原截图裁切）。
+- 换视口重排（900×700，模拟收起目录/助手/禅模式后的窄正文）：封面自动重排为 354.6×472.8，比例 0.75 不变、仍在内容盒 [48, 636] 内、无裁切。
+- 普通插图章节 `Text/03.xhtml`（19 张真实图：1196×887、1134×1200、640×1200、768×304、536×500、68×50 小图标等）：
+  - 滚动模式：19/19 `withinHoriz/withinVert/noBottomClip/aspectPreserved` 全 true；`scrollWidth=clientWidth=1038`（无横向溢出）、`verticalScrollable=true`；640×1200 竖图按自然尺寸 640×1200 显示（未被压缩成缩略图），68×50 小图标原样。
+  - 分页模式：19/19 `withinVert/noBottomClip/aspectPreserved` 全 true；普通图 `max-height` 计算值 614.88px（684−3.6em），封面类 568.8px；列间横向流动为分页设计行为，由 `SnapReaderPaginationAsync` 吸附。
+- 插图章节 `Text/chapter01.xhtml`（310×310 图 + h1 标题）：分页渲染 310+10px 边框×2=330×330、比例 1 保持、标题首屏可见；滚动模式保留书自带 `div.chatu-part img{width:40%}`（265.6+20=285.6）设计意图，无横向溢出。
+
+### 自动化边界
+
+- 与第 21/22/24 节一致：本会话无法把真实鼠标/滚轮投递到 WebView2 合成岛，分页点击翻页未在自动化中触发；本次验证用真实 EPUB DOM + 生产注入 CSS/识别脚本在无头 Chromium 中实测 `naturalWidth/naturalHeight/clientWidth/clientHeight/getBoundingClientRect` 与内容盒、视口换算，属真实渲染数值。建议人工在交互桌面打开《規模/Scale》封面与含图章节，分别用分页/滚动模式翻页并缩放窗口各确认一次。
+- 未验证边界：SVG 封面在极窄视口（<760px）下仍按比例收缩，属可接受边界；`object-fit:contain` 在 img 双 auto 约束下无副作用；EPUB 若用 `<picture>`/`srcset` 多源图，`naturalWidth` 取当前命中源，识别/约束同样成立（未专项验证）。
+
+### 构建、测试与发布
+
+- Debug/Release x64 完整解决方案构建：0 警告、0 错误；33 项测试（Debug/Release）全部通过。
+- 标准 `publish` 目录已重新发布：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`（本轮更新），Release 启动存活验证通过。
+- 本轮提交：`fix: fit epub images to reader viewport`，仅包含 `src/Kkindle.App/MainWindow.xaml.cs` 与 `AI_HANDOFF.md`；未提交构建输出、`.opencode/` 与既有未提交的 `App.xaml` 改动；未 push/amend。

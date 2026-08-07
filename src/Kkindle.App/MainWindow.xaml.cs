@@ -1660,6 +1660,10 @@ public sealed partial class MainWindow : Window
         }
         if (!args.IsSuccess) return;
         await ApplyReaderAppearanceAsync();
+        // Cover images can finish decoding after the navigation completes; retry
+        // the cover fit so late-loading raster/SVG covers still get the tight
+        // page fit instead of a bottom-clipped render.
+        _ = RetryReaderImageFitAsync();
         await ApplyReaderAnnotationsToPageAsync();
         await ConfigureReaderFootnoteHoverAsync();
         await ScrollToPendingReaderAnnotationAsync();
@@ -1712,6 +1716,35 @@ public sealed partial class MainWindow : Window
             ? "overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal;"
             : "overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal; text-align: justify;";
         var fontFamily = BuildReaderFontStack(_readerLayout.FontFamily);
+        // EPUB image sizing is driven by the real WebView viewport/content box,
+        // never the whole window. Inside this page 100vw/100vh are exactly the
+        // WebView's own viewport, and --kkindle-page-content-h is the measured
+        // body content-box height (viewport minus the body's top/bottom padding).
+        //
+        //   - Pagination: every image is treated as a "contain" box. `width` and
+        //     `height` are forced to `auto` so no EPUB width/height/style can
+        //     stretch the image; `max-width: 100%` caps the column width and
+        //     `max-height` (content height minus 3.6em for the image's own 1.8em
+        //     top/bottom margins) caps the current page height, so the whole
+        //     figure never spills past the bottom of a page. The first large
+        //     image in a chapter gets `.kkindle-cover` (tighter max-height and
+        //     smaller margins) so a cover and its title can share one page.
+        //   - Scroll: only the width is capped at the content width; the natural
+        //     height is kept so figures stay readable and vertical scrolling
+        //     never needs horizontal overflow.
+        var imageCss = _readerFlowMode == 1
+            ? "img { display: block; width: auto !important; height: auto !important;"
+              + " max-width: 100% !important;"
+              + " max-height: calc(var(--kkindle-page-content-h, 100vh) - 3.6em) !important;"
+              + " object-fit: contain; margin: 1.8em auto !important; }"
+              + " svg { display: block; width: auto !important; height: auto !important; max-width: 100% !important;"
+              + " max-height: calc(var(--kkindle-page-content-h, 100vh) - 3.6em) !important; margin: 1.8em auto !important; }"
+              + " svg image { max-width: 100% !important; }"
+              + " img.kkindle-cover, .kkindle-cover img, svg.kkindle-cover, .kkindle-cover svg {"
+              + " max-height: calc(var(--kkindle-page-content-h, 100vh) - 6em) !important; margin: 1em auto !important; }"
+            : "img { display: block; height: auto !important; max-width: 100% !important; margin: 1.8em auto !important; }"
+              + " svg { display: block; height: auto !important; max-width: 100% !important; margin: 1.8em auto !important; }"
+              + " svg image { max-width: 100% !important; }";
         ReaderWebView.DefaultBackgroundColor = Colors.White;
         var script = $$"""
             (() => {
@@ -1735,24 +1768,98 @@ public sealed partial class MainWindow : Window
                 h1, h2, h3, h4 { color: {{foreground}} !important; line-height: 1.35 !important; margin: 1.35em 0 0.72em !important; }
                 blockquote { margin: 1.4em 0 !important; padding: 0.2em 1.1em !important; border-left: 3px solid {{link}} !important; opacity: 0.88; }
                 {{flowCss}}
+                {{imageCss}}
                 a { color: {{link}} !important; }
-                img, svg { display: block; max-width: 100% !important; height: auto !important; margin: 1.8em auto !important; }
                 pre, table { max-width: 100%; overflow-x: auto; }
                 hr { border: 0 !important; border-top: 1px solid {{link}} !important; opacity: 0.24; margin: 2em 0 !important; }
               `;
+              // Expose the real body content box (WebView viewport minus the
+              // body's top/bottom padding) so image max-heights target the
+              // actual page box instead of guessing from the window size.
+              const kkRoot = document.documentElement;
+              const kkBody = document.body;
+              if (kkRoot && kkBody) {
+                const kkStyle = getComputedStyle(kkBody);
+                const kkPadTop = parseFloat(kkStyle.paddingTop) || 0;
+                const kkPadBottom = parseFloat(kkStyle.paddingBottom) || 0;
+                const kkContentH = kkBody.clientHeight - kkPadTop - kkPadBottom;
+                if (kkContentH > 0) kkRoot.style.setProperty('--kkindle-page-content-h', kkContentH + 'px');
+              }
             })();
             """;
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { /* Some fixed-layout EPUB pages don't expose a normal document head. */ }
         if (_readerFlowMode == 1)
         {
-            // Pagination mode: the document may still carry a vertical scroll
-            // position from a previous flow/zoom/layout state, and a restored
-            // breakpoint can land mid-column. Snap the reading area onto the
-            // nearest column boundary (top pinned to 0) so each viewport shows
-            // exactly one full page instead of a vertically offset strip or
-            // two partial columns split by the column gap.
+            // Pagination mode: mark the first large image in the chapter as the
+            // cover so it gets a tighter page fit (size-based detection, never
+            // file/book names), then snap the reading area onto the nearest
+            // column boundary (top pinned to 0) so each viewport shows exactly
+            // one full page instead of a vertically offset strip or two partial
+            // columns split by the column gap.
+            await FitReaderImagesAsync();
             await SnapReaderPaginationAsync();
+        }
+    }
+
+    // Marks the first large image in a chapter as `.kkindle-cover`. The
+    // decision is based purely on the image's own dimensions (natural size, or
+    // width/height attributes before the raster has decoded) compared with the
+    // WebView viewport; never on book titles, file names or element classes, so
+    // it works for raster covers, SVG covers and image-only chapters.
+    private static string GetReaderCoverFitScript() =>
+        """
+        (() => {
+          const view = {
+            w: document.documentElement.clientWidth || window.innerWidth || 0,
+            h: document.documentElement.clientHeight || window.innerHeight || 0
+          };
+          if (view.w <= 0 || view.h <= 0) return;
+          const candidates = Array.from(document.querySelectorAll('body img, body svg, body svg image'));
+          for (const el of candidates) {
+            const isImage = el.tagName.toLowerCase() === 'image';
+            const naturalW = el.naturalWidth || parseFloat(el.getAttribute('width')) || 0;
+            const naturalH = el.naturalHeight || parseFloat(el.getAttribute('height')) || 0;
+            if (naturalW <= 0 || naturalH <= 0) continue;
+            const pageArea = view.w * view.h;
+            if (naturalW * naturalH < pageArea * 0.35
+                && !(naturalW >= view.w * 0.6 && naturalH >= view.h * 0.6)) continue;
+            el.classList.add('kkindle-cover');
+            if (isImage && el.parentElement && /^svg$/i.test(el.parentElement.tagName)) {
+              el.parentElement.classList.add('kkindle-cover');
+            }
+            break;
+          }
+        })();
+        """;
+
+    private async Task FitReaderImagesAsync()
+    {
+        if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return;
+        if (_readerFlowMode != 1) return;
+        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(GetReaderCoverFitScript()); }
+        catch { }
+    }
+
+    // Images inside file:// EPUB chapters can finish decoding after
+    // NavigationCompleted. Page scripts stay disabled (no load events fire), so
+    // retry the cover fit a couple of times from the host side and re-snap the
+    // page if the cover sizing changed the column layout.
+    private async Task RetryReaderImageFitAsync()
+    {
+        if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return;
+        try
+        {
+            await Task.Delay(250);
+            if (ReaderWebView.CoreWebView2 is null || ReaderWebView.Source is not { IsFile: true }) return;
+            await FitReaderImagesAsync();
+            if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
+            await Task.Delay(700);
+            if (ReaderWebView.CoreWebView2 is null || ReaderWebView.Source is not { IsFile: true }) return;
+            await FitReaderImagesAsync();
+        }
+        catch
+        {
         }
     }
 
