@@ -934,11 +934,13 @@
                     </Button>
 
                     <ScrollViewer Grid.Row="1"
+                                  x:Name="ReaderTocCompactScrollViewer"
                                   HorizontalScrollBarVisibility="Hidden"
                                   HorizontalScrollMode="Disabled"
                                   VerticalScrollBarVisibility="Hidden"
                                   VerticalScrollMode="Enabled"
-                                  Padding="0,8">
+                                  Padding="0,8"
+                                  PointerWheelChanged="ReaderTocCompactScrollViewer_PointerWheelChanged">
                         <ItemsControl x:Name="ReaderTocCompactList">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -946,7 +948,7 @@
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="infra:EpubReaderNavigationItem">
+                                <DataTemplate x:DataType="local:ReaderTocMarker">
                                     <Button Width="28"
                                             Height="16"
                                             MinWidth="0"
@@ -959,7 +961,9 @@
                                             Click="ReaderCompactTocItem_Click">
                                         <Border Width="14"
                                                 Height="5"
-                                                Background="#000000" />
+                                                Background="{x:Bind Fill}"
+                                                BorderBrush="{x:Bind Stroke}"
+                                                BorderThickness="1" />
                                     </Button>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>

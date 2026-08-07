@@ -899,7 +899,7 @@ public sealed partial class MainWindow : Window
                 ReaderProgressPercentText.Text = "—";
                 ReaderStatsText.Text = string.Empty;
                 ReaderTocList.ItemsSource = null;
-                ReaderTocCompactList.ItemsSource = null;
+                ClearReaderCompactNavigationItems();
                 ReaderTocList.Visibility = Visibility.Collapsed;
                 ReaderTocSearchBox.Visibility = Visibility.Collapsed;
                 ReaderTocEmptyText.Text = "PDF 使用内置查看器。可通过查看器工具栏搜索、缩放和翻页。";
@@ -1129,7 +1129,7 @@ public sealed partial class MainWindow : Window
         if (!_readerHasToc)
         {
             ReaderTocList.ItemsSource = null;
-            ReaderTocCompactList.ItemsSource = null;
+            ClearReaderCompactNavigationItems();
             return;
         }
 
@@ -1139,7 +1139,7 @@ public sealed partial class MainWindow : Window
             : _readerNavigation.Where(item =>
                 item.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase)).ToArray();
         ReaderTocList.ItemsSource = items;
-        ReaderTocCompactList.ItemsSource = items;
+        SetReaderCompactNavigationItems(items);
     }
 
     // ------------------------------------------------------------------
@@ -1279,6 +1279,7 @@ public sealed partial class MainWindow : Window
             : $"{_readerChapterIndex + 1} / {_readerChapters.Count} 章";
         ReaderPreviousButton.IsEnabled = _readerChapterIndex > 0;
         ReaderNextButton.IsEnabled = _readerChapterIndex + 1 < _readerChapters.Count;
+        RefreshReaderCompactMarkers();
         UpdateReaderProgress();
     }
 
@@ -1913,7 +1914,7 @@ public sealed partial class MainWindow : Window
         _readerContinuousLocked = false;
         ResetReaderChromeLayout();
         ReaderTocList.ItemsSource = null;
-        ReaderTocCompactList.ItemsSource = null;
+        ClearReaderCompactNavigationItems();
         ReaderTocSearchBox.Text = string.Empty;
         ReaderBookInfoText.Text = string.Empty;
         ResetReaderAssistant();
