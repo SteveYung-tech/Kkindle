@@ -5,6 +5,27 @@ namespace Kkindle.Tests;
 public sealed class ReaderNavigationLocationTests
 {
     [Theory]
+    [InlineData("file:///c:/cache/EPUB/07.xhtml", "file:///C:/cache/EPUB/07.xhtml#sigil_toc_id_47", true)]
+    [InlineData("file:///c:/cache/EPUB/07.xhtml#one", "file:///c:/cache/EPUB/07.xhtml#two", true)]
+    [InlineData("file:///c:/cache/EPUB/07.xhtml", "file:///c:/cache/EPUB/08.xhtml#one", false)]
+    [InlineData("file:///c:/cache/EPUB/07.xhtml?v=1#one", "file:///c:/cache/EPUB/07.xhtml?v=2#two", false)]
+    public void SameDocumentComparisonIgnoresOnlyTheFragment(
+        string current,
+        string target,
+        bool expected)
+    {
+        Assert.Equal(expected, ReaderNavigationLocationPolicy.TargetsSameDocument(
+            new Uri(current), new Uri(target)));
+    }
+
+    [Fact]
+    public void SameDocumentComparisonFailsClosedForMissingTargets()
+    {
+        Assert.False(ReaderNavigationLocationPolicy.TargetsSameDocument(null, new Uri("file:///c:/book.xhtml")));
+        Assert.False(ReaderNavigationLocationPolicy.TargetsSameDocument(new Uri("file:///c:/book.xhtml"), null));
+    }
+
+    [Theory]
     [InlineData(ReaderNavigationIntent.Toc, true)]
     [InlineData(ReaderNavigationIntent.Progress, true)]
     [InlineData(ReaderNavigationIntent.None, false)]

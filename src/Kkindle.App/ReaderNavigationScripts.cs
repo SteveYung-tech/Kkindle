@@ -15,6 +15,8 @@ internal static class ReaderNavigationScripts
           document.querySelectorAll('.kkindle-fragment-break, .kkindle-fragment-zeroed').forEach(el => {
             try { el.classList.remove('kkindle-fragment-break'); } catch (_) {}
             try { el.classList.remove('kkindle-fragment-zeroed'); } catch (_) {}
+            try { el.style.removeProperty('break-before'); } catch (_) {}
+            try { el.style.removeProperty('-webkit-column-break-before'); } catch (_) {}
             try { el.style.removeProperty('margin-top'); } catch (_) {}
           });
 
@@ -84,13 +86,18 @@ internal static class ReaderNavigationScripts
 
     // Builds a fragment-positioning script. `needle` is already escaped for a
     // JavaScript single-quoted string by the caller.
-    public static string CreateFragmentScroll(string needle, int flowMode, bool vertical) =>
+    public static string CreateFragmentScroll(
+        string needle,
+        int flowMode,
+        bool vertical,
+        bool twoPage = false) =>
         $$"""
         (() => {
           const body = document.body;
           if (!body) return { ok: false, reason: 'no-body' };
           const flowMode = {{flowMode}};
           const vertical = {{(vertical ? "true" : "false")}};
+          const twoPage = {{(twoPage ? "true" : "false")}};
           let id = '{{needle}}';
           try { id = decodeURIComponent(id); } catch { }
 
@@ -187,6 +194,8 @@ internal static class ReaderNavigationScripts
 
           document.querySelectorAll('.kkindle-fragment-break').forEach(n => {
             try { n.classList.remove('kkindle-fragment-break'); } catch (_) {}
+            try { n.style.removeProperty('break-before'); } catch (_) {}
+            try { n.style.removeProperty('-webkit-column-break-before'); } catch (_) {}
           });
           document.querySelectorAll('.kkindle-fragment-zeroed').forEach(n => {
             try { n.classList.remove('kkindle-fragment-zeroed'); } catch (_) {}
@@ -195,6 +204,8 @@ internal static class ReaderNavigationScripts
           normalizeTargetPath(block);
           if (flowMode === 1) {
             try { block.classList.add('kkindle-fragment-break'); } catch (_) {}
+            try { block.style.setProperty('break-before', 'column', 'important'); } catch (_) {}
+            try { block.style.setProperty('-webkit-column-break-before', 'always', 'important'); } catch (_) {}
           }
           void block.offsetHeight;
 
@@ -209,8 +220,15 @@ internal static class ReaderNavigationScripts
             const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
             const renderedWidth = scroller.getBoundingClientRect?.().width || 0;
             const step = renderedWidth || scroller.clientWidth || 0;
+            // A two-page spread has a left and a right column inside the same
+            // viewport. Rounding maps the right column to the next viewport,
+            // so floor keeps both columns in their owning spread. Single-page
+            // EPUB columns can accumulate fractional-pixel drift, therefore
+            // they retain nearest-boundary rounding.
             const pageIndex = step > 0
-              ? Math.max(0, Math.round((docLeft - padLeft) / step))
+              ? Math.max(0, twoPage
+                  ? Math.floor(Math.max(0, docLeft - padLeft) / step + 1e-6)
+                  : Math.round((docLeft - padLeft) / step))
               : 0;
             const pageLeft = pageIndex * step;
             window.scrollTo({ left: Math.max(0, Math.min(max, pageLeft)), top: 0, behavior: 'instant' });
@@ -227,7 +245,23 @@ internal static class ReaderNavigationScripts
             window.scrollTo({ top: Math.max(0, docTop - padTop), behavior: 'instant' });
           }
 
-          const after = block.getBoundingClientRect();
+          let after = block.getBoundingClientRect();
+          if (flowMode === 1 && !twoPage) {
+            // Correct against the rendered column itself. Fractional column
+            // widths and WebView DPI can otherwise shift the page by roughly
+            // one body inset: text touches the left edge while the right side
+            // gets the extra whitespace seen in the reported screenshot.
+            const horizontalError = after.left - (parseFloat(bodyStyle.paddingLeft) || 0);
+            if (Math.abs(horizontalError) > 0.5) {
+              const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+              window.scrollTo({
+                left: Math.max(0, Math.min(max, scroller.scrollLeft + horizontalError)),
+                top: 0,
+                behavior: 'instant'
+              });
+              after = block.getBoundingClientRect();
+            }
+          }
           const computed = getComputedStyle(block);
           const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
           const renderedWidth = scroller.getBoundingClientRect?.().width || 0;
@@ -236,7 +270,11 @@ internal static class ReaderNavigationScripts
             step,
             padLeft,
             columnLeft: Math.round(after.left * 100) / 100,
-            columnIndex: step > 0 ? Math.max(0, Math.round((docLeft - padLeft) / step)) : 0
+            columnIndex: step > 0
+              ? Math.max(0, twoPage
+                  ? Math.floor(Math.max(0, docLeft - padLeft) / step + 1e-6)
+                  : Math.round((docLeft - padLeft) / step))
+              : 0
           } : null;
           return {
             ok: true,

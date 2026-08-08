@@ -28,6 +28,7 @@ public sealed partial class MainWindow : Window
     };
     private readonly AppPaths _paths;
     private readonly IBookLibraryService _library;
+    private readonly IBookFormatConverter _formatConverter;
     private readonly IKindleDeviceService _kindle;
     private readonly EpubReaderPreparationService _epubReader;
     private readonly DispatcherQueueTimer _deviceTimer;
@@ -43,6 +44,7 @@ public sealed partial class MainWindow : Window
     private string? _acceptedDeviceId;
     private string? _ignoredDeviceId;
     private Button? _activeNavigationButton;
+    private Button? _activeNavigationSectionButton;
     private readonly HashSet<Button> _hoveredSidebarSections = [];
     private TaskCompletionSource<bool>? _devicePromptCompletion;
     private bool _nativeChromeConfigured;
@@ -82,6 +84,9 @@ public sealed partial class MainWindow : Window
     // superseded navigation must be ignored, otherwise a stale handler could
     // consume the pending turn-in and run preparation against an older page.
     private Uri? _readerPendingNavigationTarget;
+    // The logical target also preserves a same-document TOC fragment when
+    // WebView2 performs only an in-page jump without a document lifecycle.
+    private Uri? _readerActiveLocationTarget;
     // Why the pending navigation was requested (TOC / search / bookmark /
     // annotation / AI source / progress slider / open-book restore). An
     // explicit user target outranks any automatic breakpoint restore, and the
@@ -125,6 +130,7 @@ public sealed partial class MainWindow : Window
     public MainWindow(
         AppPaths paths,
         IBookLibraryService library,
+        IBookFormatConverter formatConverter,
         IKindleDeviceService kindle,
         ReaderDataService readerData,
         EpubBookContentService bookContent,
@@ -134,6 +140,7 @@ public sealed partial class MainWindow : Window
     {
         _paths = paths;
         _library = library;
+        _formatConverter = formatConverter;
         _kindle = kindle;
         _kindleEmailSettingsStore = new KindleEmailSettingsStore(paths);
         _kindleEmailSender = new KindleEmailSender();
@@ -300,6 +307,9 @@ public sealed partial class MainWindow : Window
         _readerAiModelListCancellation?.Cancel();
         _readerAiModelListCancellation?.Dispose();
         _kindleEmailSendCancellation?.Cancel();
+        _bookFormatConversionCancellation?.Cancel();
+        _bookFormatConversionCancellation?.Dispose();
+        _bookFormatConversionCancellation = null;
         _ = FlushReaderSessionSafelyAsync(skipWebViewCapture: true);
 
         _deviceTimer.Stop();
@@ -331,6 +341,7 @@ public sealed partial class MainWindow : Window
             SidebarCountText.Text = ViewModel.Books.Count.ToString();
             UpdateFilterControls();
             UpdateEmptyLibraryState();
+            ApplyBookConversionCardState();
         }
         catch (Exception ex)
         {
@@ -762,7 +773,11 @@ public sealed partial class MainWindow : Window
     private async void MoreButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("Kkindle", $"便携数据目录：{_paths.Data}");
     private async void AddTagButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("标签", "可以在书籍详情中直接编辑标签，多个标签用逗号分隔。");
     private async void AddCategoryButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("分类", "分类功能将在书库筛选基础完成后接入。");
-    private async void SettingsButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("设置", $"当前书库位于：{_paths.Library}");
+    private async void SettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetActiveNavigation(SettingsNavigationButton);
+        await ShowMessageAsync("设置", $"当前书库位于：{_paths.Library}");
+    }
     private void KindleBooksButton_Click(object sender, RoutedEventArgs e) => OpenDevicePage(showBooks: true);
 
     private void DeviceOverviewButton_Click(object sender, RoutedEventArgs e) => OpenDevicePage(showBooks: false);
@@ -848,11 +863,19 @@ public sealed partial class MainWindow : Window
         var file = ReaderBookSelectionPolicy.SelectPreferred(book.Files);
         if (file is null)
         {
-            await ShowMessageAsync("暂不支持阅读", "内置阅读器目前支持 EPUB 和 PDF。");
+            await ShowMessageAsync("暂不支持阅读", "内置阅读器目前支持 EPUB、PDF 和 AZW3。");
             return;
         }
 
+        await OpenBookAsync(book, file);
+    }
+
+    private async Task OpenBookAsync(Book book, BookFile file)
+    {
+        if (_readerOpenInProgress) return;
+
         _readerOpenInProgress = true;
+        string? temporaryReaderEpubPath = null;
         try
         {
             var path = _library.GetAbsoluteFilePath(file);
@@ -930,7 +953,26 @@ public sealed partial class MainWindow : Window
 
             _readerHasToc = true;
             ReaderStatusText.Text = "正在准备…";
-            var document = await _epubReader.PrepareAsync(path, file.Sha256);
+            var readerSourcePath = path;
+            var readerSourceHash = file.Sha256;
+            if (file.Format.Equals("azw3", StringComparison.OrdinalIgnoreCase))
+            {
+                ReaderStatusText.Text = "正在准备 AZW3…";
+                temporaryReaderEpubPath = CreateTemporaryFormatPath("epub");
+                await _formatConverter.ConvertAsync(
+                    path,
+                    temporaryReaderEpubPath,
+                    cancellationToken: _readerFeatureCancellation!.Token);
+                readerSourcePath = temporaryReaderEpubPath;
+                readerSourceHash = await Hashing.Sha256Async(
+                    temporaryReaderEpubPath,
+                    _readerFeatureCancellation.Token);
+            }
+
+            var document = await _epubReader.PrepareAsync(
+                readerSourcePath,
+                readerSourceHash,
+                _readerFeatureCancellation!.Token);
             _readerDocument = document;
             _readerChapters = document.Chapters;
             _readerNavigation = document.Navigation;
@@ -978,8 +1020,47 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
+            if (temporaryReaderEpubPath is not null)
+                TryDeleteTemporaryFormatPath(temporaryReaderEpubPath);
             _readerOpenInProgress = false;
         }
+    }
+
+    private static string CreateTemporaryFormatPath(string extension)
+        => CreateTemporaryFormatPath("reader", extension);
+
+    private static string CreateTemporaryFormatPath(string fileStem, string extension)
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            "KkindleConversions",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var invalid = Path.GetInvalidFileNameChars();
+        var safeStem = new string(fileStem
+            .Select(character => invalid.Contains(character) ? '_' : character)
+            .ToArray())
+            .Trim()
+            .TrimEnd('.');
+        if (string.IsNullOrWhiteSpace(safeStem)) safeStem = "book";
+        if (safeStem.Length > 120) safeStem = safeStem[..120].TrimEnd();
+        return Path.Combine(directory, $"{safeStem}.{extension.TrimStart('.')}");
+    }
+
+    private static void TryDeleteTemporaryFormatPath(string path)
+    {
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+            var directory = Path.GetDirectoryName(path);
+            if (directory is not null
+                && Directory.Exists(directory)
+                && !Directory.EnumerateFileSystemEntries(directory).Any())
+            {
+                Directory.Delete(directory);
+            }
+        }
+        catch { }
     }
 
     private void ConfigureReaderWebView()
@@ -1058,6 +1139,11 @@ public sealed partial class MainWindow : Window
         ReaderTocCompactPanel.Width = double.NaN;
         ReaderTocCompactPanel.HorizontalAlignment = HorizontalAlignment.Stretch;
         Canvas.SetZIndex(ReaderTocCompactPanel, 0);
+        if (_readerSearchVisible)
+        {
+            ReaderSearchPanel.Width = tocWidth;
+            ReaderSearchPanel.Visibility = Visibility.Visible;
+        }
 
         UpdateReaderAssistantPopup(_readerAssistantExpanded);
         if (_readerZenMode) UpdateReaderZenPopup(true);
@@ -1103,7 +1189,7 @@ public sealed partial class MainWindow : Window
                 try
                 {
                     await ApplyReaderAppearanceAsync();
-                    await ClampReaderScrollAsync();
+                    await RealignReaderAfterRelayoutAsync();
                 }
                 catch
                 {
@@ -1125,6 +1211,25 @@ public sealed partial class MainWindow : Window
         var script = "(function(){var el=document.scrollingElement;var max=Math.max(0,el.scrollHeight-el.clientHeight);if(el.scrollTop>max)window.scrollTo({top:max});})()";
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
+    }
+
+    // A TOC fragment is an explicit location, not merely the nearest page.
+    // Font loading, image decoding and host-size changes can reflow columns
+    // after the first NavigationCompleted positioning pass. Re-resolve that
+    // anchor after each delayed relayout; other locations keep normal clamping.
+    private async Task RealignReaderAfterRelayoutAsync()
+    {
+        if (_readerFlowMode == 1
+            && _readerNavigationIntent == ReaderNavigationIntent.Toc
+            && _readerActiveLocationTarget is { } source
+            && ReaderNavigationLocationPolicy.TocTargetHasAnchor(source))
+        {
+            await ScrollToReaderFragmentAsync(
+                ReaderNavigationLocationPolicy.TocAnchorId(source));
+            return;
+        }
+
+        await ClampReaderScrollAsync();
     }
 
     private void ReaderTocSearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyReaderTocFilter();
@@ -1197,12 +1302,19 @@ public sealed partial class MainWindow : Window
         // belonging to THIS intent survives the pruning.
         PruneReaderPendingLocations(intent);
         _readerNavigationIntent = intent;
+        _readerActiveLocationTarget = target;
 
         var locationSequence = ++_readerLocationSequence;
-        var sameChapter = ReaderWebView.Source?.AbsoluteUri.Equals(target.AbsoluteUri, StringComparison.OrdinalIgnoreCase) == true;
-        if (sameChapter && !_readerNavigateToEnd)
+        var sameDocument = ReaderNavigationLocationPolicy.TargetsSameDocument(
+            ReaderWebView.Source,
+            target);
+        if (sameDocument && _readerPendingNavigationTarget is null && !_readerNavigateToEnd)
         {
-            // Already on this exact chapter/fragment: no navigation, no animation.
+            // A different #fragment in the current XHTML is an in-page jump in
+            // WebView2 and is not guaranteed to raise NavigationCompleted.
+            // Run Kreader's location logic directly rather than waiting for an
+            // event that may never arrive and leaving the browser-default
+            // anchor halfway down the page.
             _readerPendingTurnInAnimation = null;
             // Even without a WebView navigation, an explicit user click must
             // still move the reading position: TOC chapter entries go to the
@@ -1363,9 +1475,36 @@ public sealed partial class MainWindow : Window
         UpdateReaderLayoutStatus();
     }
 
+    private async void ReaderTwoPageMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (_readerFlowMode != 1)
+        {
+            UpdateReaderFlowButton();
+            return;
+        }
+
+        _readerLayout = _readerLayout with { TwoPageMode = !_readerLayout.TwoPageMode };
+        _readerNavigateToEnd = false;
+        _readerContinuousLocked = false;
+        UpdateReaderFlowButton();
+        await ApplyReaderAppearanceAsync();
+        await ResetReaderToChapterStartAsync();
+        await PrimeReaderScrollEdgesAsync();
+        _ = SaveReaderLayoutSettingsAsync();
+        UpdateReaderLayoutStatus();
+        ReaderMoreButton.Flyout?.Hide();
+    }
+
     private void UpdateReaderFlowButton()
     {
-        ReaderFlowButton.Content = _readerFlowMode == 0 ? "滚动" : "分页";
+        ReaderFlowButton.Content = _readerFlowMode == 0
+            ? "滚动"
+            : _readerLayout.TwoPageMode ? "双页" : "单页";
+        if (ReaderTwoPageMenuItem is not null)
+        {
+            ReaderTwoPageMenuItem.IsEnabled = _readerFlowMode == 1;
+            ReaderTwoPageMenuItem.IsChecked = _readerLayout.TwoPageMode;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -1876,6 +2015,7 @@ public sealed partial class MainWindow : Window
         _readerLocationSequence++;
         _readerPendingTurnInAnimation = null;
         _readerPendingNavigationTarget = null;
+        _readerActiveLocationTarget = null;
         _readerNavigationIntent = ReaderNavigationIntent.None;
         _readerRelayoutCancellation?.Cancel();
         _readerRelayoutCancellation?.Dispose();
@@ -1888,7 +2028,6 @@ public sealed partial class MainWindow : Window
         UpdateReaderAssistantPopup(false);
         SetReaderAiSettingsVisible(false);
         if (_readerLayoutPopup is not null) _readerLayoutPopup.IsOpen = false;
-        if (_readerSearchPopup is not null) _readerSearchPopup.IsOpen = false;
         if (_readerSelectionPopup is not null) _readerSelectionPopup.IsOpen = false;
         if (_readerZenPopup is not null) _readerZenPopup.IsOpen = false;
         _readerSearchVisible = false;
@@ -2137,7 +2276,8 @@ public sealed partial class MainWindow : Window
         var vertical = _readerFlowMode == 0 && _readerLayout.VerticalWriting;
         var flowCss = ReaderPaginationScripts.CreateFlowCss(
             pagination: _readerFlowMode == 1,
-            vertical: vertical);
+            vertical: vertical,
+            twoPage: _readerLayout.TwoPageMode);
         var lineHeight = _readerLayout.LineHeight.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
         var bodyPadding = _readerFlowMode == 1
             ? (int)ReaderPaginationDefaults.HorizontalPadding
@@ -2322,11 +2462,13 @@ public sealed partial class MainWindow : Window
             if (ReaderWebView.CoreWebView2 is null || ReaderWebView.Source is not { IsFile: true }) return;
             await FitReaderImagesAsync();
             if (sequence != _readerChapterTransitionSequence || _readerCloseRequested) return;
-            if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
+            if (_readerFlowMode == 1) await RealignReaderAfterRelayoutAsync();
             await Task.Delay(700);
             if (sequence != _readerChapterTransitionSequence || _readerCloseRequested) return;
             if (ReaderWebView.CoreWebView2 is null || ReaderWebView.Source is not { IsFile: true }) return;
             await FitReaderImagesAsync();
+            if (sequence != _readerChapterTransitionSequence || _readerCloseRequested) return;
+            if (_readerFlowMode == 1) await RealignReaderAfterRelayoutAsync();
         }
         catch
         {
@@ -2502,7 +2644,11 @@ public sealed partial class MainWindow : Window
         try
         {
             result = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
-                ReaderNavigationScripts.CreateFragmentScroll(needle, flowMode, vertical)) ?? "null";
+                ReaderNavigationScripts.CreateFragmentScroll(
+                    needle,
+                    flowMode,
+                    vertical,
+                    _readerLayout.TwoPageMode)) ?? "null";
         }
         catch
         {
@@ -2528,15 +2674,10 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (flowMode == 1)
-        {
-            // The script already placed the target's column at the viewport
-            // left edge on an exact `n × viewport` boundary;
-            // re-snap idempotently so later image-fit / relayout passes keep
-            // the page (and the post-navigation tasks never rewind the reader
-            // to an old column).
-            await SnapReaderPaginationAsync();
-        }
+        // The script aligns from the target's rendered column. A generic
+        // n * viewport snap here would discard its measured inset correction
+        // and recreate the left/right offset at fractional WebView widths.
+        // Delayed font/image/host reflows call this target-aware method again.
     }
 
 
@@ -2609,7 +2750,8 @@ public sealed partial class MainWindow : Window
         ApplySidebarSectionColors(
             sectionButton,
             chevron,
-            darkBackground: expanded != _hoveredSidebarSections.Contains(sectionButton),
+            isActive: ReferenceEquals(sectionButton, _activeNavigationSectionButton),
+            isHovered: _hoveredSidebarSections.Contains(sectionButton),
             animate: false);
         sectionButton.SetValue(
             Microsoft.UI.Xaml.Automation.AutomationProperties.NameProperty,
@@ -2624,7 +2766,8 @@ public sealed partial class MainWindow : Window
         ApplySidebarSectionColors(
             sectionButton,
             chevron,
-            darkBackground: children.Visibility != Visibility.Visible,
+            isActive: ReferenceEquals(sectionButton, _activeNavigationSectionButton),
+            isHovered: true,
             animate: true);
     }
 
@@ -2636,7 +2779,8 @@ public sealed partial class MainWindow : Window
         ApplySidebarSectionColors(
             sectionButton,
             chevron,
-            darkBackground: children.Visibility == Visibility.Visible,
+            isActive: ReferenceEquals(sectionButton, _activeNavigationSectionButton),
+            isHovered: false,
             animate: true);
     }
 
@@ -2665,11 +2809,16 @@ public sealed partial class MainWindow : Window
     private static void ApplySidebarSectionColors(
         Button sectionButton,
         FontIcon chevron,
-        bool darkBackground,
+        bool isActive,
+        bool isHovered,
         bool animate)
     {
-        var targetBackground = darkBackground ? Colors.Black : Colors.White;
-        var targetForeground = darkBackground ? Colors.White : Colors.Black;
+        var targetBackground = isActive
+            ? Colors.Black
+            : isHovered
+                ? Windows.UI.Color.FromArgb(0xFF, 0xF2, 0xF2, 0xF2)
+                : Colors.White;
+        var targetForeground = isActive ? Colors.White : Colors.Black;
         var currentBackground = (sectionButton.Background as SolidColorBrush)?.Color ?? targetBackground;
         var currentForeground = (sectionButton.Foreground as SolidColorBrush)?.Color ?? targetForeground;
         var backgroundBrush = new SolidColorBrush(currentBackground);
@@ -2713,16 +2862,41 @@ public sealed partial class MainWindow : Window
     private void SetActiveNavigation(Button activeButton)
     {
         _activeNavigationButton = activeButton;
-        if (activeButton == DeviceOverviewButton)
+        if (activeButton == KindleBooksButton || activeButton == DeviceOverviewButton)
+        {
+            _activeNavigationSectionButton = DeviceManagementSectionButton;
             ExpandSidebarSection(DeviceManagementSectionButton, DeviceManagementChildren, DeviceManagementChevron, "设备管理");
+        }
+        else if (activeButton == ReaderNotesNavigationButton || activeButton == ReaderExportNavigationButton)
+        {
+            _activeNavigationSectionButton = ReadingSectionButton;
+            ExpandSidebarSection(ReadingSectionButton, ReadingChildren, ReadingChevron, "阅读资料");
+        }
+        else if (activeButton == SettingsNavigationButton || activeButton == KindleEmailSettingsNavigationButton)
+        {
+            _activeNavigationSectionButton = SystemSectionButton;
+            ExpandSidebarSection(SystemSectionButton, SystemChildren, SystemChevron, "系统");
+        }
         else
+        {
+            _activeNavigationSectionButton = BookManagementSectionButton;
             ExpandSidebarSection(BookManagementSectionButton, BookManagementChildren, BookManagementChevron, "书籍管理");
+        }
 
         var ink = (Brush)Application.Current.Resources["InkBrush"];
         var paper = (Brush)Application.Current.Resources["CardBrush"];
         var muted = (Brush)Application.Current.Resources["MutedInkBrush"];
         var idleIndicator = (Brush)Application.Current.Resources["SidebarIndicatorBrush"];
-        foreach (var button in new[] { AllBooksButton, KindleBooksButton, DeviceOverviewButton })
+        foreach (var button in new[]
+        {
+            AllBooksButton,
+            KindleBooksButton,
+            DeviceOverviewButton,
+            ReaderNotesNavigationButton,
+            ReaderExportNavigationButton,
+            SettingsNavigationButton,
+            KindleEmailSettingsNavigationButton
+        })
         {
             var isActive = button == activeButton;
             button.Background = paper;
@@ -2732,6 +2906,19 @@ public sealed partial class MainWindow : Window
         }
         AllBooksLabelText.Foreground = activeButton == AllBooksButton ? ink : muted;
         SidebarCountText.Foreground = activeButton == AllBooksButton ? ink : muted;
+
+        ApplySidebarSectionColors(BookManagementSectionButton, BookManagementChevron,
+            isActive: ReferenceEquals(BookManagementSectionButton, _activeNavigationSectionButton),
+            isHovered: _hoveredSidebarSections.Contains(BookManagementSectionButton), animate: false);
+        ApplySidebarSectionColors(DeviceManagementSectionButton, DeviceManagementChevron,
+            isActive: ReferenceEquals(DeviceManagementSectionButton, _activeNavigationSectionButton),
+            isHovered: _hoveredSidebarSections.Contains(DeviceManagementSectionButton), animate: false);
+        ApplySidebarSectionColors(ReadingSectionButton, ReadingChevron,
+            isActive: ReferenceEquals(ReadingSectionButton, _activeNavigationSectionButton),
+            isHovered: _hoveredSidebarSections.Contains(ReadingSectionButton), animate: false);
+        ApplySidebarSectionColors(SystemSectionButton, SystemChevron,
+            isActive: ReferenceEquals(SystemSectionButton, _activeNavigationSectionButton),
+            isHovered: _hoveredSidebarSections.Contains(SystemSectionButton), animate: false);
     }
 
     private void DeviceStorageBar_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateDeviceStorageBar();

@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Kkindle.Core;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace Kkindle;
@@ -24,6 +25,58 @@ public sealed class BookCardViewModel : ObservableObject
     public string TagsLabel => string.IsNullOrWhiteSpace(Book.Tags) ? "未设置标签" : Book.Tags;
     public string DescriptionLabel => string.IsNullOrWhiteSpace(Book.Description) ? "暂无简介" : Book.Description;
     public BitmapImage? CoverImage { get; private set; }
+    private bool _isConversionProgressVisible;
+    private double _conversionProgress;
+    private string _conversionProgressLabel = "0%";
+    private string _conversionProgressMessage = "正在转换…";
+
+    public bool IsConversionProgressVisible
+    {
+        get => _isConversionProgressVisible;
+        private set
+        {
+            if (SetProperty(ref _isConversionProgressVisible, value))
+                OnPropertyChanged(nameof(ConversionProgressVisibility));
+        }
+    }
+
+    public Visibility ConversionProgressVisibility => IsConversionProgressVisible
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public double ConversionProgress
+    {
+        get => _conversionProgress;
+        private set => SetProperty(ref _conversionProgress, value);
+    }
+
+    public string ConversionProgressLabel
+    {
+        get => _conversionProgressLabel;
+        private set => SetProperty(ref _conversionProgressLabel, value);
+    }
+
+    public string ConversionProgressMessage
+    {
+        get => _conversionProgressMessage;
+        private set => SetProperty(ref _conversionProgressMessage, value);
+    }
+
+    public void SetConversionProgress(FormatConversionProgress progress, bool showIndicator)
+    {
+        ConversionProgress = Math.Clamp(progress.Percentage, 0, 100);
+        ConversionProgressLabel = $"{progress.RoundedPercentage}%";
+        ConversionProgressMessage = progress.Message;
+        IsConversionProgressVisible = showIndicator;
+    }
+
+    public void ClearConversionProgress()
+    {
+        IsConversionProgressVisible = false;
+        ConversionProgress = 0;
+        ConversionProgressLabel = "0%";
+        ConversionProgressMessage = "正在转换…";
+    }
 
     public void Refresh()
     {

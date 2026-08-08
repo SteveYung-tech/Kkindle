@@ -7,7 +7,7 @@ internal static class ReaderPaginationScripts
 {
     public const string ViewportWidthVariable = "--kkindle-reader-page-viewport-width";
 
-    public static string CreateFlowCss(bool pagination, bool vertical)
+    public static string CreateFlowCss(bool pagination, bool vertical, bool twoPage = false)
     {
         if (!pagination)
         {
@@ -20,10 +20,16 @@ internal static class ReaderPaginationScripts
         var horizontalPadding = Format(ReaderPaginationDefaults.HorizontalPadding);
         var bottomPadding = Format(ReaderPaginationDefaults.BottomPadding);
         var columnGap = Format(ReaderPaginationDefaults.ColumnGap);
-        var columnWidthSubtraction = Format(ReaderPaginationDefaults.HorizontalPadding * 2);
+        var outerInsets = Format(ReaderPaginationDefaults.HorizontalPadding * 2);
+        var spreadReservedWidth = Format(
+            ReaderPaginationDefaults.HorizontalPadding * 2
+            + ReaderPaginationDefaults.ColumnGap);
+        var columnWidth = twoPage
+            ? $"calc((var({ViewportWidthVariable}, 100vw) - {spreadReservedWidth}px) / 2)"
+            : $"calc(var({ViewportWidthVariable}, 100vw) - {outerInsets}px)";
         return $"html {{ height: 100%; overflow: hidden !important; writing-mode: horizontal-tb !important; }}"
             + $" body {{ width: 100% !important; min-width: 0 !important; height: 100% !important; margin: 0 !important; overflow: visible !important; padding: {topPadding}px {horizontalPadding}px {bottomPadding}px !important; box-sizing: border-box !important;"
-            + $" writing-mode: horizontal-tb !important; column-width: calc(var({ViewportWidthVariable}, 100vw) - {columnWidthSubtraction}px) !important;"
+            + $" writing-mode: horizontal-tb !important; column-width: {columnWidth} !important;"
             + $" column-gap: {columnGap}px !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
     }
 

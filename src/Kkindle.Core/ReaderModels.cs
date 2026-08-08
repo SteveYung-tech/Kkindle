@@ -92,7 +92,8 @@ public sealed record ReaderLayoutSettings(
     double BodyPadding = 68,
     string FontFamily = ReaderFontDefaults.DefaultFamily,
     int FlowMode = 0,
-    bool VerticalWriting = false);
+    bool VerticalWriting = false,
+    bool TwoPageMode = false);
 
 // ------------------------------------------------------------------
 // Layout settings safety net. Persisted per-book settings can carry
@@ -142,7 +143,8 @@ public static class ReaderLayoutDefaults
             BodyPadding = bodyPadding,
             FontFamily = fontFamily,
             FlowMode = settings.FlowMode == 1 ? 1 : 0,
-            VerticalWriting = settings.VerticalWriting
+            VerticalWriting = settings.VerticalWriting,
+            TwoPageMode = settings.TwoPageMode
         };
     }
 }
@@ -205,6 +207,22 @@ public enum ReaderNavigationIntent
 
 public static class ReaderNavigationLocationPolicy
 {
+    // WebView2 treats a different fragment in the same XHTML as an in-page
+    // navigation. Such jumps may not raise NavigationCompleted, so callers
+    // compare document identity without the fragment and position directly.
+    public static bool TargetsSameDocument(Uri? current, Uri? target)
+    {
+        if (current is null || target is null || !current.IsAbsoluteUri || !target.IsAbsoluteUri)
+            return false;
+
+        return Uri.Compare(
+            current,
+            target,
+            UriComponents.SchemeAndServer | UriComponents.Path | UriComponents.Query,
+            UriFormat.SafeUnescaped,
+            StringComparison.OrdinalIgnoreCase) == 0;
+    }
+
     // A plain chapter navigation (TOC without an explicit anchor, or the
     // progress slider) always starts at the chapter's first line: the actual
     // scroll container goes back to the content-box start (scrollTop = 0 in

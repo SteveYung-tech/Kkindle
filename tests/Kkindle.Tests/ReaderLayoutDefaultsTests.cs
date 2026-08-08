@@ -15,6 +15,7 @@ public sealed class ReaderLayoutDefaultsTests
         Assert.Equal(ReaderFontDefaults.DefaultFamily, defaults.FontFamily);
         Assert.Equal(0, defaults.FlowMode);
         Assert.False(defaults.VerticalWriting);
+        Assert.False(defaults.TwoPageMode);
         Assert.False(defaults.VerticalWriting && defaults.FlowMode == 1);
     }
 
@@ -27,7 +28,8 @@ public sealed class ReaderLayoutDefaultsTests
             MaxWidth: 40,
             BodyPadding: 500,
             FlowMode: 7,
-            VerticalWriting: true);
+            VerticalWriting: true,
+            TwoPageMode: true);
 
         var normalized = ReaderLayoutDefaults.Normalize(corrupt);
 
@@ -37,6 +39,7 @@ public sealed class ReaderLayoutDefaultsTests
         Assert.Equal(ReaderLayoutDefaults.MaxBodyPadding, normalized.BodyPadding);
         Assert.Equal(0, normalized.FlowMode); // only 0 or 1 are valid flow modes; 7 falls back to scroll
         Assert.True(normalized.VerticalWriting); // user choice is preserved
+        Assert.True(normalized.TwoPageMode); // page layout preference is preserved across normalization
     }
 
     [Fact]
@@ -79,7 +82,8 @@ public sealed class ReaderLayoutDefaultsTests
             BodyPadding: 96,
             FontFamily: "SimSun",
             FlowMode: 1,
-            VerticalWriting: false);
+            VerticalWriting: false,
+            TwoPageMode: true);
 
         var normalized = ReaderLayoutDefaults.Normalize(valid);
         Assert.Equal(valid, normalized);

@@ -4,22 +4,30 @@ namespace Kkindle.Core;
 // (details, context menu, grid and list) uses the same capability rules.
 public static class ReaderBookSelectionPolicy
 {
-    public static bool IsSupportedFormat(string? format) => GetPriority(format) < 2;
+    public static bool IsSupportedFormat(string? format) => GetPriority(format) < 3;
 
-    public static BookFile? SelectPreferred(IEnumerable<BookFile>? files)
+    public static IReadOnlyList<BookFile> GetSupportedFiles(IEnumerable<BookFile>? files)
     {
-        if (files is null) return null;
+        if (files is null) return [];
 
         return files
             .Where(file => IsSupportedFormat(file.Format))
             .OrderBy(file => GetPriority(file.Format))
-            .FirstOrDefault();
+            .ToArray();
     }
+
+    public static BookFile? SelectPreferred(IEnumerable<BookFile>? files)
+        => GetSupportedFiles(files).FirstOrDefault();
+
+    public static BookFile? SelectEpub(IEnumerable<BookFile>? files) =>
+        files?.FirstOrDefault(file =>
+            string.Equals(file.Format?.Trim(), "epub", StringComparison.OrdinalIgnoreCase));
 
     private static int GetPriority(string? format) => format?.Trim().ToLowerInvariant() switch
     {
         "epub" => 0,
         "pdf" => 1,
-        _ => 2
+        "azw3" => 2,
+        _ => 3
     };
 }

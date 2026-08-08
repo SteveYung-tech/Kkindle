@@ -126,7 +126,8 @@ public sealed class ReaderProductivityTests
                 BodyPadding: 96,
                 FontFamily: "SimSun",
                 FlowMode: 1,
-                VerticalWriting: true);
+                VerticalWriting: true,
+                TwoPageMode: true);
             await service.SaveLayoutSettingsAsync(bookId, fileId, settings);
 
             var restored = await service.GetLayoutSettingsAsync(fileId);
@@ -136,6 +137,7 @@ public sealed class ReaderProductivityTests
             Assert.Equal(960, restored.MaxWidth);
             Assert.Equal("SimSun", restored.FontFamily);
             Assert.True(restored.VerticalWriting);
+            Assert.True(restored.TwoPageMode);
 
             // A book with no saved settings still resolves to the default record.
             Assert.Null(await service.GetLayoutSettingsAsync(Guid.NewGuid()));

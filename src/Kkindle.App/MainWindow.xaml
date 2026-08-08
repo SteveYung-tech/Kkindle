@@ -68,7 +68,7 @@
                 Grid.Column="0"
                 Background="{StaticResource SidebarBackgroundBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
-                BorderThickness="0">
+                BorderThickness="0,0,1,0">
             <Grid Padding="18,24,18,18">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -91,7 +91,7 @@
                               Margin="0,24,0,16"
                               HorizontalScrollMode="Disabled"
                               HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Auto">
+                              VerticalScrollBarVisibility="Hidden">
                     <StackPanel Spacing="16">
                         <StackPanel Spacing="3">
                             <Button x:Name="BookManagementSectionButton"
@@ -159,8 +159,14 @@
                                 </Grid>
                             </Button>
                             <StackPanel x:Name="ReadingChildren" Spacing="3" Visibility="Collapsed">
-                                <Button Content="笔记与标注 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
-                                <Button Content="导出记录 · 即将支持" Style="{StaticResource SidebarButtonStyle}" IsEnabled="False" />
+                                <Button x:Name="ReaderNotesNavigationButton"
+                                        Content="笔记与标注"
+                                        Style="{StaticResource SidebarButtonStyle}"
+                                        Click="ReaderNotesNavigationButton_Click" />
+                                <Button x:Name="ReaderExportNavigationButton"
+                                        Content="导出记录"
+                                        Style="{StaticResource SidebarButtonStyle}"
+                                        Click="ReaderExportNavigationButton_Click" />
                             </StackPanel>
                         </StackPanel>
 
@@ -178,8 +184,8 @@
                                 </Grid>
                             </Button>
                             <StackPanel x:Name="SystemChildren" Spacing="3" Visibility="Collapsed">
-                                <Button Content="设置" Style="{StaticResource SidebarButtonStyle}" Click="SettingsButton_Click" />
-                                <Button Content="Kindle 邮箱设置" Style="{StaticResource SidebarButtonStyle}" Click="KindleEmailSettingsButton_Click" />
+                                <Button x:Name="SettingsNavigationButton" Content="设置" Style="{StaticResource SidebarButtonStyle}" Click="SettingsButton_Click" />
+                                <Button x:Name="KindleEmailSettingsNavigationButton" Content="Kindle 邮箱设置" Style="{StaticResource SidebarButtonStyle}" Click="KindleEmailSettingsButton_Click" />
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
@@ -355,6 +361,52 @@
                     <GridView.ItemTemplate>
                         <DataTemplate x:DataType="local:BookCardViewModel">
                             <Grid Width="154">
+                                <Grid.ContextFlyout>
+                                    <MenuFlyout Opening="BookContextFlyout_Opening">
+                                        <MenuFlyoutSubItem Text="打开书籍"
+                                                           Tag="{x:Bind Book}">
+                                            <MenuFlyoutItem Text="EPUB"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="OpenBookFormatMenuItem_Click" />
+                                            <MenuFlyoutItem Text="PDF"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="OpenBookFormatMenuItem_Click" />
+                                            <MenuFlyoutItem Text="AZW3"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="OpenBookFormatMenuItem_Click" />
+                                        </MenuFlyoutSubItem>
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="转换为 EPUB"
+                                                        Tag="{x:Bind Book}"
+                                                        Click="ConvertBookToEpubMenuItem_Click" />
+                                        <MenuFlyoutItem Text="转换为 AZW3"
+                                                        Tag="{x:Bind Book}"
+                                                        Click="ConvertBookToAzw3MenuItem_Click" />
+                                        <MenuFlyoutItem Text="转换为 PDF"
+                                                        Tag="{x:Bind Book}"
+                                                        Click="ConvertBookToPdfMenuItem_Click" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="发送到 Kindle 邮箱"
+                                                        Tag="{x:Bind Book}"
+                                                        Click="SendBookToKindleEmailMenuItem_Click" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutSubItem Text="删除格式"
+                                                           Tag="{x:Bind Book}">
+                                            <MenuFlyoutItem Text="EPUB"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="DeleteBookFormatMenuItem_Click" />
+                                            <MenuFlyoutItem Text="PDF"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="DeleteBookFormatMenuItem_Click" />
+                                            <MenuFlyoutItem Text="MOBI"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="DeleteBookFormatMenuItem_Click" />
+                                            <MenuFlyoutItem Text="AZW3"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="DeleteBookFormatMenuItem_Click" />
+                                        </MenuFlyoutSubItem>
+                                    </MenuFlyout>
+                                </Grid.ContextFlyout>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="214" />
                                     <RowDefinition Height="Auto" />
@@ -364,17 +416,6 @@
                                         BorderThickness="1"
                                         CornerRadius="0">
                                     <Grid Background="Transparent">
-                                        <Grid.ContextFlyout>
-                                            <MenuFlyout>
-                                                <MenuFlyoutItem Text="打开书籍"
-                                                                Tag="{x:Bind Book}"
-                                                                Click="OpenBookMenuItem_Click" />
-                                                <MenuFlyoutSeparator />
-                                                <MenuFlyoutItem Text="发送到 Kindle 邮箱"
-                                                                Tag="{x:Bind Book}"
-                                                                Click="SendBookToKindleEmailMenuItem_Click" />
-                                            </MenuFlyout>
-                                        </Grid.ContextFlyout>
                                         <TextBlock Text="BOOK"
                                                    HorizontalAlignment="Center"
                                                    VerticalAlignment="Center"
@@ -398,6 +439,35 @@
                                                Foreground="{StaticResource MutedInkBrush}"
                                                FontSize="10" />
                                 </StackPanel>
+                                <Border Grid.Row="0"
+                                        Width="68"
+                                        Height="25"
+                                        Margin="0,0,5,5"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Bottom"
+                                        Background="#FFFFFF"
+                                        BorderBrush="#000000"
+                                        BorderThickness="1"
+                                        Canvas.ZIndex="3"
+                                        Visibility="{x:Bind ConversionProgressVisibility, Mode=OneWay}"
+                                        Tapped="BookConversionProgressIndicator_Tapped"
+                                        AutomationProperties.Name="打开格式转换进度">
+                                    <Grid Width="66" Height="23">
+                                        <ProgressBar Height="4"
+                                                     Margin="5,0,5,4"
+                                                     VerticalAlignment="Bottom"
+                                                     Minimum="0"
+                                                     Maximum="100"
+                                                     Value="{x:Bind ConversionProgress, Mode=OneWay}"
+                                                     Foreground="#000000"
+                                                     Background="#D9D9D9" />
+                                        <TextBlock Text="{x:Bind ConversionProgressLabel, Mode=OneWay}"
+                                                   Foreground="#000000"
+                                                   FontSize="10"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
                             </Grid>
                         </DataTemplate>
                     </GridView.ItemTemplate>
@@ -411,11 +481,58 @@
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:BookCardViewModel">
                             <Grid Padding="8,9" MinHeight="66">
+                                <Grid.ContextFlyout>
+                                    <MenuFlyout Opening="BookContextFlyout_Opening">
+                                        <MenuFlyoutSubItem Text="打开书籍"
+                                                           Tag="{x:Bind Book}">
+                                            <MenuFlyoutItem Text="EPUB"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="OpenBookFormatMenuItem_Click" />
+                                            <MenuFlyoutItem Text="PDF"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="OpenBookFormatMenuItem_Click" />
+                                            <MenuFlyoutItem Text="AZW3"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="OpenBookFormatMenuItem_Click" />
+                                        </MenuFlyoutSubItem>
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="转换为 EPUB"
+                                                        Tag="{x:Bind Book}"
+                                                        Click="ConvertBookToEpubMenuItem_Click" />
+                                        <MenuFlyoutItem Text="转换为 AZW3"
+                                                        Tag="{x:Bind Book}"
+                                                        Click="ConvertBookToAzw3MenuItem_Click" />
+                                        <MenuFlyoutItem Text="转换为 PDF"
+                                                        Tag="{x:Bind Book}"
+                                                        Click="ConvertBookToPdfMenuItem_Click" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="发送到 Kindle 邮箱"
+                                                        Tag="{x:Bind Book}"
+                                                        Click="SendBookToKindleEmailMenuItem_Click" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutSubItem Text="删除格式"
+                                                           Tag="{x:Bind Book}">
+                                            <MenuFlyoutItem Text="EPUB"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="DeleteBookFormatMenuItem_Click" />
+                                            <MenuFlyoutItem Text="PDF"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="DeleteBookFormatMenuItem_Click" />
+                                            <MenuFlyoutItem Text="MOBI"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="DeleteBookFormatMenuItem_Click" />
+                                            <MenuFlyoutItem Text="AZW3"
+                                                            Tag="{x:Bind Book}"
+                                                            Click="DeleteBookFormatMenuItem_Click" />
+                                        </MenuFlyoutSubItem>
+                                    </MenuFlyout>
+                                </Grid.ContextFlyout>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="42" />
                                     <ColumnDefinition Width="2*" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="100" />
+                                    <ColumnDefinition Width="76" />
                                 </Grid.ColumnDefinitions>
                                 <Border Width="36" Height="48" Background="#D9D9D9" BorderBrush="#000000" BorderThickness="1" CornerRadius="0">
                                     <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
@@ -426,6 +543,33 @@
                                 </StackPanel>
                                 <TextBlock Grid.Column="2" Text="{x:Bind Authors}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                 <TextBlock Grid.Column="3" Text="{x:Bind FormatLabel}" VerticalAlignment="Center" Foreground="{StaticResource MutedInkBrush}" />
+                                <Border Grid.Column="4"
+                                        Width="68"
+                                        Height="25"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center"
+                                        Background="#FFFFFF"
+                                        BorderBrush="#000000"
+                                        BorderThickness="1"
+                                        Visibility="{x:Bind ConversionProgressVisibility, Mode=OneWay}"
+                                        Tapped="BookConversionProgressIndicator_Tapped"
+                                        AutomationProperties.Name="打开格式转换进度">
+                                    <Grid Width="66" Height="23">
+                                        <ProgressBar Height="4"
+                                                     Margin="5,0,5,4"
+                                                     VerticalAlignment="Bottom"
+                                                     Minimum="0"
+                                                     Maximum="100"
+                                                     Value="{x:Bind ConversionProgress, Mode=OneWay}"
+                                                     Foreground="#000000"
+                                                     Background="#D9D9D9" />
+                                        <TextBlock Text="{x:Bind ConversionProgressLabel, Mode=OneWay}"
+                                                   Foreground="#000000"
+                                                   FontSize="10"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
@@ -1135,12 +1279,21 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Button x:Name="ReaderTocToggleButton"
-                                Content="目录"
-                                Width="64"
-                                Style="{StaticResource ReaderHeaderButtonStyle}"
-                                ToolTipService.ToolTip="显示或隐藏目录"
-                                Click="ReaderTocToggleButton_Click" />
+                        <StackPanel Orientation="Horizontal"
+                                    Spacing="5">
+                            <Button x:Name="ReaderTocToggleButton"
+                                    Content="目录"
+                                    Width="64"
+                                    Style="{StaticResource ReaderHeaderButtonStyle}"
+                                    ToolTipService.ToolTip="显示或隐藏目录"
+                                    Click="ReaderTocToggleButton_Click" />
+                            <Button x:Name="ReaderSearchToolbarButton"
+                                    Content="搜索"
+                                    Style="{StaticResource ReaderHeaderButtonStyle}"
+                                    AutomationProperties.Name="书内搜索"
+                                    ToolTipService.ToolTip="搜索整本书（Ctrl+F）"
+                                    Click="ReaderSearchToolbarButton_Click" />
+                        </StackPanel>
                         <TextBlock x:Name="ReaderStatusText"
                                    Grid.Column="1"
                                    Margin="4,0"
@@ -1177,7 +1330,7 @@
                             <Button x:Name="ReaderFlowButton"
                                     Content="滚动"
                                     Style="{StaticResource ReaderHeaderButtonStyle}"
-                                    ToolTipService.ToolTip="切换滚动或分页"
+                                    ToolTipService.ToolTip="切换滚动或单页/双页分页"
                                     Click="ReaderFlowButton_Click" />
                             <Button x:Name="ReaderMoreButton"
                                     Content="更多"
@@ -1193,6 +1346,10 @@
                                         <MenuFlyoutItem Text="阅读排版设置"
                                                         ToolTipService.ToolTip="字号、行距、正文宽度、字体与竖排"
                                                         Click="ReaderLayoutSettingsMenuItem_Click" />
+                                        <ToggleMenuFlyoutItem x:Name="ReaderTwoPageMenuItem"
+                                                              Text="双页显示（仅分页）"
+                                                              ToolTipService.ToolTip="分页模式下左右显示两页正文"
+                                                              Click="ReaderTwoPageMenuItem_Click" />
                                         <MenuFlyoutSeparator />
                                         <MenuFlyoutItem Text="翻页动画" IsEnabled="False" />
                                         <RadioMenuFlyoutItem x:Name="ReaderAnimationNoneItem"
@@ -1229,12 +1386,6 @@
                                     ToolTipService.ToolTip="添加或取消当前阅读位置的书签（Ctrl+B）"
                                     Click="ReaderBookmarkButton_Click" />
                             <Rectangle Width="1" Height="22" Margin="3,0" Fill="#D5D5D1" VerticalAlignment="Center" />
-                            <Button x:Name="ReaderSearchToolbarButton"
-                                    Content="搜索"
-                                    Style="{StaticResource ReaderHeaderButtonStyle}"
-                                    AutomationProperties.Name="书内搜索"
-                                    ToolTipService.ToolTip="搜索整本书（Ctrl+F）"
-                                    Click="ReaderSearchToolbarButton_Click" />
                             <Button x:Name="ReaderAssistantToggleButton"
                                     Content="助手"
                                     Style="{StaticResource ReaderHeaderButtonStyle}"
@@ -1938,11 +2089,14 @@
                 </Border>
             </Grid>
 
-            <!-- Whole-book search panel. Lives in a Popup so it floats above the
-                 WebView2 HWND island without disturbing the three-pane layout. -->
+            <!-- Whole-book search panel. It occupies the original TOC column so
+                 the search results stay beside the正文 instead of floating over it. -->
             <Border x:Name="ReaderSearchPanel"
                     Width="360"
-                    MaxHeight="540"
+                    Grid.Column="0"
+                    Margin="0,38,0,0"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
                     Background="#FFFFFF"
                     BorderBrush="#000000"
                     BorderThickness="1"
@@ -2030,12 +2184,16 @@
             <Border x:Name="ReaderSelectionBar"
                     Padding="3"
                     Background="#FFFFFF"
-                    BorderBrush="#000000"
-                    BorderThickness="1"
                     CornerRadius="0"
                     Canvas.ZIndex="90"
                     Visibility="Collapsed">
                 <Border.Resources>
+                    <Style x:Key="ReaderSelectionSeparatorStyle" TargetType="Rectangle">
+                        <Setter Property="Width" Value="1" />
+                        <Setter Property="Height" Value="18" />
+                        <Setter Property="Fill" Value="#D5D5D1" />
+                        <Setter Property="VerticalAlignment" Value="Center" />
+                    </Style>
                     <Style x:Key="ReaderSelectionActionStyle" TargetType="Button">
                         <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
                         <Setter Property="MinWidth" Value="52" />
@@ -2043,8 +2201,8 @@
                         <Setter Property="Padding" Value="8,3" />
                         <Setter Property="Background" Value="#FFFFFF" />
                         <Setter Property="Foreground" Value="#000000" />
-                        <Setter Property="BorderBrush" Value="#000000" />
-                        <Setter Property="BorderThickness" Value="1" />
+                        <Setter Property="BorderBrush" Value="Transparent" />
+                        <Setter Property="BorderThickness" Value="0" />
                         <Setter Property="CornerRadius" Value="0" />
                         <Setter Property="FontSize" Value="12" />
                         <Setter Property="Template">
@@ -2093,18 +2251,22 @@
                             Content="复制"
                             Style="{StaticResource ReaderSelectionActionStyle}"
                             Click="ReaderSelectionCopyButton_Click" />
+                    <Rectangle Style="{StaticResource ReaderSelectionSeparatorStyle}" />
                     <Button x:Name="ReaderSelectionHighlightButton"
                             Content="划线"
                             Style="{StaticResource ReaderSelectionActionStyle}"
                             Click="ReaderSelectionHighlightButton_Click" />
+                    <Rectangle Style="{StaticResource ReaderSelectionSeparatorStyle}" />
                     <Button x:Name="ReaderSelectionAnnotateButton"
                             Content="批注"
                             Style="{StaticResource ReaderSelectionActionStyle}"
                             Click="ReaderSelectionAnnotateButton_Click" />
+                    <Rectangle Style="{StaticResource ReaderSelectionSeparatorStyle}" />
                     <Button x:Name="ReaderSelectionAiExplainButton"
                             Content="AI 解释"
                             Style="{StaticResource ReaderSelectionActionStyle}"
                             Click="ReaderSelectionAiExplainButton_Click" />
+                    <Rectangle Style="{StaticResource ReaderSelectionSeparatorStyle}" />
                     <Button x:Name="ReaderSelectionSearchButton"
                             Content="搜索"
                             Style="{StaticResource ReaderSelectionActionStyle}"
@@ -2194,5 +2356,75 @@
                 </Grid>
             </Border>
         </Grid>
+
+        <Border x:Name="BookConversionPopup"
+                Grid.ColumnSpan="3"
+                Width="390"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="0,0,30,30"
+                Padding="14"
+                Background="#FFFFFF"
+                BorderBrush="#000000"
+                BorderThickness="2"
+                CornerRadius="0"
+                Canvas.ZIndex="80"
+                Visibility="Collapsed"
+                Tapped="BookConversionPopup_Tapped">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="2">
+                        <TextBlock x:Name="BookConversionPopupTitleText"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="BookConversionPopupFormatText"
+                                   Foreground="{StaticResource MutedInkBrush}"
+                                   FontSize="11" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5">
+                        <Button x:Name="BookConversionBackgroundButton"
+                                Content="后台"
+                                Padding="8,4"
+                                Style="{StaticResource QuietButtonStyle}"
+                                Click="BookConversionBackgroundButton_Click" />
+                        <Button x:Name="BookConversionCancelButton"
+                                Content="取消"
+                                Padding="8,4"
+                                Style="{StaticResource QuietButtonStyle}"
+                                Click="BookConversionCancelButton_Click" />
+                    </StackPanel>
+                </Grid>
+                <Grid Grid.Row="1" Margin="0,13,0,0">
+                    <ProgressBar x:Name="BookConversionPopupProgress"
+                                 Height="8"
+                                 Minimum="0"
+                                 Maximum="100"
+                                 Foreground="#000000"
+                                 Background="#D9D9D9" />
+                    <TextBlock x:Name="BookConversionPopupPercentageText"
+                               Foreground="#FFFFFF"
+                               FontSize="10"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                </Grid>
+                <TextBlock x:Name="BookConversionPopupMessageText"
+                           Grid.Row="2"
+                           Margin="0,8,0,0"
+                           Foreground="{StaticResource MutedInkBrush}"
+                           FontSize="11"
+                           TextTrimming="CharacterEllipsis" />
+            </Grid>
+        </Border>
     </Grid>
 </Window>

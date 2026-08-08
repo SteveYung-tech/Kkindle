@@ -101,3 +101,8 @@ public sealed record TransferProgress(long BytesCopied, long TotalBytes, string 
 {
     public double Percentage => TotalBytes <= 0 ? 0 : BytesCopied * 100d / TotalBytes;
 }
+
+public sealed record FormatConversionProgress(double Percentage, string Message)
+{
+    public int RoundedPercentage => Math.Clamp((int)Math.Round(Percentage), 0, 100);
+}

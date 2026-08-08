@@ -5,6 +5,27 @@ namespace Kkindle.Tests;
 public sealed class ReaderPaginationTests
 {
     [Fact]
+    public void ColumnWidthSupportsSingleAndTwoPageSpreads()
+    {
+        Assert.Equal(952, ReaderPaginationDefaults.GetColumnWidth(1000), precision: 6);
+        Assert.Equal(452, ReaderPaginationDefaults.GetColumnWidth(1000, pagesPerView: 2), precision: 6);
+        Assert.Equal(452, ReaderPaginationDefaults.GetColumnWidth(1000, pagesPerView: 99), precision: 6);
+    }
+
+    [Fact]
+    public void TwoPageColumnsAndInsetsFillExactlyOneViewport()
+    {
+        const double viewport = 1000;
+        var column = ReaderPaginationDefaults.GetColumnWidth(viewport, pagesPerView: 2);
+
+        var spreadWidth = ReaderPaginationDefaults.HorizontalPadding * 2
+            + column * 2
+            + ReaderPaginationDefaults.ColumnGap;
+
+        Assert.Equal(viewport, spreadWidth, precision: 6);
+    }
+
+    [Fact]
     public void SnapStartsAtViewportOriginSoPageMarginsStayEven()
     {
         var snapped = ReaderPaginationPolicy.SnapScrollLeft(

@@ -8,6 +8,9 @@
 - 导入 EPUB、PDF、MOBI、AZW3
 - EPUB 标题、作者、简介和封面解析
 - 文件复制、SHA-256 去重和多格式归档
+- 书籍右键支持使用随发布包携带的 Calibre 在 EPUB、AZW3、PDF 之间互转，并将新格式归入原书
+- 格式转换显示实时进度，可缩小到后台并在对应书籍右下角保留可恢复的矩形进度块
+- Kreader 支持 EPUB、PDF 和 AZW3（AZW3 打开时自动准备为临时 EPUB）
 - 搜索、作者/标签/格式筛选、书架视图、列表视图、元数据编辑
 - 鼠标拖入书籍、空书库/无结果状态和长标题省略显示
 - Kindle USB 磁盘与 WPD/MTP 扫描、封面显示、发送和安全删除
@@ -26,9 +29,11 @@ dotnet test Kkindle.sln --no-build -p:Platform=x64
 
 ```powershell
 dotnet publish src\Kkindle.App\Kkindle.App.csproj `
-  -c Release -p:Platform=x64 -r win-x64 `
+  -c Release -p:Platform=x64 -p:KkindleCalibreRuntime="C:\Program Files\Calibre2" -r win-x64 `
   --self-contained true -p:WindowsAppSDKSelfContained=true
 ```
+
+`KkindleCalibreRuntime` 会把指定目录下的 Calibre 运行时复制到发布目录的 `Calibre` 子目录；发布后的用户无需另行安装 Calibre。Calibre 的许可证和源代码信息见发布目录中的 `Calibre\LICENSE` 与 `Calibre-THIRD-PARTY-NOTICE.txt`。开发机没有 Calibre 时可省略该参数，程序仍会回退到用户配置的 `KKINDLE_CALIBRE_CONVERT`、系统安装目录或 PATH。
 
 发布目录位于：
 

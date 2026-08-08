@@ -1,0 +1,11 @@
+Kkindle includes an optional bundled Calibre runtime for ebook conversion.
+
+Calibre is licensed under the GNU General Public License v3.
+The bundled runtime is distributed separately under that license. Its full
+license text is included in the Calibre folder as LICENSE.
+
+Calibre source code and license information:
+https://github.com/kovidgoyal/calibre
+https://manual.calibre-ebook.com/develop.html
+
+Kkindle uses Calibre's ebook-convert command as a separate helper process.

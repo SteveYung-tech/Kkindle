@@ -28,8 +28,11 @@ public sealed partial class MainWindow
         KindleEmailSettingsOverlay.Visibility = Visibility.Visible;
     }
 
-    private async void KindleEmailSettingsButton_Click(object sender, RoutedEventArgs e) =>
+    private async void KindleEmailSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetActiveNavigation(KindleEmailSettingsNavigationButton);
         await ShowKindleEmailSettingsAsync();
+    }
 
     private void KindleEmailSettingsCancelButton_Click(object sender, RoutedEventArgs e)
     {

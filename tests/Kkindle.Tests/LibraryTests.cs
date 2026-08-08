@@ -60,6 +60,69 @@ public sealed class LibraryTests
     }
 
     [Fact]
+    public async Task AddsConvertedFormatToExistingBookWithoutCreatingDuplicateBook()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "原书.epub");
+            CreateEpub(source);
+            var converted = Path.Combine(root, "测试书.pdf");
+            await File.WriteAllBytesAsync(converted, [1, 2, 3, 4]);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+
+            var added = await service.AddFileToBookAsync(book.Id, converted);
+            var books = await service.SearchAsync();
+
+            Assert.Equal(book.Id, added.BookId);
+            Assert.Single(books);
+            Assert.Equal(2, books[0].Files.Count);
+            Assert.Contains(books[0].Files, file => file.Format == "pdf");
+            Assert.All(books[0].Files, file => Assert.True(File.Exists(service.GetAbsoluteFilePath(file))));
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task DeletesOnlySelectedFormatAndRemovesBookAfterLastFormat()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "原书.epub");
+            CreateEpub(source);
+            var converted = Path.Combine(root, "原书.pdf");
+            await File.WriteAllBytesAsync(converted, [1, 2, 3, 4]);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+            var pdf = await service.AddFileToBookAsync(book.Id, converted);
+            var pdfPath = service.GetAbsoluteFilePath(pdf);
+
+            await service.DeleteFileAsync(book.Id, pdf.Id);
+
+            var remaining = Assert.Single(await service.SearchAsync());
+            Assert.Single(remaining.Files);
+            Assert.Equal("epub", remaining.Files[0].Format);
+            Assert.False(File.Exists(pdfPath));
+
+            var epub = remaining.Files[0];
+            var epubPath = service.GetAbsoluteFilePath(epub);
+            await service.DeleteFileAsync(remaining.Id, epub.Id);
+
+            Assert.Empty(await service.SearchAsync());
+            Assert.False(File.Exists(epubPath));
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
     public async Task BatchImportReportsMetadataFailureAndContinuesWithOtherFiles()
     {
         var root = CreateTempDirectory();

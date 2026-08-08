@@ -13,8 +13,21 @@ public static class ReaderPaginationDefaults
     public const double BottomPadding = HorizontalPadding;
     public const double SnapTolerance = 4;
 
-    public static double GetColumnWidth(double viewportWidth) =>
-        Math.Max(0, viewportWidth - HorizontalPadding * 2);
+    public static double GetColumnWidth(double viewportWidth, int pagesPerView = 1)
+    {
+        if (!double.IsFinite(viewportWidth) || viewportWidth <= 0)
+            return 0;
+
+        var safePagesPerView = Math.Clamp(pagesPerView, 1, 2);
+        // The multicol container is border-box sized, so its left/right
+        // padding is outside the usable column area. A spread must reserve
+        // both outer insets plus the gaps between its columns; otherwise two
+        // requested columns do not actually fit in one viewport and the
+        // browser redistributes them onto uneven page boundaries.
+        var reservedWidth = HorizontalPadding * 2
+            + ColumnGap * (safePagesPerView - 1);
+        return Math.Max(0, (viewportWidth - reservedWidth) / safePagesPerView);
+    }
 }
 
 public static class ReaderPaginationPolicy

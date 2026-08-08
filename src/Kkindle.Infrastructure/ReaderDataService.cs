@@ -104,6 +104,7 @@ public sealed partial class ReaderDataService
                     FontFamily TEXT NULL,
                     FlowMode INTEGER NOT NULL DEFAULT 0,
                     VerticalWriting INTEGER NOT NULL DEFAULT 0,
+                    TwoPageMode INTEGER NOT NULL DEFAULT 0,
                     UpdatedAt TEXT NOT NULL
                 );
 
@@ -118,6 +119,7 @@ public sealed partial class ReaderDataService
                 );
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
+            await EnsureReaderLayoutTwoPageColumnAsync(connection, cancellationToken);
 
             _ftsAvailable = await EnsureFullTextIndexAsync(connection, cancellationToken);
         }
@@ -384,6 +386,33 @@ public sealed partial class ReaderDataService
     // Per-book layout settings.
     // ------------------------------------------------------------------
 
+    private static async Task EnsureReaderLayoutTwoPageColumnAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var inspect = connection.CreateCommand();
+        inspect.CommandText = "PRAGMA table_info(ReaderLayoutSettings);";
+        var hasTwoPageColumn = false;
+        await using (var reader = await inspect.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (reader.FieldCount > 1
+                    && string.Equals(reader.GetString(1), "TwoPageMode", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasTwoPageColumn = true;
+                    break;
+                }
+            }
+        }
+
+        if (hasTwoPageColumn) return;
+
+        var alter = connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE ReaderLayoutSettings ADD COLUMN TwoPageMode INTEGER NOT NULL DEFAULT 0;";
+        await alter.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task<ReaderLayoutSettings?> GetLayoutSettingsAsync(
         Guid bookFileId,
         CancellationToken cancellationToken = default)
@@ -391,7 +420,7 @@ public sealed partial class ReaderDataService
         await using var connection = await OpenConnectionAsync(cancellationToken);
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT FontScale, LineHeight, MaxWidth, BodyPadding, FontFamily, FlowMode, VerticalWriting
+            SELECT FontScale, LineHeight, MaxWidth, BodyPadding, FontFamily, FlowMode, VerticalWriting, TwoPageMode
             FROM ReaderLayoutSettings
             WHERE BookFileId = $bookFileId;
             """;
@@ -405,7 +434,8 @@ public sealed partial class ReaderDataService
             reader.GetDouble(3),
             reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
             reader.GetInt32(5),
-            reader.GetInt32(6) != 0);
+            reader.GetInt32(6) != 0,
+            reader.GetInt32(7) != 0);
     }
 
     public async Task SaveLayoutSettingsAsync(
@@ -422,14 +452,15 @@ public sealed partial class ReaderDataService
             command.CommandText = """
                 INSERT INTO ReaderLayoutSettings (
                     BookFileId, BookId, FontScale, LineHeight, MaxWidth, BodyPadding,
-                    FontFamily, FlowMode, VerticalWriting, UpdatedAt)
+                    FontFamily, FlowMode, VerticalWriting, TwoPageMode, UpdatedAt)
                 VALUES (
                     $bookFileId, $bookId, $fontScale, $lineHeight, $maxWidth, $bodyPadding,
-                    $fontFamily, $flowMode, $verticalWriting, $updatedAt)
+                    $fontFamily, $flowMode, $verticalWriting, $twoPageMode, $updatedAt)
                 ON CONFLICT(BookFileId) DO UPDATE SET
                     BookId=$bookId, FontScale=$fontScale, LineHeight=$lineHeight,
                     MaxWidth=$maxWidth, BodyPadding=$bodyPadding, FontFamily=$fontFamily,
-                    FlowMode=$flowMode, VerticalWriting=$verticalWriting, UpdatedAt=$updatedAt;
+                    FlowMode=$flowMode, VerticalWriting=$verticalWriting,
+                    TwoPageMode=$twoPageMode, UpdatedAt=$updatedAt;
                 """;
             command.Parameters.AddWithValue("$bookFileId", bookFileId.ToString());
             command.Parameters.AddWithValue("$bookId", bookId.ToString());
@@ -440,6 +471,7 @@ public sealed partial class ReaderDataService
             command.Parameters.AddWithValue("$fontFamily", string.IsNullOrWhiteSpace(settings.FontFamily) ? DBNull.Value : settings.FontFamily);
             command.Parameters.AddWithValue("$flowMode", settings.FlowMode);
             command.Parameters.AddWithValue("$verticalWriting", settings.VerticalWriting ? 1 : 0);
+            command.Parameters.AddWithValue("$twoPageMode", settings.TwoPageMode ? 1 : 0);
             command.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToString("O"));
             await command.ExecuteNonQueryAsync(cancellationToken);
         }

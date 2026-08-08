@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 
 namespace Kkindle.Infrastructure;
 
-internal static class Hashing
+public static class Hashing
 {
     public static async Task<string> Sha256Async(string path, CancellationToken cancellationToken = default)
     {

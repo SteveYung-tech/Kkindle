@@ -23,12 +23,43 @@ public sealed class ReaderBookSelectionTests
     }
 
     [Fact]
+    public void FallsBackToAzw3WhenOnlyAzw3IsAvailable()
+    {
+        var azw3 = new BookFile { Format = "azw3" };
+        Assert.Same(azw3, ReaderBookSelectionPolicy.SelectPreferred([
+            new BookFile { Format = "mobi" },
+            azw3
+        ]));
+    }
+
+    [Fact]
+    public void ListsAllSupportedFormatsInReaderPreferenceOrder()
+    {
+        var pdf = new BookFile { Format = "pdf" };
+        var mobi = new BookFile { Format = "mobi" };
+        var azw3 = new BookFile { Format = "azw3" };
+        var epub = new BookFile { Format = "EPUB" };
+
+        Assert.Equal([epub, pdf, azw3], ReaderBookSelectionPolicy.GetSupportedFiles([
+            pdf, mobi, azw3, epub
+        ]));
+    }
+
+    [Fact]
     public void ReturnsNullWhenNoReaderFormatExists()
     {
-        Assert.Null(ReaderBookSelectionPolicy.SelectPreferred([
-            new BookFile { Format = "mobi" },
-            new BookFile { Format = "azw3" }
-        ]));
+        Assert.Null(ReaderBookSelectionPolicy.SelectPreferred([new BookFile { Format = "mobi" }]));
         Assert.Null(ReaderBookSelectionPolicy.SelectPreferred(null));
+    }
+
+    [Fact]
+    public void SelectEpubOnlyReturnsEpubForAnnotationMaterials()
+    {
+        var pdf = new BookFile { Format = "pdf" };
+        var epub = new BookFile { Format = " EPUB " };
+
+        Assert.Same(epub, ReaderBookSelectionPolicy.SelectEpub([pdf, epub]));
+        Assert.Null(ReaderBookSelectionPolicy.SelectEpub([pdf]));
+        Assert.Null(ReaderBookSelectionPolicy.SelectEpub(null));
     }
 }

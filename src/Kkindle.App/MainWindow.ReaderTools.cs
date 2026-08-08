@@ -26,7 +26,6 @@ public sealed partial class MainWindow
 
     private ReaderLayoutSettings _readerLayout = new();
     private Popup? _readerLayoutPopup;
-    private Popup? _readerSearchPopup;
     private Popup? _readerSelectionPopup;
     private DispatcherQueueTimer? _readerSelectionTimer;
     private DispatcherQueueTimer? _readerStatsTimer;
@@ -46,6 +45,9 @@ public sealed partial class MainWindow
     private long _readerStatsBaseSeconds;
     private bool _windowActive = true;
     private bool _readerSearchVisible;
+    private bool _readerSearchLayoutCaptured;
+    private bool _readerSearchPreviousTocExpanded;
+    private bool _readerSearchPreviousTocMinimal;
 
     private void ConfigureReaderToolsPopupHosts()
     {
@@ -59,15 +61,7 @@ public sealed partial class MainWindow
             IsOpen = false
         };
 
-        ReaderPane.Children.Remove(ReaderSearchPanel);
-        ReaderSearchPanel.Margin = new Thickness(0);
-        ReaderSearchPanel.Visibility = Visibility.Visible;
-        _readerSearchPopup = new Popup
-        {
-            Child = ReaderSearchPanel,
-            IsLightDismissEnabled = true,
-            IsOpen = false
-        };
+        ReaderSearchPanel.Visibility = Visibility.Collapsed;
 
         ReaderPane.Children.Remove(ReaderSelectionBar);
         ReaderSelectionBar.Margin = new Thickness(0);
@@ -106,6 +100,8 @@ public sealed partial class MainWindow
         _readerSessionStart = DateTimeOffset.UtcNow;
         _readerBookmarkTabActive = false;
         _readerSearchVisible = false;
+        _readerSearchLayoutCaptured = false;
+        ReaderSearchPanel.Visibility = Visibility.Collapsed;
     }
 
     private void StopReaderToolsTimers()
@@ -181,7 +177,8 @@ public sealed partial class MainWindow
             ReaderBodyPaddingSlider.Value,
             (ReaderFontFamilyBox.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty,
             _readerFlowMode,
-            ReaderVerticalWritingCheck.IsChecked == true);
+            ReaderVerticalWritingCheck.IsChecked == true,
+            _readerLayout.TwoPageMode);
     }
 
     private void ReaderLayoutSettingChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -235,7 +232,9 @@ public sealed partial class MainWindow
     private void UpdateReaderLayoutStatus()
     {
         if (ReaderLayoutSettingsStatusText is null) return;
-        ReaderLayoutSettingsStatusText.Text = _readerLayout.VerticalWriting && _readerFlowMode != 0
+        ReaderLayoutSettingsStatusText.Text = _readerLayout.TwoPageMode && _readerFlowMode != 1
+            ? "双页仅用于分页模式；当前模式下暂不生效。"
+            : _readerLayout.VerticalWriting && _readerFlowMode != 0
             ? "竖排仅用于滚动模式；分页模式下竖排暂不生效。"
             : "设置立即生效，并保存在本机。";
     }
@@ -293,7 +292,8 @@ public sealed partial class MainWindow
             MaxWidth = 800,
             BodyPadding = 68,
             FontFamily = ReaderFontDefaults.DefaultFamily,
-            VerticalWriting = false
+            VerticalWriting = false,
+            TwoPageMode = false
         };
         ReaderFontScaleSlider.Value = 1.0;
         ReaderLineHeightSlider.Value = 1.88;
@@ -302,6 +302,7 @@ public sealed partial class MainWindow
         ReaderFontFamilyBox.SelectedItem = ReaderFontFamilyBox.Items[0];
         ReaderVerticalWritingCheck.IsChecked = false;
         _suppressReaderLayoutChange = false;
+        UpdateReaderFlowButton();
         UpdateReaderLayoutValueLabels();
         UpdateReaderLayoutStatus();
         UpdateReaderZoomLabel();
@@ -599,18 +600,19 @@ public sealed partial class MainWindow
 
     private void ShowReaderSearchPanel()
     {
-        if (_readerSearchPopup is null || RootGrid.XamlRoot is null) return;
-        var viewport = RootGrid.XamlRoot.Size;
-        var width = Math.Min(360, Math.Max(280, viewport.Width - 24));
-        var height = Math.Min(540, Math.Max(240, viewport.Height - 90));
-        _readerSearchPopup.XamlRoot = RootGrid.XamlRoot;
-        ReaderSearchPanel.Width = width;
-        ReaderSearchPanel.MaxHeight = height;
+        if (RootGrid.XamlRoot is null) return;
+        if (!_readerSearchVisible)
+        {
+            _readerSearchPreviousTocExpanded = _readerTocExpanded;
+            _readerSearchPreviousTocMinimal = _readerTocMinimal;
+            _readerSearchLayoutCaptured = true;
+            _readerTocExpanded = true;
+            _readerTocMinimal = false;
+            _readerSearchVisible = true;
+            ApplyReaderPanelLayout();
+        }
+
         ReaderSearchPanel.Visibility = Visibility.Visible;
-        _readerSearchPopup.HorizontalOffset = Math.Max(0, viewport.Width - width - 16);
-        _readerSearchPopup.VerticalOffset = 48;
-        _readerSearchPopup.IsOpen = true;
-        _readerSearchVisible = true;
         if (string.IsNullOrWhiteSpace(ReaderSearchStatusText.Text))
             ReaderSearchStatusText.Text = "输入关键词后按 Enter 或点击“搜索”。";
         ReaderSearchBox.Focus(FocusState.Programmatic);
@@ -618,8 +620,15 @@ public sealed partial class MainWindow
 
     private void HideReaderSearchPanel()
     {
+        var restoreTocLayout = _readerSearchVisible && _readerSearchLayoutCaptured;
         _readerSearchVisible = false;
-        if (_readerSearchPopup is not null) _readerSearchPopup.IsOpen = false;
+        ReaderSearchPanel.Visibility = Visibility.Collapsed;
+        if (!restoreTocLayout) return;
+
+        _readerTocExpanded = _readerSearchPreviousTocExpanded;
+        _readerTocMinimal = _readerSearchPreviousTocMinimal;
+        _readerSearchLayoutCaptured = false;
+        ApplyReaderPanelLayout();
     }
 
     private async void ReaderSearchBox_KeyDown(object sender, KeyRoutedEventArgs e)

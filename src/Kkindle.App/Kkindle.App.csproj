@@ -16,6 +16,8 @@
     <UseWinUI>true</UseWinUI>
     <EnableDefaultApplicationDefinition>true</EnableDefaultApplicationDefinition>
     <EnableDefaultPageItems>true</EnableDefaultPageItems>
+    <!-- Set this at publish time to bundle a Calibre Portable/runtime directory. -->
+    <KkindleCalibreRuntime Condition="'$(KkindleCalibreRuntime)' == ''">$(KKINDLE_CALIBRE_RUNTIME)</KkindleCalibreRuntime>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="Assets\Kkindle.ico">
@@ -30,6 +32,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+    <Content Include="Assets\Calibre-THIRD-PARTY-NOTICE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <ProjectReference Include="..\Kkindle.Core\Kkindle.Core.csproj" />
     <ProjectReference Include="..\Kkindle.Infrastructure\Kkindle.Infrastructure.csproj" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.3.1" />
@@ -37,5 +43,15 @@
   </ItemGroup>
   <Target Name="CopyApplicationPriToPublish" AfterTargets="Publish">
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).pri')" />
+    <Copy SourceFiles="$(ProjectDir)Assets\Calibre-THIRD-PARTY-NOTICE.txt" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(ProjectDir)Assets\Calibre-THIRD-PARTY-NOTICE.txt')" />
+  </Target>
+  <Target Name="CopyBundledCalibreToPublish" AfterTargets="Publish" Condition="'$(KkindleCalibreRuntime)' != '' and Exists('$(KkindleCalibreRuntime)\ebook-convert.exe')">
+    <ItemGroup>
+      <BundledCalibreFiles Include="$(KkindleCalibreRuntime)\**\*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(BundledCalibreFiles)"
+      DestinationFiles="@(BundledCalibreFiles->'$(PublishDir)Calibre\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
   </Target>
 </Project>

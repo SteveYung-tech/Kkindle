@@ -17,6 +17,7 @@ public partial class App : Application
         var paths = new AppPaths(AppContext.BaseDirectory);
         var metadata = new BookMetadataService();
         var library = new SqliteBookLibraryService(paths, metadata);
+        var formatConverter = new BookFormatConversionService();
         var kindle = new KindleDeviceService(paths, metadata);
         var readerData = new ReaderDataService(paths);
         await library.InitializeAsync();
@@ -24,6 +25,7 @@ public partial class App : Application
         _window = new MainWindow(
             paths,
             library,
+            formatConverter,
             kindle,
             readerData,
             new EpubBookContentService(readerData),
