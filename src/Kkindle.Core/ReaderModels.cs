@@ -13,6 +13,7 @@ public sealed class ReaderAnnotation
     public string Prefix { get; set; } = string.Empty;
     public string Suffix { get; set; } = string.Empty;
     public string Color { get; set; } = "#000000";
+    public string UnderlineStyle { get; set; } = "solid";
     public string Note { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

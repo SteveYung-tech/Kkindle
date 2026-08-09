@@ -32,7 +32,7 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
     {
         _paths.EnsureDirectories();
         await using var connection = await OpenConnectionAsync(cancellationToken);
-        var command = connection.CreateCommand();
+        using var command = connection.CreateCommand();
         command.CommandText = """
             PRAGMA journal_mode = WAL;
             CREATE TABLE IF NOT EXISTS Books (

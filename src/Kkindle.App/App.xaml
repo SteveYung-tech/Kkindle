@@ -44,13 +44,79 @@
             <SolidColorBrush x:Key="AccentButtonBorderBrushPointerOver" Color="#000000" />
             <SolidColorBrush x:Key="AccentButtonBorderBrushPressed" Color="#000000" />
             <SolidColorBrush x:Key="AccentButtonBorderBrushDisabled" Color="#BFBFBF" />
+            <FontFamily x:Key="DefaultAppFontFamily">ms-appx:///Assets/Fonts/KingHwaOldSong-v3.0.ttf#KingHwaOldSong</FontFamily>
+
+            <!-- Black-and-white MenuFlyout resources used by both the book context
+                 menu and its nested submenus. These names are consumed by the
+                 WinUI MenuFlyout templates through ThemeResource lookups. -->
+            <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="#000000" />
+            <Thickness x:Key="MenuFlyoutPresenterBorderThemeThickness">1</Thickness>
+            <SolidColorBrush x:Key="MenuFlyoutItemBackground" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPressed" Color="#D9D9D9" />
+            <SolidColorBrush x:Key="MenuFlyoutItemBackgroundDisabled" Color="#F2F2F2" />
+            <SolidColorBrush x:Key="MenuFlyoutItemForeground" Color="#000000" />
+            <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="MenuFlyoutItemForegroundPressed" Color="#000000" />
+            <SolidColorBrush x:Key="MenuFlyoutItemForegroundDisabled" Color="#8A8A8A" />
+            <SolidColorBrush x:Key="MenuFlyoutItemBackgroundBrush" Color="Transparent" />
+            <Thickness x:Key="MenuFlyoutItemBorderThickness">0</Thickness>
+            <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForeground" Color="#000000" />
+            <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundPressed" Color="#000000" />
+            <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundDisabled" Color="#8A8A8A" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemBackground" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemBackgroundPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemBackgroundPressed" Color="#D9D9D9" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemBackgroundSubMenuOpened" Color="#000000" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemBackgroundDisabled" Color="#F2F2F2" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemForeground" Color="#000000" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundPressed" Color="#000000" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundSubMenuOpened" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundDisabled" Color="#8A8A8A" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemBackgroundBrush" Color="Transparent" />
+            <Thickness x:Key="MenuFlyoutSubItemBorderThickness">0</Thickness>
+            <SolidColorBrush x:Key="MenuFlyoutSubItemChevron" Color="#000000" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPressed" Color="#000000" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemChevronSubMenuOpened" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemChevronDisabled" Color="#8A8A8A" />
+            <SolidColorBrush x:Key="MenuFlyoutSeparatorBackground" Color="#000000" />
+
+            <Style x:Key="MonochromeMenuFlyoutPresenterStyle"
+                   TargetType="MenuFlyoutPresenter"
+                   BasedOn="{StaticResource DefaultMenuFlyoutPresenterStyle}">
+                <Setter Property="Background" Value="#FFFFFF" />
+                <Setter Property="BorderBrush" Value="#000000" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="0" />
+                <Setter Property="IsDefaultShadowEnabled" Value="False" />
+            </Style>
+            <Style TargetType="MenuFlyoutPresenter"
+                   BasedOn="{StaticResource MonochromeMenuFlyoutPresenterStyle}" />
+            <Style TargetType="MenuFlyoutItem"
+                   BasedOn="{StaticResource DefaultMenuFlyoutItemStyle}">
+                <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+                <Setter Property="Background" Value="#FFFFFF" />
+                <Setter Property="Foreground" Value="#000000" />
+                <Setter Property="CornerRadius" Value="0" />
+            </Style>
+            <Style TargetType="MenuFlyoutSubItem"
+                   BasedOn="{StaticResource DefaultMenuFlyoutSubItemStyle}">
+                <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+                <Setter Property="Background" Value="#FFFFFF" />
+                <Setter Property="Foreground" Value="#000000" />
+                <Setter Property="CornerRadius" Value="0" />
+            </Style>
 
             <SolidColorBrush x:Key="ContentDialogBackground" Color="#FFFFFF" />
             <SolidColorBrush x:Key="ContentDialogForeground" Color="#000000" />
             <SolidColorBrush x:Key="ContentDialogBorderBrush" Color="#000000" />
             <Thickness x:Key="ContentDialogBorderWidth">1</Thickness>
             <CornerRadius x:Key="OverlayCornerRadius">0</CornerRadius>
-            <FontFamily x:Key="DefaultAppFontFamily">ms-appx:///Assets/Fonts/KingHwaOldSong-v3.0.ttf#KingHwaOldSong</FontFamily>
 
             <Style TargetType="Button">
                 <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
@@ -344,9 +410,9 @@
                 <Setter Property="Width" Value="25" />
                 <Setter Property="Height" Value="23" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="Background" Value="#000000" />
-                <Setter Property="BorderBrush" Value="#000000" />
-                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="CornerRadius" Value="0" />
                 <Setter Property="Template">
                     <Setter.Value>
@@ -375,7 +441,13 @@
                                                 </ObjectAnimationUsingKeyFrames>
                                             </Storyboard>
                                         </VisualState>
-                                        <VisualState x:Name="Disabled" />
+                                <VisualState x:Name="Disabled">
+                                    <Storyboard>
+                                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="EjectTriangle" Storyboard.TargetProperty="Fill">
+                                            <DiscreteObjectKeyFrame KeyTime="0" Value="Transparent" />
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
                                     </VisualStateGroup>
                                 </VisualStateManager.VisualStateGroups>
                                 <Border x:Name="EjectBackground"
@@ -386,7 +458,9 @@
                                          Points="0,8 7,0 14,8"
                                          Width="14"
                                          Height="8"
-                                         Fill="#FFFFFF"
+                                         Fill="#000000"
+                                         Stroke="#000000"
+                                         StrokeThickness="1"
                                          Stretch="Fill"
                                          HorizontalAlignment="Center"
                                          VerticalAlignment="Center" />

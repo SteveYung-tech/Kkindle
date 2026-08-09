@@ -549,7 +549,7 @@ public sealed partial class MainWindow
     private ReaderAiMessageView AddReaderChatMessage(string role, string content, bool streaming = false)
     {
         var isUser = role.Equals("user", StringComparison.OrdinalIgnoreCase);
-        var foreground = new SolidColorBrush(isUser ? Colors.White : ColorHelper.FromArgb(255, 24, 24, 24));
+        var foreground = new SolidColorBrush(isUser ? Colors.Black : ColorHelper.FromArgb(255, 24, 24, 24));
         var stack = new StackPanel { Spacing = 4 };
         stack.Children.Add(new TextBlock
         {
@@ -617,7 +617,7 @@ public sealed partial class MainWindow
             MaxWidth = 306,
             Padding = new Thickness(11, 9, 11, 10),
             HorizontalAlignment = isUser ? HorizontalAlignment.Right : HorizontalAlignment.Left,
-            Background = new SolidColorBrush(isUser ? Colors.Black : Colors.White),
+            Background = new SolidColorBrush(isUser ? Colors.Transparent : Colors.White),
             BorderBrush = new SolidColorBrush(isUser ? Colors.Black : ColorHelper.FromArgb(255, 218, 218, 214)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(0),

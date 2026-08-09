@@ -170,6 +170,7 @@ public sealed partial class MainWindow
         _readerTocMinimal = minimal;
         _readerTocExpanded = !minimal;
         ApplyReaderPanelLayout();
+        UpdateReaderZenTocToggle();
         QueueReaderCompactScrollIndicatorUpdate();
     }
 

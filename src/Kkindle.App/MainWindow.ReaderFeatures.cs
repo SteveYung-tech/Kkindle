@@ -39,6 +39,7 @@ public sealed partial class MainWindow
     private bool _suppressAiProviderChange;
     private bool _suppressAiModelChange;
     private bool _suppressAiReasoningDepthChange;
+    private Guid? _readerAnnotationNavigationInFlight;
     private Popup? _readerAssistantPopup;
     private Popup? _readerSettingsPopup;
     private Popup? _readerZenPopup;
@@ -367,7 +368,8 @@ public sealed partial class MainWindow
         annotation.SelectedText = selection.Text;
         annotation.Prefix = selection.Prefix;
         annotation.Suffix = selection.Suffix;
-        annotation.Color = "#000000";
+        annotation.Color = GetSelectedReaderAnnotationColor();
+        annotation.UnderlineStyle = GetSelectedReaderAnnotationStyle();
         annotation.Note = preserveExistingNote && string.IsNullOrWhiteSpace(note) && exact is not null
             ? exact.Note
             : note;
@@ -392,6 +394,12 @@ public sealed partial class MainWindow
             ReaderStatusText.Text = $"保存批注失败：{exception.Message}";
         }
     }
+
+    private string GetSelectedReaderAnnotationColor() =>
+        (ReaderAnnotationColorBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "#000000";
+
+    private string GetSelectedReaderAnnotationStyle() =>
+        (ReaderAnnotationStyleBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "solid";
 
     private void ReplaceReaderAnnotations(IEnumerable<ReaderAnnotation> annotations)
     {
@@ -464,10 +472,10 @@ public sealed partial class MainWindow
         return Path.GetRelativePath(_readerAllowedRoot, fullPath).Replace('\\', '/');
     }
 
-    private async Task ApplyReaderAnnotationsToPageAsync()
+    private async Task<int> ApplyReaderAnnotationsToPageAsync()
     {
         var chapterPath = GetCurrentReaderChapterPath();
-        if (chapterPath is null || ReaderWebView.CoreWebView2 is null) return;
+        if (chapterPath is null || ReaderWebView.CoreWebView2 is null) return 0;
         var payload = _readerAnnotations
             .Where(annotation => annotation.ChapterPath.Equals(chapterPath, StringComparison.OrdinalIgnoreCase))
             .Select(annotation => new
@@ -475,38 +483,54 @@ public sealed partial class MainWindow
                 id = annotation.Id.ToString("N"),
                 startOffset = annotation.StartOffset,
                 endOffset = annotation.EndOffset,
-                note = annotation.Note
+                note = annotation.Note,
+                color = annotation.Color,
+                underlineStyle = annotation.UnderlineStyle
             })
             .OrderByDescending(annotation => annotation.startOffset)
             .ToArray();
         var data = JsonSerializer.Serialize(payload);
         var script = $$"""
             (() => {
-              const root = document.body;
-              if (!root) return;
-              document.querySelectorAll('span[data-kkindle-annotation]').forEach(mark => {
-                const parent = mark.parentNode;
-                while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
-                parent.removeChild(mark);
-                parent.normalize();
-              });
+              try {
+                const root = document.body;
+                if (!root) return `0|0|0|NO_BODY`;
+                document.querySelectorAll('span[data-kkindle-annotation]').forEach(mark => {
+                  const parent = mark.parentNode;
+                  while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+                  parent.removeChild(mark);
+                  parent.normalize();
+                });
 
               const annotations = {{data}};
+              let appliedCount = 0;
+              let matchedRanges = 0;
+              let lastNodeCount = 0;
+              let maxTextCursor = 0;
+              const normalizeColor = value => /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#000000';
+              const toHighlightColor = value => {
+                const color = normalizeColor(value);
+                const hex = color.slice(1);
+                const red = parseInt(hex.slice(0, 2), 16);
+                const green = parseInt(hex.slice(2, 4), 16);
+                const blue = parseInt(hex.slice(4, 6), 16);
+                return `rgba(${red}, ${green}, ${blue}, ${color.toLowerCase() === '#000000' ? 0.18 : 0.32})`;
+              };
               const textNodes = () => {
                 const nodes = [];
-                const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-                  acceptNode(node) {
-                    return node.data.length ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-                  }
-                });
-                while (walker.nextNode()) nodes.push(walker.currentNode);
+                const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                while (walker.nextNode()) {
+                  if (walker.currentNode.data.length) nodes.push(walker.currentNode);
+                }
                 return nodes;
               };
 
               for (const item of annotations) {
                 let cursor = 0;
                 const segments = [];
-                for (const node of textNodes()) {
+                const nodes = textNodes();
+                lastNodeCount = nodes.length;
+                for (const node of nodes) {
                   const nodeStart = cursor;
                   const nodeEnd = cursor + node.data.length;
                   if (item.startOffset < nodeEnd && item.endOffset > nodeStart) {
@@ -519,6 +543,8 @@ public sealed partial class MainWindow
                   cursor = nodeEnd;
                   if (cursor >= item.endOffset) break;
                 }
+                maxTextCursor = Math.max(maxTextCursor, cursor);
+                if (segments.length > 0) matchedRanges++;
 
                 for (let index = segments.length - 1; index >= 0; index--) {
                   const segment = segments[index];
@@ -528,21 +554,51 @@ public sealed partial class MainWindow
                   if (segment.start > 0) selected = selected.splitText(segment.start);
                   const mark = document.createElement('span');
                   mark.dataset.kkindleAnnotation = item.id;
-                  mark.style.backgroundColor = 'transparent';
-                  mark.style.textDecorationLine = 'underline';
-                  mark.style.textDecorationColor = '#000000';
-                  mark.style.textDecorationThickness = '2px';
-                  mark.style.textUnderlineOffset = '2px';
+                  const color = normalizeColor(item.color);
+                  mark.style.setProperty('background-color', toHighlightColor(color), 'important');
+                  mark.style.setProperty('text-decoration-line', 'underline', 'important');
+                  mark.style.setProperty('text-decoration-color', color, 'important');
+                  mark.style.setProperty('text-decoration-style', item.underlineStyle === 'wavy' ? 'wavy' : 'solid', 'important');
+                  mark.style.setProperty('text-decoration-thickness', '2px', 'important');
+                  mark.style.setProperty('text-underline-offset', '3px', 'important');
+                  mark.style.setProperty('text-decoration-skip-ink', 'none', 'important');
+                  mark.style.setProperty('display', 'inline', 'important');
                   mark.style.cursor = 'pointer';
                   if (item.note) mark.title = item.note;
                   selected.parentNode.insertBefore(mark, selected);
                   mark.appendChild(selected);
+                  appliedCount++;
                 }
+              }
+                return `${appliedCount}|${matchedRanges}|${lastNodeCount}`;
+              } catch (error) {
+                return `ERROR|${error?.name || ''}|${error?.message || String(error)}`;
               }
             })();
             """;
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
-        catch { }
+        try
+        {
+            var appliedJson = string.Empty;
+            var diagnostic = string.Empty;
+            for (var attempt = 0; attempt < 6; attempt++)
+            {
+                appliedJson = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script);
+                diagnostic = appliedJson.Trim().Trim('"');
+                var loopParts = diagnostic.Split('|');
+                var nodeCount = loopParts.ElementAtOrDefault(2);
+                if (payload.Length == 0 || !string.Equals(nodeCount, "0", StringComparison.Ordinal))
+                    break;
+                if (attempt < 5)
+                    await Task.Delay(100 + (attempt * 150));
+            }
+            var parts = diagnostic.Split('|');
+            _ = int.TryParse(parts.ElementAtOrDefault(0), out var appliedCount);
+            _ = int.TryParse(parts.ElementAtOrDefault(1), out var matchedCount);
+            if (payload.Length > 0)
+                ReaderStatusText.Text = $"本页已恢复 {Math.Max(0, matchedCount)} 条划线";
+            return Math.Max(0, appliedCount);
+        }
+        catch { return 0; }
     }
 
     private async Task ClearReaderSelectionAsync()
@@ -555,11 +611,22 @@ public sealed partial class MainWindow
     private void ReaderAnnotationList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         ReaderDeleteAnnotationButton.IsEnabled = ReaderAnnotationList.SelectedItem is ReaderAnnotation;
+        if (e.AddedItems.FirstOrDefault() is ReaderAnnotation annotation)
+            _ = NavigateToReaderAnnotationAsync(annotation);
     }
 
     private void ReaderAnnotationList_ItemClick(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is ReaderAnnotation annotation) NavigateToReaderAnnotation(annotation);
+        if (e.ClickedItem is not ReaderAnnotation annotation) return;
+        if (ReaderAnnotationList.SelectedItem is ReaderAnnotation selected
+            && selected.Id == annotation.Id)
+        {
+            _ = NavigateToReaderAnnotationAsync(annotation);
+        }
+        else
+        {
+            ReaderAnnotationList.SelectedItem = annotation;
+        }
     }
 
     private async void ReaderDeleteAnnotationButton_Click(object sender, RoutedEventArgs e)
@@ -580,7 +647,22 @@ public sealed partial class MainWindow
         }
     }
 
-    private void NavigateToReaderAnnotation(ReaderAnnotation annotation)
+    private async Task NavigateToReaderAnnotationAsync(ReaderAnnotation annotation)
+    {
+        if (_readerAnnotationNavigationInFlight == annotation.Id) return;
+        _readerAnnotationNavigationInFlight = annotation.Id;
+        try
+        {
+            await NavigateToReaderAnnotationCoreAsync(annotation);
+        }
+        finally
+        {
+            if (_readerAnnotationNavigationInFlight == annotation.Id)
+                _readerAnnotationNavigationInFlight = null;
+        }
+    }
+
+    private async Task NavigateToReaderAnnotationCoreAsync(ReaderAnnotation annotation)
     {
         if (_readerDocument is null || _readerAllowedRoot is null) return;
         var relative = annotation.ChapterPath.Replace('/', Path.DirectorySeparatorChar);
@@ -595,26 +677,141 @@ public sealed partial class MainWindow
         UpdateReaderChapterControls();
         var target = new Uri(targetPath).AbsoluteUri;
         if (!string.IsNullOrWhiteSpace(annotation.Fragment)) target += $"#{annotation.Fragment}";
-        if (ReaderWebView.Source?.AbsoluteUri.Equals(target, StringComparison.OrdinalIgnoreCase) == true)
+        var targetUri = new Uri(target);
+        if (ReaderNavigationLocationPolicy.TargetsSameDocument(ReaderWebView.Source, targetUri))
         {
-            _ = ApplyReaderAnnotationsToPageAsync();
-            _ = ScrollToPendingReaderAnnotationAsync();
+            await ApplyReaderAnnotationsToPageAsync();
+            await ScrollToPendingReaderAnnotationAsync();
         }
         else
         {
-            _ = NavigateReaderSourceAsync(new Uri(target), 1, animate: true, ReaderNavigationIntent.Annotation);
+            await NavigateReaderSourceAsync(targetUri, 1, animate: true, ReaderNavigationIntent.Annotation);
         }
     }
 
     private async Task ScrollToPendingReaderAnnotationAsync()
     {
         if (_pendingReaderAnnotationScroll is not Guid annotationId || ReaderWebView.CoreWebView2 is null) return;
-        _pendingReaderAnnotationScroll = null;
+        var annotation = _readerAnnotations.FirstOrDefault(item => item.Id == annotationId);
+        if (annotation is null) return;
         var id = annotationId.ToString("N");
-        var script = $"document.querySelector('[data-kkindle-annotation=\"{id}\"]')?.scrollIntoView({{ block: 'center', behavior: 'smooth' }});";
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
+        var startOffset = Math.Max(0, annotation.StartOffset);
+        var endOffset = Math.Max(startOffset, annotation.EndOffset);
+        var pagination = _readerFlowMode == 1 ? "true" : "false";
+        var script = $$"""
+            (() => {
+              const pagination = {{pagination}};
+              const revealRect = rect => {
+                if (!rect || (rect.width <= 0 && rect.height <= 0)) return false;
+                const scroller = document.scrollingElement || document.documentElement;
+                if (!scroller) return false;
+                if (pagination) {
+                  const step = scroller.getBoundingClientRect?.().width
+                    || scroller.clientWidth
+                    || document.documentElement.clientWidth
+                    || window.innerWidth
+                    || 0;
+                  if (step <= 0) return false;
+                  const absoluteX = rect.left + (scroller.scrollLeft || 0) + Math.max(0, rect.width) / 2;
+                  const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+                  const target = Math.max(0, Math.min(max, Math.floor(absoluteX / step) * step));
+                  // Set the scroll position synchronously. This keeps the
+                  // subsequent page snap on the same page as the annotation.
+                  scroller.scrollLeft = target;
+                  scroller.scrollTop = 0;
+                  return true;
+                }
+                return false;
+              };
+              const revealElement = element => {
+                if (!element) return false;
+                const rects = element.getClientRects ? Array.from(element.getClientRects()) : [];
+                const rect = rects.find(item => item.width > 0 || item.height > 0)
+                  || element.getBoundingClientRect?.();
+                if (revealRect(rect)) return true;
+                if (element.scrollIntoView) {
+                  element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+                  return true;
+                }
+                return false;
+              };
+              const mark = document.querySelector('[data-kkindle-annotation="{{id}}"]');
+              if (revealElement(mark)) return true;
+              const root = document.body;
+              if (!root) return false;
+              const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+              let cursor = 0;
+              let startNode = null;
+              let endNode = null;
+              let startLocal = 0;
+              let endLocal = 0;
+              while (walker.nextNode()) {
+                const node = walker.currentNode;
+                if (!node.data.length) continue;
+                const next = cursor + node.data.length;
+                if (!startNode && {{startOffset}} <= next) {
+                  startNode = node;
+                  startLocal = Math.max(0, {{startOffset}} - cursor);
+                }
+                if ({{endOffset}} <= next) {
+                  endNode = node;
+                  endLocal = Math.max(0, {{endOffset}} - cursor);
+                  break;
+                }
+                cursor = next;
+              }
+              if (!startNode) return false;
+              endNode = endNode || startNode;
+              const range = document.createRange();
+              range.setStart(startNode, Math.min(startLocal, startNode.data.length));
+              range.setEnd(endNode, Math.min(endLocal, endNode.data.length));
+              const rangeRects = Array.from(range.getClientRects ? range.getClientRects() : []);
+              const rangeRect = rangeRects.find(item => item.width > 0 || item.height > 0);
+              if (revealRect(rangeRect)) return true;
+              const target = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+                ? range.commonAncestorContainer
+                : range.commonAncestorContainer.parentElement;
+              if (target && target.scrollIntoView) {
+                target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+                return true;
+              }
+              return false;
+            })();
+            """;
+        try
+        {
+            var located = false;
+            for (var attempt = 0; attempt < 4; attempt++)
+            {
+                if (attempt > 0)
+                {
+                    await Task.Delay(100);
+                    await ApplyReaderAnnotationsToPageAsync();
+                }
+
+                var result = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script);
+                if (string.Equals(result.Trim(), "true", StringComparison.OrdinalIgnoreCase))
+                {
+                    located = true;
+                    break;
+                }
+            }
+
+            if (located)
+            {
+                _pendingReaderAnnotationScroll = null;
+                if (_readerFlowMode == 1)
+                {
+                    await Task.Delay(30);
+                    await SnapReaderPaginationAsync();
+                }
+            }
+            else
+            {
+                _pendingReaderAnnotationScroll = null;
+            }
+        }
         catch { }
-        if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
     }
 
     // ------------------------------------------------------------------

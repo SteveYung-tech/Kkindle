@@ -140,6 +140,7 @@ public sealed partial class MainWindow : Window
     {
         _paths = paths;
         _library = library;
+        _backupService = new AppBackupService(paths);
         _formatConverter = formatConverter;
         _kindle = kindle;
         _kindleEmailSettingsStore = new KindleEmailSettingsStore(paths);
@@ -313,6 +314,7 @@ public sealed partial class MainWindow : Window
         _ = FlushReaderSessionSafelyAsync(skipWebViewCapture: true);
 
         _deviceTimer.Stop();
+        HideTransferToast();
         _transferCancellation?.Cancel();
         _transferCancellation?.Dispose();
         _aiChatClient.Dispose();
@@ -328,6 +330,7 @@ public sealed partial class MainWindow : Window
         ApplySquareWindowFrame();
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
         ConstrainRootToViewport();
+        SettingsDataPathText.Text = _paths.Data;
         await RefreshLibraryAsync();
         await RefreshDevicesAsync();
     }
@@ -396,6 +399,8 @@ public sealed partial class MainWindow : Window
             KindleStatusText.Text = device.Name;
             KindleConnectionText.Text = $"{device.ConnectionLabel} · 已连接";
             EjectDeviceButton.Visibility = Visibility.Visible;
+            EjectDeviceButton.IsEnabled = true;
+            ToolTipService.SetToolTip(EjectDeviceButton, "弹出设备");
             DeviceStorageText.Text = device.CapacityLabel;
             _deviceUsedRatio = device.TotalBytes <= 0
                 ? 0
@@ -423,7 +428,9 @@ public sealed partial class MainWindow : Window
         DeleteDeviceBookButton.IsEnabled = false;
         KindleStatusText.Text = "无设备连接";
         KindleConnectionText.Text = detail ?? string.Empty;
-        EjectDeviceButton.Visibility = Visibility.Collapsed;
+        EjectDeviceButton.Visibility = Visibility.Visible;
+        EjectDeviceButton.IsEnabled = false;
+        ToolTipService.SetToolTip(EjectDeviceButton, "未连接设备");
         DeviceStorageText.Text = "无存储信息";
         _deviceUsedRatio = 0;
         UpdateDeviceStorageBar();
@@ -730,20 +737,7 @@ public sealed partial class MainWindow : Window
     private async void DeleteBookButton_Click(object sender, RoutedEventArgs e)
     {
         if (_selectedBook is null) return;
-        var dialog = new ContentDialog
-        {
-            XamlRoot = ((FrameworkElement)Content).XamlRoot,
-            Title = "删除这本书？",
-            Content = $"将从 Kkindle 书库中删除“{_selectedBook.Title}”及其文件。",
-            PrimaryButtonText = "删除",
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Close
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        await _library.DeleteAsync(_selectedBook.Id);
-        _selectedBook = null;
-        CloseDetails();
-        await RefreshLibraryAsync();
+        await DeleteEntireBookAsync(_selectedBook);
     }
 
     private void CloseDetailButton_Click(object sender, RoutedEventArgs e) => CloseDetails();
@@ -773,11 +767,7 @@ public sealed partial class MainWindow : Window
     private async void MoreButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("Kkindle", $"便携数据目录：{_paths.Data}");
     private async void AddTagButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("标签", "可以在书籍详情中直接编辑标签，多个标签用逗号分隔。");
     private async void AddCategoryButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("分类", "分类功能将在书库筛选基础完成后接入。");
-    private async void SettingsButton_Click(object sender, RoutedEventArgs e)
-    {
-        SetActiveNavigation(SettingsNavigationButton);
-        await ShowMessageAsync("设置", $"当前书库位于：{_paths.Library}");
-    }
+    private void SettingsButton_Click(object sender, RoutedEventArgs e) => ShowSettings();
     private void KindleBooksButton_Click(object sender, RoutedEventArgs e) => OpenDevicePage(showBooks: true);
 
     private void DeviceOverviewButton_Click(object sender, RoutedEventArgs e) => OpenDevicePage(showBooks: false);
@@ -789,6 +779,7 @@ public sealed partial class MainWindow : Window
         DeviceBookList.Visibility = showBooks ? Visibility.Visible : Visibility.Collapsed;
         DeviceReadOnlyNote.Visibility = showBooks ? Visibility.Visible : Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Collapsed;
+        SettingsPane.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
         DevicePage.Visibility = Visibility.Visible;
@@ -839,6 +830,7 @@ public sealed partial class MainWindow : Window
     {
         SetActiveNavigation(AllBooksButton);
         DevicePage.Visibility = Visibility.Collapsed;
+        SettingsPane.Visibility = Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Visible;
     }
 
@@ -1529,6 +1521,30 @@ public sealed partial class MainWindow : Window
         _readerZenMode = !_readerZenMode;
         ApplyReaderZenLayout();
         ReaderZenMenuItem.IsChecked = _readerZenMode;
+        ReaderZenTitleExitButton.Visibility = _readerZenMode
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        UpdateReaderZenTocToggle();
+    }
+
+    private void ReaderZenMinimalTocButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_readerZenMode) return;
+        _readerTocExpanded = false;
+        _readerTocMinimal = !_readerTocMinimal;
+        ApplyReaderPanelLayout();
+        UpdateReaderZenTocToggle();
+    }
+
+    private void UpdateReaderZenTocToggle()
+    {
+        if (ReaderZenTitleTocButton is null || ReaderZenTocButton is null) return;
+        var label = _readerTocMinimal ? "隐藏极简目录" : "显示极简目录";
+        ReaderZenTitleTocButton.Content = label;
+        ReaderZenTocButton.Content = label;
+        var visibility = _readerZenMode ? Visibility.Visible : Visibility.Collapsed;
+        ReaderZenTitleTocButton.Visibility = visibility;
+        ReaderZenTocButton.Visibility = visibility;
     }
 
     private void ApplyReaderZenLayout()
@@ -1545,7 +1561,7 @@ public sealed partial class MainWindow : Window
             _readerPreZenTocMinimal = _readerTocMinimal;
             _readerPreZenAssistantExpanded = _readerAssistantExpanded;
             _readerTocExpanded = false;
-            _readerTocMinimal = false;
+            _readerTocMinimal = true;
             _readerAssistantExpanded = false;
             ReaderHeaderRow.Height = new GridLength(0);
             ReaderHeaderBar.Visibility = Visibility.Collapsed;
@@ -1554,6 +1570,7 @@ public sealed partial class MainWindow : Window
             ReaderTocToggleButton.Opacity = 1;
             ReaderAssistantToggleButton.Opacity = 1;
             UpdateReaderZenPopup(true);
+            UpdateReaderZenTocToggle();
         }
         else
         {
@@ -1567,6 +1584,7 @@ public sealed partial class MainWindow : Window
             ReaderTocToggleButton.Opacity = _readerTocExpanded ? 0.58 : 1;
             ReaderAssistantToggleButton.Opacity = _readerAssistantExpanded ? 0.58 : 1;
             UpdateReaderZenPopup(false);
+            UpdateReaderZenTocToggle();
         }
         ApplyReaderPanelLayout();
     }
@@ -1579,6 +1597,9 @@ public sealed partial class MainWindow : Window
         ReaderFooterRow.Height = new GridLength(50);
         ReaderFooterBar.Visibility = Visibility.Visible;
         ReaderZenMenuItem.IsChecked = false;
+        ReaderZenTitleExitButton.Visibility = Visibility.Collapsed;
+        ReaderZenTitleTocButton.Visibility = Visibility.Collapsed;
+        ReaderZenTocButton.Visibility = Visibility.Collapsed;
         ReaderTocToggleButton.Opacity = _readerTocExpanded ? 0.58 : 1;
         ReaderAssistantToggleButton.Opacity = _readerAssistantExpanded ? 0.58 : 1;
         UpdateReaderZenPopup(false);
@@ -1811,6 +1832,11 @@ public sealed partial class MainWindow : Window
             {
                 e.Handled = true;
                 _readerLayoutPopup.IsOpen = false;
+            }
+            else if (_readerZenMode)
+            {
+                e.Handled = true;
+                ToggleReaderZenMode();
             }
             return;
         }
@@ -2235,6 +2261,9 @@ public sealed partial class MainWindow : Window
             if (IsStaleReaderNavigation(sequence, token)) return;
             await ApplyReaderAnnotationsToPageAsync();
             if (IsStaleReaderNavigation(sequence, token)) return;
+            if (_pendingReaderAnnotationScroll is not null)
+                await ScrollToPendingReaderAnnotationAsync();
+            if (IsStaleReaderNavigation(sequence, token)) return;
             await ConfigureReaderFootnoteHoverAsync();
             if (IsStaleReaderNavigation(sequence, token)) return;
             await RefreshReaderProgressAsync();
@@ -2540,6 +2569,11 @@ public sealed partial class MainWindow : Window
                 await ScrollToPendingReaderBookmarkAsync();
                 return;
             case ReaderNavigationIntent.Annotation:
+                // Apply the mark before positioning the new chapter. The
+                // annotation jump itself is part of the first-screen path;
+                // waiting until deferred post-navigation work means the
+                // scroll target can be cleared before the mark exists.
+                await ApplyReaderAnnotationsToPageAsync();
                 await ScrollToPendingReaderAnnotationAsync();
                 return;
             case ReaderNavigationIntent.Search:

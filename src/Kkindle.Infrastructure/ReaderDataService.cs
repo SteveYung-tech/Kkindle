@@ -29,7 +29,7 @@ public sealed partial class ReaderDataService
         try
         {
             await using var connection = await OpenConnectionAsync(cancellationToken);
-            var command = connection.CreateCommand();
+            using var command = connection.CreateCommand();
             command.CommandText = """
                 CREATE TABLE IF NOT EXISTS ReaderAnnotations (
                     Id TEXT PRIMARY KEY,
@@ -43,6 +43,7 @@ public sealed partial class ReaderDataService
                     Prefix TEXT NOT NULL DEFAULT '',
                     Suffix TEXT NOT NULL DEFAULT '',
                     Color TEXT NOT NULL DEFAULT '#000000',
+                    UnderlineStyle TEXT NOT NULL DEFAULT 'solid',
                     Note TEXT NOT NULL DEFAULT '',
                     CreatedAt TEXT NOT NULL,
                     UpdatedAt TEXT NOT NULL
@@ -120,6 +121,7 @@ public sealed partial class ReaderDataService
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
             await EnsureReaderLayoutTwoPageColumnAsync(connection, cancellationToken);
+            await EnsureReaderAnnotationStyleColumnAsync(connection, cancellationToken);
 
             _ftsAvailable = await EnsureFullTextIndexAsync(connection, cancellationToken);
         }
@@ -137,7 +139,7 @@ public sealed partial class ReaderDataService
         var command = connection.CreateCommand();
         command.CommandText = """
             SELECT Id, BookId, BookFileId, ChapterPath, Fragment, StartOffset, EndOffset,
-                   SelectedText, Prefix, Suffix, Color, Note, CreatedAt, UpdatedAt
+                   SelectedText, Prefix, Suffix, Color, UnderlineStyle, Note, CreatedAt, UpdatedAt
             FROM ReaderAnnotations
             WHERE BookFileId = $bookFileId
             ORDER BY ChapterPath COLLATE NOCASE, StartOffset, CreatedAt;
@@ -160,9 +162,10 @@ public sealed partial class ReaderDataService
                 Prefix = reader.GetString(8),
                 Suffix = reader.GetString(9),
                 Color = reader.GetString(10),
-                Note = reader.GetString(11),
-                CreatedAt = DateTimeOffset.Parse(reader.GetString(12)),
-                UpdatedAt = DateTimeOffset.Parse(reader.GetString(13))
+                UnderlineStyle = reader.GetString(11),
+                Note = reader.GetString(12),
+                CreatedAt = DateTimeOffset.Parse(reader.GetString(13)),
+                UpdatedAt = DateTimeOffset.Parse(reader.GetString(14))
             });
         }
         return result;
@@ -178,13 +181,14 @@ public sealed partial class ReaderDataService
             command.CommandText = """
                 INSERT INTO ReaderAnnotations (
                     Id, BookId, BookFileId, ChapterPath, Fragment, StartOffset, EndOffset,
-                    SelectedText, Prefix, Suffix, Color, Note, CreatedAt, UpdatedAt)
+                    SelectedText, Prefix, Suffix, Color, UnderlineStyle, Note, CreatedAt, UpdatedAt)
                 VALUES (
                     $id, $bookId, $bookFileId, $chapterPath, $fragment, $startOffset, $endOffset,
-                    $selectedText, $prefix, $suffix, $color, $note, $createdAt, $updatedAt)
+                    $selectedText, $prefix, $suffix, $color, $underlineStyle, $note, $createdAt, $updatedAt)
                 ON CONFLICT(Id) DO UPDATE SET
                     ChapterPath=$chapterPath, Fragment=$fragment, StartOffset=$startOffset, EndOffset=$endOffset,
                     SelectedText=$selectedText, Prefix=$prefix, Suffix=$suffix, Color=$color,
+                    UnderlineStyle=$underlineStyle,
                     Note=$note, UpdatedAt=$updatedAt;
                 """;
             command.Parameters.AddWithValue("$id", annotation.Id.ToString());
@@ -198,6 +202,7 @@ public sealed partial class ReaderDataService
             command.Parameters.AddWithValue("$prefix", annotation.Prefix);
             command.Parameters.AddWithValue("$suffix", annotation.Suffix);
             command.Parameters.AddWithValue("$color", annotation.Color);
+            command.Parameters.AddWithValue("$underlineStyle", annotation.UnderlineStyle);
             command.Parameters.AddWithValue("$note", annotation.Note);
             command.Parameters.AddWithValue("$createdAt", annotation.CreatedAt.ToString("O"));
             command.Parameters.AddWithValue("$updatedAt", annotation.UpdatedAt.ToString("O"));
@@ -390,7 +395,7 @@ public sealed partial class ReaderDataService
         SqliteConnection connection,
         CancellationToken cancellationToken)
     {
-        var inspect = connection.CreateCommand();
+        using var inspect = connection.CreateCommand();
         inspect.CommandText = "PRAGMA table_info(ReaderLayoutSettings);";
         var hasTwoPageColumn = false;
         await using (var reader = await inspect.ExecuteReaderAsync(cancellationToken))
@@ -408,8 +413,34 @@ public sealed partial class ReaderDataService
 
         if (hasTwoPageColumn) return;
 
-        var alter = connection.CreateCommand();
+        using var alter = connection.CreateCommand();
         alter.CommandText = "ALTER TABLE ReaderLayoutSettings ADD COLUMN TwoPageMode INTEGER NOT NULL DEFAULT 0;";
+        await alter.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task EnsureReaderAnnotationStyleColumnAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        using var inspect = connection.CreateCommand();
+        inspect.CommandText = "PRAGMA table_info(ReaderAnnotations);";
+        var hasUnderlineStyleColumn = false;
+        await using (var reader = await inspect.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(reader.GetString(1), "UnderlineStyle", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasUnderlineStyleColumn = true;
+                    break;
+                }
+            }
+        }
+
+        if (hasUnderlineStyleColumn) return;
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE ReaderAnnotations ADD COLUMN UnderlineStyle TEXT NOT NULL DEFAULT 'solid';";
         await alter.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -813,7 +844,7 @@ public sealed partial class ReaderDataService
 
     private async Task<bool> EnsureFullTextIndexAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
-        var existence = connection.CreateCommand();
+        using var existence = connection.CreateCommand();
         existence.CommandText = "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'BookContentFts');";
         var existed = Convert.ToInt32(await existence.ExecuteScalarAsync(cancellationToken)) == 1;
         try
@@ -832,7 +863,7 @@ public sealed partial class ReaderDataService
             }
         }
 
-        var triggers = connection.CreateCommand();
+        using var triggers = connection.CreateCommand();
         triggers.CommandText = """
             CREATE TRIGGER IF NOT EXISTS BookContentChunks_ai AFTER INSERT ON BookContentChunks BEGIN
                 INSERT INTO BookContentFts(rowid, Content, ChapterTitle)
@@ -852,7 +883,7 @@ public sealed partial class ReaderDataService
         await triggers.ExecuteNonQueryAsync(cancellationToken);
         if (!existed)
         {
-            var rebuild = connection.CreateCommand();
+            using var rebuild = connection.CreateCommand();
             rebuild.CommandText = "INSERT INTO BookContentFts(BookContentFts) VALUES('rebuild');";
             await rebuild.ExecuteNonQueryAsync(cancellationToken);
         }
@@ -864,7 +895,7 @@ public sealed partial class ReaderDataService
         string tokenizer,
         CancellationToken cancellationToken)
     {
-        var command = connection.CreateCommand();
+        using var command = connection.CreateCommand();
         command.CommandText = $"""
             CREATE VIRTUAL TABLE IF NOT EXISTS BookContentFts USING fts5(
                 Content,
@@ -881,7 +912,7 @@ public sealed partial class ReaderDataService
     {
         var connection = new SqliteConnection(ConnectionString);
         await connection.OpenAsync(cancellationToken);
-        var pragma = connection.CreateCommand();
+        using var pragma = connection.CreateCommand();
         pragma.CommandText = "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;";
         await pragma.ExecuteNonQueryAsync(cancellationToken);
         return connection;

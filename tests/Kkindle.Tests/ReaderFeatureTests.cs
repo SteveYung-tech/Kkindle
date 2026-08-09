@@ -94,7 +94,9 @@ public sealed class ReaderFeatureTests
                 SelectedText = "规模法则",
                 Prefix = "理解",
                 Suffix = "的意义",
-                Note = "重要概念"
+                Note = "重要概念",
+                Color = "#F1C40F",
+                UnderlineStyle = "wavy"
             };
 
             await service.SaveAnnotationAsync(annotation);
@@ -105,6 +107,8 @@ public sealed class ReaderFeatureTests
 
             Assert.Equal("更新后的笔记", saved.Note);
             Assert.Equal(12, saved.StartOffset);
+            Assert.Equal("#F1C40F", saved.Color);
+            Assert.Equal("wavy", saved.UnderlineStyle);
 
             await service.DeleteAnnotationAsync(annotation.Id);
             Assert.Empty(await service.GetAnnotationsAsync(fileId));

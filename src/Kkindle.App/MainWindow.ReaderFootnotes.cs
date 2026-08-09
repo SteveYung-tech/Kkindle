@@ -318,9 +318,18 @@ public sealed partial class MainWindow
         var top = (screenTop - origin.Y) / scale;
         var bottom = (screenBottom - origin.Y) / scale;
 
-        var viewport = RootGrid.XamlRoot.Size;
-        var popupWidth = Math.Max(0, Math.Min(360, viewport.Width - 16));
-        var popupMaxHeight = Math.Max(64, Math.Min(260, viewport.Height - 54));
+        // Popup offsets are relative to the window XamlRoot, but the footnote
+        // itself belongs to the reading surface. Use the WebView host bounds
+        // as the placement viewport so it can never spill into the TOC pane.
+        var bodyBounds = new Windows.Foundation.Rect(
+            (hostRect.Left - origin.X) / scale,
+            (hostRect.Top - origin.Y) / scale,
+            hostRect.Width / scale,
+            hostRect.Height / scale);
+        if (bodyBounds.Width <= 16 || bodyBounds.Height <= 16) return;
+
+        var popupWidth = Math.Min(360, bodyBounds.Width - 16);
+        var popupMaxHeight = Math.Min(260, bodyBounds.Height - 16);
         if (popupWidth <= 0 || popupMaxHeight <= 0) return;
 
         ReaderFootnoteText.Text = text;
@@ -335,12 +344,15 @@ public sealed partial class MainWindow
         var anchorCenter = (left + right) / 2;
         var popupLeft = Math.Clamp(
             anchorCenter - popupWidth / 2,
-            8,
-            Math.Max(8, viewport.Width - popupWidth - 8));
+            bodyBounds.Left + 8,
+            Math.Max(bodyBounds.Left + 8, bodyBounds.Right - popupWidth - 8));
         var below = bottom + 10;
         var above = top - popupHeight - 10;
-        var popupTop = below + popupHeight <= viewport.Height - 8 ? below : above;
-        popupTop = Math.Clamp(popupTop, 46, Math.Max(46, viewport.Height - popupHeight - 8));
+        var popupTop = below + popupHeight <= bodyBounds.Bottom - 8 ? below : above;
+        popupTop = Math.Clamp(
+            popupTop,
+            bodyBounds.Top + 8,
+            Math.Max(bodyBounds.Top + 8, bodyBounds.Bottom - popupHeight - 8));
 
         _readerFootnotePopup.HorizontalOffset = popupLeft;
         _readerFootnotePopup.VerticalOffset = popupTop;
