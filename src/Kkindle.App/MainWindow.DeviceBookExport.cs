@@ -60,11 +60,13 @@ public sealed partial class MainWindow
         TaskProgress.Value = 0;
         TaskProgress.Visibility = Visibility.Visible;
         ShowTransferToast("导出到电脑书库", $"正在从 Kindle 读取《{book.Title}》…", progress: 0);
+        var acceptProgressUpdates = true;
 
         try
         {
             var transferProgress = new Progress<TransferProgress>(value =>
             {
+                if (!acceptProgressUpdates) return;
                 TaskProgress.Value = value.Percentage;
                 TaskStatusText.Text = value.Message;
                 ShowTransferToast("导出到电脑书库", value.Message, progress: value.Percentage);
@@ -82,6 +84,7 @@ public sealed partial class MainWindow
                 importPath = Path.Combine(temporaryDirectory, Path.GetFileNameWithoutExtension(localSource) + ".epub");
                 var conversionProgress = new Progress<FormatConversionProgress>(value =>
                 {
+                    if (!acceptProgressUpdates) return;
                     TaskProgress.Value = value.Percentage;
                     TaskStatusText.Text = value.Message;
                     ShowTransferToast("KFX 转换为 EPUB", value.Message, progress: value.Percentage);
@@ -93,6 +96,7 @@ public sealed partial class MainWindow
             TaskStatusText.Text = "正在导入电脑书库…";
             var importProgress = new Progress<TransferProgress>(value =>
             {
+                if (!acceptProgressUpdates) return;
                 TaskProgress.Value = value.Percentage;
                 TaskStatusText.Text = value.Message;
                 ShowTransferToast("导出到电脑书库", value.Message, progress: value.Percentage);
@@ -102,6 +106,7 @@ public sealed partial class MainWindow
             if (failure is not null) throw new IOException(failure.Message ?? "导入电脑书库失败。");
             UpdateLibraryPresentationState();
 
+            acceptProgressUpdates = false;
             TaskStatusText.Text = "已导入电脑书库";
             ShowTransferToast(
                 "导出到电脑书库",
@@ -111,11 +116,13 @@ public sealed partial class MainWindow
         }
         catch (OperationCanceledException)
         {
+            acceptProgressUpdates = false;
             TaskStatusText.Text = "导出已取消";
             ShowTransferToast("导出到电脑书库", "导出已取消，临时文件已清理。", autoHide: true);
         }
         catch (Exception exception)
         {
+            acceptProgressUpdates = false;
             TaskStatusText.Text = "导出失败";
             ShowTransferToast("导出到电脑书库", $"导出失败：{exception.Message}", autoHide: true);
             await ShowMessageAsync("导出到电脑书库失败", exception.Message);

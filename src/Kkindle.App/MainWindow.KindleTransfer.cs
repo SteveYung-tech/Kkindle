@@ -54,16 +54,19 @@ public sealed partial class MainWindow
         TaskProgress.IsIndeterminate = false;
         TaskProgress.Visibility = Visibility.Visible;
         ShowTransferToast("发送到 Kindle 设备", $"正在发送《{book.Title}》…", progress: 0);
+        var acceptProgressUpdates = true;
 
         try
         {
             var progress = new Progress<TransferProgress>(value =>
             {
+                if (!acceptProgressUpdates) return;
                 TaskProgress.Value = value.Percentage;
                 TaskStatusText.Text = value.Message;
                 ShowTransferToast("发送到 Kindle 设备", value.Message, progress: value.Percentage);
             });
             await _kindle.SendBookAsync(device, file, source, progress, _transferCancellation.Token);
+            acceptProgressUpdates = false;
             TaskStatusText.Text = "已发送到 Kindle";
             ShowTransferToast("发送到 Kindle 设备", $"《{book.Title}》已发送完成。", progress: 100, autoHide: true);
             _scannedDeviceId = null;
@@ -71,11 +74,13 @@ public sealed partial class MainWindow
         }
         catch (OperationCanceledException)
         {
+            acceptProgressUpdates = false;
             TaskStatusText.Text = "发送已中断";
             ShowTransferToast("发送到 Kindle 设备", "发送已中断，未完成的临时文件已清理。", autoHide: true);
         }
         catch (Exception exception)
         {
+            acceptProgressUpdates = false;
             TaskStatusText.Text = "发送失败";
             ShowTransferToast("发送到 Kindle 设备", $"发送失败：{exception.Message}", autoHide: true);
         }
