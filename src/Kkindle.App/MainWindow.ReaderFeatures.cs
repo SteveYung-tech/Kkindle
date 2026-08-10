@@ -131,6 +131,7 @@ public sealed partial class MainWindow
             ReaderAiSettingsOverlay.Height = Math.Max(0, viewport.Height - 38);
         }
         _readerSettingsPopup.IsOpen = visible;
+        _readerAiSettingsPopupOpen = visible;
     }
 
     private void BeginReaderSession(Book book, BookFile file)
@@ -1120,7 +1121,7 @@ public sealed partial class MainWindow
             switch ((uint)wParam.ToInt64())
             {
                 case WmLButtonDown:
-                    if (!_readerSelectionPopupOpen && IsInsideCachedReaderWebViewScreenRect(data.pt))
+                    if (!IsReaderPointerBlocked() && IsInsideCachedReaderWebViewScreenRect(data.pt))
                     {
                         _readerMouseDownInside = true;
                         _readerMouseDownPoint = data.pt;
@@ -1156,6 +1157,14 @@ public sealed partial class MainWindow
             && point.Y >= rect.Top && point.Y <= rect.Bottom;
     }
 
+    private bool IsReaderPointerBlocked() =>
+        _readerSelectionPopupOpen
+        || _readerMenuFlyoutOpen
+        || _readerLayoutPopupOpen
+        || _readerAiSettingsPopupOpen
+        || _readerFootnotePopupOpen
+        || _readerSearchVisible;
+
     private Windows.Foundation.Rect GetReaderWebViewScreenRect()
     {
         var hwnd = WindowNative.GetWindowHandle(this);
@@ -1184,7 +1193,7 @@ public sealed partial class MainWindow
     {
         if (_readerCloseRequested || _readerTransitionActive) return;
         if (_readerFlowMode != 1 || ReaderWebView.CoreWebView2 is null) return;
-        if (_readerSearchVisible) return; // The search panel is open: don't page-turn underneath it.
+        if (IsReaderPointerBlocked()) return;
         var rect = GetReaderWebViewScreenRect();
         if (rect.Width <= 0 || rect.Height <= 0) return;
         var relativeX = screenPoint.X - rect.Left;

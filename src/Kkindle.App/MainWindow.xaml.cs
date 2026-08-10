@@ -1842,6 +1842,7 @@ public sealed partial class MainWindow : Window
             {
                 e.Handled = true;
                 _readerLayoutPopup.IsOpen = false;
+                _readerLayoutPopupOpen = false;
             }
             else if (_readerZenMode)
             {
@@ -2064,6 +2065,7 @@ public sealed partial class MainWindow : Window
         UpdateReaderAssistantPopup(false);
         SetReaderAiSettingsVisible(false);
         if (_readerLayoutPopup is not null) _readerLayoutPopup.IsOpen = false;
+        _readerLayoutPopupOpen = false;
         if (_readerSelectionPopup is not null) _readerSelectionPopup.IsOpen = false;
         if (_readerZenPopup is not null) _readerZenPopup.IsOpen = false;
         _readerSearchVisible = false;

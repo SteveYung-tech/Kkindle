@@ -357,10 +357,12 @@ public sealed partial class MainWindow
         _readerFootnotePopup.HorizontalOffset = popupLeft;
         _readerFootnotePopup.VerticalOffset = popupTop;
         if (!_readerFootnotePopup.IsOpen) _readerFootnotePopup.IsOpen = true;
+        _readerFootnotePopupOpen = true;
     }
 
     private void HideReaderFootnotePopup()
     {
+        _readerFootnotePopupOpen = false;
         if (_readerFootnotePopup is not null) _readerFootnotePopup.IsOpen = false;
         if (ReaderFootnotePopup is not null)
         {

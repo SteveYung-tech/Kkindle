@@ -36,6 +36,10 @@ public sealed partial class MainWindow
     private string? _readerSelectionText;
     private bool _readerPollingSelection;
     private volatile bool _readerSelectionPopupOpen;
+    private volatile bool _readerMenuFlyoutOpen;
+    private volatile bool _readerLayoutPopupOpen;
+    private volatile bool _readerAiSettingsPopupOpen;
+    private volatile bool _readerFootnotePopupOpen;
     private int? _pendingReaderRestorePosition;
     private string? _pendingReaderBookmarkQuote;
     private ReaderProgressRow? _savedReaderProgress;
@@ -45,7 +49,7 @@ public sealed partial class MainWindow
     private long _readerActiveSeconds;
     private long _readerStatsBaseSeconds;
     private bool _windowActive = true;
-    private bool _readerSearchVisible;
+    private volatile bool _readerSearchVisible;
     private bool _readerSearchLayoutCaptured;
     private bool _readerSearchPreviousTocExpanded;
     private bool _readerSearchPreviousTocMinimal;
@@ -83,7 +87,24 @@ public sealed partial class MainWindow
             IsLightDismissEnabled = false,
             IsOpen = false
         };
+
+        foreach (var flyout in new[]
+                 {
+                     ReaderFlowButton.Flyout,
+                     ReaderMoreButton.Flyout,
+                     ReaderSelectionHighlightButton.Flyout
+                 }.OfType<FlyoutBase>())
+        {
+            flyout.Opened += ReaderBlockingFlyout_Opened;
+            flyout.Closed += ReaderBlockingFlyout_Closed;
+        }
     }
+
+    private void ReaderBlockingFlyout_Opened(object? sender, object e) =>
+        _readerMenuFlyoutOpen = true;
+
+    private void ReaderBlockingFlyout_Closed(object? sender, object e) =>
+        _readerMenuFlyoutOpen = false;
 
     private void ResetReaderToolsSession()
     {
@@ -101,6 +122,10 @@ public sealed partial class MainWindow
         _readerSessionStart = DateTimeOffset.UtcNow;
         _readerBookmarkTabActive = false;
         _readerSearchVisible = false;
+        _readerMenuFlyoutOpen = false;
+        _readerLayoutPopupOpen = false;
+        _readerAiSettingsPopupOpen = false;
+        _readerFootnotePopupOpen = false;
         _readerSearchLayoutCaptured = false;
         ReaderSearchPanel.Visibility = Visibility.Collapsed;
     }
@@ -113,6 +138,7 @@ public sealed partial class MainWindow
         HideReaderSearchPanel();
         HideReaderSelectionPopup();
         if (_readerLayoutPopup is not null) _readerLayoutPopup.IsOpen = false;
+        _readerLayoutPopupOpen = false;
         _readerLayoutApplyCancellation?.Cancel();
         _readerLayoutApplyCancellation?.Dispose();
         _readerLayoutApplyCancellation = null;
@@ -144,11 +170,13 @@ public sealed partial class MainWindow
         ReaderLayoutSettingsOverlay.Width = viewport.Width;
         ReaderLayoutSettingsOverlay.Height = Math.Max(0, viewport.Height - 38);
         _readerLayoutPopup.IsOpen = true;
+        _readerLayoutPopupOpen = true;
     }
 
     private void ReaderLayoutSettingsCloseButton_Click(object sender, RoutedEventArgs e)
     {
         if (_readerLayoutPopup is not null) _readerLayoutPopup.IsOpen = false;
+        _readerLayoutPopupOpen = false;
     }
 
     private void PopulateReaderLayoutControls()
