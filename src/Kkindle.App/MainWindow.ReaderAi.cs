@@ -517,6 +517,7 @@ public sealed partial class MainWindow
         builder.AppendLine("你是 Kkindle 的阅读助手。请使用简体中文回答，并严格依据下面提供的书籍上下文。")
             .AppendLine("如果上下文不足以确定答案，请明确说明，不要虚构书中观点、引文或页码。")
             .AppendLine("引用检索片段时使用 [1]、[2] 这样的编号；回答应先给结论，再给依据。")
+            .AppendLine("请使用清晰的 Markdown 组织回答；按需使用标题、列表、引用、粗体和代码块。")
             .AppendLine($"书名：{book.Title}")
             .AppendLine($"作者：{book.Authors}")
             .AppendLine($"当前章节：{chapterTitle}");
@@ -546,7 +547,7 @@ public sealed partial class MainWindow
     {
         public ReaderAiMessageView(
             Border bubble,
-            TextBlock contentText,
+            MarkdownRichTextBlock contentText,
             TextBlock? reasoningText,
             Border? reasoningBorder)
         {
@@ -557,7 +558,7 @@ public sealed partial class MainWindow
         }
 
         public Border Bubble { get; }
-        public TextBlock ContentText { get; }
+        public MarkdownRichTextBlock ContentText { get; }
         public TextBlock? ReasoningText { get; }
         public Border? ReasoningBorder { get; }
     }
@@ -613,18 +614,11 @@ public sealed partial class MainWindow
             stack.Children.Add(reasoningBorder);
         }
 
-        var contentText = new TextBlock
-        {
-            Text = content,
-            FontSize = 12,
-            LineHeight = 20,
-            TextWrapping = TextWrapping.Wrap,
-            IsTextSelectionEnabled = true,
-            Foreground = foreground
-        };
+        var contentText = new MarkdownRichTextBlock();
+        contentText.SetContent(content, renderMarkdown: !isUser && !streaming);
         if (streaming && !isUser)
         {
-            contentText.Text = "正在生成…";
+            contentText.SetContent("正在生成…", renderMarkdown: false);
             contentText.Opacity = 0.58;
         }
         stack.Children.Add(contentText);
@@ -663,9 +657,10 @@ public sealed partial class MainWindow
                 : Visibility.Collapsed;
         }
 
-        message.ContentText.Text = content.Length > 0
+        var visibleContent = content.Length > 0
             ? content
             : isStreaming ? "正在组织回答…" : string.Empty;
+        message.ContentText.SetContent(visibleContent, renderMarkdown: !isStreaming);
         message.ContentText.Opacity = isStreaming && content.Length == 0 ? 0.58 : 1;
         DispatcherQueue.TryEnqueue(() =>
         {

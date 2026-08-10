@@ -359,7 +359,8 @@ public sealed partial class MainWindow
     private async Task SaveReaderAnnotationAsync(
         ReaderSelectionAnchor selection,
         string note,
-        bool preserveExistingNote)
+        bool preserveExistingNote,
+        string? underlineStyle = null)
     {
         if (_readerBook is null || _readerBookFile is null || _readerFeatureCancellation is null) return;
         var chapterPath = GetCurrentReaderChapterPath();
@@ -399,8 +400,11 @@ public sealed partial class MainWindow
         annotation.SelectedText = selection.Text;
         annotation.Prefix = selection.Prefix;
         annotation.Suffix = selection.Suffix;
-        annotation.Color = GetSelectedReaderAnnotationColor();
-        annotation.UnderlineStyle = GetSelectedReaderAnnotationStyle();
+        annotation.UnderlineStyle = NormalizeReaderAnnotationStyle(
+            underlineStyle ?? GetSelectedReaderAnnotationStyle());
+        annotation.Color = annotation.UnderlineStyle == "marker"
+            ? "#000000"
+            : GetSelectedReaderAnnotationColor();
         annotation.Note = preserveExistingNote && string.IsNullOrWhiteSpace(note) && exact is not null
             ? exact.Note
             : note;
@@ -431,6 +435,16 @@ public sealed partial class MainWindow
 
     private string GetSelectedReaderAnnotationStyle() =>
         (ReaderAnnotationStyleBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "solid";
+
+    private static string NormalizeReaderAnnotationStyle(string? style) => style?.ToLowerInvariant() switch
+    {
+        "double" => "double",
+        "dashed" => "dashed",
+        "dotted" => "dotted",
+        "wavy" => "wavy",
+        "marker" => "marker",
+        _ => "solid"
+    };
 
     private void ReplaceReaderAnnotations(IEnumerable<ReaderAnnotation> annotations)
     {
@@ -508,6 +522,8 @@ public sealed partial class MainWindow
     {
         var chapterPath = GetCurrentReaderChapterPath();
         if (chapterPath is null || ReaderWebView.CoreWebView2 is null) return 0;
+        var scrollPosition = await ExecuteReaderJsonScriptAsync<ReaderPageScrollPosition>(
+            "(() => { const el = document.scrollingElement || document.documentElement; return { left: el?.scrollLeft || 0, top: el?.scrollTop || 0 }; })()");
         var payload = _readerAnnotations
             .Where(annotation => annotation.ChapterPath.Equals(chapterPath, StringComparison.OrdinalIgnoreCase))
             .Select(annotation => new
@@ -540,14 +556,6 @@ public sealed partial class MainWindow
               let lastNodeCount = 0;
               let maxTextCursor = 0;
               const normalizeColor = value => /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#000000';
-              const toHighlightColor = value => {
-                const color = normalizeColor(value);
-                const hex = color.slice(1);
-                const red = parseInt(hex.slice(0, 2), 16);
-                const green = parseInt(hex.slice(2, 4), 16);
-                const blue = parseInt(hex.slice(4, 6), 16);
-                return `rgba(${red}, ${green}, ${blue}, ${color.toLowerCase() === '#000000' ? 0.18 : 0.32})`;
-              };
               const textNodes = () => {
                 const nodes = [];
                 const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -587,10 +595,15 @@ public sealed partial class MainWindow
                   const mark = document.createElement('span');
                   mark.dataset.kkindleAnnotation = item.id;
                   const color = normalizeColor(item.color);
-                  mark.style.setProperty('background-color', toHighlightColor(color), 'important');
-                  mark.style.setProperty('text-decoration-line', 'underline', 'important');
+                  const style = ['solid', 'double', 'dashed', 'dotted', 'wavy', 'marker'].includes(item.underlineStyle)
+                    ? item.underlineStyle
+                    : 'solid';
+                  const marker = style === 'marker';
+                  mark.style.setProperty('background-color', marker ? '#000000' : 'transparent', 'important');
+                  if (marker) mark.style.setProperty('color', '#FFFFFF', 'important');
+                  mark.style.setProperty('text-decoration-line', marker ? 'none' : 'underline', 'important');
                   mark.style.setProperty('text-decoration-color', color, 'important');
-                  mark.style.setProperty('text-decoration-style', item.underlineStyle === 'wavy' ? 'wavy' : 'solid', 'important');
+                  mark.style.setProperty('text-decoration-style', marker ? 'solid' : style, 'important');
                   mark.style.setProperty('text-decoration-thickness', '2px', 'important');
                   mark.style.setProperty('text-underline-offset', '3px', 'important');
                   mark.style.setProperty('text-decoration-skip-ink', 'none', 'important');
@@ -626,6 +639,22 @@ public sealed partial class MainWindow
             var parts = diagnostic.Split('|');
             _ = int.TryParse(parts.ElementAtOrDefault(0), out var appliedCount);
             _ = int.TryParse(parts.ElementAtOrDefault(1), out var matchedCount);
+            if (scrollPosition is not null && ReaderWebView.CoreWebView2 is not null)
+            {
+                var savedPosition = JsonSerializer.Serialize(scrollPosition);
+                await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                    $$"""
+                    (() => {
+                      const el = document.scrollingElement || document.documentElement;
+                      if (!el) return false;
+                      void el.scrollWidth;
+                      const saved = {{savedPosition}};
+                      el.scrollLeft = saved.Left;
+                      el.scrollTop = saved.Top;
+                      return true;
+                    })();
+                    """);
+            }
             if (payload.Length > 0)
                 ReaderStatusText.Text = $"本页已恢复 {Math.Max(0, matchedCount)} 条划线";
             return Math.Max(0, appliedCount);
@@ -1091,10 +1120,14 @@ public sealed partial class MainWindow
             switch ((uint)wParam.ToInt64())
             {
                 case WmLButtonDown:
-                    if (IsInsideCachedReaderWebViewScreenRect(data.pt))
+                    if (!_readerSelectionPopupOpen && IsInsideCachedReaderWebViewScreenRect(data.pt))
                     {
                         _readerMouseDownInside = true;
                         _readerMouseDownPoint = data.pt;
+                    }
+                    else
+                    {
+                        _readerMouseDownInside = false;
                     }
                     break;
                 case WmLButtonUp:
@@ -1227,5 +1260,11 @@ public sealed partial class MainWindow
         public int EndOffset { get; set; }
         public string Prefix { get; set; } = string.Empty;
         public string Suffix { get; set; } = string.Empty;
+    }
+
+    private sealed class ReaderPageScrollPosition
+    {
+        public double Left { get; set; }
+        public double Top { get; set; }
     }
 }

@@ -13,7 +13,7 @@ public sealed class ReaderLayoutDefaultsTests
         Assert.Equal(800, defaults.MaxWidth);
         Assert.Equal(68, defaults.BodyPadding);
         Assert.Equal(ReaderFontDefaults.DefaultFamily, defaults.FontFamily);
-        Assert.Equal(0, defaults.FlowMode);
+        Assert.Equal(1, defaults.FlowMode);
         Assert.False(defaults.VerticalWriting);
         Assert.False(defaults.TwoPageMode);
         Assert.False(defaults.VerticalWriting && defaults.FlowMode == 1);

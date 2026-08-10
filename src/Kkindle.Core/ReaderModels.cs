@@ -92,7 +92,7 @@ public sealed record ReaderLayoutSettings(
     double MaxWidth = 800,
     double BodyPadding = 68,
     string FontFamily = ReaderFontDefaults.DefaultFamily,
-    int FlowMode = 0,
+    int FlowMode = 1,
     bool VerticalWriting = false,
     bool TwoPageMode = false);
 

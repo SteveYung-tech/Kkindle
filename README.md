@@ -7,13 +7,29 @@ Kkindle 是一款面向 Windows 11 的个人电子书与 Kindle 设备管理器�
 
 ## 界面预览
 
-| 电脑书库 | Kindle 字体与字典 | 应用与阅读设置 |
-| --- | --- | --- |
-| ![Kkindle 电脑书库](docs/images/library.png) | ![Kkindle Kindle 设备资源管理](docs/images/device-resources.png) | ![Kkindle 应用与阅读设置](docs/images/settings.png) |
+### 电脑书库
+
+![Kkindle 电脑书库](docs/images/library.png)
+
+### Kindle 字体与字典
+
+![Kkindle Kindle 设备资源管理](docs/images/device-resources.png)
+
+### 应用与阅读设置
+
+![Kkindle 应用与阅读设置](docs/images/settings.png)
 
 ### 阅读资料中心
 
 ![Kkindle 本地与 Kindle 阅读资料管理](docs/images/reading-materials.png)
+
+### Kreader 阅读器
+
+![Kreader 分页阅读界面](docs/images/kreader.png)
+
+### AI 问答
+
+![Kreader AI 阅读助手问答界面](docs/images/ai-assistant.png)
 
 ## 主要功能
 

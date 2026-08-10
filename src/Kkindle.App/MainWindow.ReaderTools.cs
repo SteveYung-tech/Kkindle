@@ -35,6 +35,7 @@ public sealed partial class MainWindow
     private readonly ObservableCollection<ReaderBookmark> _readerBookmarks = [];
     private string? _readerSelectionText;
     private bool _readerPollingSelection;
+    private volatile bool _readerSelectionPopupOpen;
     private int? _pendingReaderRestorePosition;
     private string? _pendingReaderBookmarkQuote;
     private ReaderProgressRow? _savedReaderProgress;
@@ -828,10 +829,12 @@ public sealed partial class MainWindow
         _readerSelectionPopup.VerticalOffset = top;
         ReaderSelectionBar.Width = barWidth;
         if (!_readerSelectionPopup.IsOpen) _readerSelectionPopup.IsOpen = true;
+        _readerSelectionPopupOpen = true;
     }
 
     private void HideReaderSelectionPopup()
     {
+        _readerSelectionPopupOpen = false;
         if (_readerSelectionPopup is not null) _readerSelectionPopup.IsOpen = false;
         _readerSelectionText = null;
     }
@@ -851,16 +854,29 @@ public sealed partial class MainWindow
         ReaderStatusText.Text = "已复制选中文字";
     }
 
-    private async void ReaderSelectionHighlightButton_Click(object sender, RoutedEventArgs e)
+    private async void ReaderSelectionHighlightStyle_Click(object sender, RoutedEventArgs e)
     {
-        HideReaderSelectionPopup();
+        var style = (sender as MenuFlyoutItem)?.Tag?.ToString() ?? "solid";
         var selection = await CaptureReaderSelectionAsync();
+        HideReaderSelectionPopup();
         if (selection is null)
         {
             ReaderStatusText.Text = "请先在正文中选择一段文字";
             return;
         }
-        await SaveReaderAnnotationAsync(selection, string.Empty, preserveExistingNote: true);
+
+        foreach (var item in ReaderAnnotationStyleBox.Items.OfType<ComboBoxItem>())
+        {
+            if (!string.Equals(item.Tag?.ToString(), style, StringComparison.OrdinalIgnoreCase)) continue;
+            ReaderAnnotationStyleBox.SelectedItem = item;
+            break;
+        }
+
+        await SaveReaderAnnotationAsync(
+            selection,
+            string.Empty,
+            preserveExistingNote: true,
+            underlineStyle: style);
     }
 
     private async void ReaderSelectionAnnotateButton_Click(object sender, RoutedEventArgs e)

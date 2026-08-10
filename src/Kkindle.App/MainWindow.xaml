@@ -136,12 +136,20 @@
                                     AutomationProperties.Name="电脑书库"
                                     Style="{StaticResource SidebarButtonStyle}"
                                     Click="NavigationButton_Click">
-                                <Grid Width="118">
-                                    <TextBlock x:Name="AllBooksLabelText" Text="电脑书库" />
-                                    <TextBlock x:Name="SidebarCountText" HorizontalAlignment="Right" />
+                                <Grid HorizontalAlignment="Stretch">
+                                    <TextBlock x:Name="AllBooksLabelText"
+                                               Text="电脑书库"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock x:Name="SidebarCountText"
+                                               HorizontalAlignment="Right"
+                                               VerticalAlignment="Center" />
                                 </Grid>
                             </Button>
-                            <Button x:Name="KindleBooksButton" Content="Kindle 书籍" Style="{StaticResource SidebarButtonStyle}" Click="KindleBooksButton_Click" />
+                            <Button x:Name="KindleBooksButton"
+                                    Content="Kindle书库"
+                                    AutomationProperties.Name="Kindle书库"
+                                    Style="{StaticResource SidebarButtonStyle}"
+                                    Click="KindleBooksButton_Click" />
                             </StackPanel>
                         </StackPanel>
 
@@ -517,14 +525,12 @@
                                         Tapped="BookConversionProgressIndicator_Tapped"
                                         AutomationProperties.Name="打开格式转换进度">
                                     <Grid Width="66" Height="23">
-                                        <ProgressBar Height="4"
-                                                     Margin="5,0,5,4"
-                                                     VerticalAlignment="Bottom"
-                                                     Minimum="0"
-                                                     Maximum="100"
-                                                     Value="{x:Bind ConversionProgress, Mode=OneWay}"
-                                                     Foreground="#000000"
-                                                     Background="#D9D9D9" />
+                                        <local:RectangularProgressBar Height="5"
+                                                                      Margin="5,0,5,3"
+                                                                      VerticalAlignment="Bottom"
+                                                                      Minimum="0"
+                                                                      Maximum="100"
+                                                                      Value="{x:Bind ConversionProgress, Mode=OneWay}" />
                                         <TextBlock Text="{x:Bind ConversionProgressLabel, Mode=OneWay}"
                                                    Foreground="#000000"
                                                    FontSize="10"
@@ -630,14 +636,12 @@
                                         Tapped="BookConversionProgressIndicator_Tapped"
                                         AutomationProperties.Name="打开格式转换进度">
                                     <Grid Width="66" Height="23">
-                                        <ProgressBar Height="4"
-                                                     Margin="5,0,5,4"
-                                                     VerticalAlignment="Bottom"
-                                                     Minimum="0"
-                                                     Maximum="100"
-                                                     Value="{x:Bind ConversionProgress, Mode=OneWay}"
-                                                     Foreground="#000000"
-                                                     Background="#D9D9D9" />
+                                        <local:RectangularProgressBar Height="5"
+                                                                      Margin="5,0,5,3"
+                                                                      VerticalAlignment="Bottom"
+                                                                      Minimum="0"
+                                                                      Maximum="100"
+                                                                      Value="{x:Bind ConversionProgress, Mode=OneWay}" />
                                         <TextBlock Text="{x:Bind ConversionProgressLabel, Mode=OneWay}"
                                                    Foreground="#000000"
                                                    FontSize="10"
@@ -997,7 +1001,7 @@
                         <Border Background="#000000" Padding="7,3" VerticalAlignment="Center">
                             <TextBlock Text="设备" Foreground="#FFFFFF" FontSize="11" FontWeight="Bold" />
                         </Border>
-                        <TextBlock x:Name="DevicePageTitleText" Text="Kindle 书籍" FontSize="28" FontWeight="Bold" />
+                        <TextBlock x:Name="DevicePageTitleText" Text="Kindle书库" FontSize="28" FontWeight="Bold" />
                     </StackPanel>
                     <TextBlock x:Name="DeviceNameText" Text="未检测到设备" Foreground="{StaticResource MutedInkBrush}" />
                 </StackPanel>
@@ -1737,10 +1741,30 @@
                                     Click="ReaderZoomInButton_Click" />
                             <Rectangle Width="1" Height="22" Margin="3,0" Fill="#D5D5D1" VerticalAlignment="Center" />
                             <Button x:Name="ReaderFlowButton"
-                                    Content="滚动"
+                                    Content="分页"
                                     Style="{StaticResource ReaderHeaderButtonStyle}"
-                                    ToolTipService.ToolTip="切换滚动或单页/双页分页"
-                                    Click="ReaderFlowButton_Click" />
+                                    ToolTipService.ToolTip="选择滚动、单页或双栏阅读模式"
+                                    AutomationProperties.Name="选择阅读分页模式">
+                                <Button.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                        <RadioMenuFlyoutItem x:Name="ReaderScrollModeItem"
+                                                             Text="滚动"
+                                                             Tag="scroll"
+                                                             GroupName="ReaderFlowMode"
+                                                             Click="ReaderFlowModeItem_Click" />
+                                        <RadioMenuFlyoutItem x:Name="ReaderSinglePageModeItem"
+                                                             Text="单页"
+                                                             Tag="single"
+                                                             GroupName="ReaderFlowMode"
+                                                             Click="ReaderFlowModeItem_Click" />
+                                        <RadioMenuFlyoutItem x:Name="ReaderTwoPageModeItem"
+                                                             Text="双栏"
+                                                             Tag="double"
+                                                             GroupName="ReaderFlowMode"
+                                                             Click="ReaderFlowModeItem_Click" />
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
                             <Button x:Name="ReaderMoreButton"
                                     Content="更多"
                                     Style="{StaticResource ReaderHeaderButtonStyle}"
@@ -1755,10 +1779,6 @@
                                         <MenuFlyoutItem Text="阅读排版设置"
                                                         ToolTipService.ToolTip="字号、行距、正文宽度、字体与竖排"
                                                         Click="ReaderLayoutSettingsMenuItem_Click" />
-                                        <ToggleMenuFlyoutItem x:Name="ReaderTwoPageMenuItem"
-                                                              Text="双页显示（仅分页）"
-                                                              ToolTipService.ToolTip="分页模式下左右显示两页正文"
-                                                              Click="ReaderTwoPageMenuItem_Click" />
                                         <MenuFlyoutSeparator />
                                         <MenuFlyoutItem Text="翻页动画" IsEnabled="False" />
                                         <RadioMenuFlyoutItem x:Name="ReaderAnimationNoneItem"
@@ -2139,7 +2159,11 @@
                                                   BorderThickness="1"
                                                   AutomationProperties.Name="选择划线样式">
                                             <ComboBoxItem Content="直线" Tag="solid" />
+                                            <ComboBoxItem Content="双线" Tag="double" />
+                                            <ComboBoxItem Content="虚线" Tag="dashed" />
+                                            <ComboBoxItem Content="点线" Tag="dotted" />
                                             <ComboBoxItem Content="波浪线" Tag="wavy" />
+                                            <ComboBoxItem Content="荧光标记（黑白反色）" Tag="marker" />
                                         </ComboBox>
                                     </StackPanel>
                                 </Grid>
@@ -2714,9 +2738,20 @@
                             Click="ReaderSelectionCopyButton_Click" />
                     <Rectangle Style="{StaticResource ReaderSelectionSeparatorStyle}" />
                     <Button x:Name="ReaderSelectionHighlightButton"
-                            Content="划线"
-                            Style="{StaticResource ReaderSelectionActionStyle}"
-                            Click="ReaderSelectionHighlightButton_Click" />
+                            Content="划线 ▾"
+                            Style="{StaticResource ReaderSelectionActionStyle}">
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                <MenuFlyoutItem Text="直线  ───" Tag="solid" Click="ReaderSelectionHighlightStyle_Click" />
+                                <MenuFlyoutItem Text="双线  ═══" Tag="double" Click="ReaderSelectionHighlightStyle_Click" />
+                                <MenuFlyoutItem Text="虚线  ┄┄┄" Tag="dashed" Click="ReaderSelectionHighlightStyle_Click" />
+                                <MenuFlyoutItem Text="点线  ···" Tag="dotted" Click="ReaderSelectionHighlightStyle_Click" />
+                                <MenuFlyoutItem Text="波浪线  ﹏﹏" Tag="wavy" Click="ReaderSelectionHighlightStyle_Click" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="荧光标记（黑白反色）  ▰" Tag="marker" Click="ReaderSelectionHighlightStyle_Click" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                     <Rectangle Style="{StaticResource ReaderSelectionSeparatorStyle}" />
                     <Button x:Name="ReaderSelectionAnnotateButton"
                             Content="批注"
@@ -2871,17 +2906,22 @@
                     </StackPanel>
                 </Grid>
                 <Grid Grid.Row="1" Margin="0,13,0,0">
-                    <ProgressBar x:Name="BookConversionPopupProgress"
-                                 Height="8"
-                                 Minimum="0"
-                                 Maximum="100"
-                                 Foreground="#000000"
-                                 Background="#D9D9D9" />
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <local:RectangularProgressBar x:Name="BookConversionPopupProgress"
+                                                  Height="10"
+                                                  Margin="0,0,8,0"
+                                                  Minimum="0"
+                                                  Maximum="100" />
                     <TextBlock x:Name="BookConversionPopupPercentageText"
-                               Foreground="#FFFFFF"
+                               Grid.Column="1"
+                               Foreground="#000000"
                                FontSize="10"
                                FontWeight="SemiBold"
-                               HorizontalAlignment="Center"
+                               MinWidth="28"
+                               TextAlignment="Right"
                                VerticalAlignment="Center" />
                 </Grid>
                 <TextBlock x:Name="BookConversionPopupMessageText"

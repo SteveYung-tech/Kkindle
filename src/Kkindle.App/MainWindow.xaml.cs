@@ -56,7 +56,7 @@ public sealed partial class MainWindow : Window
     private int _readerChapterIndex = -1;
     private string? _readerAllowedRoot;
     private string? _readerAllowedFile;
-    private int _readerFlowMode;
+    private int _readerFlowMode = 1;
     private bool _isUpdatingReaderToc;
     private bool _isUpdatingReaderProgress;
     private bool _readerNavigateToEnd;
@@ -848,7 +848,7 @@ public sealed partial class MainWindow : Window
     private void OpenDevicePage(bool showBooks)
     {
         SetActiveNavigation(showBooks ? KindleBooksButton : DeviceOverviewButton);
-        DevicePageTitleText.Text = showBooks ? "Kindle 书籍" : "设备概览";
+        DevicePageTitleText.Text = showBooks ? "Kindle书库" : "设备概览";
         DeviceBookList.Visibility = showBooks ? Visibility.Visible : Visibility.Collapsed;
         DeviceReadOnlyNote.Visibility = showBooks ? Visibility.Visible : Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Collapsed;
@@ -1507,29 +1507,23 @@ public sealed partial class MainWindow : Window
         _ = ApplyReaderAppearanceAsync();
     }
 
-    private async void ReaderFlowButton_Click(object sender, RoutedEventArgs e)
+    private async void ReaderFlowModeItem_Click(object sender, RoutedEventArgs e)
     {
-        _readerFlowMode = (_readerFlowMode + 1) % 2;
-        _readerNavigateToEnd = false;
-        _readerContinuousLocked = false;
-        _readerLayout = _readerLayout with { FlowMode = _readerFlowMode };
-        UpdateReaderFlowButton();
-        await ApplyReaderAppearanceAsync();
-        await ResetReaderToChapterStartAsync();
-        await PrimeReaderScrollEdgesAsync();
-        _ = SaveReaderLayoutSettingsAsync();
-        UpdateReaderLayoutStatus();
-    }
-
-    private async void ReaderTwoPageMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        if (_readerFlowMode != 1)
+        var mode = (sender as RadioMenuFlyoutItem)?.Tag?.ToString() ?? "single";
+        var flowMode = string.Equals(mode, "scroll", StringComparison.Ordinal) ? 0 : 1;
+        var twoPageMode = string.Equals(mode, "double", StringComparison.Ordinal);
+        if (_readerFlowMode == flowMode && _readerLayout.TwoPageMode == twoPageMode)
         {
-            UpdateReaderFlowButton();
+            ReaderFlowButton.Flyout?.Hide();
             return;
         }
 
-        _readerLayout = _readerLayout with { TwoPageMode = !_readerLayout.TwoPageMode };
+        _readerFlowMode = flowMode;
+        _readerLayout = _readerLayout with
+        {
+            FlowMode = flowMode,
+            TwoPageMode = twoPageMode
+        };
         _readerNavigateToEnd = false;
         _readerContinuousLocked = false;
         UpdateReaderFlowButton();
@@ -1538,19 +1532,20 @@ public sealed partial class MainWindow : Window
         await PrimeReaderScrollEdgesAsync();
         _ = SaveReaderLayoutSettingsAsync();
         UpdateReaderLayoutStatus();
-        ReaderMoreButton.Flyout?.Hide();
+        ReaderFlowButton.Flyout?.Hide();
     }
 
     private void UpdateReaderFlowButton()
     {
         ReaderFlowButton.Content = _readerFlowMode == 0
             ? "滚动"
-            : _readerLayout.TwoPageMode ? "双页" : "单页";
-        if (ReaderTwoPageMenuItem is not null)
-        {
-            ReaderTwoPageMenuItem.IsEnabled = _readerFlowMode == 1;
-            ReaderTwoPageMenuItem.IsChecked = _readerLayout.TwoPageMode;
-        }
+            : _readerLayout.TwoPageMode ? "双栏" : "单页";
+        if (ReaderScrollModeItem is not null)
+            ReaderScrollModeItem.IsChecked = _readerFlowMode == 0;
+        if (ReaderSinglePageModeItem is not null)
+            ReaderSinglePageModeItem.IsChecked = _readerFlowMode == 1 && !_readerLayout.TwoPageMode;
+        if (ReaderTwoPageModeItem is not null)
+            ReaderTwoPageModeItem.IsChecked = _readerFlowMode == 1 && _readerLayout.TwoPageMode;
     }
 
     // ------------------------------------------------------------------
@@ -2963,8 +2958,8 @@ public sealed partial class MainWindow : Window
     private void SetActiveNavigation(Button activeButton)
     {
         _activeNavigationButton = activeButton;
-        if (activeButton == KindleBooksButton || activeButton == DeviceOverviewButton
-            || activeButton == FontManagementNavigationButton || activeButton == DictionaryManagementNavigationButton)
+        if (activeButton == DeviceOverviewButton || activeButton == FontManagementNavigationButton
+            || activeButton == DictionaryManagementNavigationButton)
         {
             _activeNavigationSectionButton = DeviceManagementSectionButton;
             ExpandSidebarSection(DeviceManagementSectionButton, DeviceManagementChildren, DeviceManagementChevron, "设备管理");
