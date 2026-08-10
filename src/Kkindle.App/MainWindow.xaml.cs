@@ -352,16 +352,21 @@ public sealed partial class MainWindow : Window
         try
         {
             await ViewModel.RefreshAsync();
-            LibrarySummaryText.Text = ViewModel.StatusText;
-            SidebarCountText.Text = ViewModel.Books.Count.ToString();
-            UpdateFilterControls();
-            UpdateEmptyLibraryState();
-            ApplyBookConversionCardState();
+            UpdateLibraryPresentationState();
         }
         catch (Exception ex)
         {
             await ShowMessageAsync("无法读取书库", ex.Message);
         }
+    }
+
+    private void UpdateLibraryPresentationState()
+    {
+        LibrarySummaryText.Text = ViewModel.StatusText;
+        SidebarCountText.Text = ViewModel.Books.Count.ToString();
+        UpdateFilterControls();
+        UpdateEmptyLibraryState();
+        ApplyBookConversionCardState();
     }
 
     private async Task RefreshDevicesAsync()
@@ -643,10 +648,7 @@ public sealed partial class MainWindow : Window
                 var failures = string.Join("\n", result.Items.Where(x => !x.Succeeded).Take(5).Select(x => $"{Path.GetFileName(x.SourcePath)}：{x.Message}"));
                 await ShowMessageAsync("部分文件未导入", failures);
             }
-            LibrarySummaryText.Text = ViewModel.StatusText;
-            SidebarCountText.Text = ViewModel.Books.Count.ToString();
-            UpdateFilterControls();
-            UpdateEmptyLibraryState();
+            UpdateLibraryPresentationState();
         }
         catch (OperationCanceledException)
         {

@@ -100,6 +100,7 @@ public sealed partial class MainWindow
             var result = await ViewModel.ImportAsync([importPath], importProgress, _transferCancellation.Token);
             var failure = result.Items.FirstOrDefault(item => !item.Succeeded);
             if (failure is not null) throw new IOException(failure.Message ?? "导入电脑书库失败。");
+            UpdateLibraryPresentationState();
 
             TaskStatusText.Text = "已导入电脑书库";
             ShowTransferToast(
