@@ -14,31 +14,44 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        var applicationDirectory = AppContext.BaseDirectory;
-        var paths = new AppPaths(AppRootConfiguration.ResolveRoot(applicationDirectory));
-        var metadata = new BookMetadataService();
-        var library = new SqliteBookLibraryService(paths, metadata);
-        var formatConverter = new BookFormatConversionService();
-        var kindle = new KindleDeviceService(paths, metadata);
-        var readerData = new ReaderDataService(paths);
-        await library.InitializeAsync();
-        await readerData.InitializeAsync();
-        var migrationBackup = AppRootConfiguration.MigrationBackupPath(paths.Root);
-        if (File.Exists(migrationBackup))
+        try
         {
-            await new AppBackupService(paths).ImportAsync(migrationBackup);
-            File.Delete(migrationBackup);
+            var applicationDirectory = AppContext.BaseDirectory;
+            var paths = new AppPaths(AppRootConfiguration.ResolveRoot(applicationDirectory));
+            var metadata = new BookMetadataService();
+            var library = new SqliteBookLibraryService(paths, metadata);
+            var formatConverter = new BookFormatConversionService();
+            var kindle = new KindleDeviceService(paths, metadata);
+            var readerData = new ReaderDataService(paths);
+            await library.InitializeAsync();
+            await readerData.InitializeAsync();
+            var migrationBackup = AppRootConfiguration.MigrationBackupPath(paths.Root);
+            if (File.Exists(migrationBackup))
+            {
+                await new AppBackupService(paths).ImportAsync(migrationBackup);
+                File.Delete(migrationBackup);
+            }
+            _window = new MainWindow(
+                paths,
+                library,
+                formatConverter,
+                kindle,
+                readerData,
+                new EpubBookContentService(readerData),
+                new EpubFootnoteResolver(),
+                new AiSettingsStore(paths),
+                new AiChatClient());
+            _window.Activate();
         }
-        _window = new MainWindow(
-            paths,
-            library,
-            formatConverter,
-            kindle,
-            readerData,
-            new EpubBookContentService(readerData),
-            new EpubFootnoteResolver(),
-            new AiSettingsStore(paths),
-            new AiChatClient());
-        _window.Activate();
+        catch (Exception exception)
+        {
+            try
+            {
+                var logPath = Path.Combine(Path.GetTempPath(), "Kkindle-startup-error.log");
+                await File.WriteAllTextAsync(logPath, exception.ToString());
+            }
+            catch { }
+            throw;
+        }
     }
 }

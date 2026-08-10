@@ -1,11 +1,31 @@
 using Kkindle.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 
 namespace Kkindle;
 
 public sealed partial class MainWindow
 {
+    private void DeviceBookCard_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: KindleBookCardViewModel card } element) return;
+
+        var exportItem = new MenuFlyoutItem
+        {
+            Text = "导出到电脑书库",
+            Tag = card
+        };
+        exportItem.Click += ExportDeviceBookToLibraryMenuItem_Click;
+
+        var flyout = new MenuFlyout();
+        if (Application.Current.Resources["MonochromeMenuFlyoutPresenterStyle"] is Style presenterStyle)
+            flyout.MenuFlyoutPresenterStyle = presenterStyle;
+        flyout.Items.Add(exportItem);
+        flyout.ShowAt(element, e.GetPosition(element));
+        e.Handled = true;
+    }
+
     private async void ExportDeviceBookToLibraryMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuFlyoutItem { Tag: KindleBookCardViewModel card }) return;

@@ -1028,14 +1028,7 @@
                 </GridView.ItemsPanel>
                 <GridView.ItemTemplate>
                     <DataTemplate x:DataType="local:KindleBookCardViewModel">
-                        <Grid Width="154">
-                            <Grid.ContextFlyout>
-                                <MenuFlyout MenuFlyoutPresenterStyle="{StaticResource MonochromeMenuFlyoutPresenterStyle}">
-                                    <MenuFlyoutItem Text="导出到电脑书库"
-                                                    Tag="{x:Bind}"
-                                                    Click="ExportDeviceBookToLibraryMenuItem_Click" />
-                                </MenuFlyout>
-                            </Grid.ContextFlyout>
+                        <Grid Width="154" RightTapped="DeviceBookCard_RightTapped">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="214" />
                                 <RowDefinition Height="Auto" />
