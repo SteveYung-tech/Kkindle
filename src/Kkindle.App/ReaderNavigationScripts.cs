@@ -216,10 +216,14 @@ internal static class ReaderNavigationScripts
           const docTop = rect.top + scroller.scrollTop;
           const docLeft = rect.left + scroller.scrollLeft;
           if (flowMode === 1) {
-            const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
             const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
+            const padRight = parseFloat(bodyStyle.paddingRight) || 0;
             const renderedWidth = scroller.getBoundingClientRect?.().width || 0;
             const step = renderedWidth || scroller.clientWidth || 0;
+            const rawMax = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+            const max = step > 0
+              ? Math.max(0, Math.min(rawMax, Math.round(Math.max(0, rawMax - padRight) / step) * step))
+              : rawMax;
             // A two-page spread has a left and a right column inside the same
             // viewport. Rounding maps the right column to the next viewport,
             // so floor keeps both columns in their owning spread. Single-page
@@ -253,7 +257,13 @@ internal static class ReaderNavigationScripts
             // gets the extra whitespace seen in the reported screenshot.
             const horizontalError = after.left - (parseFloat(bodyStyle.paddingLeft) || 0);
             if (Math.abs(horizontalError) > 0.5) {
-              const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+              const renderedWidth = scroller.getBoundingClientRect?.().width || 0;
+              const step = renderedWidth || scroller.clientWidth || 0;
+              const rawMax = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+              const padRight = parseFloat(bodyStyle.paddingRight) || 0;
+              const max = step > 0
+                ? Math.max(0, Math.min(rawMax, Math.round(Math.max(0, rawMax - padRight) / step) * step))
+                : rawMax;
               window.scrollTo({
                 left: Math.max(0, Math.min(max, scroller.scrollLeft + horizontalError)),
                 top: 0,

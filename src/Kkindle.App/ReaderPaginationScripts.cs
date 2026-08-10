@@ -59,7 +59,9 @@ internal static class ReaderPaginationScripts
               const renderedWidth = el.getBoundingClientRect?.().width || 0;
               const step = renderedWidth || el.clientWidth || document.documentElement.clientWidth || window.innerWidth || 0;
               if (step <= 0) return;
-              const max = Math.max(0, el.scrollWidth - el.clientWidth);
+              const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
+              const trailingInset = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
+              const max = Math.max(0, Math.min(rawMax, Math.round(Math.max(0, rawMax - trailingInset) / step) * step));
               const nearest = Math.round(el.scrollLeft / step) * step;
               const target = el.scrollLeft >= max - {{tolerance}}
                 ? max
@@ -81,7 +83,9 @@ internal static class ReaderPaginationScripts
               const renderedWidth = el.getBoundingClientRect?.().width || 0;
               const step = renderedWidth || el.clientWidth || document.documentElement.clientWidth || window.innerWidth || 0;
               if (step <= 0) return false;
-              const max = Math.max(0, el.scrollWidth - el.clientWidth);
+              const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
+              const trailingInset = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
+              const max = Math.max(0, Math.min(rawMax, Math.round(Math.max(0, rawMax - trailingInset) / step) * step));
               const nearest = Math.round(el.scrollLeft / step) * step;
               const current = el.scrollLeft >= max - 4
                 ? max
@@ -108,7 +112,9 @@ internal static class ReaderPaginationScripts
               const renderedWidth = el.getBoundingClientRect?.().width || 0;
               const step = renderedWidth || el.clientWidth || document.documentElement.clientWidth || window.innerWidth || 0;
               if (step <= 0) return false;
-              const max = Math.max(0, el.scrollWidth - el.clientWidth);
+              const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
+              const trailingInset = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
+              const max = Math.max(0, Math.min(rawMax, Math.round(Math.max(0, rawMax - trailingInset) / step) * step));
               const nearest = Math.round(el.scrollLeft / step) * step;
               const current = el.scrollLeft >= max - {{tolerance}}
                 ? max

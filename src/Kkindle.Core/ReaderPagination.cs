@@ -40,7 +40,7 @@ public static class ReaderPaginationPolicy
         if (!double.IsFinite(clientWidth) || clientWidth <= 0)
             return 0;
 
-        var max = GetMaxScrollLeft(clientWidth, scrollWidth);
+        var max = GetLastPageScrollLeft(clientWidth, scrollWidth);
         var safeScrollLeft = double.IsFinite(scrollLeft) ? scrollLeft : 0;
         if (safeScrollLeft >= max - ReaderPaginationDefaults.SnapTolerance)
             return max;
@@ -63,7 +63,7 @@ public static class ReaderPaginationPolicy
             return false;
 
         var current = SnapScrollLeft(scrollLeft, clientWidth, scrollWidth);
-        var max = GetMaxScrollLeft(clientWidth, scrollWidth);
+        var max = GetLastPageScrollLeft(clientWidth, scrollWidth);
         return direction < 0
             ? current > ReaderPaginationDefaults.SnapTolerance
             : current < max - ReaderPaginationDefaults.SnapTolerance;
@@ -79,7 +79,7 @@ public static class ReaderPaginationPolicy
         if (direction == 0 || !double.IsFinite(clientWidth) || clientWidth <= 0)
             return current;
 
-        var max = GetMaxScrollLeft(clientWidth, scrollWidth);
+        var max = GetLastPageScrollLeft(clientWidth, scrollWidth);
         var delta = direction < 0 ? -clientWidth : clientWidth;
         return Math.Clamp(current + delta, 0, max);
     }
@@ -91,5 +91,21 @@ public static class ReaderPaginationPolicy
             return 0;
 
         return Math.Max(0, scrollWidth - clientWidth);
+    }
+
+    public static double GetLastPageScrollLeft(
+        double clientWidth,
+        double scrollWidth,
+        double trailingInset = ReaderPaginationDefaults.HorizontalPadding)
+    {
+        var rawMax = GetMaxScrollLeft(clientWidth, scrollWidth);
+        if (rawMax <= 0) return 0;
+
+        var safeInset = double.IsFinite(trailingInset) ? Math.Max(0, trailingInset) : 0;
+        var aligned = Math.Round(
+                Math.Max(0, rawMax - safeInset) / clientWidth,
+                MidpointRounding.AwayFromZero)
+            * clientWidth;
+        return Math.Clamp(aligned, 0, rawMax);
     }
 }

@@ -64,17 +64,24 @@ public sealed class ReaderPaginationTests
     }
 
     [Fact]
-    public void TurnTargetClampsAtTheLastScrollablePosition()
+    public void TurnTargetClampsAtTheLastFullPageBoundaryBeforeTrailingInset()
     {
         var target = ReaderPaginationPolicy.GetTurnTarget(
-            scrollLeft: 5000,
+            scrollLeft: 4000,
             direction: 1,
             clientWidth: 1000,
-            scrollWidth: 5500);
+            scrollWidth: 5024);
 
-        Assert.Equal(4500, target);
-        Assert.False(ReaderPaginationPolicy.CanTurn(4500, 1, 1000, 5500));
-        Assert.True(ReaderPaginationPolicy.CanTurn(4500, -1, 1000, 5500));
+        Assert.Equal(4000, target);
+        Assert.False(ReaderPaginationPolicy.CanTurn(4000, 1, 1000, 5024));
+        Assert.True(ReaderPaginationPolicy.CanTurn(4000, -1, 1000, 5024));
+    }
+
+    [Fact]
+    public void LastPageBoundaryRemovesTheTrailingBodyInset()
+    {
+        Assert.Equal(4000, ReaderPaginationPolicy.GetMaxScrollLeft(1000, 5000));
+        Assert.Equal(4000, ReaderPaginationPolicy.GetLastPageScrollLeft(1000, 5024));
     }
 
     [Fact]
