@@ -33,7 +33,6 @@ public sealed partial class MainWindow : Window
     private readonly EpubReaderPreparationService _epubReader;
     private readonly DispatcherQueueTimer _deviceTimer;
     private Book? _selectedBook;
-    private KindleBookCardViewModel? _selectedDeviceBook;
     private IReadOnlyList<KindleDevice> _devices = [];
     private bool _isRefreshingDevices;
     private bool _isTransferring;
@@ -420,7 +419,6 @@ public sealed partial class MainWindow : Window
                 : Math.Clamp((device.TotalBytes - device.FreeBytes) / (double)device.TotalBytes, 0, 1);
             UpdateDeviceStorageBar();
             DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
-            DeviceCapacityText.Text = device.CapacityLabel;
             if (!string.Equals(_scannedDeviceId, device.Identity, StringComparison.OrdinalIgnoreCase))
                 await ScanDeviceBooksAsync(device);
             if (DeviceResourcePage.Visibility == Visibility.Visible
@@ -451,10 +449,7 @@ public sealed partial class MainWindow : Window
         _scannedResourceDeviceId = null;
         _scannedResourceKind = null;
         _readingMaterialsDeviceId = null;
-        _selectedDeviceBook = null;
         DeviceBooks.Clear();
-        DeviceBookList.SelectedItem = null;
-        DeleteDeviceBookButton.IsEnabled = false;
         KindleStatusText.Text = "无设备连接";
         KindleConnectionText.Text = detail ?? string.Empty;
         EjectDeviceButton.Visibility = Visibility.Visible;
@@ -464,8 +459,7 @@ public sealed partial class MainWindow : Window
         _deviceUsedRatio = 0;
         UpdateDeviceStorageBar();
         DeviceNameText.Text = "未检测到设备";
-        DeviceCapacityText.Text = "—";
-        DeviceBookCountText.Text = "0 本";
+        DeviceBookCountText.Text = "0";
         DeviceResources.Clear();
         DeviceResourceList.SelectedItem = null;
         DeviceResourceDeviceText.Text = "未检测到设备";
@@ -483,10 +477,7 @@ public sealed partial class MainWindow : Window
         var books = await _kindle.ScanBooksAsync(device);
         DeviceBooks.Clear();
         foreach (var book in books) DeviceBooks.Add(new KindleBookCardViewModel(book));
-        _selectedDeviceBook = null;
-        DeviceBookList.SelectedItem = null;
-        DeleteDeviceBookButton.IsEnabled = false;
-        DeviceBookCountText.Text = $"{books.Count} 本";
+        DeviceBookCountText.Text = books.Count.ToString();
         DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
         _scannedDeviceId = device.Identity;
     }
@@ -772,38 +763,6 @@ public sealed partial class MainWindow : Window
             _transferCancellation.Dispose();
             _transferCancellation = null;
             TaskProgress.Visibility = Visibility.Collapsed;
-        }
-    }
-
-    private void DeviceBookList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        _selectedDeviceBook = DeviceBookList.SelectedItem as KindleBookCardViewModel;
-        DeleteDeviceBookButton.IsEnabled = _selectedDeviceBook is not null && !_isTransferring;
-    }
-
-    private async void DeleteDeviceBookButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_selectedDeviceBook is null || _devices.Count == 0 || _isTransferring) return;
-        var device = _devices[0];
-        var book = _selectedDeviceBook.Book;
-        if (!await ShowDevicePromptAsync(
-                "从 Kindle 删除这本书？",
-                $"将永久删除“{book.Title}”。\n\n目标仅限 documents\\{book.RelativePath}，此操作不会修改 Kindle 系统目录。",
-                "删除",
-                "取消")) return;
-
-        DeleteDeviceBookButton.IsEnabled = false;
-        try
-        {
-            await _kindle.RemoveBookAsync(device, book);
-            TaskStatusText.Text = "已从 Kindle 删除书籍";
-            _scannedDeviceId = null;
-            await ScanDeviceBooksAsync(device);
-        }
-        catch (Exception ex)
-        {
-            await ShowMessageAsync("无法删除设备书籍", ex.Message);
-            DeleteDeviceBookButton.IsEnabled = _selectedDeviceBook is not null;
         }
     }
 

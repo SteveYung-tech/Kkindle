@@ -62,6 +62,7 @@ Kkindle 是一款面向 Windows 11 的个人电子书与 Kindle 设备管理器�
 ### 格式转换
 
 - 通过 Calibre 在 EPUB、AZW3 和 PDF 之间转换，MOBI 也可作为转换源；生成的格式会自动归入原书。
+- Kindle 书籍可通过右键导出到电脑书库；KFX 会使用随发布包提供的 KFX Input 插件自动转换为 EPUB（不支持绕过 DRM）。
 - 显示实时转换进度；任务可缩小到后台，并可从书籍卡片恢复查看。
 - 发布包可内置 Calibre 运行时，也可使用环境变量、系统安装目录或 PATH 中的 `ebook-convert`。
 

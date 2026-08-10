@@ -46,6 +46,54 @@ public sealed class KindleDeviceTests
     }
 
     [Fact]
+    public async Task ScanBooksExcludesKindleDictionaryDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        var documents = Path.Combine(root, "documents");
+        var dictionaries = Path.Combine(documents, "Dictionaries");
+        Directory.CreateDirectory(dictionaries);
+        await File.WriteAllTextAsync(Path.Combine(documents, "novel.azw3"), "book");
+        await File.WriteAllTextAsync(Path.Combine(dictionaries, "english.azw3"), "dictionary");
+        try
+        {
+            var service = new KindleDeviceService();
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+
+            var books = await service.ScanBooksAsync(device);
+
+            var book = Assert.Single(books);
+            Assert.Equal("novel.azw3", book.FileName);
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task ScanBooksExcludesDictionaryTaggedBookOutsideDictionaryDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        var downloads = Path.Combine(root, "documents", "Downloads", "Items01");
+        Directory.CreateDirectory(downloads);
+        var dictionaryPath = Path.Combine(downloads, "dictionary.azw");
+        await File.WriteAllBytesAsync(dictionaryPath, CreateDictionaryTaggedKindleFile());
+        try
+        {
+            var service = new KindleDeviceService();
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+
+            var books = await service.ScanBooksAsync(device);
+
+            Assert.Empty(books);
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
     public async Task SameNameWithDifferentContentCreatesNumberedFile()
     {
         var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
@@ -78,74 +126,29 @@ public sealed class KindleDeviceTests
     }
 
     [Fact]
-    public async Task RemovesOnlySelectedBookInsideDocumentsDirectory()
+    public async Task ExportsBookFromDriveConnectedKindle()
     {
         var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        var destination = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
         var documents = Path.Combine(root, "documents");
         Directory.CreateDirectory(documents);
-        var selected = Path.Combine(documents, "remove.epub");
-        var retained = Path.Combine(documents, "keep.epub");
-        await File.WriteAllTextAsync(selected, "remove me");
-        await File.WriteAllTextAsync(retained, "keep me");
+        var source = Path.Combine(documents, "export.epub");
+        await File.WriteAllTextAsync(source, "exported book");
         try
         {
             var service = new KindleDeviceService();
             var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
-            await service.RemoveBookAsync(device, new KindleBook { RelativePath = Path.Combine("documents", "remove.epub") });
+            var book = new KindleBook { RelativePath = Path.Combine("documents", "export.epub") };
 
-            Assert.False(File.Exists(selected));
-            Assert.True(File.Exists(retained));
+            var exportedPath = await service.ExportBookAsync(device, book, destination);
+
+            Assert.Equal("exported book", await File.ReadAllTextAsync(exportedPath));
+            Assert.Equal("export.epub", Path.GetFileName(exportedPath));
         }
         finally
         {
             try { Directory.Delete(root, true); } catch { }
-        }
-    }
-
-    [Fact]
-    public async Task RefusesToDeleteOutsideDocumentsDirectory()
-    {
-        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(Path.Combine(root, "documents"));
-        var outside = Path.Combine(root, "outside.epub");
-        await File.WriteAllTextAsync(outside, "do not delete");
-        try
-        {
-            var service = new KindleDeviceService();
-            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
-
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                service.RemoveBookAsync(device, new KindleBook { RelativePath = "outside.epub" }));
-            Assert.True(File.Exists(outside));
-        }
-        finally
-        {
-            try { Directory.Delete(root, true); } catch { }
-        }
-    }
-
-    [Fact]
-    public async Task RefusesToDeleteFromSiblingDirectoryWithDocumentsPrefix()
-    {
-        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(Path.Combine(root, "documents"));
-        var sibling = Path.Combine(root, "documents-backup");
-        Directory.CreateDirectory(sibling);
-        var outside = Path.Combine(sibling, "outside.epub");
-        await File.WriteAllTextAsync(outside, "do not delete");
-        try
-        {
-            var service = new KindleDeviceService();
-            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
-            var traversal = Path.Combine("documents", "..", "documents-backup", "outside.epub");
-
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                service.RemoveBookAsync(device, new KindleBook { RelativePath = traversal }));
-            Assert.True(File.Exists(outside));
-        }
-        finally
-        {
-            try { Directory.Delete(root, true); } catch { }
+            try { Directory.Delete(destination, true); } catch { }
         }
     }
 
@@ -390,6 +393,26 @@ public sealed class KindleDeviceTests
         await using var stream = File.OpenRead(path);
         var hash = await System.Security.Cryptography.SHA256.HashDataAsync(stream);
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static byte[] CreateDictionaryTaggedKindleFile()
+    {
+        var bytes = new byte[128];
+        "EXTH"u8.CopyTo(bytes.AsSpan(32));
+        WriteBigEndian(bytes, 36, 32);
+        WriteBigEndian(bytes, 40, 1);
+        WriteBigEndian(bytes, 44, 105);
+        WriteBigEndian(bytes, 48, 20);
+        "Dictionaries"u8.CopyTo(bytes.AsSpan(52));
+        return bytes;
+    }
+
+    private static void WriteBigEndian(byte[] bytes, int offset, int value)
+    {
+        bytes[offset] = (byte)(value >> 24);
+        bytes[offset + 1] = (byte)(value >> 16);
+        bytes[offset + 2] = (byte)(value >> 8);
+        bytes[offset + 3] = (byte)value;
     }
 
     private sealed class InlineProgress<T>(Action<T> callback) : IProgress<T>

@@ -40,6 +40,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+    <Content Include="Assets\KFX-Input-THIRD-PARTY-NOTICE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <Content Include="..\..\LICENSE" Link="LICENSE">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
@@ -52,6 +56,7 @@
   <Target Name="CopyApplicationPriToPublish" AfterTargets="Publish">
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).pri')" />
     <Copy SourceFiles="$(ProjectDir)Assets\Calibre-THIRD-PARTY-NOTICE.txt" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(ProjectDir)Assets\Calibre-THIRD-PARTY-NOTICE.txt')" />
+    <Copy SourceFiles="$(ProjectDir)Assets\KFX-Input-THIRD-PARTY-NOTICE.txt" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(ProjectDir)Assets\KFX-Input-THIRD-PARTY-NOTICE.txt')" />
   </Target>
   <Target Name="CopyBundledCalibreToPublish" AfterTargets="Publish" Condition="'$(KkindleCalibreRuntime)' != '' and Exists('$(KkindleCalibreRuntime)\ebook-convert.exe')">
     <ItemGroup>

@@ -146,10 +146,18 @@
                                 </Grid>
                             </Button>
                             <Button x:Name="KindleBooksButton"
-                                    Content="Kindle书库"
                                     AutomationProperties.Name="Kindle书库"
                                     Style="{StaticResource SidebarButtonStyle}"
-                                    Click="KindleBooksButton_Click" />
+                                    Click="KindleBooksButton_Click">
+                                <Grid HorizontalAlignment="Stretch">
+                                    <TextBlock Text="Kindle书库"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock x:Name="DeviceBookCountText"
+                                               Text="0"
+                                               HorizontalAlignment="Right"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+                            </Button>
                             </StackPanel>
                         </StackPanel>
 
@@ -987,15 +995,10 @@
         <Grid x:Name="DevicePage" Grid.Row="0" Grid.Column="1" Visibility="Collapsed" Padding="30,24,30,18">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
                 <StackPanel Spacing="3">
                     <StackPanel Orientation="Horizontal" Spacing="9">
                         <Border Background="#000000" Padding="7,3" VerticalAlignment="Center">
@@ -1004,42 +1007,19 @@
                         <TextBlock x:Name="DevicePageTitleText" Text="Kindle书库" FontSize="28" FontWeight="Bold" />
                     </StackPanel>
                     <TextBlock x:Name="DeviceNameText" Text="未检测到设备" Foreground="{StaticResource MutedInkBrush}" />
-                </StackPanel>
-                <StackPanel Grid.Column="1" Margin="0,46,0,0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
-                    <Button x:Name="DeleteDeviceBookButton"
-                            Content="删除所选书籍"
+                    <Button Margin="0,9,0,0"
+                            HorizontalAlignment="Left"
+                            Content="刷新设备"
                             Style="{StaticResource QuietButtonStyle}"
-                            IsEnabled="False"
-                            Click="DeleteDeviceBookButton_Click" />
-                    <Button Content="刷新设备" Style="{StaticResource QuietButtonStyle}" Click="RefreshDeviceButton_Click" />
-                    <Button Content="返回书架" Click="AllBooksButton_Click" />
+                            Click="RefreshDeviceButton_Click" />
                 </StackPanel>
-            </Grid>
-
-            <Grid Grid.Row="1" Margin="0,24,0,18">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <Border Background="#000000" Padding="16" BorderBrush="#000000" BorderThickness="1">
-                    <StackPanel>
-                        <TextBlock Text="存储空间" Foreground="#BFBFBF" FontSize="11" />
-                        <TextBlock x:Name="DeviceCapacityText" Text="—" Foreground="#FFFFFF" FontSize="18" FontWeight="Bold" />
-                    </StackPanel>
-                </Border>
-                <Border Grid.Column="1" MinWidth="150" Background="#FFFFFF" Padding="16" BorderBrush="#000000" BorderThickness="1">
-                    <StackPanel>
-                        <TextBlock Text="可见书籍" Foreground="{StaticResource MutedInkBrush}" FontSize="11" />
-                        <TextBlock x:Name="DeviceBookCountText" Text="0 本" FontSize="18" FontWeight="Bold" />
-                    </StackPanel>
-                </Border>
             </Grid>
 
             <GridView x:Name="DeviceBookList"
-                      Grid.Row="2"
+                      Grid.Row="1"
+                      Margin="0,24,0,0"
                       ItemsSource="{x:Bind DeviceBooks}"
-                      SelectionMode="Single"
-                      SelectionChanged="DeviceBookList_SelectionChanged"
+                      SelectionMode="None"
                       ItemContainerStyle="{StaticResource BookCardItemStyle}">
                 <GridView.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -1049,6 +1029,13 @@
                 <GridView.ItemTemplate>
                     <DataTemplate x:DataType="local:KindleBookCardViewModel">
                         <Grid Width="154">
+                            <Grid.ContextFlyout>
+                                <MenuFlyout MenuFlyoutPresenterStyle="{StaticResource MonochromeMenuFlyoutPresenterStyle}">
+                                    <MenuFlyoutItem Text="导出到电脑书库"
+                                                    Tag="{x:Bind}"
+                                                    Click="ExportDeviceBookToLibraryMenuItem_Click" />
+                                </MenuFlyout>
+                            </Grid.ContextFlyout>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="214" />
                                 <RowDefinition Height="Auto" />
@@ -1095,10 +1082,10 @@
                 </GridView.ItemTemplate>
             </GridView>
 
-            <TextBlock x:Name="DeviceReadOnlyNote" Grid.Row="3"
+            <TextBlock x:Name="DeviceReadOnlyNote" Grid.Row="2"
                        Margin="0,12,0,0"
                        Foreground="{StaticResource MutedInkBrush}"
-                       Text="仅显示并操作 Kindle 的 documents；删除设备书籍前会再次确认。" />
+                       Text="仅显示 Kindle 的 documents；右键书籍可导出到电脑书库。" />
         </Grid>
 
         <!-- Kindle fonts and dictionaries. Operations are restricted to fonts or documents\dictionaries. -->

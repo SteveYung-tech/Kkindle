@@ -7,6 +7,8 @@ namespace Kkindle.Infrastructure;
 
 public sealed class BookFormatConversionService : IBookFormatConverter
 {
+    private const string KfxInputPluginName = "KFX Input";
+
     private static readonly Encoding CalibreOutputEncoding =
         new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false);
 
@@ -30,6 +32,9 @@ public sealed class BookFormatConversionService : IBookFormatConverter
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Calibre2", "ebook-convert.exe")
     ];
 
+    private readonly SemaphoreSlim _kfxPluginGate = new(1, 1);
+    private bool _kfxPluginReady;
+
     public async Task ConvertAsync(
         string sourcePath,
         string destinationPath,
@@ -43,9 +48,9 @@ public sealed class BookFormatConversionService : IBookFormatConverter
 
         if (!File.Exists(source))
             throw new FileNotFoundException("源书籍文件不存在。", source);
-        if (!BookFormatConversionPolicy.IsConvertibleFormat(sourceFormat)
+        if (!BookFormatConversionPolicy.IsCalibreInputFormat(sourceFormat)
             || !BookFormatConversionPolicy.IsConvertibleFormat(targetFormat))
-            throw new NotSupportedException("目前支持 EPUB、AZW3、PDF 和 MOBI 格式转换。");
+            throw new NotSupportedException("目前支持 EPUB、AZW3、PDF、MOBI 和 KFX 作为转换源，输出支持 EPUB、AZW3、PDF 和 MOBI。");
         if (string.Equals(source, destination, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("转换目标不能与源文件相同。 ");
         if (File.Exists(destination))
@@ -55,6 +60,10 @@ public sealed class BookFormatConversionService : IBookFormatConverter
         if (executable is null)
             throw new InvalidOperationException(
                 "未找到 Calibre 转换器。请使用包含 Calibre 运行时的 Kkindle 发布包，或配置 KKINDLE_CALIBRE_CONVERT 后重试。 ");
+
+        var isKfx = sourceFormat == "kfx";
+        if (isKfx)
+            await EnsureKfxInputPluginAsync(executable, progress, cancellationToken);
 
         var directory = Path.GetDirectoryName(destination);
         if (string.IsNullOrWhiteSpace(directory))
@@ -73,15 +82,7 @@ public sealed class BookFormatConversionService : IBookFormatConverter
             StandardErrorEncoding = CalibreOutputEncoding
         };
 
-        if (IsBundledExecutable(executable))
-        {
-            var configDirectory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Kkindle",
-                "CalibreConfig");
-            Directory.CreateDirectory(configDirectory);
-            startInfo.Environment["CALIBRE_CONFIG_DIRECTORY"] = configDirectory;
-        }
+        ConfigureCalibreEnvironment(startInfo, executable, isKfx);
 
         startInfo.ArgumentList.Add(source);
         startInfo.ArgumentList.Add(destination);
@@ -106,6 +107,8 @@ public sealed class BookFormatConversionService : IBookFormatConverter
                 var detail = errorText.Trim();
                 if (detail.Length == 0) detail = outputText.Trim();
                 if (detail.Length > 1200) detail = detail[^1200..];
+                if (isKfx && detail.Contains("DRM", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("这本 KFX 受 DRM 保护，Calibre KFX Input 无法转换。Kkindle 不会绕过 DRM。");
                 throw new InvalidOperationException(
                     string.IsNullOrWhiteSpace(detail)
                         ? $"Calibre 转换失败（退出码 {process.ExitCode}）。"
@@ -130,6 +133,133 @@ public sealed class BookFormatConversionService : IBookFormatConverter
             TryDelete(destination);
             throw;
         }
+    }
+
+    private async Task EnsureKfxInputPluginAsync(
+        string ebookConvertPath,
+        IProgress<FormatConversionProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (_kfxPluginReady) return;
+
+        await _kfxPluginGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (_kfxPluginReady) return;
+
+            var calibreDirectory = Path.GetDirectoryName(ebookConvertPath)
+                ?? throw new InvalidOperationException("Calibre 路径无效。");
+            var customizer = Path.Combine(calibreDirectory, "calibre-customize.exe");
+            if (!File.Exists(customizer))
+                throw new InvalidOperationException("当前 Calibre 运行时缺少 calibre-customize.exe，无法准备 KFX Input 插件。");
+
+            var listed = await RunCalibreToolAsync(customizer, ["--list-plugins"], ebookConvertPath, useKfxPluginConfig: true, cancellationToken);
+            if (ContainsKfxInputPlugin(listed.Output))
+            {
+                _kfxPluginReady = true;
+                return;
+            }
+
+            var pluginPackage = LocateKfxInputPluginPackage();
+            if (pluginPackage is null)
+                throw new InvalidOperationException("未找到 KFX Input 插件包。请使用包含该插件的 Kkindle 发布包，或设置 KKINDLE_KFX_INPUT_PLUGIN。");
+
+            progress?.Report(new FormatConversionProgress(0, "正在安装 Calibre KFX Input 插件…"));
+            var installed = await RunCalibreToolAsync(customizer, ["--add-plugin", pluginPackage], ebookConvertPath, useKfxPluginConfig: true, cancellationToken);
+            if (installed.ExitCode != 0)
+                throw new InvalidOperationException($"KFX Input 插件安装失败：{GetProcessFailureDetail(installed)}");
+
+            listed = await RunCalibreToolAsync(customizer, ["--list-plugins"], ebookConvertPath, useKfxPluginConfig: true, cancellationToken);
+            if (!ContainsKfxInputPlugin(listed.Output))
+                throw new InvalidOperationException("KFX Input 插件安装后未被 Calibre 识别。");
+
+            _kfxPluginReady = true;
+            progress?.Report(new FormatConversionProgress(0, "KFX Input 插件已就绪，正在启动转换…"));
+        }
+        finally
+        {
+            _kfxPluginGate.Release();
+        }
+    }
+
+    private static string? LocateKfxInputPluginPackage()
+    {
+        var overridePath = Environment.GetEnvironmentVariable("KKINDLE_KFX_INPUT_PLUGIN");
+        if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath))
+            return Path.GetFullPath(overridePath);
+
+        var applicationDirectory = AppContext.BaseDirectory;
+        var candidates = new[]
+        {
+            Path.Combine(applicationDirectory, "CalibrePlugins", "KFX Input.zip"),
+            Path.Combine(applicationDirectory, "Assets", "CalibrePlugins", "KFX Input.zip")
+        };
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static bool ContainsKfxInputPlugin(string output) =>
+        output.Contains(KfxInputPluginName, StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<CalibreToolResult> RunCalibreToolAsync(
+        string executable,
+        IReadOnlyList<string> arguments,
+        string ebookConvertPath,
+        bool useKfxPluginConfig,
+        CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            WorkingDirectory = Path.GetDirectoryName(executable)!,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = CalibreOutputEncoding,
+            StandardErrorEncoding = CalibreOutputEncoding
+        };
+        ConfigureCalibreEnvironment(startInfo, ebookConvertPath, useKfxPluginConfig);
+        foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
+
+        using var process = new Process { StartInfo = startInfo };
+        try
+        {
+            if (!process.Start()) throw new InvalidOperationException($"无法启动 {Path.GetFileName(executable)}。");
+            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            return new CalibreToolResult(process.ExitCode, await outputTask, await errorTask);
+        }
+        catch (OperationCanceledException)
+        {
+            TryKill(process);
+            throw;
+        }
+    }
+
+    private static string GetProcessFailureDetail(CalibreToolResult result)
+    {
+        var detail = string.IsNullOrWhiteSpace(result.Error) ? result.Output : result.Error;
+        detail = SanitizeProgressMessage(detail);
+        if (detail.Length > 800) detail = detail[^800..];
+        return string.IsNullOrWhiteSpace(detail) ? $"退出码 {result.ExitCode}" : detail;
+    }
+
+    private static void ConfigureCalibreEnvironment(ProcessStartInfo startInfo, string ebookConvertPath, bool useKfxPluginConfig)
+    {
+        var configuredDirectory = Environment.GetEnvironmentVariable("KKINDLE_CALIBRE_CONFIG_DIRECTORY");
+        if (string.IsNullOrWhiteSpace(configuredDirectory) && (IsBundledExecutable(ebookConvertPath) || useKfxPluginConfig))
+        {
+            configuredDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Kkindle",
+                "CalibreConfig");
+        }
+        if (string.IsNullOrWhiteSpace(configuredDirectory)) return;
+
+        var configDirectory = Path.GetFullPath(configuredDirectory);
+        Directory.CreateDirectory(configDirectory);
+        startInfo.Environment["CALIBRE_CONFIG_DIRECTORY"] = configDirectory;
     }
 
     public static string? LocateExecutable()
@@ -277,4 +407,6 @@ public sealed class BookFormatConversionService : IBookFormatConverter
         }
         catch { }
     }
+
+    private sealed record CalibreToolResult(int ExitCode, string Output, string Error);
 }

@@ -14,6 +14,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
     };
     private readonly IMetadataService _metadata;
     private readonly string? _coverCacheDirectory;
+    private readonly Dictionary<string, bool> _dictionaryClassificationCache = new(StringComparer.OrdinalIgnoreCase);
 
     public KindleDeviceService()
         : this(null, new BookMetadataService())
@@ -64,9 +65,13 @@ public sealed class KindleDeviceService : IKindleDeviceService
             var wpdBooks = await Task.Run(
                 () => WpdKindleAccess.ScanBooks(device, SupportedExtensions, cancellationToken),
                 cancellationToken);
+            var visibleBooks = new List<KindleBook>(wpdBooks.Count);
             foreach (var book in wpdBooks)
-                await EnrichWpdBookAsync(device, book, cancellationToken);
-            return wpdBooks;
+            {
+                if (await EnrichWpdBookAsync(device, book, cancellationToken)) continue;
+                visibleBooks.Add(book);
+            }
+            return visibleBooks;
         }
 
         var documents = GetDocumentsRoot(device);
@@ -75,7 +80,10 @@ public sealed class KindleDeviceService : IKindleDeviceService
         foreach (var path in Directory.EnumerateFiles(documents, "*.*", SearchOption.AllDirectories))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var documentsRelativePath = Path.GetRelativePath(documents, path);
+            if (IsDictionaryPath(documentsRelativePath)) continue;
             if (!SupportedExtensions.Contains(Path.GetExtension(path))) continue;
+            if (await KindleBookClassifier.IsDictionaryAsync(path, cancellationToken)) continue;
             try
             {
                 var info = new FileInfo(path);
@@ -95,20 +103,32 @@ public sealed class KindleDeviceService : IKindleDeviceService
         return books;
     }
 
-    private async Task EnrichWpdBookAsync(
+    private static bool IsDictionaryPath(string relativePath)
+    {
+        var firstSeparator = relativePath.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]);
+        var firstSegment = firstSeparator < 0 ? relativePath : relativePath[..firstSeparator];
+        return firstSegment.Equals("dictionaries", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<bool> EnrichWpdBookAsync(
         KindleDevice device,
         KindleBook book,
         CancellationToken cancellationToken)
     {
         SetFallbackMetadata(book);
+        var classificationKey = $"{device.Identity}\n{book.RelativePath}\n{book.Size}";
         var cachedCover = FindCachedCover(device, book);
-        if (cachedCover is not null)
+        if (_dictionaryClassificationCache.TryGetValue(classificationKey, out var cachedClassification))
         {
-            book.CoverPath = cachedCover;
-            return;
+            if (cachedClassification) return true;
+            if (cachedCover is not null)
+            {
+                book.CoverPath = cachedCover;
+                return false;
+            }
         }
-        if (_coverCacheDirectory is null || book.Size <= 0 || book.Size > MaximumMetadataFileSize) return;
-        if (book.Format is not ("epub" or "mobi" or "azw" or "azw3" or "kfx")) return;
+        if (_coverCacheDirectory is null || book.Size <= 0 || book.Size > MaximumMetadataFileSize) return false;
+        if (book.Format is not ("epub" or "mobi" or "azw" or "azw3" or "kfx")) return false;
 
         var stagingDirectory = Path.Combine(Path.GetTempPath(), "Kkindle", "metadata", Guid.NewGuid().ToString("N"));
         try
@@ -116,6 +136,14 @@ public sealed class KindleDeviceService : IKindleDeviceService
             var localPath = await Task.Run(
                 () => WpdKindleAccess.CopyBookToLocal(device, book, stagingDirectory, cancellationToken),
                 cancellationToken);
+            var isDictionary = await KindleBookClassifier.IsDictionaryAsync(localPath, cancellationToken);
+            _dictionaryClassificationCache[classificationKey] = isDictionary;
+            if (isDictionary) return true;
+            if (cachedCover is not null)
+            {
+                book.CoverPath = cachedCover;
+                return false;
+            }
             await EnrichBookAsync(device, book, localPath, cancellationToken);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or TimeoutException)
@@ -131,6 +159,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
+        return false;
     }
 
     private async Task EnrichBookAsync(
@@ -220,18 +249,45 @@ public sealed class KindleDeviceService : IKindleDeviceService
         }
     }
 
-    public async Task RemoveBookAsync(KindleDevice device, KindleBook book, CancellationToken cancellationToken = default)
+    public async Task<string> ExportBookAsync(
+        KindleDevice device,
+        KindleBook book,
+        string destinationDirectory,
+        IProgress<TransferProgress>? progress = null,
+        CancellationToken cancellationToken = default)
     {
+        var destinationRoot = Path.GetFullPath(destinationDirectory);
+        Directory.CreateDirectory(destinationRoot);
         cancellationToken.ThrowIfCancellationRequested();
+
         if (device.Transport == KindleTransport.Wpd)
         {
-            await Task.Run(() => WpdKindleAccess.RemoveBook(device, book, cancellationToken), cancellationToken);
-            return;
+            progress?.Report(new TransferProgress(0, book.Size, $"正在从 Kindle 读取 {book.FileName}"));
+            var exportedPath = await Task.Run(
+                () => WpdKindleAccess.CopyBookToLocal(device, book, destinationRoot, cancellationToken),
+                cancellationToken);
+            progress?.Report(new TransferProgress(book.Size, book.Size, $"已读取 {book.FileName}"));
+            return exportedPath;
         }
+
         var documents = GetDocumentsRoot(device);
-        var fullPath = Path.GetFullPath(Path.Combine(device.RootPath, book.RelativePath));
-        EnsureUnderRoot(fullPath, documents);
-        if (File.Exists(fullPath)) File.Delete(fullPath);
+        var sourcePath = Path.GetFullPath(Path.Combine(device.RootPath, book.RelativePath));
+        EnsureUnderRoot(sourcePath, documents);
+        if (!File.Exists(sourcePath)) throw new FileNotFoundException("Kindle 书籍不存在。", book.RelativePath);
+
+        var destinationPath = GetUniqueDestination(destinationRoot, GetSafeFileName(book.FileName));
+        var temporaryPath = destinationPath + ".kkindle-part";
+        try
+        {
+            var total = new FileInfo(sourcePath).Length;
+            await CopyAsync(sourcePath, temporaryPath, total, progress, cancellationToken, "正在导出");
+            File.Move(temporaryPath, destinationPath, true);
+            return destinationPath;
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+        }
     }
 
     public async Task<IReadOnlyList<KindleDeviceResource>> ScanResourcesAsync(
@@ -464,7 +520,13 @@ public sealed class KindleDeviceService : IKindleDeviceService
             throw new InvalidOperationException("设备路径不在允许的目录范围内。");
     }
 
-    private static async Task CopyAsync(string source, string target, long total, IProgress<TransferProgress>? progress, CancellationToken cancellationToken)
+    private static async Task CopyAsync(
+        string source,
+        string target,
+        long total,
+        IProgress<TransferProgress>? progress,
+        CancellationToken cancellationToken,
+        string action = "正在发送")
     {
         await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
         await using var output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None, 128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
@@ -475,7 +537,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
         {
             await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
             copied += read;
-            progress?.Report(new TransferProgress(copied, total, $"正在发送 {Path.GetFileName(source)}"));
+            progress?.Report(new TransferProgress(copied, total, $"{action} {Path.GetFileName(source)}"));
         }
         await output.FlushAsync(cancellationToken);
     }

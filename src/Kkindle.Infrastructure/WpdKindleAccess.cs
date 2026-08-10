@@ -84,7 +84,9 @@ internal static class WpdKindleAccess
                         : $"{entry.RelativePath}\\{name}";
                     if ((bool)child.IsFolder)
                     {
-                        if (!name.Equals(".cache", StringComparison.OrdinalIgnoreCase))
+                        var isRootDictionaryFolder = string.IsNullOrEmpty(entry.RelativePath)
+                            && name.Equals("dictionaries", StringComparison.OrdinalIgnoreCase);
+                        if (!name.Equals(".cache", StringComparison.OrdinalIgnoreCase) && !isRootDictionaryFolder)
                             folders.Push((child.GetFolder, relativePath));
                         continue;
                     }

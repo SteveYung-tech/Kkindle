@@ -15,6 +15,13 @@ public sealed class BookFormatConversionPolicyTests
     }
 
     [Fact]
+    public void RecognizesKfxAsCalibreInputOnly()
+    {
+        Assert.True(BookFormatConversionPolicy.IsCalibreInputFormat(".KFX"));
+        Assert.False(BookFormatConversionPolicy.IsConvertibleFormat("kfx"));
+    }
+
+    [Fact]
     public void SelectsPreferredSourceAndSkipsRequestedTarget()
     {
         var pdf = new BookFile { Format = "pdf" };
