@@ -26,6 +26,7 @@ public sealed partial class MainWindow
         SettingsPane.Visibility = Visibility.Collapsed;
         DevicePage.Visibility = Visibility.Collapsed;
         ReadingMaterialsPage.Visibility = Visibility.Collapsed;
+        ZLibraryPage.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
         DeviceResourcePage.Visibility = Visibility.Visible;

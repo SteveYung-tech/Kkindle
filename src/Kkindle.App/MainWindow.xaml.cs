@@ -135,7 +135,9 @@ public sealed partial class MainWindow : Window
         EpubBookContentService bookContent,
         EpubFootnoteResolver footnotes,
         AiSettingsStore aiSettingsStore,
-        AiChatClient aiChatClient)
+        AiChatClient aiChatClient,
+        IZLibraryService zLibraryService,
+        ZLibrarySettingsStore zLibrarySettingsStore)
     {
         _paths = paths;
         _library = library;
@@ -153,6 +155,8 @@ public sealed partial class MainWindow : Window
         _footnotes = footnotes;
         _aiSettingsStore = aiSettingsStore;
         _aiChatClient = aiChatClient;
+        _zLibraryService = zLibraryService;
+        _zLibrarySettingsStore = zLibrarySettingsStore;
         _epubReader = new EpubReaderPreparationService(paths);
         ViewModel = new LibraryViewModel(library, paths.Data);
         InitializeComponent();
@@ -343,6 +347,8 @@ public sealed partial class MainWindow : Window
         ConstrainRootToViewport();
         SettingsDataPathText.Text = _paths.Data;
         await LoadProductivityStateAsync();
+        _zLibrarySettings = await _zLibrarySettingsStore.LoadAsync();
+        UpdateZLibraryAccountStatus();
         await RefreshLibraryAsync();
         await RefreshDevicesAsync();
     }
@@ -814,6 +820,7 @@ public sealed partial class MainWindow : Window
         DeviceReadOnlyNote.Visibility = showBooks ? Visibility.Visible : Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Collapsed;
         SettingsPane.Visibility = Visibility.Collapsed;
+        ZLibraryPage.Visibility = Visibility.Collapsed;
         DeviceResourcePage.Visibility = Visibility.Collapsed;
         ReadingMaterialsPage.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
@@ -869,6 +876,7 @@ public sealed partial class MainWindow : Window
         DeviceResourcePage.Visibility = Visibility.Collapsed;
         ReadingMaterialsPage.Visibility = Visibility.Collapsed;
         SettingsPane.Visibility = Visibility.Collapsed;
+        ZLibraryPage.Visibility = Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Visible;
     }
 
@@ -2933,7 +2941,8 @@ public sealed partial class MainWindow : Window
             _activeNavigationSectionButton = ReadingSectionButton;
             ExpandSidebarSection(ReadingSectionButton, ReadingChildren, ReadingChevron, "阅读资料");
         }
-        else if (activeButton == SettingsNavigationButton || activeButton == KindleEmailSettingsNavigationButton)
+        else if (activeButton == SettingsNavigationButton || activeButton == KindleEmailSettingsNavigationButton
+            || activeButton == ZLibraryAccountNavigationButton)
         {
             _activeNavigationSectionButton = SystemSectionButton;
             ExpandSidebarSection(SystemSectionButton, SystemChildren, SystemChevron, "系统");
@@ -2952,6 +2961,7 @@ public sealed partial class MainWindow : Window
         {
             AllBooksButton,
             KindleBooksButton,
+            ZLibraryBooksButton,
             DeviceOverviewButton,
             FontManagementNavigationButton,
             DictionaryManagementNavigationButton,
@@ -2959,7 +2969,8 @@ public sealed partial class MainWindow : Window
             ReaderExportNavigationButton,
             ReadingDashboardNavigationButton,
             SettingsNavigationButton,
-            KindleEmailSettingsNavigationButton
+            KindleEmailSettingsNavigationButton,
+            ZLibraryAccountNavigationButton
         })
         {
             var isActive = button == activeButton;

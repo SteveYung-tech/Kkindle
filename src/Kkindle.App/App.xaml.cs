@@ -40,7 +40,9 @@ public partial class App : Application
                 new EpubBookContentService(readerData),
                 new EpubFootnoteResolver(),
                 new AiSettingsStore(paths),
-                new AiChatClient());
+                new AiChatClient(),
+                new ZLibraryService(),
+                new ZLibrarySettingsStore(paths));
             _window.Activate();
         }
         catch (Exception exception)

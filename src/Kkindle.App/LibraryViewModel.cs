@@ -134,6 +134,94 @@ public sealed class KindleBookCardViewModel
     public BitmapImage? CoverImage { get; }
 }
 
+public sealed class ZLibraryBookCardViewModel : ObservableObject
+{
+    private static readonly HttpClient CoverClient = new() { Timeout = TimeSpan.FromSeconds(30) };
+    private bool _isDownloading;
+    private double _downloadProgress;
+    private string _statusMessage = string.Empty;
+
+    public ZLibraryBookCardViewModel(ZLibraryBook book)
+    {
+        Book = book;
+    }
+
+    public ZLibraryBook Book { get; }
+    public string Title => Book.Title;
+    public string Authors => Book.Author;
+    public string InfoLabel => Book.InfoLabel;
+    public string YearLabel => Book.Year is { } year && year > 0 ? year.ToString() : string.Empty;
+    public BitmapImage? CoverImage { get; private set; }
+
+    public bool IsDownloading
+    {
+        get => _isDownloading;
+        set
+        {
+            if (SetProperty(ref _isDownloading, value))
+            {
+                OnPropertyChanged(nameof(IsNotDownloading));
+                OnPropertyChanged(nameof(DownloadButtonText));
+                OnPropertyChanged(nameof(DownloadProgressVisibility));
+            }
+        }
+    }
+
+    public bool IsNotDownloading => !IsDownloading;
+
+    public double DownloadProgress
+    {
+        get => _downloadProgress;
+        private set => SetProperty(ref _downloadProgress, value);
+    }
+
+    public string DownloadButtonText => IsDownloading ? DownloadProgressLabel : "下载";
+    public string DownloadProgressLabel => $"{Math.Clamp((int)Math.Round(DownloadProgress), 0, 100)}%";
+    public Visibility DownloadProgressVisibility => IsDownloading ? Visibility.Visible : Visibility.Collapsed;
+
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        private set => SetProperty(ref _statusMessage, value);
+    }
+
+    public void SetDownloadProgress(TransferProgress progress)
+    {
+        DownloadProgress = progress.Percentage;
+    }
+
+    public void MarkDownloadCompleted()
+    {
+        DownloadProgress = 100;
+    }
+
+    public void SetStatus(string message)
+    {
+        StatusMessage = message;
+    }
+
+    public async Task LoadCoverAsync(CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(Book.CoverUrl)) return;
+        try
+        {
+            using var response = await CoverClient.GetAsync(Book.CoverUrl, cancellationToken);
+            if (!response.IsSuccessStatusCode) return;
+            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            if (bytes.Length == 0) return;
+            using var stream = new MemoryStream(bytes);
+            var image = new BitmapImage();
+            await image.SetSourceAsync(stream.AsRandomAccessStream());
+            CoverImage = image;
+            OnPropertyChanged(nameof(CoverImage));
+        }
+        catch
+        {
+            // Cover loading is decorative; never fail the search result.
+        }
+    }
+}
+
 public sealed class LibraryViewModel : ObservableObject
 {
     private readonly IBookLibraryService _library;

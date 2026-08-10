@@ -158,6 +158,12 @@
                                                VerticalAlignment="Center" />
                                 </Grid>
                             </Button>
+                            <Button x:Name="ZLibraryBooksButton"
+                                    AutomationProperties.Name="Z-Library 在线书库"
+                                    Style="{StaticResource SidebarButtonStyle}"
+                                    Click="ZLibraryBooksButton_Click">
+                                <TextBlock Text="Z-Library 在线书库" VerticalAlignment="Center" />
+                            </Button>
                             </StackPanel>
                         </StackPanel>
 
@@ -226,6 +232,7 @@
                             <StackPanel x:Name="SystemChildren" Spacing="3" Visibility="Collapsed">
                                 <Button x:Name="SettingsNavigationButton" Content="设置" Style="{StaticResource SidebarButtonStyle}" Click="SettingsButton_Click" />
                                 <Button x:Name="KindleEmailSettingsNavigationButton" Content="Kindle 邮箱设置" Style="{StaticResource SidebarButtonStyle}" Click="KindleEmailSettingsButton_Click" />
+                                <Button x:Name="ZLibraryAccountNavigationButton" Content="Z-Library 账号设置" Style="{StaticResource SidebarButtonStyle}" Click="ZLibraryAccountButton_Click" />
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
@@ -718,6 +725,178 @@
             </Border>
         </Grid>
 
+        <!-- Z-Library online bookstore. -->
+        <Grid x:Name="ZLibraryPage"
+              Grid.Row="0"
+              Grid.Column="1"
+              Padding="30,24,30,18"
+              Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Spacing="3">
+                <StackPanel Orientation="Horizontal" Spacing="9">
+                    <Border Background="#000000" Padding="7,3" VerticalAlignment="Center">
+                        <TextBlock Text="在线" Foreground="#FFFFFF" FontSize="11" FontWeight="Bold" />
+                    </Border>
+                    <TextBlock Text="Z-Library 在线书库"
+                               Foreground="{StaticResource InkBrush}"
+                               FontSize="28"
+                               FontWeight="Bold" />
+                </StackPanel>
+                <TextBlock x:Name="ZLibraryStatusText"
+                           Margin="0,3,0,0"
+                           Foreground="{StaticResource MutedInkBrush}"
+                           Text="正在加载账号…" />
+            </StackPanel>
+
+            <Grid Grid.Row="1" Margin="0,22,0,18" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="ZLibrarySearchBox"
+                         Height="38"
+                         Padding="13,7"
+                         PlaceholderText="搜索书名或作者"
+                         KeyDown="ZLibrarySearchBox_KeyDown" />
+                <ComboBox x:Name="ZLibraryExtensionBox"
+                          Grid.Column="1"
+                          Width="110"
+                          CornerRadius="0"
+                          SelectedIndex="0">
+                    <ComboBoxItem Content="全部格式" Tag="" />
+                    <ComboBoxItem Content="EPUB" Tag="epub" />
+                    <ComboBoxItem Content="PDF" Tag="pdf" />
+                    <ComboBoxItem Content="MOBI" Tag="mobi" />
+                    <ComboBoxItem Content="AZW3" Tag="azw3" />
+                    <ComboBoxItem Content="FB2" Tag="fb2" />
+                    <ComboBoxItem Content="DJVU" Tag="djvu" />
+                    <ComboBoxItem Content="TXT" Tag="txt" />
+                </ComboBox>
+                <ComboBox x:Name="ZLibraryLanguageBox"
+                          Grid.Column="2"
+                          Width="110"
+                          CornerRadius="0"
+                          SelectedIndex="0">
+                    <ComboBoxItem Content="全部语言" Tag="" />
+                    <ComboBoxItem Content="中文" Tag="chinese" />
+                    <ComboBoxItem Content="英文" Tag="english" />
+                    <ComboBoxItem Content="日文" Tag="japanese" />
+                    <ComboBoxItem Content="韩文" Tag="korean" />
+                    <ComboBoxItem Content="俄文" Tag="russian" />
+                    <ComboBoxItem Content="德文" Tag="german" />
+                    <ComboBoxItem Content="法文" Tag="french" />
+                    <ComboBoxItem Content="西班牙文" Tag="spanish" />
+                </ComboBox>
+                <Button x:Name="ZLibrarySearchButton"
+                        Grid.Column="3"
+                        Height="38"
+                        Content="搜索"
+                        Click="ZLibrarySearchButton_Click" />
+            </Grid>
+
+            <ListView x:Name="ZLibraryBookList"
+                      Grid.Row="2"
+                      ItemsSource="{x:Bind ZLibraryBooks}"
+                      SelectionMode="None">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Padding" Value="0,3" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="local:ZLibraryBookCardViewModel">
+                        <Grid Padding="10,10" ColumnSpacing="14" Background="Transparent">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="52" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Width="52"
+                                    Height="70"
+                                    Background="#D9D9D9"
+                                    BorderBrush="{StaticResource BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="0">
+                                <Grid Background="Transparent">
+                                    <TextBlock Text="BOOK"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               Foreground="#5A5A5A"
+                                               FontSize="10"
+                                               CharacterSpacing="120" />
+                                    <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
+                                </Grid>
+                            </Border>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                <TextBlock Text="{x:Bind Title}"
+                                           Foreground="{StaticResource InkBrush}"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis"
+                                           MaxLines="2" />
+                                <TextBlock Text="{x:Bind Authors}"
+                                           Foreground="{StaticResource MutedInkBrush}"
+                                           FontSize="12"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind InfoLabel}"
+                                           Foreground="{StaticResource MutedInkBrush}"
+                                           FontSize="11" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="5">
+                                <Button Content="{x:Bind DownloadButtonText, Mode=OneWay}"
+                                        Width="110"
+                                        Tag="{x:Bind}"
+                                        IsEnabled="{x:Bind IsNotDownloading, Mode=OneWay}"
+                                        Click="ZLibraryDownloadButton_Click" />
+                                <ProgressBar Width="110"
+                                             Height="4"
+                                             Maximum="100"
+                                             Value="{x:Bind DownloadProgress, Mode=OneWay}"
+                                             Visibility="{x:Bind DownloadProgressVisibility, Mode=OneWay}" />
+                                <TextBlock Text="{x:Bind StatusMessage, Mode=OneWay}"
+                                           MaxWidth="180"
+                                           FontSize="10"
+                                           Foreground="#777777"
+                                           TextWrapping="Wrap"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <Grid Grid.Row="3" Margin="0,14,0,0">
+                <TextBlock x:Name="ZLibraryResultText"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedInkBrush}"
+                           Text="输入书名或作者开始搜索。" />
+                <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="10">
+                    <Button x:Name="ZLibraryPrevPageButton"
+                            Content="上一页"
+                            Style="{StaticResource QuietButtonStyle}"
+                            IsEnabled="False"
+                            Click="ZLibraryPrevPageButton_Click" />
+                    <TextBlock x:Name="ZLibraryPageText"
+                               VerticalAlignment="Center"
+                               FontSize="11"
+                               Foreground="{StaticResource MutedInkBrush}" />
+                    <Button x:Name="ZLibraryNextPageButton"
+                            Content="下一页"
+                            Style="{StaticResource QuietButtonStyle}"
+                            IsEnabled="False"
+                            Click="ZLibraryNextPageButton_Click" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+
         <!-- App settings and portable data migration. -->
         <Grid x:Name="SettingsPane"
               Grid.Row="0"
@@ -986,6 +1165,77 @@
                         <Button Grid.Column="2"
                                 Content="保存"
                                 Click="KindleEmailSettingsSaveButton_Click" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Z-Library account settings. The password is encrypted by the local settings store. -->
+        <Grid x:Name="ZLibraryAccountOverlay"
+              Grid.ColumnSpan="3"
+              Margin="0,38,0,0"
+              Canvas.ZIndex="100"
+              Background="#66000000"
+              Visibility="Collapsed">
+            <Border Width="560"
+                    MaxHeight="680"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="#FFFFFF"
+                    BorderBrush="#000000"
+                    BorderThickness="2"
+                    CornerRadius="0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <ScrollViewer Grid.Row="0" MaxHeight="560" VerticalScrollBarVisibility="Auto">
+                        <StackPanel Padding="22,20,22,16" Spacing="12">
+                            <TextBlock Text="Z-Library 账号设置" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock Text="使用 Z-Library 账号登录后即可搜索和下载书籍。下载受账号每日额度限制；密码仅加密保存在本机，不会写入备份包。"
+                                       FontSize="11"
+                                       Foreground="#666666"
+                                       TextWrapping="Wrap" />
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="Z-Library 账号邮箱" FontSize="11" />
+                                <TextBox x:Name="ZLibraryEmailBox"
+                                         PlaceholderText="例如 name@example.com" />
+                            </StackPanel>
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="密码" FontSize="11" />
+                                <PasswordBox x:Name="ZLibraryPasswordBox"
+                                             PlaceholderText="输入 Z-Library 账号密码" />
+                            </StackPanel>
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="API 服务地址" FontSize="11" />
+                                <TextBox x:Name="ZLibraryBaseUrlBox"
+                                         PlaceholderText="https://api.z-lib.org" />
+                                <TextBlock Text="默认使用官方 API；域名变更或访问受限时可在此修改为可用的镜像地址。"
+                                           FontSize="10"
+                                           Foreground="#777777"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                    <Grid Grid.Row="1" Padding="22,12,22,20" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="ZLibraryAccountStatusText"
+                                   FontSize="10"
+                                   Foreground="#777777"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap" />
+                        <Button Grid.Column="1"
+                                Content="取消"
+                                Style="{StaticResource QuietButtonStyle}"
+                                Click="ZLibraryAccountCancelButton_Click" />
+                        <Button Grid.Column="2"
+                                Content="保存并验证"
+                                Click="ZLibraryAccountSaveButton_Click" />
                     </Grid>
                 </Grid>
             </Border>

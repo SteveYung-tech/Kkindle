@@ -19,6 +19,7 @@ public sealed partial class MainWindow
         ReadingMaterialsPage.Visibility = Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Collapsed;
         SettingsPane.Visibility = Visibility.Visible;
+        ZLibraryPage.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
         KindleEmailSettingsOverlay.Visibility = Visibility.Collapsed;

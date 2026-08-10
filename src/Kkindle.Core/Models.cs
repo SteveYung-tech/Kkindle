@@ -192,3 +192,27 @@ public sealed record FormatConversionProgress(double Percentage, string Message)
 {
     public int RoundedPercentage => Math.Clamp((int)Math.Round(Percentage), 0, 100);
 }
+
+public sealed class ZLibraryBook
+{
+    public long Id { get; set; }
+    public string Title { get; set; } = "未命名书籍";
+    public string Author { get; set; } = "未知作者";
+    public string Extension { get; set; } = string.Empty;
+    public long Size { get; set; }
+    public string Language { get; set; } = string.Empty;
+    public string? CoverUrl { get; set; }
+    public string Hash { get; set; } = string.Empty;
+    public int? Year { get; set; }
+    public string? Publisher { get; set; }
+    public string? Series { get; set; }
+
+    public string FormatLabel => string.IsNullOrWhiteSpace(Extension) ? string.Empty : Extension.ToUpperInvariant();
+    public string SizeLabel => Size >= 1024L * 1024
+        ? $"{Size / 1024d / 1024:0.0} MB"
+        : $"{Math.Max(0, Size) / 1024d:0} KB";
+    public string LanguageLabel => string.IsNullOrWhiteSpace(Language) ? "未知语言" : Language;
+    public string InfoLabel => string.Join(" · ", new[] { FormatLabel, SizeLabel, LanguageLabel }.Where(label => label.Length > 0));
+}
+
+public sealed record ZLibrarySearchResult(IReadOnlyList<ZLibraryBook> Books, int Total, int Page, int PageCount);
