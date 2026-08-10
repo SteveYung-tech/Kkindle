@@ -13,6 +13,12 @@ public sealed partial class MainWindow
     private FormatConversionProgress _bookFormatConversionLastProgress = new(0, "正在转换…");
     private bool _bookFormatConversionMinimized;
     private bool _bookFormatConversionInProgress;
+    private CancellationTokenSource? _automaticReaderFormatGenerationCancellation;
+    private bool _automaticReaderFormatGenerationInProgress;
+
+    private sealed record AutomaticReaderFormatGenerationResult(
+        int GeneratedCount,
+        IReadOnlyList<string> Failures);
 
     private async void ConvertBookToEpubMenuItem_Click(object sender, RoutedEventArgs e) =>
         await ConvertBookFromMenuAsync(sender, "epub");
@@ -26,7 +32,7 @@ public sealed partial class MainWindow
     private async Task ConvertBookFromMenuAsync(object sender, string targetFormat)
     {
         if (sender is not MenuFlyoutItem { Tag: Book book }) return;
-        if (_bookFormatConversionInProgress)
+        if (_bookFormatConversionInProgress || _automaticReaderFormatGenerationInProgress)
         {
             await ShowMessageAsync("格式转换", "已有一本书正在转换，请稍候。 ");
             return;
@@ -120,6 +126,104 @@ public sealed partial class MainWindow
             if (ReferenceEquals(_bookFormatConversionCancellation, cancellation))
                 _bookFormatConversionCancellation = null;
             cancellation.Dispose();
+        }
+    }
+
+    private async Task<AutomaticReaderFormatGenerationResult> AutoGenerateReaderFormatsForImportsAsync(
+        ImportBatchResult importResult,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_appSettings.AutoGenerateEpubAndAzw3OnImport)
+            return new AutomaticReaderFormatGenerationResult(0, []);
+
+        var books = importResult.Items
+            .Where(item => item.Succeeded && item.Added && item.Book is not null)
+            .Select(item => item.Book!)
+            .GroupBy(book => book.Id)
+            .Select(group => group.First())
+            .Where(book => BookFormatConversionPolicy.GetMissingDefaultReaderFormats(book.Files).Count > 0)
+            .ToArray();
+        if (books.Length == 0)
+            return new AutomaticReaderFormatGenerationResult(0, []);
+
+        if (_bookFormatConversionInProgress || _automaticReaderFormatGenerationInProgress)
+            return new AutomaticReaderFormatGenerationResult(
+                0,
+                ["已有格式转换正在进行，未启动 EPUB/AZW3 自动补齐。"]);
+
+        using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _automaticReaderFormatGenerationCancellation = linkedCancellation;
+        _automaticReaderFormatGenerationInProgress = true;
+        var failures = new List<string>();
+        var generatedCount = 0;
+        try
+        {
+            foreach (var book in books)
+            {
+                foreach (var targetFormat in BookFormatConversionPolicy.GetMissingDefaultReaderFormats(book.Files))
+                {
+                    linkedCancellation.Token.ThrowIfCancellationRequested();
+                    var sourceFile = BookFormatConversionPolicy.SelectSource(book.Files, targetFormat);
+                    if (sourceFile is null)
+                    {
+                        failures.Add($"《{book.Title}》没有可用于生成 {targetFormat.ToUpperInvariant()} 的源格式。");
+                        continue;
+                    }
+
+                    string? temporaryOutput = null;
+                    try
+                    {
+                        var sourcePath = _library.GetAbsoluteFilePath(sourceFile);
+                        temporaryOutput = CreateTemporaryFormatPath(book.Title, targetFormat);
+                        TaskStatusText.Text = $"正在为《{book.Title}》自动生成 {targetFormat.ToUpperInvariant()}…";
+                        var progress = new Progress<FormatConversionProgress>(value =>
+                        {
+                            TaskProgress.Visibility = Visibility.Visible;
+                            TaskProgress.Value = value.Percentage;
+                            TaskStatusText.Text = $"正在生成 {targetFormat.ToUpperInvariant()}：{book.Title}（{value.RoundedPercentage}%）";
+                        });
+                        await _formatConverter.ConvertAsync(
+                            sourcePath,
+                            temporaryOutput,
+                            progress,
+                            linkedCancellation.Token);
+                        var addedFile = await _library.AddFileToBookAsync(
+                            book.Id,
+                            temporaryOutput,
+                            linkedCancellation.Token);
+                        book.Files.Add(addedFile);
+                        generatedCount++;
+                    }
+                    catch (OperationCanceledException) when (linkedCancellation.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception)
+                    {
+                        failures.Add($"《{book.Title}》生成 {targetFormat.ToUpperInvariant()}：{exception.Message}");
+                    }
+                    finally
+                    {
+                        if (temporaryOutput is not null)
+                            TryDeleteTemporaryFormatPath(temporaryOutput);
+                    }
+                }
+            }
+
+            if (generatedCount > 0)
+                await RefreshLibraryAsync();
+
+            TaskStatusText.Text = failures.Count == 0
+                ? $"已自动补齐 {generatedCount} 个 EPUB/AZW3 文件"
+                : $"已生成 {generatedCount} 个 EPUB/AZW3 文件，{failures.Count} 个失败";
+            return new AutomaticReaderFormatGenerationResult(generatedCount, failures);
+        }
+        finally
+        {
+            TaskProgress.Visibility = Visibility.Collapsed;
+            _automaticReaderFormatGenerationInProgress = false;
+            if (ReferenceEquals(_automaticReaderFormatGenerationCancellation, linkedCancellation))
+                _automaticReaderFormatGenerationCancellation = null;
         }
     }
 

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Kkindle.Core;
 
 public enum LibraryReadingStatus { Unread = 0, Reading = 1, Finished = 2 }
@@ -16,9 +18,13 @@ public sealed record AppSettings
     public string PreferredOpenFormat { get; init; } = "epub";
     public string CalibrePath { get; init; } = string.Empty;
     public bool AutoBackupEnabled { get; init; }
+    public bool AutoGenerateEpubAndAzw3OnImport { get; init; } = true;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AutoGenerateAzw3OnImport { get; init; }
     public int AutoBackupRetention { get; init; } = 5;
     public bool AiEnabled { get; init; } = true;
     public bool NetworkEnabled { get; init; } = true;
+    public bool AutoConnectDevice { get; init; } = true;
     public ReaderLayoutSettings DefaultReaderLayout { get; init; } = new();
 
     public static AppSettings Normalize(AppSettings? settings)
@@ -30,6 +36,9 @@ public sealed record AppSettings
         {
             PreferredOpenFormat = preferred,
             CalibrePath = (settings.CalibrePath ?? string.Empty).Trim(),
+            AutoGenerateEpubAndAzw3OnImport = settings.AutoGenerateEpubAndAzw3OnImport
+                || settings.AutoGenerateAzw3OnImport,
+            AutoGenerateAzw3OnImport = false,
             AutoBackupRetention = Math.Clamp(settings.AutoBackupRetention, 1, 30),
             DefaultReaderLayout = ReaderLayoutDefaults.Normalize(settings.DefaultReaderLayout ?? new ReaderLayoutSettings())
         };
@@ -49,9 +58,11 @@ public sealed record ReadingDashboard(
     double AverageProgress,
     int BookmarkCount,
     int AnnotationCount,
-    IReadOnlyList<ReadingDashboardBook> RecentBooks);
+    IReadOnlyList<ReadingDashboardBook> RecentBooks,
+    IReadOnlyList<ReadingDashboardDay> DailyReading);
 
 public sealed record ReadingDashboardBook(Guid BookId, Guid BookFileId, double ProgressPercent, long CumulativeSeconds, DateTimeOffset UpdatedAt);
+public sealed record ReadingDashboardDay(DateOnly Date, long ActiveSeconds);
 
 public enum ReadingMaterialSource { Local, Kindle }
 

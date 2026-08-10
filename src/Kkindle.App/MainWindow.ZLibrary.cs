@@ -16,6 +16,7 @@ public sealed partial class MainWindow
     private bool _zLibrarySearching;
     private int _zLibraryPageIndex = 1;
     private int _zLibraryPageCount;
+    private ZLibraryBookCardViewModel? _selectedZLibraryBook;
 
     public ObservableCollection<ZLibraryBookCardViewModel> ZLibraryBooks { get; } = [];
 
@@ -27,6 +28,7 @@ public sealed partial class MainWindow
         DevicePage.Visibility = Visibility.Collapsed;
         DeviceResourcePage.Visibility = Visibility.Collapsed;
         ReadingMaterialsPage.Visibility = Visibility.Collapsed;
+        ReadingDashboardPage.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
         ZLibraryPage.Visibility = Visibility.Visible;
@@ -39,8 +41,8 @@ public sealed partial class MainWindow
     {
         var configured = _zLibrarySettings.IsConfigured;
         ZLibraryStatusText.Text = configured
-            ? $"已登录账号：{_zLibrarySettings.Email}"
-            : "未配置账号，搜索前请在账号设置中登录 Z-Library。";
+            ? $"已配置账号：{_zLibrarySettings.Email}"
+            : "未配置账号，可搜索书籍；下载前需要登录 Z-Library。";
     }
 
     private async void ZLibrarySearchBox_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -67,12 +69,6 @@ public sealed partial class MainWindow
             ZLibraryResultText.Text = "请输入书名或作者后搜索。";
             return;
         }
-        if (!_zLibrarySettings.IsConfigured)
-        {
-            await ShowZLibraryAccountAsync("请先配置 Z-Library 账号。");
-            return;
-        }
-
         _zLibraryPageIndex = 1;
         await PerformZLibrarySearchAsync(ZLibrarySearchBox.Text.Trim(), 1);
     }
@@ -91,7 +87,7 @@ public sealed partial class MainWindow
         ZLibraryResultText.Text = $"正在搜索《{query}》…";
         try
         {
-            if (!_zLibraryService.IsLoggedIn)
+            if (_zLibrarySettings.IsConfigured && !_zLibraryService.IsLoggedIn)
                 await _zLibraryService.LoginAsync(
                     _zLibrarySettings.Email,
                     _zLibrarySettings.Password,
@@ -114,6 +110,7 @@ public sealed partial class MainWindow
 
             _zLibraryPageIndex = result.Page;
             _zLibraryPageCount = result.PageCount;
+            CloseZLibraryDetailPanel();
             ZLibraryBooks.Clear();
             foreach (var book in result.Books)
             {
@@ -197,8 +194,13 @@ public sealed partial class MainWindow
             if (entry is null)
                 throw new InvalidOperationException(import.Items.FirstOrDefault()?.Message ?? "导入书库失败。");
 
+            var automaticFormats = await AutoGenerateReaderFormatsForImportsAsync(import);
             item.MarkDownloadCompleted();
-            item.SetStatus("已下载并导入书库");
+            item.SetStatus(automaticFormats.GeneratedCount > 0
+                ? "已下载、导入并补齐 EPUB/AZW3"
+                : automaticFormats.Failures.Count > 0
+                    ? "已导入，EPUB/AZW3 补齐失败"
+                    : "已下载并导入书库");
             TaskStatusText.Text = $"《{item.Title}》已下载并导入电脑书库";
             await RefreshLibraryAsync();
             try { File.Delete(downloadedPath); } catch { /* The library copy is authoritative. */ }
@@ -211,6 +213,157 @@ public sealed partial class MainWindow
         finally
         {
             item.IsDownloading = false;
+        }
+    }
+
+    private void ZLibraryBookList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ZLibraryBookList.SelectedItem is not ZLibraryBookCardViewModel item)
+        {
+            CloseZLibraryDetailPanel();
+            return;
+        }
+
+        _selectedZLibraryBook = item;
+        ZLibraryDetailPanel.DataContext = item;
+        ZLibraryDetailPanel.Visibility = Visibility.Visible;
+    }
+
+    private void ZLibraryDetailCloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        ZLibraryBookList.SelectedItem = null;
+        CloseZLibraryDetailPanel();
+    }
+
+    private void CloseZLibraryDetailPanel()
+    {
+        _selectedZLibraryBook = null;
+        ZLibraryDetailPanel.DataContext = null;
+        ZLibraryDetailPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private async void ZLibraryOfficialDetailButton_Click(object sender, RoutedEventArgs e)
+    {
+        await OpenZLibraryUrlAsync(_selectedZLibraryBook?.Book.OfficialDetailUrl, "官网详情");
+    }
+
+    private async void ZLibraryReadOnlineButton_Click(object sender, RoutedEventArgs e)
+    {
+        await OpenZLibraryUrlAsync(_selectedZLibraryBook?.Book.ReadOnlineUrl, "在线阅读");
+    }
+
+    private async Task OpenZLibraryUrlAsync(string? value, string actionName)
+    {
+        if (!_appSettings.NetworkEnabled)
+        {
+            await ShowMessageAsync("网络功能已关闭", $"请在应用设置中允许网络功能后使用{actionName}。");
+            return;
+        }
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+        {
+            await ShowMessageAsync($"无法打开{actionName}", "这本书没有提供有效链接。");
+            return;
+        }
+        if (!await Windows.System.Launcher.LaunchUriAsync(uri))
+            await ShowMessageAsync($"无法打开{actionName}", "系统没有可用于打开该链接的浏览器。");
+    }
+
+    private async void ZLibrarySendEmailButton_Click(object sender, RoutedEventArgs e)
+    {
+        var item = _selectedZLibraryBook;
+        if (item is null || item.IsDownloading || _kindleEmailSending) return;
+        if (!item.CanSendToEmail)
+        {
+            await ShowMessageAsync("无法发送", "该书当前不支持邮件发送，或文件不是 EPUB/PDF 格式。");
+            return;
+        }
+        if (!_appSettings.NetworkEnabled)
+        {
+            await ShowMessageAsync("网络功能已关闭", "请在应用设置中允许网络功能后再发送邮件。");
+            return;
+        }
+        if (!_zLibrarySettings.IsConfigured)
+        {
+            await ShowZLibraryAccountAsync("下载并发送前请先配置 Z-Library 账号。");
+            return;
+        }
+
+        var emailSettings = await _kindleEmailSettingsStore.LoadAsync();
+        _kindleEmailSettings = emailSettings;
+        var validationError = emailSettings.Validate();
+        if (validationError is not null)
+        {
+            await ShowKindleEmailSettingsAsync($"请先完成设置：{validationError}");
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = ((FrameworkElement)Content).XamlRoot,
+            Title = "发送到 Kindle 邮箱",
+            Content = $"将下载《{item.Title}》并发送到 {emailSettings.KindleEmailAddress}。此操作会消耗一次 Z-Library 下载额度，是否继续？",
+            PrimaryButtonText = "下载并发送",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        using var cancellation = new CancellationTokenSource();
+        _kindleEmailSendCancellation = cancellation;
+        _kindleEmailSending = true;
+        item.IsDownloading = true;
+        item.SetStatus("正在准备邮件…");
+        TaskProgress.IsIndeterminate = true;
+        TaskProgress.Visibility = Visibility.Visible;
+        string? downloadedPath = null;
+        try
+        {
+            if (!_zLibraryService.IsLoggedIn)
+                await _zLibraryService.LoginAsync(
+                    _zLibrarySettings.Email,
+                    _zLibrarySettings.Password,
+                    _zLibrarySettings.BaseUrl,
+                    cancellation.Token);
+
+            var downloadsDirectory = Path.Combine(_paths.Data, "downloads");
+            downloadedPath = await _zLibraryService.DownloadAsync(
+                item.Book,
+                downloadsDirectory,
+                new Progress<TransferProgress>(item.SetDownloadProgress),
+                cancellation.Token);
+            item.SetStatus("正在发送邮件…");
+            TaskStatusText.Text = $"正在发送《{item.Title}》到 Kindle 邮箱…";
+            await _kindleEmailSender.SendAsync(
+                emailSettings,
+                downloadedPath,
+                $"Send to Kindle: {item.Title}",
+                cancellation.Token);
+            item.MarkDownloadCompleted();
+            item.SetStatus("已发送到 Kindle 邮箱");
+            TaskStatusText.Text = $"《{item.Title}》已提交到 Kindle 邮箱";
+            await ShowMessageAsync("发送成功", "邮件已发送。Amazon 完成转换后，书籍会出现在 Kindle 或 Kindle 应用中。");
+        }
+        catch (OperationCanceledException)
+        {
+            item.SetStatus("邮件发送已取消");
+            TaskStatusText.Text = "Kindle 邮箱发送已取消";
+        }
+        catch (Exception exception)
+        {
+            item.SetStatus("邮件发送失败");
+            TaskStatusText.Text = "Kindle 邮箱发送失败";
+            await ShowMessageAsync("发送失败", exception.Message);
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(downloadedPath))
+                try { File.Delete(downloadedPath); } catch { /* The temporary attachment is best-effort cleanup. */ }
+            item.IsDownloading = false;
+            _kindleEmailSending = false;
+            if (ReferenceEquals(_kindleEmailSendCancellation, cancellation))
+                _kindleEmailSendCancellation = null;
+            TaskProgress.IsIndeterminate = false;
+            TaskProgress.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -259,6 +412,7 @@ public sealed partial class MainWindow
                 normalized.Email,
                 normalized.Password,
                 normalized.BaseUrl);
+            normalized.BaseUrl = _zLibraryService.ActiveBaseUrl;
             await _zLibrarySettingsStore.SaveAsync(normalized);
             _zLibrarySettings = normalized;
             ZLibraryAccountOverlay.Visibility = Visibility.Collapsed;

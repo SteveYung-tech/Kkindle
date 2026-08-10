@@ -12,6 +12,7 @@ public sealed record EpubReaderDocument(
 
 public sealed class EpubReaderPreparationService
 {
+    private const string ExtractionReadyFileName = ".kkindle-extracted";
     private readonly AppPaths _paths;
 
     public EpubReaderPreparationService(AppPaths paths)
@@ -32,7 +33,12 @@ public sealed class EpubReaderPreparationService
         EnsureContainedPath(_paths.ReaderCache, cacheRoot);
         Directory.CreateDirectory(cacheRoot);
 
-        await ExtractSafelyAsync(epubPath, cacheRoot, cancellationToken);
+        var extractionReadyPath = Path.Combine(cacheRoot, ExtractionReadyFileName);
+        if (!File.Exists(extractionReadyPath))
+        {
+            await ExtractSafelyAsync(epubPath, cacheRoot, cancellationToken);
+            await File.WriteAllTextAsync(extractionReadyPath, cacheKey, cancellationToken);
+        }
 
         var containerPath = Path.Combine(cacheRoot, "META-INF", "container.xml");
         if (!File.Exists(containerPath))

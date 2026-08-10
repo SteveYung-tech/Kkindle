@@ -8,6 +8,11 @@ namespace Kkindle;
 
 public sealed partial class MainWindow
 {
+    private void LibraryPane_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (DetailPane.Visibility == Visibility.Visible) CloseDetails();
+    }
+
     private void BookGrid_ItemClick(object sender, ItemClickEventArgs e)
     {
         if (e.ClickedItem is BookCardViewModel card) SelectBook(card.Book);

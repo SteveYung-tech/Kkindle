@@ -487,6 +487,7 @@ internal static class WpdKindleAccess
     public static void SendBook(
         KindleDevice device,
         string sourcePath,
+        KindleThumbnail? thumbnail,
         IProgress<TransferProgress>? progress,
         CancellationToken cancellationToken)
     {
@@ -507,7 +508,10 @@ internal static class WpdKindleAccess
             dynamic? documents = FindChild(storage, "documents")
                 ?? throw new IOException("Kindle 上不存在 documents 目录。");
 
-            var finalName = GetUniqueFileName(documents, sourceInfo.Name);
+            var safeName = KindleTransferPolicy.CreateSafeFileName(
+                Path.GetFileNameWithoutExtension(sourceInfo.Name),
+                sourceInfo.Extension);
+            var finalName = GetUniqueFileName(documents, safeName);
             transferName = finalName;
             var stagedPath = Path.Combine(stagingDirectory, finalName);
             File.Copy(sourcePath, stagedPath, overwrite: false);
@@ -536,6 +540,19 @@ internal static class WpdKindleAccess
                 cancellationToken);
             if (finalSize != sourceInfo.Length)
                 throw new IOException("设备文件大小校验失败。");
+            if (thumbnail is not null)
+            {
+                progress?.Report(new TransferProgress(sourceInfo.Length, sourceInfo.Length, "正在同步 Kindle 书架封面"));
+                var stagedThumbnail = Path.Combine(stagingDirectory, thumbnail.FileName);
+                File.WriteAllBytes(stagedThumbnail, thumbnail.JpegBytes);
+                UploadBookThumbnail(
+                    device,
+                    storage,
+                    stagedThumbnail,
+                    thumbnail.FileName,
+                    thumbnail.JpegBytes.LongLength,
+                    cancellationToken);
+            }
             progress?.Report(new TransferProgress(sourceInfo.Length, sourceInfo.Length, $"已发送 {finalName}"));
             transferCompleted = true;
         }
@@ -552,6 +569,47 @@ internal static class WpdKindleAccess
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
+    }
+
+    private static void UploadBookThumbnail(
+        KindleDevice device,
+        dynamic storage,
+        string stagedThumbnail,
+        string thumbnailFileName,
+        long expectedSize,
+        CancellationToken cancellationToken)
+    {
+        if (thumbnailFileName.IndexOfAny(['\\', '/']) >= 0)
+            throw new InvalidOperationException("Kindle 缩略图文件名无效。");
+
+        dynamic thumbnailFolder = FindOrCreateFolderPath(storage, @"system\thumbnails", cancellationToken);
+        dynamic? existing = FindChild(thumbnailFolder, thumbnailFileName);
+        if (existing is not null)
+        {
+            if ((bool)existing.IsFolder)
+                throw new InvalidOperationException("Kindle 缩略图目标不能是文件夹。");
+            ShellFileOperation.DeletePermanently((object)existing);
+            var deleteStartedAt = DateTime.UtcNow;
+            var relativePath = $@"system\thumbnails\{thumbnailFileName}";
+            while (DateTime.UtcNow - deleteStartedAt < TimeSpan.FromSeconds(20))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!ReadStorageItemState(device, relativePath).Exists) break;
+                Thread.Sleep(250);
+            }
+            if (ReadStorageItemState(device, relativePath).Exists)
+                throw new TimeoutException("等待 Kindle 更新旧封面超时。");
+        }
+
+        dynamic folder = thumbnailFolder.GetFolder;
+        folder.CopyHere(stagedThumbnail, CopyWithoutUi);
+        WaitForStorageItem(
+            device,
+            $@"system\thumbnails\{thumbnailFileName}",
+            expectedSize,
+            null,
+            thumbnailFileName,
+            cancellationToken);
     }
 
     private static dynamic CreateShell()

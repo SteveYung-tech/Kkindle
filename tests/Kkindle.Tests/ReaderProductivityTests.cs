@@ -135,7 +135,9 @@ public sealed class ReaderProductivityTests
             Assert.Equal(1.2, restored!.FontScale);
             Assert.Equal(2.1, restored.LineHeight);
             Assert.Equal(960, restored.MaxWidth);
+            Assert.Equal(96, restored.BodyPadding);
             Assert.Equal("SimSun", restored.FontFamily);
+            Assert.Equal(1, restored.FlowMode);
             Assert.True(restored.VerticalWriting);
             Assert.True(restored.TwoPageMode);
 

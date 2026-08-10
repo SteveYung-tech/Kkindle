@@ -18,10 +18,19 @@ public sealed partial class MainWindow
         };
         exportItem.Click += ExportDeviceBookToLibraryMenuItem_Click;
 
+        var deleteItem = new MenuFlyoutItem
+        {
+            Text = "从 Kindle 删除",
+            Tag = card
+        };
+        deleteItem.Click += DeleteDeviceBookMenuItem_Click;
+
         var flyout = new MenuFlyout();
         if (Application.Current.Resources["MonochromeMenuFlyoutPresenterStyle"] is Style presenterStyle)
             flyout.MenuFlyoutPresenterStyle = presenterStyle;
         flyout.Items.Add(exportItem);
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        flyout.Items.Add(deleteItem);
         flyout.ShowAt(element, e.GetPosition(element));
         e.Handled = true;
     }
@@ -30,6 +39,64 @@ public sealed partial class MainWindow
     {
         if (sender is not MenuFlyoutItem { Tag: KindleBookCardViewModel card }) return;
         await ExportDeviceBookToLibraryAsync(card.Book);
+    }
+
+    private async void DeleteDeviceBookMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuFlyoutItem { Tag: KindleBookCardViewModel card }) return;
+        if (_isTransferring)
+        {
+            ShowTransferToast("从 Kindle 删除", "已有传输任务正在进行中。", autoHide: true);
+            return;
+        }
+        if (_devices.Count == 0)
+        {
+            ShowTransferToast("从 Kindle 删除", "Kindle 已断开连接。", autoHide: true);
+            return;
+        }
+
+        var book = card.Book;
+        var device = _devices[0];
+        if (!await ShowDevicePromptAsync(
+                "从 Kindle 删除？",
+                $"将从 {device.Name} 永久删除《{book.Title}》。\n\n此操作不会删除电脑书库中的副本，且无法撤销。",
+                "删除",
+                "取消")) return;
+
+        _isTransferring = true;
+        _transferCancellation = new CancellationTokenSource();
+        TaskProgress.IsIndeterminate = true;
+        TaskProgress.Visibility = Visibility.Visible;
+        TaskStatusText.Text = "正在从 Kindle 删除…";
+        ShowTransferToast("从 Kindle 删除", $"正在删除《{book.Title}》…");
+        try
+        {
+            await _kindle.RemoveBookAsync(device, book, _transferCancellation.Token);
+            DeviceBooks.Remove(card);
+            DeviceBookCountText.Text = DeviceBooks.Count.ToString();
+            _scannedDeviceId = null;
+            TaskStatusText.Text = "已从 Kindle 删除";
+            ShowTransferToast("从 Kindle 删除", $"《{book.Title}》已删除。", progress: 100, autoHide: true);
+        }
+        catch (OperationCanceledException)
+        {
+            TaskStatusText.Text = "删除已取消";
+            ShowTransferToast("从 Kindle 删除", "删除已取消。", autoHide: true);
+        }
+        catch (Exception exception)
+        {
+            TaskStatusText.Text = "删除失败";
+            ShowTransferToast("从 Kindle 删除", $"删除失败：{exception.Message}", autoHide: true);
+            await ShowMessageAsync("无法从 Kindle 删除", exception.Message);
+        }
+        finally
+        {
+            _isTransferring = false;
+            _transferCancellation.Dispose();
+            _transferCancellation = null;
+            TaskProgress.IsIndeterminate = false;
+            TaskProgress.Visibility = Visibility.Collapsed;
+        }
     }
 
     private async Task ExportDeviceBookToLibraryAsync(KindleBook book)
@@ -104,13 +171,21 @@ public sealed partial class MainWindow
             var result = await ViewModel.ImportAsync([importPath], importProgress, _transferCancellation.Token);
             var failure = result.Items.FirstOrDefault(item => !item.Succeeded);
             if (failure is not null) throw new IOException(failure.Message ?? "导入电脑书库失败。");
+            var automaticFormats = await AutoGenerateReaderFormatsForImportsAsync(result, _transferCancellation.Token);
             UpdateLibraryPresentationState();
 
             acceptProgressUpdates = false;
             TaskStatusText.Text = "已导入电脑书库";
+            var completionMessage = format == "kfx"
+                ? $"《{book.Title}》已转换为 EPUB 并导入。"
+                : $"《{book.Title}》已导入。";
+            if (automaticFormats.GeneratedCount > 0)
+                completionMessage += " 已自动补齐 EPUB/AZW3。";
+            else if (automaticFormats.Failures.Count > 0)
+                completionMessage += " EPUB/AZW3 自动补齐失败。";
             ShowTransferToast(
                 "导出到电脑书库",
-                format == "kfx" ? $"《{book.Title}》已转换为 EPUB 并导入。" : $"《{book.Title}》已导入。",
+                completionMessage,
                 progress: 100,
                 autoHide: true);
         }

@@ -160,27 +160,48 @@ public sealed partial class MainWindow
 
     private async Task LoadReaderSessionDataAsync(CancellationToken cancellationToken)
     {
-        _readerAiSettings = await _aiSettingsStore.LoadAsync(cancellationToken);
+        var aiSettingsTask = _aiSettingsStore.LoadAsync(cancellationToken);
+        if (_readerBookFile is null)
+        {
+            _readerAiSettings = await aiSettingsTask;
+            UpdateReaderAiHeader();
+            _ = RefreshReaderAiModelSelectorAsync(cancellationToken);
+            return;
+        }
+
+        var bookFileId = _readerBookFile.Id;
+        var annotationsTask = _readerData.GetAnnotationsAsync(bookFileId, cancellationToken);
+        var bookmarksTask = _readerData.GetBookmarksAsync(bookFileId, cancellationToken);
+        var layoutTask = _readerData.GetLayoutSettingsAsync(bookFileId, cancellationToken);
+        var statsTask = _readerData.GetReadingStatsAsync(bookFileId, cancellationToken);
+        var progressTask = _readerData.GetProgressAsync(bookFileId, cancellationToken);
+        await Task.WhenAll(
+            aiSettingsTask,
+            annotationsTask,
+            bookmarksTask,
+            layoutTask,
+            statsTask,
+            progressTask);
+
+        _readerAiSettings = await aiSettingsTask;
         UpdateReaderAiHeader();
         _ = RefreshReaderAiModelSelectorAsync(cancellationToken);
-        if (_readerBookFile is null) return;
-        var annotations = await _readerData.GetAnnotationsAsync(_readerBookFile.Id, cancellationToken);
-        ReplaceReaderAnnotations(annotations);
+        ReplaceReaderAnnotations(await annotationsTask);
 
         _readerBookmarks.Clear();
-        foreach (var bookmark in await _readerData.GetBookmarksAsync(_readerBookFile.Id, cancellationToken))
+        foreach (var bookmark in await bookmarksTask)
             _readerBookmarks.Add(bookmark);
         RefreshReaderBookmarkList();
 
-        var savedLayout = await _readerData.GetLayoutSettingsAsync(_readerBookFile.Id, cancellationToken);
+        var savedLayout = await layoutTask;
         _readerLayout = savedLayout is not null
             ? NormalizeReaderLayoutSettings(savedLayout)
             : NormalizeReaderLayoutSettings(_appSettings.DefaultReaderLayout);
 
-        var stats = await _readerData.GetReadingStatsAsync(_readerBookFile.Id, cancellationToken);
+        var stats = await statsTask;
         _readerStatsBaseSeconds = stats?.CumulativeSeconds ?? 0;
 
-        _savedReaderProgress = await _readerData.GetProgressAsync(_readerBookFile.Id, cancellationToken);
+        _savedReaderProgress = await progressTask;
     }
 
     private void EndReaderSession()
@@ -1058,6 +1079,8 @@ public sealed partial class MainWindow
     private const int WhMouseLl = 14;
     private const uint WmLButtonDown = 0x0201;
     private const uint WmLButtonUp = 0x0202;
+    private const uint WmMouseWheel = 0x020A;
+    private const int MouseWheelDelta = 120;
     private const int ClickDragTolerance = 12;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -1104,6 +1127,7 @@ public sealed partial class MainWindow
     private void UninstallReaderMouseHook()
     {
         _readerHookEnabled = false;
+        _readerWheelDeltaRemainder = 0;
         if (_readerMouseHook == IntPtr.Zero) return;
         _ = UnhookWindowsHookEx(_readerMouseHook);
         _readerMouseHook = IntPtr.Zero;
@@ -1143,6 +1167,37 @@ public sealed partial class MainWindow
                         }
                     }
                     _readerMouseDownInside = false;
+                    break;
+                case WmMouseWheel:
+                    // Chromium's vertical wheel movement cannot advance a
+                    // horizontally paginated document. Translate wheel-up and
+                    // wheel-down into the same previous/next operation used by
+                    // buttons and keyboard arrows. Continuous mode is left to
+                    // WebView2's native scrolling for pixel-smooth movement.
+                    if (_readerFlowMode == 1
+                        && !IsReaderPointerBlocked()
+                        && IsInsideCachedReaderWebViewScreenRect(data.pt))
+                    {
+                        var delta = unchecked((short)(data.mouseData >> 16));
+                        if (delta != 0)
+                        {
+                            if (_readerWheelDeltaRemainder != 0
+                                && Math.Sign(_readerWheelDeltaRemainder) != Math.Sign(delta))
+                            {
+                                _readerWheelDeltaRemainder = 0;
+                            }
+                            _readerWheelDeltaRemainder += delta;
+                            if (Math.Abs(_readerWheelDeltaRemainder) >= MouseWheelDelta)
+                            {
+                                var direction = _readerWheelDeltaRemainder > 0 ? -1 : 1;
+                                _readerWheelDeltaRemainder %= MouseWheelDelta;
+                                DispatcherQueue.TryEnqueue(() => _ = TurnReaderPageAsync(direction));
+                            }
+                        }
+                        // Prevent the browser from applying the same wheel
+                        // input after Kreader has consumed it as a page turn.
+                        return new IntPtr(1);
+                    }
                     break;
             }
         }

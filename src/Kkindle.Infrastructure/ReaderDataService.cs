@@ -118,6 +118,18 @@ public sealed partial class ReaderDataService
                     TotalChapters INTEGER NOT NULL DEFAULT 0,
                     UpdatedAt TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS ReaderReadingSessions (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    BookId TEXT NOT NULL,
+                    BookFileId TEXT NOT NULL,
+                    ActiveSeconds INTEGER NOT NULL,
+                    ProgressPercent REAL NOT NULL DEFAULT 0,
+                    RecordedAt TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS IX_ReaderReadingSessions_RecordedAt
+                    ON ReaderReadingSessions(RecordedAt);
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
             await EnsureReaderLayoutTwoPageColumnAsync(connection, cancellationToken);
@@ -647,7 +659,31 @@ public sealed partial class ReaderDataService
                     DateTimeOffset.Parse(reader.GetString(4))));
         }
 
-        return new ReadingDashboard(started, finished, seconds, average, bookmarks, annotations, recentBooks);
+        var firstDay = DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(-13));
+        var dailyCommand = connection.CreateCommand();
+        dailyCommand.CommandText = """
+            SELECT substr(RecordedAt, 1, 10), COALESCE(SUM(ActiveSeconds), 0)
+            FROM ReaderReadingSessions
+            WHERE RecordedAt >= $cutoff
+            GROUP BY substr(RecordedAt, 1, 10)
+            ORDER BY substr(RecordedAt, 1, 10);
+            """;
+        dailyCommand.Parameters.AddWithValue("$cutoff", firstDay.ToString("yyyy-MM-dd"));
+        var dailyValues = new Dictionary<DateOnly, long>();
+        await using (var reader = await dailyCommand.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (DateOnly.TryParse(reader.GetString(0), out var day))
+                    dailyValues[day] = reader.GetInt64(1);
+            }
+        }
+        var dailyReading = Enumerable.Range(0, 14)
+            .Select(offset => firstDay.AddDays(offset))
+            .Select(day => new ReadingDashboardDay(day, dailyValues.GetValueOrDefault(day)))
+            .ToArray();
+
+        return new ReadingDashboard(started, finished, seconds, average, bookmarks, annotations, recentBooks, dailyReading);
     }
 
     public async Task AddReadingTimeAsync(
@@ -685,6 +721,19 @@ public sealed partial class ReaderDataService
             command.Parameters.AddWithValue("$totalChapters", totalChapters);
             command.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToString("O"));
             await command.ExecuteNonQueryAsync(cancellationToken);
+
+            var session = connection.CreateCommand();
+            session.CommandText = """
+                INSERT INTO ReaderReadingSessions (
+                    BookId, BookFileId, ActiveSeconds, ProgressPercent, RecordedAt)
+                VALUES ($bookId, $bookFileId, $seconds, $progressPercent, $recordedAt);
+                """;
+            session.Parameters.AddWithValue("$bookId", bookId.ToString());
+            session.Parameters.AddWithValue("$bookFileId", bookFileId.ToString());
+            session.Parameters.AddWithValue("$seconds", activeSeconds);
+            session.Parameters.AddWithValue("$progressPercent", progressPercent);
+            session.Parameters.AddWithValue("$recordedAt", DateTimeOffset.UtcNow.ToString("O"));
+            await session.ExecuteNonQueryAsync(cancellationToken);
         }
         finally
         {

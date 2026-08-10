@@ -13,6 +13,25 @@ public sealed class ReaderPaginationTests
     }
 
     [Fact]
+    public void ColumnWidthUsesConfiguredReadingMargin()
+    {
+        Assert.Equal(
+            864,
+            ReaderPaginationDefaults.GetColumnWidth(1000, horizontalPadding: 68),
+            precision: 6);
+        Assert.Equal(
+            364,
+            ReaderPaginationDefaults.GetColumnWidth(1000, pagesPerView: 2, horizontalPadding: 68),
+            precision: 6);
+
+        var column = ReaderPaginationDefaults.GetColumnWidth(
+            1000,
+            pagesPerView: 2,
+            horizontalPadding: 68);
+        Assert.Equal(1000, column * 2 + 68 * 4, precision: 6);
+    }
+
+    [Fact]
     public void TwoPageColumnsAndInsetsFillExactlyOneViewport()
     {
         const double viewport = 1000;

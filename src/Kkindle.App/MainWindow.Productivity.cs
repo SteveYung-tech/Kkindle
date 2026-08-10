@@ -45,9 +45,11 @@ public sealed partial class MainWindow
             ?? PreferredOpenFormatBox.Items[0];
         CalibrePathBox.Text = _appSettings.CalibrePath;
         AutoBackupCheck.IsChecked = _appSettings.AutoBackupEnabled;
+        AutoGenerateReaderFormatsCheck.IsChecked = _appSettings.AutoGenerateEpubAndAzw3OnImport;
         AutoBackupRetentionBox.Value = _appSettings.AutoBackupRetention;
         AiEnabledCheck.IsChecked = _appSettings.AiEnabled;
         NetworkEnabledCheck.IsChecked = _appSettings.NetworkEnabled;
+        AutoConnectDeviceCheck.IsChecked = _appSettings.AutoConnectDevice;
         DefaultFontScaleBox.Value = _appSettings.DefaultReaderLayout.FontScale;
         DefaultLineHeightBox.Value = _appSettings.DefaultReaderLayout.LineHeight;
         DefaultMaxWidthBox.Value = _appSettings.DefaultReaderLayout.MaxWidth;
@@ -65,9 +67,11 @@ public sealed partial class MainWindow
                 PreferredOpenFormat = (PreferredOpenFormatBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "epub",
                 CalibrePath = CalibrePathBox.Text,
                 AutoBackupEnabled = AutoBackupCheck.IsChecked == true,
+                AutoGenerateEpubAndAzw3OnImport = AutoGenerateReaderFormatsCheck.IsChecked == true,
                 AutoBackupRetention = double.IsFinite(AutoBackupRetentionBox.Value) ? (int)AutoBackupRetentionBox.Value : 5,
                 AiEnabled = AiEnabledCheck.IsChecked == true,
                 NetworkEnabled = NetworkEnabledCheck.IsChecked == true,
+                AutoConnectDevice = AutoConnectDeviceCheck.IsChecked == true,
                 DefaultReaderLayout = new ReaderLayoutSettings(
                     DefaultFontScaleBox.Value,
                     DefaultLineHeightBox.Value,
@@ -81,6 +85,11 @@ public sealed partial class MainWindow
             await _appSettingsStore.SaveAsync(_appSettings);
             ApplyAppSettingsToRuntime();
             ApplicationSettingsStatusText.Text = "设置已保存";
+            if (_appSettings.AutoConnectDevice)
+            {
+                _ignoredDeviceId = null;
+                await RefreshDevicesAsync();
+            }
         }
         catch (Exception exception) { ApplicationSettingsStatusText.Text = $"保存失败：{exception.Message}"; }
     }
@@ -140,7 +149,16 @@ public sealed partial class MainWindow
 
     private async void ReadingDashboardButton_Click(object sender, RoutedEventArgs e)
     {
-        ShowSettingsSection(ReadingDashboardNavigationButton, ReadingDashboardCard);
+        SetActiveNavigation(ReadingDashboardNavigationButton);
+        LibraryPane.Visibility = Visibility.Collapsed;
+        SettingsPane.Visibility = Visibility.Collapsed;
+        DevicePage.Visibility = Visibility.Collapsed;
+        DeviceResourcePage.Visibility = Visibility.Collapsed;
+        ReadingMaterialsPage.Visibility = Visibility.Collapsed;
+        ZLibraryPage.Visibility = Visibility.Collapsed;
+        DetailPane.Visibility = Visibility.Collapsed;
+        DetailColumn.Width = new GridLength(0);
+        ReadingDashboardPage.Visibility = Visibility.Visible;
         await RefreshReadingDashboardAsync();
     }
 
@@ -255,18 +273,69 @@ public sealed partial class MainWindow
 
     private async Task RefreshReadingDashboardAsync()
     {
-        var dashboard = await _readerData.GetReadingDashboardAsync();
+        var dashboard = await _readerData.GetReadingDashboardAsync(100);
         var hours = dashboard.TotalSeconds / 3600d;
         ReadingDashboardSummaryText.Text = $"已开始 {dashboard.BooksStarted} 本 · 已读完 {dashboard.BooksFinished} 本 · 累计 {hours:0.0} 小时";
         ReadingDashboardDetailText.Text = $"平均进度 {dashboard.AverageProgress:0}% · 书签 {dashboard.BookmarkCount} 条 · 批注 {dashboard.AnnotationCount} 条";
         var books = await _library.SearchAsync();
+        var titles = books.ToDictionary(book => book.Id, book => book.Title);
         _readingDashboardItems.Clear();
         foreach (var item in dashboard.RecentBooks)
         {
-            var title = books.FirstOrDefault(book => book.Id == item.BookId)?.Title ?? "已删除书籍";
+            var title = titles.GetValueOrDefault(item.BookId) ?? "已删除书籍";
             _readingDashboardItems.Add(new ReadingDashboardDisplayItem(title, item.ProgressPercent, item.CumulativeSeconds, item.UpdatedAt));
         }
         ReadingDashboardRecentList.ItemsSource = _readingDashboardItems;
+
+        ReadingDashboardTotalTimeText.Text = FormatReadingDuration(dashboard.TotalSeconds);
+        ReadingDashboardStartedText.Text = $"{dashboard.BooksStarted} 本";
+        ReadingDashboardFinishedText.Text = $"{dashboard.BooksFinished} 本";
+        ReadingDashboardNotesText.Text = $"{dashboard.BookmarkCount} / {dashboard.AnnotationCount}";
+
+        ReadingDailyChart.SetData(
+            dashboard.DailyReading.Select(day => new MonochromeChartValue(
+                day.Date.ToString("MM-dd"),
+                day.ActiveSeconds / 60d,
+                $"{day.ActiveSeconds / 60d:0.#} 分")),
+            accessibleName: "近十四天每天阅读时长柱状图");
+
+        ReadingBookTimeChart.SetData(
+            dashboard.RecentBooks
+                .OrderByDescending(item => item.CumulativeSeconds)
+                .Take(8)
+                .Select(item => new MonochromeChartValue(
+                    titles.GetValueOrDefault(item.BookId) ?? "已删除书籍",
+                    item.CumulativeSeconds,
+                    FormatReadingDuration(item.CumulativeSeconds))),
+            MonochromeBarChartOrientation.Horizontal,
+            "单本书累计阅读时长排行");
+
+        var progressBuckets = new[]
+        {
+            new { Label = "0–24%", Count = dashboard.RecentBooks.Count(item => item.ProgressPercent < 25) },
+            new { Label = "25–49%", Count = dashboard.RecentBooks.Count(item => item.ProgressPercent >= 25 && item.ProgressPercent < 50) },
+            new { Label = "50–74%", Count = dashboard.RecentBooks.Count(item => item.ProgressPercent >= 50 && item.ProgressPercent < 75) },
+            new { Label = "75–99%", Count = dashboard.RecentBooks.Count(item => item.ProgressPercent >= 75 && item.ProgressPercent < 99.5) },
+            new { Label = "完成", Count = dashboard.RecentBooks.Count(item => item.ProgressPercent >= 99.5) }
+        };
+        ReadingProgressChart.SetData(
+            progressBuckets.Select(bucket => new MonochromeChartValue(bucket.Label, bucket.Count, $"{bucket.Count} 本")),
+            accessibleName: "阅读进度区间分布柱状图");
+
+        var readingCount = Math.Max(0, dashboard.BooksStarted - dashboard.BooksFinished);
+        ReadingStatusChart.SetData(
+            [
+                new MonochromeChartValue("阅读中", readingCount, $"{readingCount} 本"),
+                new MonochromeChartValue("已完成", dashboard.BooksFinished, $"{dashboard.BooksFinished} 本")
+            ],
+            accessibleName: "阅读中与已完成书籍分布柱状图");
+    }
+
+    private static string FormatReadingDuration(long seconds)
+    {
+        if (seconds < 60) return $"{seconds} 秒";
+        if (seconds < 3600) return $"{seconds / 60d:0.#} 分";
+        return $"{seconds / 3600d:0.#} 小时";
     }
 
     private async void RefreshReadingDashboardButton_Click(object sender, RoutedEventArgs e) => await RefreshReadingDashboardAsync();

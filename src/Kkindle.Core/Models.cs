@@ -8,6 +8,13 @@ public sealed class Book
     public string? Series { get; set; }
     public double? SeriesIndex { get; set; }
     public string? Description { get; set; }
+    public string? Publisher { get; set; }
+    public string? PublishDate { get; set; }
+    public string? Isbn { get; set; }
+    public string? PageCount { get; set; }
+    public string? Binding { get; set; }
+    public double? DoubanRating { get; set; }
+    public int? DoubanRatingCount { get; set; }
     public string Tags { get; set; } = string.Empty;
     public string Category { get; set; } = string.Empty;
     public bool IsFavorite { get; set; }
@@ -174,7 +181,12 @@ public sealed class BookMetadata
     public string CoverExtension { get; init; } = ".jpg";
 }
 
-public sealed record ImportItemResult(string SourcePath, bool Succeeded, string? Message, Book? Book);
+public sealed record ImportItemResult(
+    string SourcePath,
+    bool Succeeded,
+    string? Message,
+    Book? Book,
+    bool Added = false);
 
 public sealed class ImportBatchResult
 {
@@ -206,13 +218,29 @@ public sealed class ZLibraryBook
     public int? Year { get; set; }
     public string? Publisher { get; set; }
     public string? Series { get; set; }
+    public string? Edition { get; set; }
+    public string? Identifier { get; set; }
+    public string? Volume { get; set; }
+    public string? Description { get; set; }
+    public string? OfficialDetailUrl { get; set; }
+    public string? ReadOnlineUrl { get; set; }
+    public int? Pages { get; set; }
+    public bool ReadOnlineAvailable { get; set; }
+    public bool KindleAvailable { get; set; }
+    public bool SendToEmailAvailable { get; set; }
 
     public string FormatLabel => string.IsNullOrWhiteSpace(Extension) ? string.Empty : Extension.ToUpperInvariant();
     public string SizeLabel => Size >= 1024L * 1024
         ? $"{Size / 1024d / 1024:0.0} MB"
         : $"{Math.Max(0, Size) / 1024d:0} KB";
     public string LanguageLabel => string.IsNullOrWhiteSpace(Language) ? "未知语言" : Language;
-    public string InfoLabel => string.Join(" · ", new[] { FormatLabel, SizeLabel, LanguageLabel }.Where(label => label.Length > 0));
+    public string InfoLabel => string.Join(" · ", new[]
+    {
+        FormatLabel,
+        SizeLabel,
+        LanguageLabel,
+        Pages is > 0 ? $"{Pages} 页" : string.Empty
+    }.Where(label => label.Length > 0));
 }
 
 public sealed record ZLibrarySearchResult(IReadOnlyList<ZLibraryBook> Books, int Total, int Page, int PageCount);

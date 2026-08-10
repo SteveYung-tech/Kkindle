@@ -94,6 +94,59 @@ public sealed class EpubReaderTests
     }
 
     [Fact]
+    public async Task ReadsNestedEpub3SubchaptersAsSeparateNavigationItems()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var epub = Path.Combine(root, "nested-toc.epub");
+            using (var archive = ZipFile.Open(epub, ZipArchiveMode.Create))
+            {
+                AddEntry(archive, "META-INF/container.xml", """
+                    <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                      <rootfiles><rootfile full-path="EPUB/package.opf" /></rootfiles>
+                    </container>
+                    """);
+                AddEntry(archive, "EPUB/package.opf", """
+                    <package xmlns="http://www.idpf.org/2007/opf">
+                      <manifest>
+                        <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav" />
+                        <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml" />
+                      </manifest>
+                      <spine><itemref idref="chapter" /></spine>
+                    </package>
+                    """);
+                AddEntry(archive, "EPUB/nav.xhtml", """
+                    <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+                      <body><nav epub:type="toc"><ol>
+                        <li><a href="chapter.xhtml">Chapter</a><ol>
+                          <li><a href="chapter.xhtml#part-1">Part 1</a></li>
+                          <li><a href="chapter.xhtml#part-2">Part 2</a></li>
+                        </ol></li>
+                      </ol></nav></body>
+                    </html>
+                    """);
+                AddEntry(
+                    archive,
+                    "EPUB/chapter.xhtml",
+                    "<html><body><h1>Chapter</h1><h2 id=\"part-1\">Part 1</h2><h2 id=\"part-2\">Part 2</h2></body></html>");
+            }
+
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            paths.EnsureDirectories();
+            var document = await new EpubReaderPreparationService(paths)
+                .PrepareAsync(epub, new string('e', 64));
+
+            Assert.Equal(["Chapter", "Part 1", "Part 2"], document.Navigation.Select(item => item.Title));
+            Assert.Equal([0, 0, 0], document.Navigation.Select(item => item.ChapterIndex));
+            Assert.EndsWith("chapter.xhtml", document.Navigation[0].Target);
+            Assert.EndsWith("chapter.xhtml#part-1", document.Navigation[1].Target);
+            Assert.EndsWith("chapter.xhtml#part-2", document.Navigation[2].Target);
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
     public async Task RejectsArchivePathOutsideReaderCache()
     {
         var root = CreateTempDirectory();
@@ -110,6 +163,40 @@ public sealed class EpubReaderTests
             await Assert.ThrowsAsync<InvalidDataException>(() =>
                 service.PrepareAsync(epub, new string('b', 64)));
             Assert.False(File.Exists(Path.Combine(paths.ReaderCache, "outside.txt")));
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task ReusesCompletedExtractionForSameContentHash()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var epub = Path.Combine(root, "cached.epub");
+            using (var archive = ZipFile.Open(epub, ZipArchiveMode.Create))
+            {
+                AddEntry(archive, "META-INF/container.xml", """
+                    <container><rootfiles><rootfile full-path="content.opf" /></rootfiles></container>
+                    """);
+                AddEntry(archive, "content.opf", """
+                    <package><manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml" /></manifest>
+                    <spine><itemref idref="one" /></spine></package>
+                    """);
+                AddEntry(archive, "one.xhtml", "<html><body>original</body></html>");
+            }
+
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            paths.EnsureDirectories();
+            var service = new EpubReaderPreparationService(paths);
+            var hash = new string('d', 64);
+            var first = await service.PrepareAsync(epub, hash);
+            await File.WriteAllTextAsync(first.Chapters[0], "<html><body>cached</body></html>");
+
+            var second = await service.PrepareAsync(epub, hash);
+
+            Assert.Equal("<html><body>cached</body></html>", await File.ReadAllTextAsync(second.Chapters[0]));
+            Assert.True(File.Exists(Path.Combine(second.RootPath, ".kkindle-extracted")));
         }
         finally { TryDelete(root); }
     }

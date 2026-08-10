@@ -86,6 +86,26 @@ public sealed class BookFormatConversionService : IBookFormatConverter
 
         startInfo.ArgumentList.Add(source);
         startInfo.ArgumentList.Add(destination);
+        if (targetFormat == "azw3")
+        {
+            // Rebuild KF8/AZW3 for the connected Kindle generation instead of
+            // carrying forward legacy MOBI headers and screen-profile quirks.
+            startInfo.ArgumentList.Add("--output-profile");
+            startInfo.ArgumentList.Add("kindle_scribe");
+        }
+        if (targetFormat == "azw3"
+            || (targetFormat == "epub" && sourceFormat is "azw3" or "mobi"))
+        {
+            // Let the Kindle choose its built-in CJK font and foreground color.
+            // Legacy AZW3 files often hard-code desktop Chinese font families or
+            // colors that render as blank text on newer e-ink firmware. The same
+            // cleanup also protects the built-in WebView reader's EPUB cache.
+            startInfo.ArgumentList.Add("--filter-css");
+            startInfo.ArgumentList.Add("font-family,color,background-color");
+            // Large omnibus books commonly use layout tables that are expensive
+            // for Kindle's renderer and can make opening/page turns appear stuck.
+            startInfo.ArgumentList.Add("--linearize-tables");
+        }
 
         using var process = new Process { StartInfo = startInfo };
         Task<string>? standardOutput = null;

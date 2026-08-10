@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Net;
+using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Kkindle.Core;
 using Microsoft.UI.Xaml;
@@ -151,6 +153,48 @@ public sealed class ZLibraryBookCardViewModel : ObservableObject
     public string Authors => Book.Author;
     public string InfoLabel => Book.InfoLabel;
     public string YearLabel => Book.Year is { } year && year > 0 ? year.ToString() : string.Empty;
+    public string PublicationLabel => string.Join(" · ", new[]
+    {
+        Book.Publisher ?? string.Empty,
+        YearLabel,
+        string.IsNullOrWhiteSpace(Book.Series) ? string.Empty : $"系列：{Book.Series}",
+        string.IsNullOrWhiteSpace(Book.Edition) ? string.Empty : $"版本：{Book.Edition}"
+    }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    public string IdentifierLabel => string.IsNullOrWhiteSpace(Book.Identifier)
+        ? string.Empty
+        : $"ISBN {Book.Identifier.Replace(",", " / ", StringComparison.Ordinal)}";
+    public string AvailabilityLabel => string.Join(" · ", new[]
+    {
+        Book.ReadOnlineAvailable ? "可在线阅读" : string.Empty,
+        Book.KindleAvailable ? "支持 Kindle" : string.Empty
+    }.Where(value => value.Length > 0));
+    public string ExtraInfoLabel => string.Join(" · ", new[] { IdentifierLabel, AvailabilityLabel }
+        .Where(value => value.Length > 0));
+    public string VolumeLabel => string.IsNullOrWhiteSpace(Book.Volume) ? "未提供" : Book.Volume;
+    public string DetailDescription
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Book.Description)) return "暂无简介。";
+            var withoutTags = Regex.Replace(Book.Description, "<[^>]+>", " ");
+            var decoded = WebUtility.HtmlDecode(withoutTags);
+            return Regex.Replace(decoded, @"\s+", " ").Trim();
+        }
+    }
+    public string DetailMetadataLabel => string.Join(" · ", new[]
+    {
+        PublicationLabel,
+        InfoLabel,
+        IdentifierLabel
+    }.Where(value => value.Length > 0));
+    public bool CanOpenOfficialDetail => Uri.TryCreate(Book.OfficialDetailUrl, UriKind.Absolute, out _);
+    public bool CanReadOnline => Book.ReadOnlineAvailable
+        && Uri.TryCreate(Book.ReadOnlineUrl, UriKind.Absolute, out _);
+    public bool CanSendToEmail => Book.SendToEmailAvailable
+        && Book.Extension is not null
+        && (Book.Extension.Equals("epub", StringComparison.OrdinalIgnoreCase)
+            || Book.Extension.Equals("pdf", StringComparison.OrdinalIgnoreCase));
+    public bool CanSendToEmailNow => CanSendToEmail && !IsDownloading;
     public BitmapImage? CoverImage { get; private set; }
 
     public bool IsDownloading
@@ -163,6 +207,7 @@ public sealed class ZLibraryBookCardViewModel : ObservableObject
                 OnPropertyChanged(nameof(IsNotDownloading));
                 OnPropertyChanged(nameof(DownloadButtonText));
                 OnPropertyChanged(nameof(DownloadProgressVisibility));
+                OnPropertyChanged(nameof(CanSendToEmailNow));
             }
         }
     }

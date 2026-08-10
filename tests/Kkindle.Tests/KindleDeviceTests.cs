@@ -153,6 +153,53 @@ public sealed class KindleDeviceTests
     }
 
     [Fact]
+    public async Task RemovesBookFromDriveConnectedKindle()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        var documents = Path.Combine(root, "documents");
+        Directory.CreateDirectory(documents);
+        var source = Path.Combine(documents, "remove.azw3");
+        await File.WriteAllTextAsync(source, "book to remove");
+        try
+        {
+            var service = new KindleDeviceService();
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+            var book = new KindleBook { RelativePath = Path.Combine("documents", "remove.azw3") };
+
+            await service.RemoveBookAsync(device, book);
+
+            Assert.False(File.Exists(source));
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task RefusesToRemoveBookOutsideDocumentsDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "documents"));
+        var outside = Path.Combine(root, "outside.azw3");
+        await File.WriteAllTextAsync(outside, "must stay");
+        try
+        {
+            var service = new KindleDeviceService();
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+            var book = new KindleBook { RelativePath = "outside.azw3" };
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.RemoveBookAsync(device, book));
+
+            Assert.True(File.Exists(outside));
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
     public async Task HashMismatchCleansPartialTransferFile()
     {
         var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
@@ -386,6 +433,77 @@ public sealed class KindleDeviceTests
         var rebuilt = KindleClippingsParser.BuildDocument([parsed[1]]);
         Assert.Single(KindleClippingsParser.Parse(rebuilt));
         Assert.EndsWith("==========\r\n", rebuilt);
+    }
+
+    [Fact]
+    public void BuildsKindleShelfThumbnailNameFromAzw3ExthMetadata()
+    {
+        var bytes = new byte[160];
+        "EXTH"u8.CopyTo(bytes.AsSpan(32));
+        WriteBigEndian(bytes, 36, 68);
+        WriteBigEndian(bytes, 40, 2);
+        WriteBigEndian(bytes, 44, 113);
+        WriteBigEndian(bytes, 48, 44);
+        "1f0297e3-39ec-412a-8c08-6cc41d5d2711"u8.CopyTo(bytes.AsSpan(52));
+        WriteBigEndian(bytes, 88, 501);
+        WriteBigEndian(bytes, 92, 12);
+        "EBOK"u8.CopyTo(bytes.AsSpan(96));
+
+        var fileName = KindleThumbnailService.ReadThumbnailFileName(bytes);
+
+        Assert.Equal(
+            "thumbnail_1f0297e3-39ec-412a-8c08-6cc41d5d2711_EBOK_portrait.jpg",
+            fileName);
+    }
+
+    [Fact]
+    public async Task RecognizesStructurallyValidKindleReadyAzw3()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"), "ready.azw3");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var bytes = new byte[2048];
+        "BOOKMOBI"u8.CopyTo(bytes.AsSpan(60));
+        "EXTH"u8.CopyTo(bytes.AsSpan(128));
+        WriteBigEndian(bytes, 132, 68);
+        WriteBigEndian(bytes, 136, 2);
+        WriteBigEndian(bytes, 140, 113);
+        WriteBigEndian(bytes, 144, 44);
+        "1f0297e3-39ec-412a-8c08-6cc41d5d2711"u8.CopyTo(bytes.AsSpan(148));
+        WriteBigEndian(bytes, 184, 501);
+        WriteBigEndian(bytes, 188, 12);
+        "EBOK"u8.CopyTo(bytes.AsSpan(192));
+        await File.WriteAllBytesAsync(path, bytes);
+        try
+        {
+            Assert.True(await KindleThumbnailService.IsKindleReadyAzw3Async(path));
+        }
+        finally
+        {
+            try { Directory.Delete(Path.GetDirectoryName(path)!, recursive: true); } catch { }
+        }
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void ChineseAzw3RequiresFontCompatibilityMarker(bool includeOverride, bool expectedRebuild)
+    {
+        var bytes = new byte[128];
+        "EXTH"u8.CopyTo(bytes.AsSpan(16));
+        var headerLength = includeOverride ? 38 : 26;
+        WriteBigEndian(bytes, 20, headerLength);
+        WriteBigEndian(bytes, 24, includeOverride ? 2 : 1);
+        WriteBigEndian(bytes, 28, 524);
+        WriteBigEndian(bytes, 32, 10);
+        "zh"u8.CopyTo(bytes.AsSpan(36));
+        if (includeOverride)
+        {
+            WriteBigEndian(bytes, 38, 528);
+            WriteBigEndian(bytes, 42, 12);
+            "true"u8.CopyTo(bytes.AsSpan(46));
+        }
+
+        Assert.Equal(expectedRebuild, KindleThumbnailService.RequiresCjkFontCompatibilityRebuild(bytes));
     }
 
     private static async Task<string> ComputeHashAsync(string path)

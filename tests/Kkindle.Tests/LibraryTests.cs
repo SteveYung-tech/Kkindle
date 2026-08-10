@@ -7,6 +7,25 @@ namespace Kkindle.Tests;
 public sealed class LibraryTests
 {
     [Fact]
+    public void PlansDefaultReaderFormatsFromImportedFormat()
+    {
+        Assert.Equal(
+            ["azw3"],
+            BookFormatConversionPolicy.GetMissingDefaultReaderFormats(
+                [new BookFile { Format = "epub" }]));
+        Assert.Equal(
+            ["epub"],
+            BookFormatConversionPolicy.GetMissingDefaultReaderFormats(
+                [new BookFile { Format = "azw3" }]));
+        Assert.Equal(
+            ["epub", "azw3"],
+            BookFormatConversionPolicy.GetMissingDefaultReaderFormats(
+                [new BookFile { Format = "mobi" }]));
+        Assert.Empty(BookFormatConversionPolicy.GetMissingDefaultReaderFormats(
+            [new BookFile { Format = "epub" }, new BookFile { Format = "azw3" }]));
+    }
+
+    [Fact]
     public async Task ImportsEpubMetadataCoverAndAvoidsDuplicateHash()
     {
         var root = CreateTempDirectory();
@@ -24,6 +43,8 @@ public sealed class LibraryTests
 
             Assert.Equal(1, first.SuccessCount);
             Assert.Equal(1, second.SuccessCount);
+            Assert.True(Assert.Single(first.Items).Added);
+            Assert.False(Assert.Single(second.Items).Added);
             Assert.Single(books);
             Assert.Equal("测试书", books[0].Title);
             Assert.Equal("测试作者", books[0].Authors);

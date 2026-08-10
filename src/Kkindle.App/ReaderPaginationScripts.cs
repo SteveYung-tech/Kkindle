@@ -7,7 +7,11 @@ internal static class ReaderPaginationScripts
 {
     public const string ViewportWidthVariable = "--kkindle-reader-page-viewport-width";
 
-    public static string CreateFlowCss(bool pagination, bool vertical, bool twoPage = false)
+    public static string CreateFlowCss(
+        bool pagination,
+        bool vertical,
+        bool twoPage = false,
+        double horizontalPadding = ReaderPaginationDefaults.HorizontalPadding)
     {
         if (!pagination)
         {
@@ -17,13 +21,21 @@ internal static class ReaderPaginationScripts
         }
 
         var topPadding = Format(ReaderPaginationDefaults.TopPadding);
-        var horizontalPadding = Format(ReaderPaginationDefaults.HorizontalPadding);
+        var safeHorizontalPadding = double.IsFinite(horizontalPadding)
+            ? Math.Clamp(
+                horizontalPadding,
+                ReaderLayoutDefaults.MinBodyPadding,
+                ReaderLayoutDefaults.MaxBodyPadding)
+            : ReaderPaginationDefaults.HorizontalPadding;
+        var horizontalPaddingCss = Format(safeHorizontalPadding);
         var bottomPadding = Format(ReaderPaginationDefaults.BottomPadding);
-        var columnGap = Format(ReaderPaginationDefaults.ColumnGap);
-        var outerInsets = Format(ReaderPaginationDefaults.HorizontalPadding * 2);
-        var spreadReservedWidth = Format(
-            ReaderPaginationDefaults.HorizontalPadding * 2
-            + ReaderPaginationDefaults.ColumnGap);
+        // The distance from one column start to the next must remain exactly
+        // one viewport (or half a viewport in a two-page spread). Treat the
+        // inter-column gap as the adjoining right + left page margins so a
+        // custom margin cannot make page turns drift off the column boundary.
+        var columnGap = Format(safeHorizontalPadding * 2);
+        var outerInsets = Format(safeHorizontalPadding * 2);
+        var spreadReservedWidth = Format(safeHorizontalPadding * 4);
         var columnWidth = twoPage
             ? $"calc((var({ViewportWidthVariable}, 100vw) - {spreadReservedWidth}px) / 2)"
             : $"calc(var({ViewportWidthVariable}, 100vw) - {outerInsets}px)";
@@ -32,12 +44,12 @@ internal static class ReaderPaginationScripts
             var verticalColumnHeight = $"calc(100vh - {Format(ReaderPaginationDefaults.TopPadding + ReaderPaginationDefaults.BottomPadding)}px)";
             return $"html {{ width: 100%; height: 100%; overflow: hidden !important; }}"
                 + $" body {{ width: 100% !important; height: 100% !important; margin: 0 !important; overflow: visible !important;"
-                + $" padding: {topPadding}px {horizontalPadding}px {bottomPadding}px !important; box-sizing: border-box !important;"
+                + $" padding: {topPadding}px {horizontalPaddingCss}px {bottomPadding}px !important; box-sizing: border-box !important;"
                 + $" writing-mode: vertical-rl !important; text-orientation: mixed !important; column-width: {verticalColumnHeight} !important;"
                 + $" column-gap: {columnGap}px !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
         }
         return $"html {{ height: 100%; overflow: hidden !important; writing-mode: horizontal-tb !important; }}"
-            + $" body {{ width: 100% !important; min-width: 0 !important; height: 100% !important; margin: 0 !important; overflow: visible !important; padding: {topPadding}px {horizontalPadding}px {bottomPadding}px !important; box-sizing: border-box !important;"
+            + $" body {{ width: 100% !important; min-width: 0 !important; height: 100% !important; margin: 0 !important; overflow: visible !important; padding: {topPadding}px {horizontalPaddingCss}px {bottomPadding}px !important; box-sizing: border-box !important;"
             + $" writing-mode: horizontal-tb !important; column-width: {columnWidth} !important;"
             + $" column-gap: {columnGap}px !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
     }

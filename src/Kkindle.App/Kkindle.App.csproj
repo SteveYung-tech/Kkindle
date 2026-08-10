@@ -14,7 +14,7 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <PublishReadyToRun>false</PublishReadyToRun>
     <UseWinUI>true</UseWinUI>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Product>Kkindle</Product>
     <Authors>kingstacker</Authors>
     <RepositoryUrl>https://github.com/kingstacker/Kkindle</RepositoryUrl>
@@ -54,7 +54,11 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
   </ItemGroup>
   <Target Name="CopyApplicationPriToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <ApplicationXbfFiles Include="$(TargetDir)**\*.xbf" />
+    </ItemGroup>
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).pri')" />
+    <Copy SourceFiles="@(ApplicationXbfFiles)" DestinationFiles="@(ApplicationXbfFiles->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(ProjectDir)Assets\Calibre-THIRD-PARTY-NOTICE.txt" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(ProjectDir)Assets\Calibre-THIRD-PARTY-NOTICE.txt')" />
     <Copy SourceFiles="$(ProjectDir)Assets\KFX-Input-THIRD-PARTY-NOTICE.txt" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(ProjectDir)Assets\KFX-Input-THIRD-PARTY-NOTICE.txt')" />
   </Target>

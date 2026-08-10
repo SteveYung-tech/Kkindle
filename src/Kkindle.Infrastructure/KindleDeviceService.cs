@@ -223,15 +223,20 @@ public sealed class KindleDeviceService : IKindleDeviceService
 
     public async Task SendBookAsync(KindleDevice device, BookFile bookFile, string sourcePath, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default)
     {
+        if (!File.Exists(sourcePath)) throw new FileNotFoundException("书籍源文件不存在。", sourcePath);
+        var thumbnail = await KindleThumbnailService.CreateAsync(sourcePath, _metadata, cancellationToken);
         if (device.Transport == KindleTransport.Wpd)
         {
-            await Task.Run(() => WpdKindleAccess.SendBook(device, sourcePath, progress, cancellationToken), cancellationToken);
+            await Task.Run(
+                () => WpdKindleAccess.SendBook(device, sourcePath, thumbnail, progress, cancellationToken),
+                cancellationToken);
             return;
         }
-        if (!File.Exists(sourcePath)) throw new FileNotFoundException("书籍源文件不存在。", sourcePath);
         var documents = GetDocumentsRoot(device);
         Directory.CreateDirectory(documents);
-        var fileName = GetSafeFileName(Path.GetFileName(sourcePath));
+        var fileName = KindleTransferPolicy.CreateSafeFileName(
+            Path.GetFileNameWithoutExtension(sourcePath),
+            Path.GetExtension(sourcePath));
         var destination = GetUniqueDestination(documents, fileName);
         var temporary = destination + ".kkindle-part";
         try
@@ -242,6 +247,34 @@ public sealed class KindleDeviceService : IKindleDeviceService
             if (!string.Equals(hash, bookFile.Sha256, StringComparison.OrdinalIgnoreCase))
                 throw new IOException("传输校验失败，设备上的文件未被替换。");
             File.Move(temporary, destination, true);
+            if (thumbnail is not null)
+            {
+                progress?.Report(new TransferProgress(total, total, "正在同步 Kindle 书架封面"));
+                await WriteMassStorageThumbnailAsync(device, thumbnail, cancellationToken);
+            }
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    private static async Task WriteMassStorageThumbnailAsync(
+        KindleDevice device,
+        KindleThumbnail thumbnail,
+        CancellationToken cancellationToken)
+    {
+        var deviceRoot = Path.GetFullPath(device.RootPath);
+        var thumbnailDirectory = Path.GetFullPath(Path.Combine(deviceRoot, "system", "thumbnails"));
+        EnsureUnderRoot(thumbnailDirectory, deviceRoot);
+        Directory.CreateDirectory(thumbnailDirectory);
+        var target = Path.GetFullPath(Path.Combine(thumbnailDirectory, thumbnail.FileName));
+        EnsureUnderRoot(target, thumbnailDirectory);
+        var temporary = target + ".kkindle-part";
+        try
+        {
+            await File.WriteAllBytesAsync(temporary, thumbnail.JpegBytes, cancellationToken);
+            File.Move(temporary, target, overwrite: true);
         }
         finally
         {
@@ -288,6 +321,28 @@ public sealed class KindleDeviceService : IKindleDeviceService
         {
             if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
         }
+    }
+
+    public async Task RemoveBookAsync(
+        KindleDevice device,
+        KindleBook book,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (device.Transport == KindleTransport.Wpd)
+        {
+            await Task.Run(() => WpdKindleAccess.RemoveBook(device, book, cancellationToken), cancellationToken);
+            return;
+        }
+
+        var documents = GetDocumentsRoot(device);
+        var path = Path.GetFullPath(Path.Combine(device.RootPath, book.RelativePath));
+        EnsureUnderRoot(path, documents);
+        if (!File.Exists(path)) throw new FileNotFoundException("Kindle 书籍不存在。", book.RelativePath);
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidOperationException("不能删除链接形式的设备文件。");
+
+        File.Delete(path);
     }
 
     public async Task<IReadOnlyList<KindleDeviceResource>> ScanResourcesAsync(

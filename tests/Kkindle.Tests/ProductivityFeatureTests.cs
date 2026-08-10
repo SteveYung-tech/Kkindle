@@ -24,9 +24,11 @@ public sealed class ProductivityFeatureTests
                 PreferredOpenFormat = ".MOBI",
                 CalibrePath = "  C:\\Calibre  ",
                 AutoBackupEnabled = true,
+                AutoGenerateEpubAndAzw3OnImport = true,
                 AutoBackupRetention = 99,
                 AiEnabled = false,
                 NetworkEnabled = false,
+                AutoConnectDevice = true,
                 DefaultReaderLayout = new ReaderLayoutSettings(FontScale: 9, LineHeight: -1)
             });
 
@@ -34,13 +36,21 @@ public sealed class ProductivityFeatureTests
             Assert.Equal("mobi", restored.PreferredOpenFormat);
             Assert.Equal("C:\\Calibre", restored.CalibrePath);
             Assert.Equal(30, restored.AutoBackupRetention);
+            Assert.True(restored.AutoGenerateEpubAndAzw3OnImport);
             Assert.False(restored.AiEnabled);
             Assert.False(restored.NetworkEnabled);
+            Assert.True(restored.AutoConnectDevice);
             Assert.InRange(restored.DefaultReaderLayout.FontScale, 0.75, 2.0);
             Assert.InRange(restored.DefaultReaderLayout.LineHeight, 1.2, 2.8);
 
+            await store.SaveAsync(restored with { AutoConnectDevice = false });
+            Assert.False((await store.LoadAsync()).AutoConnectDevice);
+
             await File.WriteAllTextAsync(paths.Settings, "{ invalid json");
-            Assert.Equal("epub", (await store.LoadAsync()).PreferredOpenFormat);
+            var defaults = await store.LoadAsync();
+            Assert.Equal("epub", defaults.PreferredOpenFormat);
+            Assert.True(defaults.AutoGenerateEpubAndAzw3OnImport);
+            Assert.True(defaults.AutoConnectDevice);
         }
         finally { TryDelete(root); }
     }
@@ -149,7 +159,7 @@ public sealed class ProductivityFeatureTests
     }
 
     [Fact]
-    public async Task LibraryPersistsCategoryFavoriteAndReadingStatus()
+    public async Task LibraryPersistsProductivityAndDoubanMetadata()
     {
         var root = CreateTempDirectory();
         try
@@ -164,12 +174,26 @@ public sealed class ProductivityFeatureTests
             book.Category = "技术";
             book.IsFavorite = true;
             book.ReadingStatus = LibraryReadingStatus.Finished;
+            book.Publisher = "商务印书馆";
+            book.PublishDate = "2004-1";
+            book.Isbn = "9787100040945";
+            book.PageCount = "376";
+            book.Binding = "平装";
+            book.DoubanRating = 8.3;
+            book.DoubanRatingCount = 81342;
             await service.UpdateMetadataAsync(book);
 
             var restored = Assert.Single(await service.SearchAsync());
             Assert.Equal("技术", restored.Category);
             Assert.True(restored.IsFavorite);
             Assert.Equal(LibraryReadingStatus.Finished, restored.ReadingStatus);
+            Assert.Equal("商务印书馆", restored.Publisher);
+            Assert.Equal("2004-1", restored.PublishDate);
+            Assert.Equal("9787100040945", restored.Isbn);
+            Assert.Equal("376", restored.PageCount);
+            Assert.Equal("平装", restored.Binding);
+            Assert.Equal(8.3, restored.DoubanRating);
+            Assert.Equal(81342, restored.DoubanRatingCount);
         }
         finally { TryDelete(root); }
     }
@@ -243,6 +267,8 @@ public sealed class ProductivityFeatureTests
             Assert.Equal(1, dashboard.BookmarkCount);
             Assert.Equal(1, dashboard.AnnotationCount);
             Assert.Equal(fileId, Assert.Single(dashboard.RecentBooks).BookFileId);
+            Assert.Equal(120, dashboard.DailyReading.Sum(day => day.ActiveSeconds));
+            Assert.Equal(14, dashboard.DailyReading.Count);
         }
         finally { TryDelete(root); }
     }

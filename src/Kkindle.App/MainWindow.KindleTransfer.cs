@@ -26,14 +26,6 @@ public sealed partial class MainWindow
             return;
         }
 
-        var file = book.Files[0];
-        var source = _library.GetAbsoluteFilePath(file);
-        if (!File.Exists(source))
-        {
-            ShowTransferToast("发送到 Kindle 设备", "找不到本地文件，请先刷新书库。", autoHide: true);
-            return;
-        }
-
         await RefreshDevicesAsync();
         if (_devices.Count == 0)
         {
@@ -65,7 +57,16 @@ public sealed partial class MainWindow
                 TaskStatusText.Text = value.Message;
                 ShowTransferToast("发送到 Kindle 设备", value.Message, progress: value.Percentage);
             });
-            await _kindle.SendBookAsync(device, file, source, progress, _transferCancellation.Token);
+            using var prepared = await PrepareKindleTransferAsync(
+                book,
+                progress,
+                _transferCancellation.Token);
+            await _kindle.SendBookAsync(
+                device,
+                prepared.File,
+                prepared.SourcePath,
+                progress,
+                _transferCancellation.Token);
             acceptProgressUpdates = false;
             TaskStatusText.Text = "已发送到 Kindle";
             ShowTransferToast("发送到 Kindle 设备", $"《{book.Title}》已发送完成。", progress: 100, autoHide: true);

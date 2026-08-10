@@ -42,6 +42,13 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
                 Series TEXT NULL,
                 SeriesIndex REAL NULL,
                 Description TEXT NULL,
+                Publisher TEXT NULL,
+                PublishDate TEXT NULL,
+                Isbn TEXT NULL,
+                PageCount TEXT NULL,
+                Binding TEXT NULL,
+                DoubanRating REAL NULL,
+                DoubanRatingCount INTEGER NULL,
                 Tags TEXT NOT NULL DEFAULT '',
                 Category TEXT NOT NULL DEFAULT '',
                 IsFavorite INTEGER NOT NULL DEFAULT 0,
@@ -70,7 +77,8 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
         await using var connection = await OpenConnectionAsync(cancellationToken);
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Title, Authors, Series, SeriesIndex, Description, Tags, Category, IsFavorite, ReadingStatus, CoverPath, CreatedAt, UpdatedAt
+            SELECT Id, Title, Authors, Series, SeriesIndex, Description, Tags, Category, IsFavorite, ReadingStatus, CoverPath, CreatedAt, UpdatedAt,
+                   Publisher, PublishDate, Isbn, PageCount, Binding, DoubanRating, DoubanRatingCount
             FROM Books
             WHERE $query = '' OR Title LIKE $like OR Authors LIKE $like OR Tags LIKE $like OR Series LIKE $like
             ORDER BY UpdatedAt DESC, Title COLLATE NOCASE;
@@ -186,7 +194,12 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
                     await UpdateBookRowAsync(connection, book, cancellationToken);
                 }
 
-                result.Items.Add(new ImportItemResult(sourcePath, true, newBook ? "已导入" : "已添加新格式", book));
+                result.Items.Add(new ImportItemResult(
+                    sourcePath,
+                    true,
+                    newBook ? "已导入" : "已添加新格式",
+                    book,
+                    Added: true));
                 completedBytes += file.Length;
                 progress?.Report(new TransferProgress(completedBytes, totalBytes, $"已导入 {file.Name}"));
             }
@@ -483,7 +496,14 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
                 : LibraryReadingStatus.Unread,
             CoverPath = reader.IsDBNull(10) ? null : reader.GetString(10),
             CreatedAt = DateTimeOffset.Parse(reader.GetString(11)),
-            UpdatedAt = DateTimeOffset.Parse(reader.GetString(12))
+            UpdatedAt = DateTimeOffset.Parse(reader.GetString(12)),
+            Publisher = reader.IsDBNull(13) ? null : reader.GetString(13),
+            PublishDate = reader.IsDBNull(14) ? null : reader.GetString(14),
+            Isbn = reader.IsDBNull(15) ? null : reader.GetString(15),
+            PageCount = reader.IsDBNull(16) ? null : reader.GetString(16),
+            Binding = reader.IsDBNull(17) ? null : reader.GetString(17),
+            DoubanRating = reader.IsDBNull(18) ? null : reader.GetDouble(18),
+            DoubanRatingCount = reader.IsDBNull(19) ? null : reader.GetInt32(19)
         };
     }
 
@@ -513,7 +533,8 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
     {
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT b.Id, b.Title, b.Authors, b.Series, b.SeriesIndex, b.Description, b.Tags, b.Category, b.IsFavorite, b.ReadingStatus, b.CoverPath, b.CreatedAt, b.UpdatedAt
+            SELECT b.Id, b.Title, b.Authors, b.Series, b.SeriesIndex, b.Description, b.Tags, b.Category, b.IsFavorite, b.ReadingStatus, b.CoverPath, b.CreatedAt, b.UpdatedAt,
+                   b.Publisher, b.PublishDate, b.Isbn, b.PageCount, b.Binding, b.DoubanRating, b.DoubanRatingCount
             FROM Books b INNER JOIN BookFiles f ON f.BookId = b.Id WHERE f.Sha256 = $hash LIMIT 1;
             """;
         command.Parameters.AddWithValue("$hash", hash);
@@ -525,7 +546,8 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
     {
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Title, Authors, Series, SeriesIndex, Description, Tags, Category, IsFavorite, ReadingStatus, CoverPath, CreatedAt, UpdatedAt
+            SELECT Id, Title, Authors, Series, SeriesIndex, Description, Tags, Category, IsFavorite, ReadingStatus, CoverPath, CreatedAt, UpdatedAt,
+                   Publisher, PublishDate, Isbn, PageCount, Binding, DoubanRating, DoubanRatingCount
             FROM Books WHERE lower(Title) = lower($title) AND lower(Authors) = lower($authors) LIMIT 1;
             """;
         command.Parameters.AddWithValue("$title", title);
@@ -570,8 +592,10 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
     {
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO Books (Id, Title, Authors, Series, SeriesIndex, Description, Tags, Category, IsFavorite, ReadingStatus, CoverPath, CreatedAt, UpdatedAt)
-            VALUES ($id, $title, $authors, $series, $seriesIndex, $description, $tags, $category, $isFavorite, $readingStatus, $coverPath, $createdAt, $updatedAt);
+            INSERT INTO Books (Id, Title, Authors, Series, SeriesIndex, Description, Tags, Category, IsFavorite, ReadingStatus, CoverPath, CreatedAt, UpdatedAt,
+                               Publisher, PublishDate, Isbn, PageCount, Binding, DoubanRating, DoubanRatingCount)
+            VALUES ($id, $title, $authors, $series, $seriesIndex, $description, $tags, $category, $isFavorite, $readingStatus, $coverPath, $createdAt, $updatedAt,
+                    $publisher, $publishDate, $isbn, $pageCount, $binding, $doubanRating, $doubanRatingCount);
             """;
         AddBookParameters(command, book);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -583,7 +607,9 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
         command.CommandText = """
             UPDATE Books SET Title=$title, Authors=$authors, Series=$series, SeriesIndex=$seriesIndex, Description=$description,
                 Tags=$tags, Category=$category, IsFavorite=$isFavorite, ReadingStatus=$readingStatus,
-                CoverPath=$coverPath, UpdatedAt=$updatedAt WHERE Id=$id;
+                CoverPath=$coverPath, UpdatedAt=$updatedAt, Publisher=$publisher, PublishDate=$publishDate,
+                Isbn=$isbn, PageCount=$pageCount, Binding=$binding, DoubanRating=$doubanRating,
+                DoubanRatingCount=$doubanRatingCount WHERE Id=$id;
             """;
         AddBookParameters(command, book);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -597,6 +623,13 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
         command.Parameters.AddWithValue("$series", (object?)book.Series ?? DBNull.Value);
         command.Parameters.AddWithValue("$seriesIndex", (object?)book.SeriesIndex ?? DBNull.Value);
         command.Parameters.AddWithValue("$description", (object?)book.Description ?? DBNull.Value);
+        command.Parameters.AddWithValue("$publisher", (object?)book.Publisher ?? DBNull.Value);
+        command.Parameters.AddWithValue("$publishDate", (object?)book.PublishDate ?? DBNull.Value);
+        command.Parameters.AddWithValue("$isbn", (object?)book.Isbn ?? DBNull.Value);
+        command.Parameters.AddWithValue("$pageCount", (object?)book.PageCount ?? DBNull.Value);
+        command.Parameters.AddWithValue("$binding", (object?)book.Binding ?? DBNull.Value);
+        command.Parameters.AddWithValue("$doubanRating", (object?)book.DoubanRating ?? DBNull.Value);
+        command.Parameters.AddWithValue("$doubanRatingCount", (object?)book.DoubanRatingCount ?? DBNull.Value);
         command.Parameters.AddWithValue("$tags", book.Tags ?? string.Empty);
         command.Parameters.AddWithValue("$category", book.Category ?? string.Empty);
         command.Parameters.AddWithValue("$isFavorite", book.IsFavorite ? 1 : 0);
@@ -618,7 +651,14 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
         {
             (Name: "Category", Sql: "ALTER TABLE Books ADD COLUMN Category TEXT NOT NULL DEFAULT '';"),
             (Name: "IsFavorite", Sql: "ALTER TABLE Books ADD COLUMN IsFavorite INTEGER NOT NULL DEFAULT 0;"),
-            (Name: "ReadingStatus", Sql: "ALTER TABLE Books ADD COLUMN ReadingStatus INTEGER NOT NULL DEFAULT 0;")
+            (Name: "ReadingStatus", Sql: "ALTER TABLE Books ADD COLUMN ReadingStatus INTEGER NOT NULL DEFAULT 0;"),
+            (Name: "Publisher", Sql: "ALTER TABLE Books ADD COLUMN Publisher TEXT NULL;"),
+            (Name: "PublishDate", Sql: "ALTER TABLE Books ADD COLUMN PublishDate TEXT NULL;"),
+            (Name: "Isbn", Sql: "ALTER TABLE Books ADD COLUMN Isbn TEXT NULL;"),
+            (Name: "PageCount", Sql: "ALTER TABLE Books ADD COLUMN PageCount TEXT NULL;"),
+            (Name: "Binding", Sql: "ALTER TABLE Books ADD COLUMN Binding TEXT NULL;"),
+            (Name: "DoubanRating", Sql: "ALTER TABLE Books ADD COLUMN DoubanRating REAL NULL;"),
+            (Name: "DoubanRatingCount", Sql: "ALTER TABLE Books ADD COLUMN DoubanRatingCount INTEGER NULL;")
         })
         {
             if (existing.Contains(definition.Name)) continue;

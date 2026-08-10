@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 
@@ -12,26 +11,29 @@ namespace Kkindle;
 
 public sealed record ReaderTocMarker(EpubReaderNavigationItem Item, bool IsCurrent)
 {
-    private static readonly SolidColorBrush BlackBrush = new(Colors.Black);
-    private static readonly SolidColorBrush WhiteBrush = new(Colors.White);
+    private static readonly SolidColorBrush CurrentBrush = new(ColorHelper.FromArgb(255, 91, 98, 104));
+    private static readonly SolidColorBrush InactiveBrush = new(ColorHelper.FromArgb(255, 211, 213, 209));
 
     public string Title => Item.Title;
-    public SolidColorBrush Fill => IsCurrent ? BlackBrush : WhiteBrush;
-    public SolidColorBrush Stroke => BlackBrush;
+    public SolidColorBrush Fill => IsCurrent ? CurrentBrush : InactiveBrush;
 }
 
 public sealed partial class MainWindow
 {
-    private const double ReaderTocMinimalWidth = 30d;
+    private const double ReaderTocMinimalWidth = 52d;
+    private const double ReaderCompactMarkerMinimumWidth = 8d;
+    private const double ReaderCompactMarkerMaximumWidth = 34d;
+    private const double ReaderCompactMarkerWaveRadius = 96d;
     private const double ReaderCompactScrollAnimationDurationMs = 160d;
-    private const double ReaderCompactMarkerHoverScale = 1.3d;
-    private const double ReaderCompactMarkerAnimationDurationMs = 140d;
     private IReadOnlyList<EpubReaderNavigationItem> _readerCompactNavigationItems = [];
+    private string? _readerCompactSelectedTarget;
     private DispatcherQueueTimer? _readerCompactScrollTimer;
     private bool _readerCompactScrollAnimating;
     private double _readerCompactScrollStart;
     private double _readerCompactScrollTarget;
     private DateTimeOffset _readerCompactScrollStartedAt;
+    private bool _readerCompactPointerActive;
+    private double _readerCompactPointerY;
 
     private void ReaderTocMinimalToggleButton_Click(object sender, RoutedEventArgs e)
     {
@@ -48,6 +50,35 @@ public sealed partial class MainWindow
         ScrollViewerViewChangedEventArgs e)
     {
         UpdateReaderCompactScrollIndicators();
+        UpdateReaderCompactMarkerWave();
+    }
+
+    private void ReaderTocCompactScrollViewer_Loaded(object sender, RoutedEventArgs e) =>
+        UpdateReaderCompactMarkerWave();
+
+    private void ReaderTocCompactScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        UpdateReaderCompactMarkerWave();
+
+    private void ReaderTocCompactScrollViewer_PointerEntered(object sender, PointerRoutedEventArgs e) =>
+        UpdateReaderCompactPointerPosition(e);
+
+    private void ReaderTocCompactScrollViewer_PointerMoved(object sender, PointerRoutedEventArgs e) =>
+        UpdateReaderCompactPointerPosition(e);
+
+    private void ReaderTocCompactScrollViewer_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        _readerCompactPointerActive = false;
+        UpdateReaderCompactMarkerWave();
+    }
+
+    private void UpdateReaderCompactPointerPosition(PointerRoutedEventArgs e)
+    {
+        _readerCompactPointerActive = true;
+        _readerCompactPointerY = Math.Clamp(
+            e.GetCurrentPoint(ReaderTocCompactScrollViewer).Position.Y,
+            0,
+            ReaderTocCompactScrollViewer.ActualHeight);
+        UpdateReaderCompactMarkerWave();
     }
 
     private void ReaderCompactTocItem_Click(object sender, RoutedEventArgs e)
@@ -109,6 +140,7 @@ public sealed partial class MainWindow
             + (_readerCompactScrollTarget - _readerCompactScrollStart) * eased;
         ReaderTocCompactScrollViewer.ChangeView(null, offset, null, disableAnimation: true);
         UpdateReaderCompactScrollIndicators();
+        UpdateReaderCompactMarkerWave();
 
         if (progress >= 1) StopReaderCompactScrollAnimation();
     }
@@ -126,7 +158,64 @@ public sealed partial class MainWindow
 
     private void QueueReaderCompactScrollIndicatorUpdate()
     {
-        DispatcherQueue.TryEnqueue(UpdateReaderCompactScrollIndicators);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            UpdateReaderCompactScrollIndicators();
+            UpdateReaderCompactMarkerWave();
+        });
+    }
+
+    private void UpdateReaderCompactMarkerWave()
+    {
+        if (ReaderTocCompactScrollViewer is null
+            || ReaderTocCompactList is null
+            || ReaderTocCompactScrollViewer.ActualHeight <= 0)
+        {
+            return;
+        }
+
+        foreach (var button in FindDescendants<Button>(ReaderTocCompactList))
+        {
+            if (button.Content is not Border marker || button.ActualHeight <= 0) continue;
+
+            try
+            {
+                if (!_readerCompactPointerActive)
+                {
+                    marker.Width = ReaderCompactMarkerMinimumWidth;
+                    continue;
+                }
+
+                var markerCenter = button
+                    .TransformToVisual(ReaderTocCompactScrollViewer)
+                    .TransformPoint(new Windows.Foundation.Point(0, button.ActualHeight / 2))
+                    .Y;
+                var normalizedDistance = Math.Clamp(
+                    Math.Abs(markerCenter - _readerCompactPointerY) / ReaderCompactMarkerWaveRadius,
+                    0,
+                    1);
+                var wave = Math.Sin((1 - normalizedDistance) * Math.PI / 2);
+                marker.Width = ReaderCompactMarkerMinimumWidth
+                    + (ReaderCompactMarkerMaximumWidth - ReaderCompactMarkerMinimumWidth) * wave;
+            }
+            catch (InvalidOperationException)
+            {
+                // The item may be between visual trees during a layout pass.
+            }
+        }
+    }
+
+    private static IEnumerable<T> FindDescendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        var childCount = VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < childCount; index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match) yield return match;
+
+            foreach (var descendant in FindDescendants<T>(child))
+                yield return descendant;
+        }
     }
 
     private void StopReaderCompactScrollAnimation()
@@ -135,40 +224,11 @@ public sealed partial class MainWindow
         _readerCompactScrollTimer?.Stop();
     }
 
-    private void ReaderCompactTocMarker_PointerEntered(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is Button { Content: Border marker })
-            AnimateCompactMarker(marker, ReaderCompactMarkerHoverScale);
-    }
-
-    private void ReaderCompactTocMarker_PointerExited(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is Button { Content: Border marker })
-            AnimateCompactMarker(marker, 1);
-    }
-
-    private static void AnimateCompactMarker(Border marker, double targetScale)
-    {
-        if (marker.RenderTransform is not ScaleTransform scale) return;
-
-        var animation = new DoubleAnimation
-        {
-            From = scale.ScaleX,
-            To = targetScale,
-            Duration = new Duration(TimeSpan.FromMilliseconds(ReaderCompactMarkerAnimationDurationMs)),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
-        var storyboard = new Storyboard();
-        Storyboard.SetTarget(animation, scale);
-        Storyboard.SetTargetProperty(animation, "ScaleX");
-        storyboard.Children.Add(animation);
-        storyboard.Begin();
-    }
-
     private void SetReaderTocMinimal(bool minimal)
     {
         _readerTocMinimal = minimal;
         _readerTocExpanded = !minimal;
+        _readerCompactPointerActive = false;
         ApplyReaderPanelLayout();
         UpdateReaderZenTocToggle();
         QueueReaderCompactScrollIndicatorUpdate();
@@ -186,14 +246,27 @@ public sealed partial class MainWindow
     {
         StopReaderCompactScrollAnimation();
         _readerCompactNavigationItems = [];
+        _readerCompactSelectedTarget = null;
         ReaderTocCompactList.ItemsSource = null;
+        QueueReaderCompactScrollIndicatorUpdate();
+    }
+
+    private void SetReaderCompactSelectedItem(EpubReaderNavigationItem? item)
+    {
+        _readerCompactSelectedTarget = item?.Target;
+        RefreshReaderCompactMarkers();
         QueueReaderCompactScrollIndicatorUpdate();
     }
 
     private void RefreshReaderCompactMarkers()
     {
         ReaderTocCompactList.ItemsSource = _readerCompactNavigationItems
-            .Select(item => new ReaderTocMarker(item, item.ChapterIndex == _readerChapterIndex))
+            .Select(item => new ReaderTocMarker(
+                item,
+                _readerCompactSelectedTarget is not null
+                    && item.Target.Equals(
+                        _readerCompactSelectedTarget,
+                        StringComparison.OrdinalIgnoreCase)))
             .ToArray();
     }
 

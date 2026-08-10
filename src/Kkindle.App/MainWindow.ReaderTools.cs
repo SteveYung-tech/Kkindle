@@ -310,28 +310,10 @@ public sealed partial class MainWindow
 
     private async void ReaderLayoutResetButton_Click(object sender, RoutedEventArgs e)
     {
-        var flowMode = _readerFlowMode;
-        _suppressReaderLayoutChange = true;
-        _readerLayout = _readerLayout with
-        {
-            FontScale = 1.0,
-            LineHeight = 1.88,
-            MaxWidth = 800,
-            BodyPadding = 68,
-            FontFamily = ReaderFontDefaults.DefaultFamily,
-            VerticalWriting = false,
-            TwoPageMode = false
-        };
-        ReaderFontScaleSlider.Value = 1.0;
-        ReaderLineHeightSlider.Value = 1.88;
-        ReaderMaxWidthSlider.Value = 800;
-        ReaderBodyPaddingSlider.Value = 68;
-        ReaderFontFamilyBox.SelectedItem = ReaderFontFamilyBox.Items[0];
-        ReaderVerticalWritingCheck.IsChecked = false;
-        _suppressReaderLayoutChange = false;
+        _readerLayout = NormalizeReaderLayoutSettings(_appSettings.DefaultReaderLayout);
+        _readerFlowMode = _readerLayout.FlowMode;
+        PopulateReaderLayoutControls();
         UpdateReaderFlowButton();
-        UpdateReaderLayoutValueLabels();
-        UpdateReaderLayoutStatus();
         UpdateReaderZoomLabel();
         await SaveReaderLayoutSettingsAsync();
         await ApplyReaderAppearanceAsync();

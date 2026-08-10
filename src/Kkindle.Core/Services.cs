@@ -31,6 +31,7 @@ public interface IKindleDeviceService
     Task<IReadOnlyList<KindleDevice>> DetectDevicesAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<KindleBook>> ScanBooksAsync(KindleDevice device, CancellationToken cancellationToken = default);
     Task SendBookAsync(KindleDevice device, BookFile bookFile, string sourcePath, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default);
+    Task RemoveBookAsync(KindleDevice device, KindleBook book, CancellationToken cancellationToken = default);
     Task<string> ExportBookAsync(KindleDevice device, KindleBook book, string destinationDirectory, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<KindleDeviceResource>> ScanResourcesAsync(KindleDevice device, KindleResourceKind kind, CancellationToken cancellationToken = default);
     Task SendResourceAsync(KindleDevice device, KindleResourceKind kind, string sourcePath, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default);
@@ -44,6 +45,7 @@ public interface IKindleDeviceService
 public interface IZLibraryService
 {
     bool IsLoggedIn { get; }
+    string ActiveBaseUrl { get; }
     Task LoginAsync(string email, string password, string baseUrl, CancellationToken cancellationToken = default);
     Task<ZLibrarySearchResult> SearchAsync(
         string query,

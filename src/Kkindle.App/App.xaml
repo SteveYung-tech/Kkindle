@@ -21,11 +21,11 @@
             <!-- Monochrome WinUI visual-state resources. -->
             <SolidColorBrush x:Key="ButtonBackground" Color="#FFFFFF" />
             <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#000000" />
-            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#D9D9D9" />
+            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#000000" />
             <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#F2F2F2" />
             <SolidColorBrush x:Key="ButtonForeground" Color="#000000" />
             <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#000000" />
+            <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#FFFFFF" />
             <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#8A8A8A" />
             <SolidColorBrush x:Key="ButtonBorderBrush" Color="#000000" />
             <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#000000" />
@@ -34,16 +34,73 @@
 
             <SolidColorBrush x:Key="AccentButtonBackground" Color="#000000" />
             <SolidColorBrush x:Key="AccentButtonBackgroundPointerOver" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#D9D9D9" />
+            <SolidColorBrush x:Key="AccentButtonBackgroundPressed" Color="#000000" />
             <SolidColorBrush x:Key="AccentButtonBackgroundDisabled" Color="#F2F2F2" />
             <SolidColorBrush x:Key="AccentButtonForeground" Color="#FFFFFF" />
             <SolidColorBrush x:Key="AccentButtonForegroundPointerOver" Color="#000000" />
-            <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#000000" />
+            <SolidColorBrush x:Key="AccentButtonForegroundPressed" Color="#FFFFFF" />
             <SolidColorBrush x:Key="AccentButtonForegroundDisabled" Color="#8A8A8A" />
             <SolidColorBrush x:Key="AccentButtonBorderBrush" Color="#000000" />
             <SolidColorBrush x:Key="AccentButtonBorderBrushPointerOver" Color="#000000" />
             <SolidColorBrush x:Key="AccentButtonBorderBrushPressed" Color="#000000" />
             <SolidColorBrush x:Key="AccentButtonBorderBrushDisabled" Color="#BFBFBF" />
+
+            <!-- Force every native selected/checked/focused state to the same
+                 monochrome language instead of inheriting the Windows accent. -->
+            <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#000000" />
+            <SolidColorBrush x:Key="ComboBoxBackgroundBorderBrushFocused" Color="#000000" />
+            <SolidColorBrush x:Key="FocusVisualPrimaryBrush" Color="#000000" />
+            <SolidColorBrush x:Key="FocusVisualSecondaryBrush" Color="#FFFFFF" />
+
+            <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="#000000" />
+
+            <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillChecked" Color="#000000" />
+            <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillCheckedPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="CheckBoxCheckBackgroundFillCheckedPressed" Color="#000000" />
+            <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeChecked" Color="#000000" />
+            <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeCheckedPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="CheckBoxCheckBackgroundStrokeCheckedPressed" Color="#000000" />
+            <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundChecked" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPressed" Color="#FFFFFF" />
+
+            <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFill" Color="#000000" />
+            <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFillPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFillPressed" Color="#000000" />
+            <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedStroke" Color="#000000" />
+            <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedStrokePointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedStrokePressed" Color="#000000" />
+            <SolidColorBrush x:Key="RadioButtonCheckGlyphStrokeChecked" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="RadioButtonCheckGlyphStrokeCheckedPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="RadioButtonCheckGlyphStrokeCheckedPressed" Color="#FFFFFF" />
+
+            <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected" Color="#000000" />
+            <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed" Color="#000000" />
+            <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedUnfocused" Color="#000000" />
+            <SolidColorBrush x:Key="ComboBoxItemForegroundSelected" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPressed" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedUnfocused" Color="#FFFFFF" />
+
+            <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#000000" />
+            <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#000000" />
+            <SolidColorBrush x:Key="ListViewItemForegroundSelected" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ListViewItemForegroundSelectedPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ListViewItemForegroundSelectedPressed" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="GridViewItemBackgroundSelected" Color="#000000" />
+            <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPressed" Color="#000000" />
+            <SolidColorBrush x:Key="GridViewItemForegroundSelected" Color="#FFFFFF" />
             <FontFamily x:Key="DefaultAppFontFamily">ms-appx:///Assets/Fonts/KingHwaOldSong-v3.0.ttf#KingHwaOldSong</FontFamily>
 
             <!-- Black-and-white MenuFlyout resources used by both the book context
@@ -246,6 +303,17 @@
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="CornerRadius" Value="0" />
+            </Style>
+
+            <Style x:Key="LibraryIconButtonStyle"
+                   TargetType="Button"
+                   BasedOn="{StaticResource QuietButtonStyle}">
+                <Setter Property="Width" Value="38" />
+                <Setter Property="MinWidth" Value="38" />
+                <Setter Property="Height" Value="38" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
             </Style>
 
             <Style x:Key="ReaderToolbarButtonStyle" TargetType="Button">
