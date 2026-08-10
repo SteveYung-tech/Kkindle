@@ -151,6 +151,7 @@ public sealed partial class MainWindow
         _pendingReaderChunkOffset = null;
         ResetReaderFeatures();
         ResetReaderToolsSession();
+        _ = UpdateBookReadingStatusAsync(book, 0);
         // A previous session may have left the TOC pane on the bookmark tab;
         // reset the visual tab state together with the persisted session data.
         SetReaderTocTab(bookmarkTab: false);
@@ -171,7 +172,9 @@ public sealed partial class MainWindow
         RefreshReaderBookmarkList();
 
         var savedLayout = await _readerData.GetLayoutSettingsAsync(_readerBookFile.Id, cancellationToken);
-        if (savedLayout is not null) _readerLayout = NormalizeReaderLayoutSettings(savedLayout);
+        _readerLayout = savedLayout is not null
+            ? NormalizeReaderLayoutSettings(savedLayout)
+            : NormalizeReaderLayoutSettings(_appSettings.DefaultReaderLayout);
 
         var stats = await _readerData.GetReadingStatsAsync(_readerBookFile.Id, cancellationToken);
         _readerStatsBaseSeconds = stats?.CumulativeSeconds ?? 0;
@@ -205,6 +208,21 @@ public sealed partial class MainWindow
         _pendingReaderAnnotationScroll = null;
         _pendingReaderChunkOffset = null;
         _readerIndexAvailable = false;
+        _pdfPages = [];
+        _pdfCurrentPage = 1;
+    }
+
+    private async Task UpdateBookReadingStatusAsync(Book book, double progressPercent)
+    {
+        var target = progressPercent >= 99.5
+            ? LibraryReadingStatus.Finished
+            : book.ReadingStatus == LibraryReadingStatus.Unread
+                ? LibraryReadingStatus.Reading
+                : book.ReadingStatus;
+        if (target == book.ReadingStatus) return;
+        book.ReadingStatus = target;
+        try { await _library.UpdateMetadataAsync(book); }
+        catch { }
     }
 
     private void ResetReaderFeatures()
@@ -281,6 +299,11 @@ public sealed partial class MainWindow
 
     private async void ReaderHighlightButton_Click(object sender, RoutedEventArgs e)
     {
+        if (IsPdfReader)
+        {
+            await SaveReaderAnnotationAsync(CreatePdfPageAnchor(), string.Empty, preserveExistingNote: true);
+            return;
+        }
         var selection = await CaptureReaderSelectionAsync();
         if (selection is null)
         {
@@ -294,6 +317,14 @@ public sealed partial class MainWindow
     private async void ReaderAnnotateButton_Click(object sender, RoutedEventArgs e)
     {
         ShowReaderNotesTab();
+        if (IsPdfReader)
+        {
+            _pendingReaderSelection = CreatePdfPageAnchor();
+            ReaderAnnotationSelectionText.Text = _pendingReaderSelection.Text;
+            ReaderAnnotationNoteBox.Text = string.Empty;
+            ReaderAnnotationNoteBox.Focus(FocusState.Programmatic);
+            return;
+        }
         var selection = await CaptureReaderSelectionAsync();
         if (selection is null)
         {
@@ -466,6 +497,7 @@ public sealed partial class MainWindow
 
     private string? GetCurrentReaderChapterPath()
     {
+        if (IsPdfReader) return $"pdf:{_pdfCurrentPage}";
         if (_readerAllowedRoot is null || ReaderWebView.Source is not { IsFile: true } source) return null;
         var fullPath = Path.GetFullPath(source.LocalPath);
         if (!IsPathInside(_readerAllowedRoot, fullPath)) return null;
@@ -664,6 +696,11 @@ public sealed partial class MainWindow
 
     private async Task NavigateToReaderAnnotationCoreAsync(ReaderAnnotation annotation)
     {
+        if (IsPdfReader)
+        {
+            await NavigatePdfLocationAsync(annotation.ChapterPath);
+            return;
+        }
         if (_readerDocument is null || _readerAllowedRoot is null) return;
         var relative = annotation.ChapterPath.Replace('/', Path.DirectorySeparatorChar);
         var targetPath = Path.GetFullPath(Path.Combine(_readerAllowedRoot, relative));

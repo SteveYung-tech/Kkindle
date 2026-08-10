@@ -113,6 +113,285 @@ internal static class WpdKindleAccess
         return books.OrderBy(book => book.RelativePath, StringComparer.CurrentCultureIgnoreCase).ToArray();
     }
 
+    public static IReadOnlyList<KindleDeviceResource> ScanResources(
+        KindleDevice device,
+        KindleResourceKind kind,
+        CancellationToken cancellationToken)
+    {
+        var resources = new List<KindleDeviceResource>();
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath);
+            dynamic? storage = kindle is null ? null : FindFirstStorage(kindle);
+            var rootRelative = KindleResourcePolicy.RootRelativePath(kind);
+            dynamic? resourceRoot = storage is null ? null : FindItemByRelativePath(storage, rootRelative);
+            if (resourceRoot is null || !(bool)resourceRoot.IsFolder) return resources;
+
+            var folders = new Stack<(object Folder, string RelativePath)>();
+            folders.Push((resourceRoot.GetFolder, rootRelative));
+            while (folders.Count > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var entry = folders.Pop();
+                dynamic folder = entry.Folder;
+                dynamic children = folder.Items();
+                for (var index = 0; index < (int)children.Count; index++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    dynamic child = children.Item(index);
+                    var name = Convert.ToString(child.Name) ?? string.Empty;
+                    var relativePath = $"{entry.RelativePath}\\{name}";
+                    if ((bool)child.IsFolder)
+                    {
+                        folders.Push((child.GetFolder, relativePath));
+                        continue;
+                    }
+                    if (!KindleResourcePolicy.IsSupportedFile(kind, name)) continue;
+                    resources.Add(new KindleDeviceResource
+                    {
+                        Kind = kind,
+                        RelativePath = relativePath,
+                        Size = ReadInt64Property(child, "System.Size")
+                    });
+                }
+            }
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法读取 MTP Kindle 资源目录。", exception);
+        }
+        finally
+        {
+            Release(shell);
+        }
+        return resources.OrderBy(item => item.FileName, StringComparer.CurrentCultureIgnoreCase).ToArray();
+    }
+
+    public static void SendResource(
+        KindleDevice device,
+        KindleResourceKind kind,
+        string sourcePath,
+        IProgress<TransferProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(sourcePath)) throw new FileNotFoundException("待发送的设备资源不存在。", sourcePath);
+        if (!KindleResourcePolicy.IsSupportedFile(kind, sourcePath)) throw new InvalidDataException("设备资源格式不受支持。");
+        var source = new FileInfo(sourcePath);
+        var stagingDirectory = Path.Combine(Path.GetTempPath(), "Kkindle", "resource-transfer", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stagingDirectory);
+        var rootRelative = KindleResourcePolicy.RootRelativePath(kind);
+        string? targetRelativePath = null;
+        var completed = false;
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath) ?? throw new IOException("Kindle 已断开连接。");
+            dynamic? storage = FindFirstStorage(kindle) ?? throw new IOException("无法读取 Kindle 内部存储。");
+            dynamic targetRoot = FindOrCreateFolderPath(storage, rootRelative, cancellationToken);
+            var finalName = GetUniqueFileName(targetRoot, source.Name);
+            targetRelativePath = $"{rootRelative}\\{finalName}";
+            var stagedPath = Path.Combine(stagingDirectory, finalName);
+            File.Copy(sourcePath, stagedPath, false);
+            cancellationToken.ThrowIfCancellationRequested();
+            progress?.Report(new TransferProgress(0, source.Length, $"正在发送 {source.Name}"));
+            dynamic targetFolder = targetRoot.GetFolder;
+            targetFolder.CopyHere(stagedPath, CopyWithoutUi);
+            WaitForStorageItem(device, targetRelativePath, source.Length, progress, source.Name, cancellationToken);
+            progress?.Report(new TransferProgress(source.Length, source.Length, $"已发送 {finalName}"));
+            completed = true;
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("MTP 资源传输失败，请确认 Kindle 仍保持连接。", exception);
+        }
+        finally
+        {
+            Release(shell);
+            if (!completed && targetRelativePath is not null) TryRemoveStorageItem(device, targetRelativePath);
+            try { Directory.Delete(stagingDirectory, true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    public static void CopyResourceToLocal(
+        KindleDevice device,
+        KindleDeviceResource resource,
+        string destinationPath,
+        CancellationToken cancellationToken)
+    {
+        if (!KindleResourcePolicy.TryGetPathWithinRoot(resource.Kind, resource.RelativePath, out _))
+            throw new InvalidOperationException("设备资源路径无效。");
+        var stagingDirectory = Path.Combine(Path.GetTempPath(), "Kkindle", "resource-export", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stagingDirectory);
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath) ?? throw new IOException("Kindle 已断开连接。");
+            dynamic? storage = FindFirstStorage(kindle) ?? throw new IOException("无法读取 Kindle 内部存储。");
+            dynamic? item = FindItemByRelativePath(storage, resource.RelativePath)
+                ?? throw new FileNotFoundException("Kindle 资源不存在。", resource.RelativePath);
+            dynamic? destination = shell.NameSpace(stagingDirectory) ?? throw new IOException("无法创建导出缓存目录。");
+            destination.CopyHere(item, CopyWithoutUi);
+            var stagedPath = Path.Combine(stagingDirectory, resource.FileName);
+            WaitForLocalFile(stagedPath, resource.Size, cancellationToken);
+            File.Move(stagedPath, destinationPath, true);
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法从 MTP Kindle 导出资源。", exception);
+        }
+        finally
+        {
+            Release(shell);
+            try { Directory.Delete(stagingDirectory, true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    public static void RemoveResource(
+        KindleDevice device,
+        KindleDeviceResource resource,
+        CancellationToken cancellationToken)
+    {
+        if (!KindleResourcePolicy.TryGetPathWithinRoot(resource.Kind, resource.RelativePath, out _))
+            throw new InvalidOperationException("设备资源路径无效。");
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath) ?? throw new IOException("Kindle 已断开连接。");
+            dynamic? storage = FindFirstStorage(kindle) ?? throw new IOException("无法读取 Kindle 内部存储。");
+            dynamic? item = FindItemByRelativePath(storage, resource.RelativePath)
+                ?? throw new FileNotFoundException("Kindle 资源不存在。", resource.RelativePath);
+            if ((bool)item.IsFolder) throw new InvalidOperationException("不能删除设备文件夹。");
+            cancellationToken.ThrowIfCancellationRequested();
+            ShellFileOperation.DeletePermanently((object)item);
+            var startedAt = DateTime.UtcNow;
+            while (DateTime.UtcNow - startedAt < TimeSpan.FromSeconds(20))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!ReadStorageItemState(device, resource.RelativePath).Exists) return;
+                Thread.Sleep(250);
+            }
+            throw new TimeoutException("等待 Kindle 删除资源超时。");
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法删除 MTP Kindle 资源。", exception);
+        }
+        finally
+        {
+            Release(shell);
+        }
+    }
+
+    public static string ReadClippingsText(KindleDevice device, CancellationToken cancellationToken)
+    {
+        var stagingDirectory = Path.Combine(Path.GetTempPath(), "Kkindle", "clippings-read", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stagingDirectory);
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath) ?? throw new IOException("Kindle 已断开连接。");
+            dynamic? storage = FindFirstStorage(kindle) ?? throw new IOException("无法读取 Kindle 内部存储。");
+            dynamic? item = FindItemByRelativePath(storage, @"documents\My Clippings.txt");
+            if (item is null) return string.Empty;
+            var size = ReadInt64Property(item, "System.Size");
+            dynamic? destination = shell.NameSpace(stagingDirectory) ?? throw new IOException("无法创建 Kindle 笔记缓存目录。");
+            destination.CopyHere(item, CopyWithoutUi);
+            var localPath = Path.Combine(stagingDirectory, "My Clippings.txt");
+            WaitForLocalFile(localPath, size, cancellationToken);
+            using var reader = new StreamReader(localPath, System.Text.Encoding.UTF8, true);
+            return reader.ReadToEnd();
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法读取 MTP Kindle 的 My Clippings.txt。", exception);
+        }
+        finally
+        {
+            Release(shell);
+            try { Directory.Delete(stagingDirectory, true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    public static void ReplaceClippingsText(KindleDevice device, string text, CancellationToken cancellationToken)
+    {
+        var stagingDirectory = Path.Combine(Path.GetTempPath(), "Kkindle", "clippings-write", Guid.NewGuid().ToString("N"));
+        var originalDirectory = Path.Combine(stagingDirectory, "original");
+        var updatedDirectory = Path.Combine(stagingDirectory, "updated");
+        Directory.CreateDirectory(originalDirectory);
+        Directory.CreateDirectory(updatedDirectory);
+        var originalPath = Path.Combine(originalDirectory, "My Clippings.txt");
+        var updatedPath = Path.Combine(updatedDirectory, "My Clippings.txt");
+        File.WriteAllText(updatedPath, text, new System.Text.UTF8Encoding(true));
+        dynamic? shell = null;
+        dynamic? documents = null;
+        var originalCopied = false;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath) ?? throw new IOException("Kindle 已断开连接。");
+            dynamic? storage = FindFirstStorage(kindle) ?? throw new IOException("无法读取 Kindle 内部存储。");
+            dynamic? item = FindItemByRelativePath(storage, @"documents\My Clippings.txt")
+                ?? throw new FileNotFoundException("Kindle 上不存在 My Clippings.txt。");
+            documents = FindChild(storage, "documents") ?? throw new IOException("Kindle 上不存在 documents 目录。");
+            var originalSize = ReadInt64Property(item, "System.Size");
+            dynamic? originalFolder = shell.NameSpace(originalDirectory) ?? throw new IOException("无法创建 Kindle 笔记回滚目录。");
+            originalFolder.CopyHere(item, CopyWithoutUi);
+            WaitForLocalFile(originalPath, originalSize, cancellationToken);
+            originalCopied = true;
+
+            cancellationToken.ThrowIfCancellationRequested();
+            ShellFileOperation.DeletePermanently((object)item);
+            var deleteStarted = DateTime.UtcNow;
+            while (DateTime.UtcNow - deleteStarted < TimeSpan.FromSeconds(20))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!ReadStorageItemState(device, @"documents\My Clippings.txt").Exists) break;
+                Thread.Sleep(250);
+            }
+            if (ReadStorageItemState(device, @"documents\My Clippings.txt").Exists)
+                throw new TimeoutException("等待 Kindle 更新 My Clippings.txt 超时。");
+
+            dynamic targetFolder = documents.GetFolder;
+            targetFolder.CopyHere(updatedPath, CopyWithoutUi);
+            WaitForStorageItem(device, @"documents\My Clippings.txt", new FileInfo(updatedPath).Length, null, "My Clippings.txt", cancellationToken);
+        }
+        catch (Exception exception) when (exception is COMException or IOException or TimeoutException or OperationCanceledException)
+        {
+            if (originalCopied && documents is not null
+                && !ReadStorageItemState(device, @"documents\My Clippings.txt").Exists)
+            {
+                try
+                {
+                    dynamic rollbackFolder = documents.GetFolder;
+                    rollbackFolder.CopyHere(originalPath, CopyWithoutUi);
+                    WaitForStorageItem(device, @"documents\My Clippings.txt", new FileInfo(originalPath).Length, null, "My Clippings.txt", CancellationToken.None);
+                }
+                catch { }
+            }
+            if (exception is COMException com) throw new IOException("无法更新 MTP Kindle 的 My Clippings.txt。", com);
+            throw;
+        }
+        finally
+        {
+            Release(shell);
+            try { Directory.Delete(stagingDirectory, true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
     public static string CopyBookToLocal(
         KindleDevice device,
         KindleBook book,
@@ -328,6 +607,33 @@ internal static class WpdKindleAccess
         return current;
     }
 
+    private static dynamic FindOrCreateFolderPath(dynamic storage, string relativePath, CancellationToken cancellationToken)
+    {
+        dynamic current = storage;
+        foreach (var segment in relativePath.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            dynamic? child = FindChild(current, segment);
+            if (child is null)
+            {
+                dynamic folder = current.GetFolder;
+                folder.NewFolder(segment);
+                var startedAt = DateTime.UtcNow;
+                while (DateTime.UtcNow - startedAt < TimeSpan.FromSeconds(10))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    child = FindChild(current, segment);
+                    if (child is not null) break;
+                    Thread.Sleep(200);
+                }
+            }
+            if (child is null || !(bool)child.IsFolder)
+                throw new IOException($"无法创建 Kindle 目录：{relativePath}");
+            current = child;
+        }
+        return current;
+    }
+
     private static string GetUniqueFileName(dynamic folderItem, string fileName)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -396,6 +702,91 @@ internal static class WpdKindleAccess
 
     private static bool DocumentItemExists(KindleDevice device, string relativePath) =>
         ReadDocumentItemState(device, relativePath).Exists;
+
+    private static void WaitForStorageItem(
+        KindleDevice device,
+        string relativePath,
+        long expectedSize,
+        IProgress<TransferProgress>? progress,
+        string displayName,
+        CancellationToken cancellationToken)
+    {
+        var timeout = TimeSpan.FromMinutes(Math.Clamp(2 + expectedSize / (100d * 1024 * 1024), 2, 30));
+        var startedAt = DateTime.UtcNow;
+        while (DateTime.UtcNow - startedAt < timeout)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var state = ReadStorageItemState(device, relativePath);
+            if (state.Exists)
+            {
+                progress?.Report(new TransferProgress(Math.Min(state.Size, expectedSize), expectedSize, $"正在发送 {displayName}"));
+                if (state.Size == expectedSize) return;
+            }
+            Thread.Sleep(250);
+        }
+        throw new TimeoutException("等待 Kindle 完成资源写入超时。");
+    }
+
+    private static void WaitForLocalFile(string path, long expectedSize, CancellationToken cancellationToken)
+    {
+        var timeout = TimeSpan.FromMinutes(Math.Clamp(1 + expectedSize / (100d * 1024 * 1024), 1, 10));
+        var startedAt = DateTime.UtcNow;
+        long previousSize = -1;
+        var stableChecks = 0;
+        while (DateTime.UtcNow - startedAt < timeout)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (File.Exists(path))
+            {
+                var size = new FileInfo(path).Length;
+                if (expectedSize > 0 && size == expectedSize) return;
+                if (expectedSize <= 0)
+                {
+                    stableChecks = size > 0 && size == previousSize ? stableChecks + 1 : 0;
+                    if (stableChecks >= 3) return;
+                    previousSize = size;
+                }
+            }
+            Thread.Sleep(250);
+        }
+        throw new TimeoutException("等待 Kindle 资源导出超时。");
+    }
+
+    private static (bool Exists, long Size) ReadStorageItemState(KindleDevice device, string relativePath)
+    {
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath);
+            dynamic? storage = kindle is null ? null : FindFirstStorage(kindle);
+            dynamic? item = storage is null ? null : FindItemByRelativePath(storage, relativePath);
+            return item is null ? (false, 0L) : (true, (long)ReadInt64Property(item, "System.Size"));
+        }
+        catch (COMException)
+        {
+            return (false, 0);
+        }
+        finally
+        {
+            Release(shell);
+        }
+    }
+
+    private static void TryRemoveStorageItem(KindleDevice device, string relativePath)
+    {
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath);
+            dynamic? storage = kindle is null ? null : FindFirstStorage(kindle);
+            dynamic? item = storage is null ? null : FindItemByRelativePath(storage, relativePath);
+            if (item is not null && !(bool)item.IsFolder) ShellFileOperation.DeletePermanently((object)item);
+        }
+        catch (COMException) { }
+        finally { Release(shell); }
+    }
 
     private static void TryRemoveDocumentItem(KindleDevice device, string name)
     {

@@ -6,5 +6,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Kkindle.Core\Kkindle.Core.csproj" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageReference Include="PdfPig" Version="0.1.15" />
   </ItemGroup>
 </Project>

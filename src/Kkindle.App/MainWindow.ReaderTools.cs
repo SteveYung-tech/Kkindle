@@ -234,8 +234,6 @@ public sealed partial class MainWindow
         if (ReaderLayoutSettingsStatusText is null) return;
         ReaderLayoutSettingsStatusText.Text = _readerLayout.TwoPageMode && _readerFlowMode != 1
             ? "双页仅用于分页模式；当前模式下暂不生效。"
-            : _readerLayout.VerticalWriting && _readerFlowMode != 0
-            ? "竖排仅用于滚动模式；分页模式下竖排暂不生效。"
             : "设置立即生效，并保存在本机。";
     }
 
@@ -321,6 +319,12 @@ public sealed partial class MainWindow
         book ??= _readerBook;
         bookFile ??= _readerBookFile;
         if (book is null || bookFile is null || ReaderWebView.CoreWebView2 is null) return null;
+        if (IsPdfReader)
+        {
+            var pageCount = Math.Max(1, _pdfPages.Count);
+            return new ReaderProgressRow(book.Id, bookFile.Id, $"pdf:{_pdfCurrentPage}", $"page={_pdfCurrentPage}",
+                _pdfCurrentPage - 1, 0, _pdfCurrentPage * 100d / pageCount, 0, DateTimeOffset.UtcNow);
+        }
         if (_readerChapterIndex < 0 || _readerChapters.Count == 0) return null;
         var chapterPath = GetCurrentReaderChapterPath();
         if (chapterPath is null) return null;
@@ -378,6 +382,7 @@ public sealed partial class MainWindow
             if (progress is null) return;
             await _readerData.SaveProgressAsync(progress, token);
             _readerLastProgress = progress;
+            await UpdateBookReadingStatusAsync(book, progress.ProgressPercent);
             UpdateReaderStatsDisplay();
         }
         catch
@@ -433,7 +438,9 @@ public sealed partial class MainWindow
             return;
         }
         var fragment = ReaderWebView.Source?.Fragment.TrimStart('#');
-        var quote = await CaptureReaderSelectionTextAsync() ?? await CaptureCurrentSectionQuoteAsync();
+        var quote = IsPdfReader
+            ? $"PDF 第 {_pdfCurrentPage} 页"
+            : await CaptureReaderSelectionTextAsync() ?? await CaptureCurrentSectionQuoteAsync();
 
         var existing = _readerBookmarks.FirstOrDefault(bookmark =>
             bookmark.ChapterPath.Equals(chapterPath, StringComparison.OrdinalIgnoreCase)
@@ -498,6 +505,11 @@ public sealed partial class MainWindow
 
     private void NavigateToReaderBookmark(ReaderBookmark bookmark)
     {
+        if (IsPdfReader)
+        {
+            _ = NavigatePdfLocationAsync(bookmark.ChapterPath);
+            return;
+        }
         if (_readerAllowedRoot is null) return;
         var relative = bookmark.ChapterPath.Replace('/', Path.DirectorySeparatorChar);
         var targetPath = Path.GetFullPath(Path.Combine(_readerAllowedRoot, relative));
@@ -661,6 +673,14 @@ public sealed partial class MainWindow
         ReaderSearchResultList.ItemsSource = null;
         try
         {
+            if (IsPdfReader)
+            {
+                var pdfResults = SearchPdf(query);
+                ReaderSearchResultList.ItemsSource = pdfResults;
+                ReaderSearchCountText.Text = $"{pdfResults.Count} 条结果 · PDF 本地文本索引";
+                ReaderSearchStatusText.Text = pdfResults.Count == 0 ? "没有找到匹配的内容。" : "点击结果跳转到对应页。";
+                return;
+            }
             if (_readerIndexTask is not null) await _readerIndexTask;
             var results = await _readerData.SearchBookAsync(book.Id, query, 40, token);
             ReaderSearchResultList.ItemsSource = results;
@@ -680,7 +700,9 @@ public sealed partial class MainWindow
 
     private async void ReaderSearchResultList_ItemClick(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is BookContentChunk source) await NavigateToReaderChunkAsync(source);
+        if (e.ClickedItem is not BookContentChunk source) return;
+        if (IsPdfReader) await NavigatePdfLocationAsync(source.ChapterPath);
+        else await NavigateToReaderChunkAsync(source);
     }
 
     private async Task NavigateToReaderChunkAsync(BookContentChunk source)

@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "已存在的版本标签，例如 v1.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish Windows release
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      RELEASE_DIR: ${{ github.workspace }}\artifacts\github-release
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Resolve and validate version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v(?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$') {
+            throw "版本标签必须符合 vX.Y.Z 或 vX.Y.Z-prerelease：$env:RELEASE_TAG"
+          }
+          "version=$($Matches.version)" >> $env:GITHUB_OUTPUT
+          "prerelease=$($Matches.version.Contains('-').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Restore dependencies
+        run: dotnet restore Kkindle.sln -p:Platform=x64
+
+      - name: Run release tests
+        run: dotnet test Kkindle.sln -c Release -p:Platform=x64 --no-restore
+
+      - name: Install release toolchain
+        shell: pwsh
+        run: |
+          choco install calibre innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Chocolatey 安装发布工具失败：$LASTEXITCODE" }
+
+      - name: Build installer and portable package
+        shell: pwsh
+        run: |
+          .\scripts\Build-Release.ps1 `
+            -Version '${{ steps.version.outputs.version }}' `
+            -CalibreRuntime 'C:\Program Files\Calibre2' `
+            -OutputRoot $env:RELEASE_DIR
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: Kkindle-${{ steps.version.outputs.version }}-win-x64
+          path: |
+            ${{ env.RELEASE_DIR }}/*.exe
+            ${{ env.RELEASE_DIR }}/*.zip
+            ${{ env.RELEASE_DIR }}/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Create or update GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(
+            (Join-Path $env:RELEASE_DIR "Kkindle-${{ steps.version.outputs.version }}-win-x64-setup.exe"),
+            (Join-Path $env:RELEASE_DIR "Kkindle-${{ steps.version.outputs.version }}-win-x64-portable.zip"),
+            (Join-Path $env:RELEASE_DIR 'SHA256SUMS.txt')
+          )
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) { throw "缺少发布产物：$asset" }
+          }
+
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG @assets --clobber --repo $env:GITHUB_REPOSITORY
+          }
+          else {
+            $arguments = @(
+              'release', 'create', $env:RELEASE_TAG,
+              '--repo', $env:GITHUB_REPOSITORY,
+              '--verify-tag',
+              '--title', "Kkindle $env:RELEASE_TAG",
+              '--generate-notes'
+            )
+            if ('${{ steps.version.outputs.prerelease }}' -eq 'true') { $arguments += '--prerelease' }
+            $arguments += $assets
+            gh @arguments
+          }
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release 发布失败：$LASTEXITCODE" }

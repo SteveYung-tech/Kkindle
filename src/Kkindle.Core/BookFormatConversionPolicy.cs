@@ -2,7 +2,7 @@ namespace Kkindle.Core;
 
 public static class BookFormatConversionPolicy
 {
-    public static bool IsConvertibleFormat(string? format) => Normalize(format) is "epub" or "azw3" or "pdf";
+    public static bool IsConvertibleFormat(string? format) => Normalize(format) is "epub" or "azw3" or "pdf" or "mobi";
 
     public static BookFile? SelectSource(
         IEnumerable<BookFile>? files,
@@ -26,6 +26,7 @@ public static class BookFormatConversionPolicy
         "epub" => 0,
         "azw3" => 1,
         "pdf" => 2,
-        _ => 3
+        "mobi" => 3,
+        _ => 4
     };
 }

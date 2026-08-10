@@ -45,7 +45,7 @@ public sealed class BookFormatConversionService : IBookFormatConverter
             throw new FileNotFoundException("源书籍文件不存在。", source);
         if (!BookFormatConversionPolicy.IsConvertibleFormat(sourceFormat)
             || !BookFormatConversionPolicy.IsConvertibleFormat(targetFormat))
-            throw new NotSupportedException("目前只支持 EPUB、AZW3 和 PDF 之间互转。 ");
+            throw new NotSupportedException("目前支持 EPUB、AZW3、PDF 和 MOBI 格式转换。");
         if (string.Equals(source, destination, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("转换目标不能与源文件相同。 ");
         if (File.Exists(destination))

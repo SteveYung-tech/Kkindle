@@ -347,9 +347,14 @@ public sealed partial class MainWindow
     {
         ShowReaderAiTab();
         if (_readerAiBusy) return;
-        if (_readerBook is null || _readerBookFile is null || _readerDocument is null)
+        if (_readerBook is null || _readerBookFile is null || (_readerDocument is null && !IsPdfReader))
         {
-            ReaderAiStatusText.Text = "目前仅支持对 EPUB 建立全文索引并进行书籍问答。";
+            ReaderAiStatusText.Text = "请先打开可建立本地文本索引的 EPUB 或 PDF。";
+            return;
+        }
+        if (!_appSettings.AiEnabled || !_appSettings.NetworkEnabled)
+        {
+            ReaderAiStatusText.Text = "AI 或网络功能已在应用设置中关闭。";
             return;
         }
         if (!_readerAiSettings.IsConfigured)
@@ -386,17 +391,27 @@ public sealed partial class MainWindow
             if (!_readerIndexAvailable)
                 throw new InvalidOperationException("本地书籍索引尚未准备好。请稍后重试。");
 
-            var selectedText = (await ExecuteReaderStringScriptAsync(
+            var selectedText = IsPdfReader ? string.Empty : (await ExecuteReaderStringScriptAsync(
                 "window.getSelection ? window.getSelection().toString() : ''")).Trim();
-            var currentSection = await ExecuteReaderStringScriptAsync(GetReaderSectionTextScript());
+            var currentSection = IsPdfReader
+                ? _pdfPages.FirstOrDefault(page => page.PageNumber == _pdfCurrentPage)?.Text ?? string.Empty
+                : await ExecuteReaderStringScriptAsync(GetReaderSectionTextScript());
             ReaderAiStatusText.Text = useBookOverview ? "正在抽取全书代表片段…" : "正在本地检索相关章节…";
-            var sources = useBookOverview
-                ? await _readerData.GetBookOverviewChunksAsync(_readerBook.Id, 12, cancellationToken)
-                : await _readerData.SearchBookAsync(
-                    _readerBook.Id,
-                    question + " " + LimitReaderText(selectedText, 800),
-                    7,
-                    cancellationToken);
+            IReadOnlyList<BookContentChunk> sources;
+            if (IsPdfReader)
+            {
+                sources = useBookOverview
+                    ? _pdfPages.Where(page => !string.IsNullOrWhiteSpace(page.Text)).Take(12)
+                        .Select((page, index) => new BookContentChunk(index + 1, _readerBook.Id, _readerBookFile.Id,
+                            _readerBookFile.Sha256, page.PageNumber - 1, index, $"第 {page.PageNumber} 页", $"pdf:{page.PageNumber}", 0, page.Text.Length, LimitReaderText(page.Text, 1800))).ToArray()
+                    : SearchPdf(question + " " + LimitReaderText(selectedText, 800)).Take(7).ToArray();
+            }
+            else
+            {
+                sources = useBookOverview
+                    ? await _readerData.GetBookOverviewChunksAsync(_readerBook.Id, 12, cancellationToken)
+                    : await _readerData.SearchBookAsync(_readerBook.Id, question + " " + LimitReaderText(selectedText, 800), 7, cancellationToken);
+            }
             var instructions = BuildReaderAiInstructions(
                 _readerBook,
                 GetCurrentReaderChapterTitle(),
@@ -522,6 +537,7 @@ public sealed partial class MainWindow
     }
 
     private string GetCurrentReaderChapterTitle() =>
+        IsPdfReader ? $"第 {_pdfCurrentPage} 页" :
         (ReaderTocList.SelectedItem as EpubReaderNavigationItem)?.Title
         ?? _readerNavigation.FirstOrDefault(item => item.ChapterIndex == _readerChapterIndex)?.Title
         ?? (_readerChapterIndex >= 0 ? $"第 {_readerChapterIndex + 1} 章" : "当前章节");

@@ -3,5 +3,6 @@ obj/
 .vs/
 data/
 TestResults/
+artifacts/
 *.user
 *.suo

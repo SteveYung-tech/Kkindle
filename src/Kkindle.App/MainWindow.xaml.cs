@@ -141,6 +141,10 @@ public sealed partial class MainWindow : Window
         _paths = paths;
         _library = library;
         _backupService = new AppBackupService(paths);
+        _appSettingsStore = new AppSettingsStore(paths);
+        _dictionaryService = new DictionaryService(paths);
+        _fontLibrary = new FontLibraryService(paths);
+        _pdfTextService = new PdfTextService();
         _formatConverter = formatConverter;
         _kindle = kindle;
         _kindleEmailSettingsStore = new KindleEmailSettingsStore(paths);
@@ -169,6 +173,8 @@ public sealed partial class MainWindow : Window
 
     public LibraryViewModel ViewModel { get; }
     public ObservableCollection<KindleBookCardViewModel> DeviceBooks { get; } = [];
+    public ObservableCollection<KindleDeviceResource> DeviceResources { get; } = [];
+    public ObservableCollection<ReadingMaterialItemViewModel> ReadingMaterials { get; } = [];
 
     private void ConfigureTitleBar()
     {
@@ -311,6 +317,12 @@ public sealed partial class MainWindow : Window
         _bookFormatConversionCancellation?.Cancel();
         _bookFormatConversionCancellation?.Dispose();
         _bookFormatConversionCancellation = null;
+        _deviceResourceCancellation?.Cancel();
+        _deviceResourceCancellation?.Dispose();
+        _deviceResourceCancellation = null;
+        _readingMaterialsCancellation?.Cancel();
+        _readingMaterialsCancellation?.Dispose();
+        _readingMaterialsCancellation = null;
         _ = FlushReaderSessionSafelyAsync(skipWebViewCapture: true);
 
         _deviceTimer.Stop();
@@ -331,6 +343,7 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
         ConstrainRootToViewport();
         SettingsDataPathText.Text = _paths.Data;
+        await LoadProductivityStateAsync();
         await RefreshLibraryAsync();
         await RefreshDevicesAsync();
     }
@@ -410,6 +423,14 @@ public sealed partial class MainWindow : Window
             DeviceCapacityText.Text = device.CapacityLabel;
             if (!string.Equals(_scannedDeviceId, device.Identity, StringComparison.OrdinalIgnoreCase))
                 await ScanDeviceBooksAsync(device);
+            if (DeviceResourcePage.Visibility == Visibility.Visible
+                && !_deviceResourceOperationInProgress
+                && (!string.Equals(_scannedResourceDeviceId, device.Identity, StringComparison.OrdinalIgnoreCase)
+                    || _scannedResourceKind != _deviceResourceKind))
+                await RefreshDeviceResourcesAsync();
+            if (ReadingMaterialsPage.Visibility == Visibility.Visible
+                && !string.Equals(_readingMaterialsDeviceId, device.Identity, StringComparison.OrdinalIgnoreCase))
+                await RefreshReadingMaterialsAsync();
         }
         catch
         {
@@ -420,8 +441,16 @@ public sealed partial class MainWindow : Window
 
     private void SetDisconnectedDeviceState(string? detail = null)
     {
+        var refreshReadingMaterials = ReadingMaterialsPage.Visibility == Visibility.Visible
+            && (_readingMaterialsDeviceId is not null
+                || _allReadingMaterials.Any(item => item.Source == ReadingMaterialSource.Kindle));
+        _deviceResourceCancellation?.Cancel();
+        _readingMaterialsCancellation?.Cancel();
         _devices = [];
         _scannedDeviceId = null;
+        _scannedResourceDeviceId = null;
+        _scannedResourceKind = null;
+        _readingMaterialsDeviceId = null;
         _selectedDeviceBook = null;
         DeviceBooks.Clear();
         DeviceBookList.SelectedItem = null;
@@ -437,6 +466,15 @@ public sealed partial class MainWindow : Window
         DeviceNameText.Text = "未检测到设备";
         DeviceCapacityText.Text = "—";
         DeviceBookCountText.Text = "0 本";
+        DeviceResources.Clear();
+        DeviceResourceList.SelectedItem = null;
+        DeviceResourceDeviceText.Text = "未检测到设备";
+        DeviceResourceStatusText.Text = detail ?? "请连接 Kindle";
+        DeviceResourceCountText.Text = "0 个文件";
+        ImportDeviceResourceButton.IsEnabled = false;
+        ExportDeviceResourceButton.IsEnabled = false;
+        DeleteDeviceResourceButton.IsEnabled = false;
+        if (refreshReadingMaterials) _ = RefreshReadingMaterialsAsync();
     }
 
     private async Task ScanDeviceBooksAsync(KindleDevice device)
@@ -508,11 +546,20 @@ public sealed partial class MainWindow : Window
             AuthorFilterBox.ItemsSource = new[] { "全部作者" }.Concat(ViewModel.AvailableAuthors).ToArray();
             TagFilterBox.ItemsSource = new[] { "全部标签" }.Concat(ViewModel.AvailableTags).ToArray();
             FormatFilterBox.ItemsSource = new[] { "全部格式" }.Concat(ViewModel.AvailableFormats).ToArray();
+            CategoryFilterBox.ItemsSource = new[] { "全部分类" }.Concat(ViewModel.AvailableCategories).ToArray();
+            ReadingStatusFilterBox.ItemsSource = new[] { "全部状态", "待读", "阅读中", "已读" };
+            LibrarySortBox.ItemsSource = new[] { "最近更新", "标题", "作者", "导入时间", "阅读状态" };
             AuthorFilterBox.SelectedItem = ViewModel.AuthorFilter ?? "全部作者";
             TagFilterBox.SelectedItem = ViewModel.TagFilter ?? "全部标签";
             FormatFilterBox.SelectedItem = ViewModel.FormatFilter?.ToUpperInvariant() ?? "全部格式";
-            var activeCount = new[] { ViewModel.AuthorFilter, ViewModel.TagFilter, ViewModel.FormatFilter }
+            CategoryFilterBox.SelectedItem = ViewModel.CategoryFilter ?? "全部分类";
+            ReadingStatusFilterBox.SelectedIndex = ViewModel.ReadingStatusFilter is { } status ? (int)status + 1 : 0;
+            LibrarySortBox.SelectedIndex = (int)ViewModel.SortMode;
+            FavoritesOnlyCheck.IsChecked = ViewModel.FavoritesOnly;
+            var activeCount = new[] { ViewModel.AuthorFilter, ViewModel.TagFilter, ViewModel.FormatFilter, ViewModel.CategoryFilter }
                 .Count(value => !string.IsNullOrWhiteSpace(value));
+            if (ViewModel.ReadingStatusFilter is not null) activeCount++;
+            if (ViewModel.FavoritesOnly) activeCount++;
             FilterButton.Content = activeCount == 0 ? "筛选" : $"筛选 · {activeCount}";
         }
         finally { _isUpdatingFilters = false; }
@@ -536,6 +583,20 @@ public sealed partial class MainWindow : Window
         ViewModel.FormatFilter = FormatFilterBox.SelectedIndex <= 0
             ? null
             : (FormatFilterBox.SelectedItem as string)?.ToLowerInvariant();
+        ViewModel.CategoryFilter = CategoryFilterBox.SelectedIndex <= 0 ? null : CategoryFilterBox.SelectedItem as string;
+        ViewModel.ReadingStatusFilter = ReadingStatusFilterBox.SelectedIndex <= 0
+            ? null
+            : (LibraryReadingStatus)(ReadingStatusFilterBox.SelectedIndex - 1);
+        ViewModel.SortMode = LibrarySortBox.SelectedIndex < 0
+            ? LibrarySortMode.UpdatedDescending
+            : (LibrarySortMode)LibrarySortBox.SelectedIndex;
+        await RefreshLibraryAsync();
+    }
+
+    private async void FavoritesOnlyCheck_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isUpdatingFilters) return;
+        ViewModel.FavoritesOnly = FavoritesOnlyCheck.IsChecked == true;
         await RefreshLibraryAsync();
     }
 
@@ -544,6 +605,10 @@ public sealed partial class MainWindow : Window
         ViewModel.AuthorFilter = null;
         ViewModel.TagFilter = null;
         ViewModel.FormatFilter = null;
+        ViewModel.CategoryFilter = null;
+        ViewModel.ReadingStatusFilter = null;
+        ViewModel.FavoritesOnly = false;
+        ViewModel.SortMode = LibrarySortMode.UpdatedDescending;
         await RefreshLibraryAsync();
     }
 
@@ -615,6 +680,9 @@ public sealed partial class MainWindow : Window
         DetailsAuthorsBox.Text = book.Authors;
         DetailsSeriesBox.Text = book.Series ?? string.Empty;
         DetailsTagsBox.Text = book.Tags;
+        DetailsCategoryBox.Text = book.Category;
+        DetailsFavoriteCheck.IsChecked = book.IsFavorite;
+        DetailsReadingStatusBox.SelectedIndex = (int)book.ReadingStatus;
         DetailsDescriptionBox.Text = book.Description ?? string.Empty;
         DetailCoverImage.Source = null;
         if (!string.IsNullOrWhiteSpace(book.CoverPath))
@@ -637,6 +705,11 @@ public sealed partial class MainWindow : Window
         _selectedBook.Authors = string.IsNullOrWhiteSpace(DetailsAuthorsBox.Text) ? "未知作者" : DetailsAuthorsBox.Text.Trim();
         _selectedBook.Series = string.IsNullOrWhiteSpace(DetailsSeriesBox.Text) ? null : DetailsSeriesBox.Text.Trim();
         _selectedBook.Tags = DetailsTagsBox.Text.Trim();
+        _selectedBook.Category = DetailsCategoryBox.Text.Trim();
+        _selectedBook.IsFavorite = DetailsFavoriteCheck.IsChecked == true;
+        _selectedBook.ReadingStatus = DetailsReadingStatusBox.SelectedIndex is >= 0 and <= 2
+            ? (LibraryReadingStatus)DetailsReadingStatusBox.SelectedIndex
+            : LibraryReadingStatus.Unread;
         _selectedBook.Description = string.IsNullOrWhiteSpace(DetailsDescriptionBox.Text) ? null : DetailsDescriptionBox.Text.Trim();
         await _library.UpdateMetadataAsync(_selectedBook);
         await RefreshLibraryAsync();
@@ -780,6 +853,8 @@ public sealed partial class MainWindow : Window
         DeviceReadOnlyNote.Visibility = showBooks ? Visibility.Visible : Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Collapsed;
         SettingsPane.Visibility = Visibility.Collapsed;
+        DeviceResourcePage.Visibility = Visibility.Collapsed;
+        ReadingMaterialsPage.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
         DevicePage.Visibility = Visibility.Visible;
@@ -830,6 +905,8 @@ public sealed partial class MainWindow : Window
     {
         SetActiveNavigation(AllBooksButton);
         DevicePage.Visibility = Visibility.Collapsed;
+        DeviceResourcePage.Visibility = Visibility.Collapsed;
+        ReadingMaterialsPage.Visibility = Visibility.Collapsed;
         SettingsPane.Visibility = Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Visible;
     }
@@ -852,10 +929,10 @@ public sealed partial class MainWindow : Window
     {
         if (_readerOpenInProgress) return;
 
-        var file = ReaderBookSelectionPolicy.SelectPreferred(book.Files);
+        var file = ReaderBookSelectionPolicy.SelectPreferred(book.Files, _appSettings.PreferredOpenFormat);
         if (file is null)
         {
-            await ShowMessageAsync("暂不支持阅读", "内置阅读器目前支持 EPUB、PDF 和 AZW3。");
+            await ShowMessageAsync("暂不支持阅读", "内置阅读器目前支持 EPUB、PDF、AZW3 和 MOBI。");
             return;
         }
 
@@ -907,39 +984,7 @@ public sealed partial class MainWindow : Window
 
             if (file.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase))
             {
-                _readerHasToc = false;
-                _readerChapters = [];
-                _readerNavigation = [];
-                _readerChapterIndex = -1;
-                _readerAllowedRoot = null;
-                _readerAllowedFile = Path.GetFullPath(path);
-                ReaderStatusText.Text = "PDF · 可使用阅读区内置工具栏搜索和翻页";
-                ReaderChapterText.Text = string.Empty;
-                ReaderReadingProgressText.Text = "PDF 文档";
-                ReaderProgressPercentText.Text = "—";
-                ReaderStatsText.Text = string.Empty;
-                ReaderTocList.ItemsSource = null;
-                ClearReaderCompactNavigationItems();
-                ReaderTocList.Visibility = Visibility.Collapsed;
-                ReaderTocSearchBox.Visibility = Visibility.Collapsed;
-                ReaderTocEmptyText.Text = "PDF 使用内置查看器。可通过查看器工具栏搜索、缩放和翻页。";
-                ReaderTocEmptyText.Visibility = Visibility.Visible;
-                ReaderZoomOutButton.Visibility = Visibility.Collapsed;
-                ReaderZoomText.Visibility = Visibility.Collapsed;
-                ReaderZoomInButton.Visibility = Visibility.Collapsed;
-                ReaderPreviousButton.Visibility = Visibility.Collapsed;
-                ReaderNextButton.Visibility = Visibility.Collapsed;
-                ReaderProgressSlider.Visibility = Visibility.Collapsed;
-                ReaderPdfBottomText.Visibility = Visibility.Visible;
-                ReaderFlowButton.Visibility = Visibility.Collapsed;
-                ReaderHighlightButton.Visibility = Visibility.Collapsed;
-                ReaderAnnotateButton.Visibility = Visibility.Collapsed;
-                ReaderBookmarkButton.Visibility = Visibility.Collapsed;
-                ReaderSearchToolbarButton.Visibility = Visibility.Collapsed;
-                ReaderBookmarkTabButton.Visibility = Visibility.Collapsed;
-                SetReaderIndexUnavailable("PDF 暂不支持本地全文索引与批注；可继续使用内置查看器。");
-                ApplyReaderPanelLayout();
-                ReaderWebView.Source = new Uri(path);
+                await OpenPdfReaderAsync(path, _readerFeatureCancellation!.Token);
                 return;
             }
 
@@ -947,9 +992,10 @@ public sealed partial class MainWindow : Window
             ReaderStatusText.Text = "正在准备…";
             var readerSourcePath = path;
             var readerSourceHash = file.Sha256;
-            if (file.Format.Equals("azw3", StringComparison.OrdinalIgnoreCase))
+            if (file.Format.Equals("azw3", StringComparison.OrdinalIgnoreCase)
+                || file.Format.Equals("mobi", StringComparison.OrdinalIgnoreCase))
             {
-                ReaderStatusText.Text = "正在准备 AZW3…";
+                ReaderStatusText.Text = $"正在准备 {file.Format.ToUpperInvariant()}…";
                 temporaryReaderEpubPath = CreateTemporaryFormatPath("epub");
                 await _formatConverter.ConvertAsync(
                     path,
@@ -1411,6 +1457,12 @@ public sealed partial class MainWindow : Window
 
     private void ReaderProgressSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
+        if (IsPdfReader)
+        {
+            if (_isUpdatingReaderProgress) return;
+            _ = NavigatePdfPageAsync((int)Math.Round(e.NewValue));
+            return;
+        }
         if (_isUpdatingReaderProgress || !_readerHasToc || _readerChapters.Count == 0) return;
         var chapterIndex = Math.Clamp((int)Math.Round(e.NewValue) - 1, 0, _readerChapters.Count - 1);
         if (chapterIndex == _readerChapterIndex) return;
@@ -1423,12 +1475,14 @@ public sealed partial class MainWindow : Window
 
     private async void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
     {
+        if (IsPdfReader) { await NavigatePdfPageAsync(_pdfCurrentPage - 1); return; }
         _readerContinuousLocked = false;
         await TurnReaderPageAsync(-1);
     }
 
     private async void ReaderNextButton_Click(object sender, RoutedEventArgs e)
     {
+        if (IsPdfReader) { await NavigatePdfPageAsync(_pdfCurrentPage + 1); return; }
         _readerContinuousLocked = false;
         await TurnReaderPageAsync(1);
     }
@@ -2278,17 +2332,31 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private static string BuildBundledReaderFontFaceCss()
+    private string BuildReaderFontFaceCss()
     {
         var fontPath = Path.Combine(
             AppContext.BaseDirectory,
             "Assets",
             "Fonts",
             ReaderFontDefaults.BundledFontFileName);
-        if (!File.Exists(fontPath)) return string.Empty;
-
-        var fontUri = new Uri(Path.GetFullPath(fontPath)).AbsoluteUri;
-        return $"@font-face{{font-family:\"{ReaderFontDefaults.BundledFamily}\";src:url(\"{fontUri}\") format(\"truetype\");font-style:normal;font-weight:400;font-display:swap;}}";
+        var css = new System.Text.StringBuilder();
+        if (File.Exists(fontPath))
+        {
+            var fontUri = new Uri(Path.GetFullPath(fontPath)).AbsoluteUri;
+            css.Append($"@font-face{{font-family:\"{ReaderFontDefaults.BundledFamily}\";src:url(\"{fontUri}\") format(\"truetype\");font-style:normal;font-weight:400;font-display:swap;}}");
+        }
+        foreach (var font in _managedFonts)
+        {
+            try
+            {
+                var path = _fontLibrary.GetAbsolutePath(font);
+                if (!File.Exists(path)) continue;
+                var uri = new Uri(path).AbsoluteUri;
+                css.Append($"@font-face{{font-family:\"{font.CssFamily}\";src:url(\"{uri}\");font-style:normal;font-weight:400;font-display:swap;}}");
+            }
+            catch { }
+        }
+        return css.ToString();
     }
 
     private async Task ApplyReaderAppearanceAsync()
@@ -2298,21 +2366,20 @@ public sealed partial class MainWindow : Window
         const string foreground = "#111111";
         const string link = "#222222";
         var fontPercent = (int)Math.Round(_readerLayout.FontScale * 100);
-        // Pagination mode always renders horizontal CJK. Vertical writing is a
-        // scroll-mode-only setting (the status text states this explicitly), so
-        // pagination pins `writing-mode: horizontal-tb` to override any vertical
-        // rule the EPUB itself may carry.
-        var vertical = _readerFlowMode == 0 && _readerLayout.VerticalWriting;
+        // Vertical writing is supported in both continuous and paginated flow.
+        // The pagination CSS keeps the viewport horizontal while Chromium lays
+        // out vertical-rl columns from right to left.
+        var vertical = _readerLayout.VerticalWriting;
         var flowCss = ReaderPaginationScripts.CreateFlowCss(
             pagination: _readerFlowMode == 1,
             vertical: vertical,
             twoPage: _readerLayout.TwoPageMode);
         var lineHeight = _readerLayout.LineHeight.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
-        var bodyPadding = _readerFlowMode == 1
-            ? (int)ReaderPaginationDefaults.HorizontalPadding
-            : vertical
+        var bodyPadding = vertical
                 ? 24
-                : (int)_readerLayout.BodyPadding;
+                : _readerFlowMode == 1
+                    ? (int)ReaderPaginationDefaults.HorizontalPadding
+                    : (int)_readerLayout.BodyPadding;
         var bodyLayoutCss = vertical
             ? $"max-width: none !important; writing-mode: vertical-rl !important; text-orientation: mixed;"
               + $" margin: 0 auto !important; padding: {bodyPadding}px !important;"
@@ -2323,7 +2390,7 @@ public sealed partial class MainWindow : Window
             ? "overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal;"
             : "overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal; text-align: justify;";
         var fontFamily = BuildReaderFontStack(_readerLayout.FontFamily);
-        var bundledFontFaceCss = BuildBundledReaderFontFaceCss();
+        var bundledFontFaceCss = BuildReaderFontFaceCss();
         // EPUB image sizing is driven by the real WebView viewport/content box,
         // never the whole window. Inside this page 100vw/100vh are exactly the
         // WebView's own viewport, and --kkindle-page-content-h is the measured
@@ -2896,12 +2963,14 @@ public sealed partial class MainWindow : Window
     private void SetActiveNavigation(Button activeButton)
     {
         _activeNavigationButton = activeButton;
-        if (activeButton == KindleBooksButton || activeButton == DeviceOverviewButton)
+        if (activeButton == KindleBooksButton || activeButton == DeviceOverviewButton
+            || activeButton == FontManagementNavigationButton || activeButton == DictionaryManagementNavigationButton)
         {
             _activeNavigationSectionButton = DeviceManagementSectionButton;
             ExpandSidebarSection(DeviceManagementSectionButton, DeviceManagementChildren, DeviceManagementChevron, "设备管理");
         }
-        else if (activeButton == ReaderNotesNavigationButton || activeButton == ReaderExportNavigationButton)
+        else if (activeButton == ReaderNotesNavigationButton || activeButton == ReaderExportNavigationButton
+            || activeButton == ReadingDashboardNavigationButton)
         {
             _activeNavigationSectionButton = ReadingSectionButton;
             ExpandSidebarSection(ReadingSectionButton, ReadingChildren, ReadingChevron, "阅读资料");
@@ -2926,8 +2995,11 @@ public sealed partial class MainWindow : Window
             AllBooksButton,
             KindleBooksButton,
             DeviceOverviewButton,
+            FontManagementNavigationButton,
+            DictionaryManagementNavigationButton,
             ReaderNotesNavigationButton,
             ReaderExportNavigationButton,
+            ReadingDashboardNavigationButton,
             SettingsNavigationButton,
             KindleEmailSettingsNavigationButton
         })

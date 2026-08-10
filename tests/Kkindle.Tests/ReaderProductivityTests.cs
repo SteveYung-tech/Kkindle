@@ -146,6 +146,53 @@ public sealed class ReaderProductivityTests
     }
 
     [Fact]
+    public async Task ListsAnnotationsAcrossAllLocalBooks()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var service = new ReaderDataService(new AppPaths(Path.Combine(root, "app")));
+            await service.InitializeAsync();
+            var first = new ReaderAnnotation
+            {
+                BookId = Guid.NewGuid(), BookFileId = Guid.NewGuid(), ChapterPath = "one.xhtml",
+                SelectedText = "first", EndOffset = 5
+            };
+            var second = new ReaderAnnotation
+            {
+                BookId = Guid.NewGuid(), BookFileId = Guid.NewGuid(), ChapterPath = "pdf:2",
+                SelectedText = "second", EndOffset = 6
+            };
+            await service.SaveAnnotationAsync(first);
+            await service.SaveAnnotationAsync(second);
+
+            var all = await service.GetAllAnnotationsAsync();
+            Assert.Equal(2, all.Count);
+            Assert.Contains(all, item => item.Id == first.Id);
+            Assert.Contains(all, item => item.Id == second.Id);
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
+    public void BuildsUnifiedLocalAndKindleReadingMaterialsExports()
+    {
+        ReadingMaterialRecord[] records =
+        [
+            new(ReadingMaterialSource.Local, "Local Book", "划线与笔记", "chapter.xhtml · 1-8", "local quote", "local note", new DateTimeOffset(2026, 8, 10, 1, 0, 0, TimeSpan.Zero)),
+            new(ReadingMaterialSource.Kindle, "Kindle Book", "划线", "Location 20", "kindle quote", "", null)
+        ];
+
+        var markdown = ReadingMaterialsExport.BuildMarkdown(records);
+        var plain = ReadingMaterialsExport.BuildPlainText(records);
+        Assert.Contains("本地书籍 · Local Book", markdown);
+        Assert.Contains("Kindle · Kindle Book", markdown);
+        Assert.Contains("> local quote", markdown);
+        Assert.Contains("[本地书籍] Local Book", plain);
+        Assert.Contains("kindle quote", plain);
+    }
+
+    [Fact]
     public async Task AccumulatesReadingTimeWithoutLosingExistingStats()
     {
         var root = CreateTempDirectory();

@@ -98,6 +98,11 @@ public sealed partial class MainWindow
     private async Task SendBookToKindleEmailAsync(Book book)
     {
         if (_kindleEmailSending) return;
+        if (!_appSettings.NetworkEnabled)
+        {
+            await ShowMessageAsync("网络功能已关闭", "请在应用设置中允许网络功能后再发送 Kindle 邮件。");
+            return;
+        }
 
         var file = KindleEmailSelectionPolicy.SelectPreferred(book.Files);
         if (file is null)

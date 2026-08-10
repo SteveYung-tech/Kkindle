@@ -14,7 +14,8 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        var paths = new AppPaths(AppContext.BaseDirectory);
+        var applicationDirectory = AppContext.BaseDirectory;
+        var paths = new AppPaths(AppRootConfiguration.ResolveRoot(applicationDirectory));
         var metadata = new BookMetadataService();
         var library = new SqliteBookLibraryService(paths, metadata);
         var formatConverter = new BookFormatConversionService();
@@ -22,6 +23,12 @@ public partial class App : Application
         var readerData = new ReaderDataService(paths);
         await library.InitializeAsync();
         await readerData.InitializeAsync();
+        var migrationBackup = AppRootConfiguration.MigrationBackupPath(paths.Root);
+        if (File.Exists(migrationBackup))
+        {
+            await new AppBackupService(paths).ImportAsync(migrationBackup);
+            File.Delete(migrationBackup);
+        }
         _window = new MainWindow(
             paths,
             library,

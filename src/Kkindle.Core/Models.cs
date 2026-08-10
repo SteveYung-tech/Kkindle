@@ -9,6 +9,9 @@ public sealed class Book
     public double? SeriesIndex { get; set; }
     public string? Description { get; set; }
     public string Tags { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public bool IsFavorite { get; set; }
+    public LibraryReadingStatus ReadingStatus { get; set; }
     public string? CoverPath { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -75,6 +78,89 @@ public sealed class KindleBook
     public string SizeLabel => Size >= 1024L * 1024
         ? $"{Size / 1024d / 1024:0.0} MB"
         : $"{Size / 1024d:0} KB";
+}
+
+public enum KindleResourceKind
+{
+    Font,
+    Dictionary
+}
+
+public sealed class KindleDeviceResource
+{
+    public KindleResourceKind Kind { get; set; }
+    public string RelativePath { get; set; } = string.Empty;
+    public string FileName => Path.GetFileName(RelativePath);
+    public string Format => Path.GetExtension(RelativePath).TrimStart('.').ToUpperInvariant();
+    public long Size { get; set; }
+    public string Sha256 { get; set; } = string.Empty;
+    public DateTimeOffset? ModifiedAt { get; set; }
+    public string SizeLabel => Size >= 1024L * 1024
+        ? $"{Size / 1024d / 1024:0.0} MB"
+        : $"{Math.Max(0, Size) / 1024d:0} KB";
+    public string Display => $"{FileName}  ·  {Format}  ·  {SizeLabel}";
+}
+
+public static class KindleResourcePolicy
+{
+    private static readonly HashSet<string> FontExtensions = new(StringComparer.OrdinalIgnoreCase) { ".ttf", ".otf" };
+    private static readonly HashSet<string> DictionaryExtensions = new(StringComparer.OrdinalIgnoreCase) { ".azw", ".azw3", ".mobi", ".kfx" };
+
+    public static string RootRelativePath(KindleResourceKind kind) => kind switch
+    {
+        KindleResourceKind.Font => "fonts",
+        KindleResourceKind.Dictionary => Path.Combine("documents", "dictionaries"),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind))
+    };
+
+    public static bool IsSupportedFile(KindleResourceKind kind, string? path)
+    {
+        var extension = Path.GetExtension(path ?? string.Empty);
+        return kind == KindleResourceKind.Font
+            ? FontExtensions.Contains(extension)
+            : DictionaryExtensions.Contains(extension);
+    }
+
+    public static bool TryGetPathWithinRoot(KindleResourceKind kind, string? relativePath, out string pathWithinRoot)
+    {
+        pathWithinRoot = string.Empty;
+        if (string.IsNullOrWhiteSpace(relativePath)) return false;
+        var segments = relativePath.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Any(segment => segment is "." or "..")) return false;
+        if (segments.Any(segment => segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)) return false;
+        var rootSegments = RootRelativePath(kind).Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length <= rootSegments.Length) return false;
+        for (var index = 0; index < rootSegments.Length; index++)
+            if (!segments[index].Equals(rootSegments[index], StringComparison.OrdinalIgnoreCase)) return false;
+        pathWithinRoot = Path.Combine(segments[rootSegments.Length..]);
+        return IsSupportedFile(kind, pathWithinRoot);
+    }
+}
+
+public enum KindleClippingType
+{
+    Highlight,
+    Note,
+    Bookmark,
+    Unknown
+}
+
+public sealed class KindleClipping
+{
+    public string Id { get; set; } = string.Empty;
+    public string BookTitle { get; set; } = "未知书籍";
+    public string Author { get; set; } = string.Empty;
+    public KindleClippingType Type { get; set; }
+    public string Metadata { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public string RawBlock { get; set; } = string.Empty;
+    public string TypeLabel => Type switch
+    {
+        KindleClippingType.Highlight => "划线",
+        KindleClippingType.Note => "笔记",
+        KindleClippingType.Bookmark => "书签",
+        _ => "记录"
+    };
 }
 
 public sealed class BookMetadata

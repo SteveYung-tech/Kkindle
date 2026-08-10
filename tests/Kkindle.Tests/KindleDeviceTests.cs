@@ -202,6 +202,189 @@ public sealed class KindleDeviceTests
         }
     }
 
+    [Fact]
+    public async Task ManagesKindleFontsInsideFontsDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "documents"));
+        var sourceDirectory = Path.Combine(root, "sources");
+        Directory.CreateDirectory(sourceDirectory);
+        var source = Path.Combine(sourceDirectory, "reader.ttf");
+        var exported = Path.Combine(root, "exported.ttf");
+        await File.WriteAllBytesAsync(source, [1, 2, 3, 4, 5]);
+        try
+        {
+            var service = new KindleDeviceService();
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+
+            await service.SendResourceAsync(device, KindleResourceKind.Font, source);
+            var font = Assert.Single(await service.ScanResourcesAsync(device, KindleResourceKind.Font));
+            Assert.Equal(Path.Combine("fonts", "reader.ttf"), font.RelativePath);
+            Assert.Equal(5, font.Size);
+            Assert.NotEmpty(font.Sha256);
+
+            await service.ExportResourceAsync(device, font, exported);
+            Assert.Equal(await File.ReadAllBytesAsync(source), await File.ReadAllBytesAsync(exported));
+
+            await service.RemoveResourceAsync(device, font);
+            Assert.Empty(await service.ScanResourcesAsync(device, KindleResourceKind.Font));
+            Assert.True(Directory.Exists(Path.Combine(root, "documents")));
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task ManagesKindleDictionariesInsideDedicatedDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "documents"));
+        var source = Path.Combine(root, "english.azw3");
+        await File.WriteAllBytesAsync(source, [9, 8, 7]);
+        try
+        {
+            var service = new KindleDeviceService();
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+
+            await service.SendResourceAsync(device, KindleResourceKind.Dictionary, source);
+            var dictionary = Assert.Single(await service.ScanResourcesAsync(device, KindleResourceKind.Dictionary));
+            Assert.Equal(Path.Combine("documents", "dictionaries", "english.azw3"), dictionary.RelativePath);
+            Assert.Empty(await service.ScanResourcesAsync(device, KindleResourceKind.Font));
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task ResourceOperationsRejectWrongFormatsAndPathTraversal()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "documents"));
+        var wrong = Path.Combine(root, "not-a-font.exe");
+        var outside = Path.Combine(root, "outside.ttf");
+        await File.WriteAllTextAsync(wrong, "wrong");
+        await File.WriteAllTextAsync(outside, "keep");
+        try
+        {
+            var service = new KindleDeviceService();
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                service.SendResourceAsync(device, KindleResourceKind.Font, wrong));
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.RemoveResourceAsync(device, new KindleDeviceResource
+                {
+                    Kind = KindleResourceKind.Font,
+                    RelativePath = Path.Combine("fonts", "..", "outside.ttf")
+                }));
+            Assert.True(File.Exists(outside));
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Theory]
+    [InlineData(KindleResourceKind.Font, "fonts/font.otf", true)]
+    [InlineData(KindleResourceKind.Font, "documents/font.otf", false)]
+    [InlineData(KindleResourceKind.Dictionary, "documents/dictionaries/main.mobi", true)]
+    [InlineData(KindleResourceKind.Dictionary, "documents/main.mobi", false)]
+    public void ResourcePolicyConfinesFilesToExpectedKindleDirectory(
+        KindleResourceKind kind,
+        string path,
+        bool expected)
+    {
+        Assert.Equal(expected, KindleResourcePolicy.TryGetPathWithinRoot(kind, path, out _));
+    }
+
+    [Fact]
+    public async Task CancelledResourceTransferLeavesNoPartialFont()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "documents"));
+        var source = Path.Combine(root, "large.ttf");
+        await File.WriteAllBytesAsync(source, new byte[4 * 1024 * 1024]);
+        try
+        {
+            var service = new KindleDeviceService();
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+            using var cancellation = new CancellationTokenSource();
+            var progress = new InlineProgress<TransferProgress>(_ => cancellation.Cancel());
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                service.SendResourceAsync(device, KindleResourceKind.Font, source, progress, cancellation.Token));
+            var fonts = Path.Combine(root, "fonts");
+            Assert.Empty(Directory.EnumerateFiles(fonts, "*.kkindle-part", SearchOption.AllDirectories));
+            Assert.False(File.Exists(Path.Combine(fonts, "large.ttf")));
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task ReadsAndDeletesIndividualKindleClippingWithoutLosingOthers()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        var documents = Path.Combine(root, "documents");
+        Directory.CreateDirectory(documents);
+        var clippingsPath = Path.Combine(documents, "My Clippings.txt");
+        var content = """
+            Scale (Geoffrey West)
+            - Your Highlight on page 12 | Location 180-182 | Added on Sunday, August 9, 2026
+
+            Cities are living systems.
+            ==========
+            规模（杰弗里·韦斯特）
+            - 您在位置 220 的笔记 | 添加于 2026年8月10日星期一
+
+            复习这一段
+            ==========
+            """;
+        await File.WriteAllTextAsync(clippingsPath, content, new System.Text.UTF8Encoding(true));
+        try
+        {
+            var service = new KindleDeviceService();
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+            var items = await service.ReadClippingsAsync(device);
+            Assert.Equal(2, items.Count);
+            Assert.Equal(KindleClippingType.Highlight, items[0].Type);
+            Assert.Equal("Cities are living systems.", items[0].Content);
+            Assert.Equal(KindleClippingType.Note, items[1].Type);
+            Assert.Equal("规模", items[1].BookTitle);
+            Assert.Equal("杰弗里·韦斯特", items[1].Author);
+
+            await service.DeleteClippingAsync(device, items[0].Id);
+            var remaining = Assert.Single(await service.ReadClippingsAsync(device));
+            Assert.Equal("复习这一段", remaining.Content);
+            Assert.DoesNotContain("Cities are living systems", await File.ReadAllTextAsync(clippingsPath));
+            Assert.False(File.Exists(clippingsPath + ".kkindle-part"));
+            Assert.False(File.Exists(clippingsPath + ".kkindle-backup"));
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ClippingsParserKeepsDuplicateRecordsIndividuallyAddressable()
+    {
+        const string block = "Book (Author)\n- Your Highlight at Location 1\n\nSame quote";
+        var parsed = KindleClippingsParser.Parse($"{block}\n==========\n{block}\n==========\n");
+
+        Assert.Equal(2, parsed.Count);
+        Assert.NotEqual(parsed[0].Id, parsed[1].Id);
+        var rebuilt = KindleClippingsParser.BuildDocument([parsed[1]]);
+        Assert.Single(KindleClippingsParser.Parse(rebuilt));
+        Assert.EndsWith("==========\r\n", rebuilt);
+    }
+
     private static async Task<string> ComputeHashAsync(string path)
     {
         await using var stream = File.OpenRead(path);

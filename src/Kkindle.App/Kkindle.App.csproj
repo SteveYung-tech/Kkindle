@@ -14,6 +14,10 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <PublishReadyToRun>false</PublishReadyToRun>
     <UseWinUI>true</UseWinUI>
+    <Version>0.1.0</Version>
+    <Product>Kkindle</Product>
+    <Authors>kingstacker</Authors>
+    <RepositoryUrl>https://github.com/kingstacker/Kkindle</RepositoryUrl>
     <EnableDefaultApplicationDefinition>true</EnableDefaultApplicationDefinition>
     <EnableDefaultPageItems>true</EnableDefaultPageItems>
     <!-- Set this at publish time to bundle a Calibre Portable/runtime directory. -->
@@ -33,6 +37,10 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="Assets\Calibre-THIRD-PARTY-NOTICE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\LICENSE" Link="LICENSE">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>

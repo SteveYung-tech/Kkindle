@@ -15,6 +15,8 @@ public sealed partial class MainWindow
     {
         SetActiveNavigation(SettingsNavigationButton);
         DevicePage.Visibility = Visibility.Collapsed;
+        DeviceResourcePage.Visibility = Visibility.Collapsed;
+        ReadingMaterialsPage.Visibility = Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Collapsed;
         SettingsPane.Visibility = Visibility.Visible;
         DetailPane.Visibility = Visibility.Collapsed;

@@ -43,6 +43,9 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
                 SeriesIndex REAL NULL,
                 Description TEXT NULL,
                 Tags TEXT NOT NULL DEFAULT '',
+                Category TEXT NOT NULL DEFAULT '',
+                IsFavorite INTEGER NOT NULL DEFAULT 0,
+                ReadingStatus INTEGER NOT NULL DEFAULT 0,
                 CoverPath TEXT NULL,
                 CreatedAt TEXT NOT NULL,
                 UpdatedAt TEXT NOT NULL
@@ -59,6 +62,7 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
             CREATE INDEX IF NOT EXISTS IX_BookFiles_BookId ON BookFiles(BookId);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+        await EnsureBookProductivityColumnsAsync(connection, cancellationToken);
     }
 
     public async Task<IReadOnlyList<Book>> SearchAsync(string? query = null, CancellationToken cancellationToken = default)
@@ -66,7 +70,7 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
         await using var connection = await OpenConnectionAsync(cancellationToken);
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Title, Authors, Series, SeriesIndex, Description, Tags, CoverPath, CreatedAt, UpdatedAt
+            SELECT Id, Title, Authors, Series, SeriesIndex, Description, Tags, Category, IsFavorite, ReadingStatus, CoverPath, CreatedAt, UpdatedAt
             FROM Books
             WHERE $query = '' OR Title LIKE $like OR Authors LIKE $like OR Tags LIKE $like OR Series LIKE $like
             ORDER BY UpdatedAt DESC, Title COLLATE NOCASE;
@@ -207,7 +211,7 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
 
         var format = BookFormatConversionPolicy.Normalize(Path.GetExtension(source));
         if (!BookFormatConversionPolicy.IsConvertibleFormat(format))
-            throw new NotSupportedException("书库只允许添加 EPUB、AZW3 或 PDF 格式。 ");
+            throw new NotSupportedException("书库只允许添加 EPUB、AZW3、PDF 或 MOBI 格式。");
 
         var fileInfo = new FileInfo(source);
         var hash = await Hashing.Sha256Async(source, cancellationToken);
@@ -472,9 +476,14 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
             SeriesIndex = reader.IsDBNull(4) ? null : reader.GetDouble(4),
             Description = reader.IsDBNull(5) ? null : reader.GetString(5),
             Tags = reader.GetString(6),
-            CoverPath = reader.IsDBNull(7) ? null : reader.GetString(7),
-            CreatedAt = DateTimeOffset.Parse(reader.GetString(8)),
-            UpdatedAt = DateTimeOffset.Parse(reader.GetString(9))
+            Category = reader.GetString(7),
+            IsFavorite = reader.GetInt64(8) != 0,
+            ReadingStatus = Enum.IsDefined(typeof(LibraryReadingStatus), reader.GetInt32(9))
+                ? (LibraryReadingStatus)reader.GetInt32(9)
+                : LibraryReadingStatus.Unread,
+            CoverPath = reader.IsDBNull(10) ? null : reader.GetString(10),
+            CreatedAt = DateTimeOffset.Parse(reader.GetString(11)),
+            UpdatedAt = DateTimeOffset.Parse(reader.GetString(12))
         };
     }
 
@@ -504,7 +513,7 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
     {
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT b.Id, b.Title, b.Authors, b.Series, b.SeriesIndex, b.Description, b.Tags, b.CoverPath, b.CreatedAt, b.UpdatedAt
+            SELECT b.Id, b.Title, b.Authors, b.Series, b.SeriesIndex, b.Description, b.Tags, b.Category, b.IsFavorite, b.ReadingStatus, b.CoverPath, b.CreatedAt, b.UpdatedAt
             FROM Books b INNER JOIN BookFiles f ON f.BookId = b.Id WHERE f.Sha256 = $hash LIMIT 1;
             """;
         command.Parameters.AddWithValue("$hash", hash);
@@ -516,7 +525,7 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
     {
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, Title, Authors, Series, SeriesIndex, Description, Tags, CoverPath, CreatedAt, UpdatedAt
+            SELECT Id, Title, Authors, Series, SeriesIndex, Description, Tags, Category, IsFavorite, ReadingStatus, CoverPath, CreatedAt, UpdatedAt
             FROM Books WHERE lower(Title) = lower($title) AND lower(Authors) = lower($authors) LIMIT 1;
             """;
         command.Parameters.AddWithValue("$title", title);
@@ -561,8 +570,8 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
     {
         var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO Books (Id, Title, Authors, Series, SeriesIndex, Description, Tags, CoverPath, CreatedAt, UpdatedAt)
-            VALUES ($id, $title, $authors, $series, $seriesIndex, $description, $tags, $coverPath, $createdAt, $updatedAt);
+            INSERT INTO Books (Id, Title, Authors, Series, SeriesIndex, Description, Tags, Category, IsFavorite, ReadingStatus, CoverPath, CreatedAt, UpdatedAt)
+            VALUES ($id, $title, $authors, $series, $seriesIndex, $description, $tags, $category, $isFavorite, $readingStatus, $coverPath, $createdAt, $updatedAt);
             """;
         AddBookParameters(command, book);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -573,7 +582,8 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
         var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE Books SET Title=$title, Authors=$authors, Series=$series, SeriesIndex=$seriesIndex, Description=$description,
-                Tags=$tags, CoverPath=$coverPath, UpdatedAt=$updatedAt WHERE Id=$id;
+                Tags=$tags, Category=$category, IsFavorite=$isFavorite, ReadingStatus=$readingStatus,
+                CoverPath=$coverPath, UpdatedAt=$updatedAt WHERE Id=$id;
             """;
         AddBookParameters(command, book);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -588,9 +598,34 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
         command.Parameters.AddWithValue("$seriesIndex", (object?)book.SeriesIndex ?? DBNull.Value);
         command.Parameters.AddWithValue("$description", (object?)book.Description ?? DBNull.Value);
         command.Parameters.AddWithValue("$tags", book.Tags ?? string.Empty);
+        command.Parameters.AddWithValue("$category", book.Category ?? string.Empty);
+        command.Parameters.AddWithValue("$isFavorite", book.IsFavorite ? 1 : 0);
+        command.Parameters.AddWithValue("$readingStatus", (int)book.ReadingStatus);
         command.Parameters.AddWithValue("$coverPath", (object?)book.CoverPath ?? DBNull.Value);
         command.Parameters.AddWithValue("$createdAt", book.CreatedAt.ToString("O"));
         command.Parameters.AddWithValue("$updatedAt", book.UpdatedAt.ToString("O"));
+    }
+
+    private static async Task EnsureBookProductivityColumnsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var inspect = connection.CreateCommand();
+        inspect.CommandText = "PRAGMA table_info(Books);";
+        await using (var reader = await inspect.ExecuteReaderAsync(cancellationToken))
+            while (await reader.ReadAsync(cancellationToken)) existing.Add(reader.GetString(1));
+
+        foreach (var definition in new[]
+        {
+            (Name: "Category", Sql: "ALTER TABLE Books ADD COLUMN Category TEXT NOT NULL DEFAULT '';"),
+            (Name: "IsFavorite", Sql: "ALTER TABLE Books ADD COLUMN IsFavorite INTEGER NOT NULL DEFAULT 0;"),
+            (Name: "ReadingStatus", Sql: "ALTER TABLE Books ADD COLUMN ReadingStatus INTEGER NOT NULL DEFAULT 0;")
+        })
+        {
+            if (existing.Contains(definition.Name)) continue;
+            var alter = connection.CreateCommand();
+            alter.CommandText = definition.Sql;
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     private static async Task InsertFileAsync(SqliteConnection connection, BookFile file, CancellationToken cancellationToken)

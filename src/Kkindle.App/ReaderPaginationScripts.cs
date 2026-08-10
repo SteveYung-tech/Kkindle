@@ -27,6 +27,15 @@ internal static class ReaderPaginationScripts
         var columnWidth = twoPage
             ? $"calc((var({ViewportWidthVariable}, 100vw) - {spreadReservedWidth}px) / 2)"
             : $"calc(var({ViewportWidthVariable}, 100vw) - {outerInsets}px)";
+        if (vertical)
+        {
+            var verticalColumnHeight = $"calc(100vh - {Format(ReaderPaginationDefaults.TopPadding + ReaderPaginationDefaults.BottomPadding)}px)";
+            return $"html {{ width: 100%; height: 100%; overflow: hidden !important; }}"
+                + $" body {{ width: 100% !important; height: 100% !important; margin: 0 !important; overflow: visible !important;"
+                + $" padding: {topPadding}px {horizontalPadding}px {bottomPadding}px !important; box-sizing: border-box !important;"
+                + $" writing-mode: vertical-rl !important; text-orientation: mixed !important; column-width: {verticalColumnHeight} !important;"
+                + $" column-gap: {columnGap}px !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
+        }
         return $"html {{ height: 100%; overflow: hidden !important; writing-mode: horizontal-tb !important; }}"
             + $" body {{ width: 100% !important; min-width: 0 !important; height: 100% !important; margin: 0 !important; overflow: visible !important; padding: {topPadding}px {horizontalPadding}px {bottomPadding}px !important; box-sizing: border-box !important;"
             + $" writing-mode: horizontal-tb !important; column-width: {columnWidth} !important;"

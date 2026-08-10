@@ -23,6 +23,14 @@ public sealed class BookCardViewModel : ObservableObject
     public string FileCountLabel => Book.Files.Count == 0 ? string.Empty : $"{Book.Files.Count} 个文件";
     public string SeriesLabel => string.IsNullOrWhiteSpace(Book.Series) ? "未设置系列" : Book.Series;
     public string TagsLabel => string.IsNullOrWhiteSpace(Book.Tags) ? "未设置标签" : Book.Tags;
+    public string CategoryLabel => string.IsNullOrWhiteSpace(Book.Category) ? "未分类" : Book.Category;
+    public string FavoriteLabel => Book.IsFavorite ? "★ 收藏" : string.Empty;
+    public string ReadingStatusLabel => Book.ReadingStatus switch
+    {
+        LibraryReadingStatus.Reading => "阅读中",
+        LibraryReadingStatus.Finished => "已读",
+        _ => "待读"
+    };
     public string DescriptionLabel => string.IsNullOrWhiteSpace(Book.Description) ? "暂无简介" : Book.Description;
     public BitmapImage? CoverImage { get; private set; }
     private bool _isConversionProgressVisible;
@@ -96,6 +104,9 @@ public sealed class BookCardViewModel : ObservableObject
         OnPropertyChanged(nameof(FileCountLabel));
         OnPropertyChanged(nameof(SeriesLabel));
         OnPropertyChanged(nameof(TagsLabel));
+        OnPropertyChanged(nameof(CategoryLabel));
+        OnPropertyChanged(nameof(FavoriteLabel));
+        OnPropertyChanged(nameof(ReadingStatusLabel));
         OnPropertyChanged(nameof(DescriptionLabel));
         OnPropertyChanged(nameof(CoverImage));
     }
@@ -131,6 +142,10 @@ public sealed class LibraryViewModel : ObservableObject
     private string? _authorFilter;
     private string? _tagFilter;
     private string? _formatFilter;
+    private string? _categoryFilter;
+    private LibraryReadingStatus? _readingStatusFilter;
+    private bool _favoritesOnly;
+    private LibrarySortMode _sortMode;
     private bool _isBusy;
     private string _statusText = "准备就绪";
 
@@ -144,6 +159,7 @@ public sealed class LibraryViewModel : ObservableObject
     public IReadOnlyList<string> AvailableAuthors { get; private set; } = [];
     public IReadOnlyList<string> AvailableTags { get; private set; } = [];
     public IReadOnlyList<string> AvailableFormats { get; private set; } = [];
+    public IReadOnlyList<string> AvailableCategories { get; private set; } = [];
 
     public string SearchText
     {
@@ -175,9 +191,36 @@ public sealed class LibraryViewModel : ObservableObject
         set => SetProperty(ref _formatFilter, value);
     }
 
+    public string? CategoryFilter
+    {
+        get => _categoryFilter;
+        set => SetProperty(ref _categoryFilter, value);
+    }
+
+    public LibraryReadingStatus? ReadingStatusFilter
+    {
+        get => _readingStatusFilter;
+        set => SetProperty(ref _readingStatusFilter, value);
+    }
+
+    public bool FavoritesOnly
+    {
+        get => _favoritesOnly;
+        set => SetProperty(ref _favoritesOnly, value);
+    }
+
+    public LibrarySortMode SortMode
+    {
+        get => _sortMode;
+        set => SetProperty(ref _sortMode, value);
+    }
+
     public bool HasActiveFilters => !string.IsNullOrWhiteSpace(AuthorFilter)
         || !string.IsNullOrWhiteSpace(TagFilter)
-        || !string.IsNullOrWhiteSpace(FormatFilter);
+        || !string.IsNullOrWhiteSpace(FormatFilter)
+        || !string.IsNullOrWhiteSpace(CategoryFilter)
+        || ReadingStatusFilter is not null
+        || FavoritesOnly;
 
     public string StatusText
     {
@@ -210,8 +253,22 @@ public sealed class LibraryViewModel : ObservableObject
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Order(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+            AvailableCategories = allBooks
+                .Select(book => book.Category.Trim())
+                .Where(category => category.Length > 0)
+                .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .Order(StringComparer.CurrentCultureIgnoreCase)
+                .ToArray();
 
-            var books = allBooks.Where(MatchesFilters).ToArray();
+            var filtered = allBooks.Where(MatchesFilters);
+            var books = SortMode switch
+            {
+                LibrarySortMode.TitleAscending => filtered.OrderBy(book => book.Title, StringComparer.CurrentCultureIgnoreCase).ToArray(),
+                LibrarySortMode.AuthorAscending => filtered.OrderBy(book => book.Authors, StringComparer.CurrentCultureIgnoreCase).ThenBy(book => book.Title).ToArray(),
+                LibrarySortMode.CreatedDescending => filtered.OrderByDescending(book => book.CreatedAt).ToArray(),
+                LibrarySortMode.ProgressDescending => filtered.OrderByDescending(book => book.ReadingStatus).ThenByDescending(book => book.UpdatedAt).ToArray(),
+                _ => filtered.OrderByDescending(book => book.UpdatedAt).ToArray()
+            };
             Books.Clear();
             foreach (var book in books) Books.Add(new BookCardViewModel(book, _dataRoot));
             StatusText = books.Length == 0
@@ -235,6 +292,10 @@ public sealed class LibraryViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(TagFilter)
             && !book.Tags.Split(',', '，', ';', '；').Any(tag =>
                 string.Equals(tag.Trim(), TagFilter, StringComparison.CurrentCultureIgnoreCase))) return false;
+        if (!string.IsNullOrWhiteSpace(CategoryFilter)
+            && !string.Equals(book.Category.Trim(), CategoryFilter, StringComparison.CurrentCultureIgnoreCase)) return false;
+        if (ReadingStatusFilter is { } readingStatus && book.ReadingStatus != readingStatus) return false;
+        if (FavoritesOnly && !book.IsFavorite) return false;
         return string.IsNullOrWhiteSpace(FormatFilter)
             || book.Files.Any(file => string.Equals(file.Format, FormatFilter, StringComparison.OrdinalIgnoreCase));
     }

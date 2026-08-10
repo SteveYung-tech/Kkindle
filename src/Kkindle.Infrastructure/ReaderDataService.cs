@@ -148,28 +148,44 @@ public sealed partial class ReaderDataService
         var result = new List<ReaderAnnotation>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
-        {
-            result.Add(new ReaderAnnotation
-            {
-                Id = Guid.Parse(reader.GetString(0)),
-                BookId = Guid.Parse(reader.GetString(1)),
-                BookFileId = Guid.Parse(reader.GetString(2)),
-                ChapterPath = reader.GetString(3),
-                Fragment = reader.IsDBNull(4) ? null : reader.GetString(4),
-                StartOffset = reader.GetInt32(5),
-                EndOffset = reader.GetInt32(6),
-                SelectedText = reader.GetString(7),
-                Prefix = reader.GetString(8),
-                Suffix = reader.GetString(9),
-                Color = reader.GetString(10),
-                UnderlineStyle = reader.GetString(11),
-                Note = reader.GetString(12),
-                CreatedAt = DateTimeOffset.Parse(reader.GetString(13)),
-                UpdatedAt = DateTimeOffset.Parse(reader.GetString(14))
-            });
-        }
+            result.Add(ReadAnnotation(reader));
         return result;
     }
+
+    public async Task<IReadOnlyList<ReaderAnnotation>> GetAllAnnotationsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, BookId, BookFileId, ChapterPath, Fragment, StartOffset, EndOffset,
+                   SelectedText, Prefix, Suffix, Color, UnderlineStyle, Note, CreatedAt, UpdatedAt
+            FROM ReaderAnnotations
+            ORDER BY UpdatedAt DESC, BookId, ChapterPath COLLATE NOCASE, StartOffset;
+            """;
+        var result = new List<ReaderAnnotation>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken)) result.Add(ReadAnnotation(reader));
+        return result;
+    }
+
+    private static ReaderAnnotation ReadAnnotation(SqliteDataReader reader) => new()
+    {
+        Id = Guid.Parse(reader.GetString(0)),
+        BookId = Guid.Parse(reader.GetString(1)),
+        BookFileId = Guid.Parse(reader.GetString(2)),
+        ChapterPath = reader.GetString(3),
+        Fragment = reader.IsDBNull(4) ? null : reader.GetString(4),
+        StartOffset = reader.GetInt32(5),
+        EndOffset = reader.GetInt32(6),
+        SelectedText = reader.GetString(7),
+        Prefix = reader.GetString(8),
+        Suffix = reader.GetString(9),
+        Color = reader.GetString(10),
+        UnderlineStyle = reader.GetString(11),
+        Note = reader.GetString(12),
+        CreatedAt = DateTimeOffset.Parse(reader.GetString(13)),
+        UpdatedAt = DateTimeOffset.Parse(reader.GetString(14))
+    };
 
     public async Task SaveAnnotationAsync(ReaderAnnotation annotation, CancellationToken cancellationToken = default)
     {
@@ -571,6 +587,67 @@ public sealed partial class ReaderDataService
         {
             _databaseGate.Release();
         }
+    }
+
+    public async Task<ReadingDashboard> GetReadingDashboardAsync(
+        int recentLimit = 12,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        var summary = connection.CreateCommand();
+        summary.CommandText = """
+            SELECT
+                COUNT(*),
+                COALESCE(SUM(CASE WHEN ProgressPercent >= 99.5 THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CumulativeSeconds), 0),
+                COALESCE(AVG(ProgressPercent), 0)
+            FROM ReaderReadingStats;
+            """;
+        int started;
+        int finished;
+        long seconds;
+        double average;
+        await using (var reader = await summary.ExecuteReaderAsync(cancellationToken))
+        {
+            await reader.ReadAsync(cancellationToken);
+            started = reader.GetInt32(0);
+            finished = reader.GetInt32(1);
+            seconds = reader.GetInt64(2);
+            average = reader.GetDouble(3);
+        }
+
+        var counts = connection.CreateCommand();
+        counts.CommandText = "SELECT (SELECT COUNT(*) FROM ReaderBookmarks), (SELECT COUNT(*) FROM ReaderAnnotations);";
+        int bookmarks;
+        int annotations;
+        await using (var reader = await counts.ExecuteReaderAsync(cancellationToken))
+        {
+            await reader.ReadAsync(cancellationToken);
+            bookmarks = reader.GetInt32(0);
+            annotations = reader.GetInt32(1);
+        }
+
+        var recent = connection.CreateCommand();
+        recent.CommandText = """
+            SELECT BookId, BookFileId, ProgressPercent, CumulativeSeconds, UpdatedAt
+            FROM ReaderReadingStats
+            ORDER BY UpdatedAt DESC
+            LIMIT $limit;
+            """;
+        recent.Parameters.AddWithValue("$limit", Math.Clamp(recentLimit, 1, 100));
+        var recentBooks = new List<ReadingDashboardBook>();
+        await using (var reader = await recent.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+                recentBooks.Add(new ReadingDashboardBook(
+                    Guid.Parse(reader.GetString(0)),
+                    Guid.Parse(reader.GetString(1)),
+                    reader.GetDouble(2),
+                    reader.GetInt64(3),
+                    DateTimeOffset.Parse(reader.GetString(4))));
+        }
+
+        return new ReadingDashboard(started, finished, seconds, average, bookmarks, annotations, recentBooks);
     }
 
     public async Task AddReadingTimeAsync(

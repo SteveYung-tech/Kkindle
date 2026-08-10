@@ -234,6 +234,194 @@ public sealed class KindleDeviceService : IKindleDeviceService
         if (File.Exists(fullPath)) File.Delete(fullPath);
     }
 
+    public async Task<IReadOnlyList<KindleDeviceResource>> ScanResourcesAsync(
+        KindleDevice device,
+        KindleResourceKind kind,
+        CancellationToken cancellationToken = default)
+    {
+        if (device.Transport == KindleTransport.Wpd)
+            return await Task.Run(() => WpdKindleAccess.ScanResources(device, kind, cancellationToken), cancellationToken);
+
+        var root = GetResourceRoot(device, kind);
+        if (!Directory.Exists(root)) return [];
+        var resources = new List<KindleDeviceResource>();
+        var enumeration = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.ReparsePoint
+        };
+        foreach (var path in Directory.EnumerateFiles(root, "*", enumeration))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!KindleResourcePolicy.IsSupportedFile(kind, path)) continue;
+            try
+            {
+                var info = new FileInfo(path);
+                resources.Add(new KindleDeviceResource
+                {
+                    Kind = kind,
+                    RelativePath = Path.GetRelativePath(device.RootPath, path),
+                    Size = info.Length,
+                    Sha256 = await Hashing.Sha256Async(path, cancellationToken),
+                    ModifiedAt = info.LastWriteTimeUtc
+                });
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+        return resources.OrderBy(item => item.FileName, StringComparer.CurrentCultureIgnoreCase).ToArray();
+    }
+
+    public async Task SendResourceAsync(
+        KindleDevice device,
+        KindleResourceKind kind,
+        string sourcePath,
+        IProgress<TransferProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(sourcePath)) throw new FileNotFoundException("待发送的设备资源不存在。", sourcePath);
+        if (!KindleResourcePolicy.IsSupportedFile(kind, sourcePath))
+            throw new InvalidDataException(kind == KindleResourceKind.Font
+                ? "Kindle 字体仅支持 TTF 和 OTF。"
+                : "Kindle 字典仅支持 AZW、AZW3、MOBI 和 KFX。");
+        if (device.Transport == KindleTransport.Wpd)
+        {
+            await Task.Run(() => WpdKindleAccess.SendResource(device, kind, sourcePath, progress, cancellationToken), cancellationToken);
+            return;
+        }
+
+        var root = GetResourceRoot(device, kind);
+        Directory.CreateDirectory(root);
+        var fileName = GetSafeFileName(Path.GetFileName(sourcePath));
+        var destination = GetUniqueDestination(root, fileName);
+        var temporary = destination + ".kkindle-part";
+        try
+        {
+            var total = new FileInfo(sourcePath).Length;
+            await CopyAsync(sourcePath, temporary, total, progress, cancellationToken);
+            var sourceHash = await Hashing.Sha256Async(sourcePath, cancellationToken);
+            var targetHash = await Hashing.Sha256Async(temporary, cancellationToken);
+            if (!sourceHash.Equals(targetHash, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("传输校验失败，Kindle 资源未写入。");
+            File.Move(temporary, destination, true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    public async Task ExportResourceAsync(
+        KindleDevice device,
+        KindleDeviceResource resource,
+        string destinationPath,
+        CancellationToken cancellationToken = default)
+    {
+        if (!KindleResourcePolicy.TryGetPathWithinRoot(resource.Kind, resource.RelativePath, out _))
+            throw new InvalidOperationException("设备资源路径无效。");
+        var destination = Path.GetFullPath(destinationPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination) ?? throw new InvalidOperationException("导出路径无效。"));
+        if (device.Transport == KindleTransport.Wpd)
+        {
+            await Task.Run(() => WpdKindleAccess.CopyResourceToLocal(device, resource, destination, cancellationToken), cancellationToken);
+            return;
+        }
+
+        var root = GetResourceRoot(device, resource.Kind);
+        var source = Path.GetFullPath(Path.Combine(device.RootPath, resource.RelativePath));
+        EnsureUnderRoot(source, root);
+        if ((File.GetAttributes(source) & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidOperationException("不允许读取设备目录中的链接文件。");
+        await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024, true);
+        await using var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024, true);
+        await input.CopyToAsync(output, cancellationToken);
+    }
+
+    public async Task RemoveResourceAsync(
+        KindleDevice device,
+        KindleDeviceResource resource,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!KindleResourcePolicy.TryGetPathWithinRoot(resource.Kind, resource.RelativePath, out _))
+            throw new InvalidOperationException("设备资源路径无效。");
+        if (device.Transport == KindleTransport.Wpd)
+        {
+            await Task.Run(() => WpdKindleAccess.RemoveResource(device, resource, cancellationToken), cancellationToken);
+            return;
+        }
+        var root = GetResourceRoot(device, resource.Kind);
+        var path = Path.GetFullPath(Path.Combine(device.RootPath, resource.RelativePath));
+        EnsureUnderRoot(path, root);
+        if (File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidOperationException("不允许删除设备目录中的链接文件。");
+        if (File.Exists(path)) File.Delete(path);
+    }
+
+    public async Task<IReadOnlyList<KindleClipping>> ReadClippingsAsync(
+        KindleDevice device,
+        CancellationToken cancellationToken = default)
+    {
+        string text;
+        if (device.Transport == KindleTransport.Wpd)
+            text = await Task.Run(() => WpdKindleAccess.ReadClippingsText(device, cancellationToken), cancellationToken);
+        else
+        {
+            var path = GetClippingsPath(device);
+            if (!File.Exists(path)) return [];
+            using var reader = new StreamReader(path, Encoding.UTF8, true);
+            text = await reader.ReadToEndAsync(cancellationToken);
+        }
+        return KindleClippingsParser.Parse(text);
+    }
+
+    public async Task DeleteClippingAsync(
+        KindleDevice device,
+        string clippingId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(clippingId)) throw new ArgumentException("Kindle 笔记标识无效。", nameof(clippingId));
+        cancellationToken.ThrowIfCancellationRequested();
+        if (device.Transport == KindleTransport.Wpd)
+        {
+            var current = await Task.Run(() => WpdKindleAccess.ReadClippingsText(device, cancellationToken), cancellationToken);
+            var clippings = KindleClippingsParser.Parse(current);
+            if (!clippings.Any(item => item.Id == clippingId)) throw new FileNotFoundException("Kindle 划线笔记不存在。");
+            var updated = KindleClippingsParser.BuildDocument(clippings.Where(item => item.Id != clippingId));
+            await Task.Run(() => WpdKindleAccess.ReplaceClippingsText(device, updated, cancellationToken), cancellationToken);
+            return;
+        }
+
+        var path = GetClippingsPath(device);
+        if (!File.Exists(path)) throw new FileNotFoundException("Kindle 上不存在 My Clippings.txt。", path);
+        string currentText;
+        using (var reader = new StreamReader(path, Encoding.UTF8, true))
+            currentText = await reader.ReadToEndAsync(cancellationToken);
+        var currentClippings = KindleClippingsParser.Parse(currentText);
+        if (!currentClippings.Any(item => item.Id == clippingId)) throw new FileNotFoundException("Kindle 划线笔记不存在。");
+        var updatedText = KindleClippingsParser.BuildDocument(currentClippings.Where(item => item.Id != clippingId));
+        var temporary = path + ".kkindle-part";
+        var backup = path + ".kkindle-backup";
+        try
+        {
+            File.Copy(path, backup, true);
+            await File.WriteAllTextAsync(temporary, updatedText, new UTF8Encoding(true), cancellationToken);
+            File.Move(temporary, path, true);
+            File.Delete(backup);
+        }
+        catch
+        {
+            if (File.Exists(backup)) File.Copy(backup, path, true);
+            throw;
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+            if (File.Exists(backup)) File.Delete(backup);
+        }
+    }
+
     public Task EjectAsync(KindleDevice device, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -248,6 +436,24 @@ public sealed class KindleDeviceService : IKindleDeviceService
         var documents = Path.GetFullPath(Path.Combine(root, "documents"));
         EnsureUnderRoot(documents, root);
         return documents;
+    }
+
+    private static string GetResourceRoot(KindleDevice device, KindleResourceKind kind)
+    {
+        var deviceRoot = Path.GetFullPath(device.RootPath);
+        var resourceRoot = Path.GetFullPath(Path.Combine(deviceRoot, KindleResourcePolicy.RootRelativePath(kind)));
+        EnsureUnderRoot(resourceRoot, deviceRoot);
+        if (Directory.Exists(resourceRoot) && (File.GetAttributes(resourceRoot) & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidOperationException("Kindle 资源目录不能是链接或联接点。");
+        return resourceRoot;
+    }
+
+    private static string GetClippingsPath(KindleDevice device)
+    {
+        var documents = GetDocumentsRoot(device);
+        var path = Path.GetFullPath(Path.Combine(documents, "My Clippings.txt"));
+        EnsureUnderRoot(path, documents);
+        return path;
     }
 
     private static void EnsureUnderRoot(string path, string root)

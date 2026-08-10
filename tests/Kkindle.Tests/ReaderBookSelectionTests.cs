@@ -40,7 +40,7 @@ public sealed class ReaderBookSelectionTests
         var azw3 = new BookFile { Format = "azw3" };
         var epub = new BookFile { Format = "EPUB" };
 
-        Assert.Equal([epub, pdf, azw3], ReaderBookSelectionPolicy.GetSupportedFiles([
+        Assert.Equal([epub, pdf, azw3, mobi], ReaderBookSelectionPolicy.GetSupportedFiles([
             pdf, mobi, azw3, epub
         ]));
     }
@@ -48,8 +48,18 @@ public sealed class ReaderBookSelectionTests
     [Fact]
     public void ReturnsNullWhenNoReaderFormatExists()
     {
-        Assert.Null(ReaderBookSelectionPolicy.SelectPreferred([new BookFile { Format = "mobi" }]));
+        Assert.Equal("mobi", ReaderBookSelectionPolicy.SelectPreferred([new BookFile { Format = "mobi" }])?.Format);
         Assert.Null(ReaderBookSelectionPolicy.SelectPreferred(null));
+    }
+
+    [Fact]
+    public void HonorsConfiguredPreferredFormat()
+    {
+        var epub = new BookFile { Format = "epub" };
+        var mobi = new BookFile { Format = "mobi" };
+
+        Assert.Same(mobi, ReaderBookSelectionPolicy.SelectPreferred([epub, mobi], ".MOBI"));
+        Assert.Same(epub, ReaderBookSelectionPolicy.SelectPreferred([epub, mobi], "unknown"));
     }
 
     [Fact]

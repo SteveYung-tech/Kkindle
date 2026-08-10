@@ -8,6 +8,7 @@ public sealed class BookFormatConversionPolicyTests
     [InlineData("epub")]
     [InlineData(".AZW3")]
     [InlineData(" PDF ")]
+    [InlineData("mobi")]
     public void RecognizesConvertibleFormats(string format)
     {
         Assert.True(BookFormatConversionPolicy.IsConvertibleFormat(format));
@@ -19,10 +20,12 @@ public sealed class BookFormatConversionPolicyTests
         var pdf = new BookFile { Format = "pdf" };
         var azw3 = new BookFile { Format = "azw3" };
         var epub = new BookFile { Format = "epub" };
+        var mobi = new BookFile { Format = "mobi" };
 
         Assert.Same(epub, BookFormatConversionPolicy.SelectSource([pdf, azw3, epub], "pdf"));
         Assert.Same(epub, BookFormatConversionPolicy.SelectSource([pdf, epub], "azw3"));
         Assert.Same(pdf, BookFormatConversionPolicy.SelectSource([pdf], "epub"));
+        Assert.Same(mobi, BookFormatConversionPolicy.SelectSource([mobi], "epub"));
         Assert.Null(BookFormatConversionPolicy.SelectSource([epub], "EPUB"));
     }
 }

@@ -1,0 +1,65 @@
+namespace Kkindle.Core;
+
+public enum LibraryReadingStatus { Unread = 0, Reading = 1, Finished = 2 }
+
+public enum LibrarySortMode
+{
+    UpdatedDescending = 0,
+    TitleAscending = 1,
+    AuthorAscending = 2,
+    CreatedDescending = 3,
+    ProgressDescending = 4
+}
+
+public sealed record AppSettings
+{
+    public string PreferredOpenFormat { get; init; } = "epub";
+    public string CalibrePath { get; init; } = string.Empty;
+    public bool AutoBackupEnabled { get; init; }
+    public int AutoBackupRetention { get; init; } = 5;
+    public bool AiEnabled { get; init; } = true;
+    public bool NetworkEnabled { get; init; } = true;
+    public ReaderLayoutSettings DefaultReaderLayout { get; init; } = new();
+
+    public static AppSettings Normalize(AppSettings? settings)
+    {
+        settings ??= new AppSettings();
+        var preferred = (settings.PreferredOpenFormat ?? string.Empty).Trim().TrimStart('.').ToLowerInvariant();
+        if (preferred is not ("epub" or "pdf" or "azw3" or "mobi")) preferred = "epub";
+        return settings with
+        {
+            PreferredOpenFormat = preferred,
+            CalibrePath = (settings.CalibrePath ?? string.Empty).Trim(),
+            AutoBackupRetention = Math.Clamp(settings.AutoBackupRetention, 1, 30),
+            DefaultReaderLayout = ReaderLayoutDefaults.Normalize(settings.DefaultReaderLayout ?? new ReaderLayoutSettings())
+        };
+    }
+}
+
+public sealed record ManagedFont(string Id, string DisplayName, string CssFamily, string RelativePath, DateTimeOffset ImportedAt);
+public sealed record DictionaryDefinition(string Id, string Name, string RelativePath, int EntryCount, DateTimeOffset ImportedAt, bool Enabled = true);
+public sealed record DictionaryEntry(string Term, string Definition, string DictionaryName);
+public sealed record PdfPageText(int PageNumber, string Text);
+public sealed record PdfSearchResult(int PageNumber, string Excerpt, int MatchIndex);
+
+public sealed record ReadingDashboard(
+    int BooksStarted,
+    int BooksFinished,
+    long TotalSeconds,
+    double AverageProgress,
+    int BookmarkCount,
+    int AnnotationCount,
+    IReadOnlyList<ReadingDashboardBook> RecentBooks);
+
+public sealed record ReadingDashboardBook(Guid BookId, Guid BookFileId, double ProgressPercent, long CumulativeSeconds, DateTimeOffset UpdatedAt);
+
+public enum ReadingMaterialSource { Local, Kindle }
+
+public sealed record ReadingMaterialRecord(
+    ReadingMaterialSource Source,
+    string BookTitle,
+    string Type,
+    string Location,
+    string Quote,
+    string Note,
+    DateTimeOffset? UpdatedAt);

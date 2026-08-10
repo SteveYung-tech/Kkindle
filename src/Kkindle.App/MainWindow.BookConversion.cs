@@ -44,7 +44,7 @@ public sealed partial class MainWindow
         var sourceFile = BookFormatConversionPolicy.SelectSource(book.Files, target);
         if (sourceFile is null)
         {
-            await ShowMessageAsync("格式转换", "需要 EPUB、AZW3 或 PDF 作为转换源。 ");
+            await ShowMessageAsync("格式转换", "需要 EPUB、AZW3、PDF 或 MOBI 作为转换源。");
             return;
         }
 
