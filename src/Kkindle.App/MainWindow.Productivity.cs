@@ -50,6 +50,9 @@ public sealed partial class MainWindow
         AiEnabledCheck.IsChecked = _appSettings.AiEnabled;
         NetworkEnabledCheck.IsChecked = _appSettings.NetworkEnabled;
         AutoConnectDeviceCheck.IsChecked = _appSettings.AutoConnectDevice;
+        CompareKindleLibraryCheck.IsChecked = _appSettings.CompareKindleLibraryEnabled;
+        var version = typeof(MainWindow).Assembly.GetName().Version;
+        AboutVersionText.Text = version is null ? "版本未知" : $"版本 {version.ToString(3)}";
         DefaultFontScaleBox.Value = _appSettings.DefaultReaderLayout.FontScale;
         DefaultLineHeightBox.Value = _appSettings.DefaultReaderLayout.LineHeight;
         DefaultMaxWidthBox.Value = _appSettings.DefaultReaderLayout.MaxWidth;
@@ -72,6 +75,7 @@ public sealed partial class MainWindow
                 AiEnabled = AiEnabledCheck.IsChecked == true,
                 NetworkEnabled = NetworkEnabledCheck.IsChecked == true,
                 AutoConnectDevice = AutoConnectDeviceCheck.IsChecked == true,
+                CompareKindleLibraryEnabled = CompareKindleLibraryCheck.IsChecked == true,
                 DefaultReaderLayout = new ReaderLayoutSettings(
                     DefaultFontScaleBox.Value,
                     DefaultLineHeightBox.Value,
@@ -84,6 +88,7 @@ public sealed partial class MainWindow
             });
             await _appSettingsStore.SaveAsync(_appSettings);
             ApplyAppSettingsToRuntime();
+            ReconcileLibraryPresence();
             ApplicationSettingsStatusText.Text = "设置已保存";
             if (_appSettings.AutoConnectDevice)
             {

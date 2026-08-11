@@ -91,11 +91,25 @@ public sealed class KindleBook
     public long Size { get; set; }
     public string Sha256 { get; set; } = string.Empty;
     public string? CoverPath { get; set; }
+    public DateTimeOffset? ModifiedAt { get; set; }
     public bool IsManagedByKkindle { get; set; }
     public string SizeLabel => Size >= 1024L * 1024
         ? $"{Size / 1024d / 1024:0.0} MB"
         : $"{Size / 1024d:0} KB";
 }
+
+public enum KindleScanStage
+{
+    Enumerated,
+    Enriched
+}
+
+public sealed record KindleScanProgress(
+    KindleScanStage Stage,
+    IReadOnlyList<KindleBook> Books,
+    IReadOnlyList<string> RemovedPaths,
+    int Processed,
+    int Total);
 
 public enum BookLibraryPresence
 {
@@ -127,6 +141,15 @@ public static class BookLibraryComparer
             .Select(book => (Key: CreateMetadataKey(book.Title, book.Authors), Book: book))
             .Where(item => item.Key is not null)
             .Select(item => (item.Key!, item.Book)));
+        var localTitles = BuildLookup(localBooks
+            .Select(book => (Key: CreateTitleKey(book.Title), Book: book))
+            .Where(item => item.Key is not null)
+            .Select(item => (item.Key!, item.Book)));
+        var deviceTitleCounts = deviceBooks
+            .Select(book => CreateTitleKey(book.Title))
+            .Where(key => key is not null)
+            .GroupBy(key => key!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
 
         var matchedLocalIds = new HashSet<Guid>();
         var matchedDevicePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -141,6 +164,13 @@ public static class BookLibraryComparer
                 && CreateMetadataKey(kindleBook.Title, kindleBook.Authors) is { } metadataKey
                 && localMetadata.TryGetValue(metadataKey, out var metadataMatches))
                 matches.UnionWith(metadataMatches);
+
+            if (matches.Count == 0
+                && CreateTitleKey(kindleBook.Title) is { } titleKey
+                && deviceTitleCounts.GetValueOrDefault(titleKey) == 1
+                && localTitles.TryGetValue(titleKey, out var titleMatches)
+                && titleMatches.Count == 1)
+                matches.Add(titleMatches[0]);
 
             if (matches.Count == 0) continue;
             foreach (var match in matches) matchedLocalIds.Add(match.Id);
@@ -174,6 +204,13 @@ public static class BookLibraryComparer
         if (normalizedTitle.Length == 0 || normalizedAuthors.Length == 0) return null;
         if (normalizedAuthors is "未知作者" or "UNKNOWN AUTHOR") return null;
         return $"{normalizedTitle}\n{normalizedAuthors}";
+    }
+
+    private static string? CreateTitleKey(string? title)
+    {
+        var normalizedTitle = NormalizeMetadata(title);
+        if (normalizedTitle.Length == 0 || normalizedTitle is "未命名书籍" or "UNTITLED") return null;
+        return normalizedTitle;
     }
 
     private static string NormalizeMetadata(string? value) => string.Concat(

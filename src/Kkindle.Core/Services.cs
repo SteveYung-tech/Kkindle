@@ -35,6 +35,10 @@ public interface IKindleDeviceService
 {
     Task<IReadOnlyList<KindleDevice>> DetectDevicesAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<KindleBook>> ScanBooksAsync(KindleDevice device, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<KindleBook>> ScanBooksProgressivelyAsync(
+        KindleDevice device,
+        IProgress<KindleScanProgress>? progress = null,
+        CancellationToken cancellationToken = default);
     Task SendBookAsync(KindleDevice device, BookFile bookFile, string sourcePath, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default);
     Task RemoveBookAsync(KindleDevice device, KindleBook book, CancellationToken cancellationToken = default);
     Task<string> ExportBookAsync(KindleDevice device, KindleBook book, string destinationDirectory, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default);

@@ -100,16 +100,21 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
         command.Parameters.AddWithValue("$like", $"%{text}%");
 
         var books = new List<Book>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
-            books.Add(ReadBook(reader));
+            while (await reader.ReadAsync(cancellationToken))
+                books.Add(ReadBook(reader));
         }
 
+        var filesByBook = await ReadFilesByBookAsync(connection, books.Select(book => book.Id), cancellationToken);
+        var collectionsByBook = await ReadCollectionIdsByBookAsync(
+            connection,
+            books.Select(book => book.Id),
+            cancellationToken);
         foreach (var book in books)
         {
-            book.Files = await ReadFilesAsync(connection, book.Id, cancellationToken);
-            book.CollectionIds = await ReadCollectionIdsAsync(connection, book.Id, cancellationToken);
+            book.Files = filesByBook.GetValueOrDefault(book.Id) ?? [];
+            book.CollectionIds = collectionsByBook.GetValueOrDefault(book.Id) ?? [];
         }
 
         return books;
@@ -680,19 +685,79 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
         return files;
     }
 
-    private static async Task<List<Guid>> ReadCollectionIdsAsync(
+    private static async Task<Dictionary<Guid, List<BookFile>>> ReadFilesByBookAsync(
         SqliteConnection connection,
-        Guid bookId,
+        IEnumerable<Guid> bookIds,
         CancellationToken cancellationToken)
     {
-        var command = connection.CreateCommand();
-        command.CommandText = "SELECT CollectionId FROM BookCollectionItems WHERE BookId = $bookId;";
-        command.Parameters.AddWithValue("$bookId", bookId.ToString());
-        var collectionIds = new List<Guid>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-            collectionIds.Add(Guid.Parse(reader.GetString(0)));
-        return collectionIds;
+        var result = new Dictionary<Guid, List<BookFile>>();
+        foreach (var batch in bookIds.Chunk(500))
+        {
+            var command = connection.CreateCommand();
+            var parameters = batch.Select((_, index) => $"$book{index}").ToArray();
+            command.CommandText = $"""
+                SELECT Id, BookId, Format, RelativePath, Size, Sha256
+                FROM BookFiles
+                WHERE BookId IN ({string.Join(", ", parameters)})
+                ORDER BY BookId, Format;
+                """;
+            for (var index = 0; index < batch.Length; index++)
+                command.Parameters.AddWithValue(parameters[index], batch[index].ToString());
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var bookId = Guid.Parse(reader.GetString(1));
+                if (!result.TryGetValue(bookId, out var files))
+                {
+                    files = [];
+                    result[bookId] = files;
+                }
+                files.Add(new BookFile
+                {
+                    Id = Guid.Parse(reader.GetString(0)),
+                    BookId = bookId,
+                    Format = reader.GetString(2),
+                    RelativePath = reader.GetString(3),
+                    Size = reader.GetInt64(4),
+                    Sha256 = reader.GetString(5)
+                });
+            }
+        }
+        return result;
+    }
+
+    private static async Task<Dictionary<Guid, List<Guid>>> ReadCollectionIdsByBookAsync(
+        SqliteConnection connection,
+        IEnumerable<Guid> bookIds,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<Guid, List<Guid>>();
+        foreach (var batch in bookIds.Chunk(500))
+        {
+            var command = connection.CreateCommand();
+            var parameters = batch.Select((_, index) => $"$book{index}").ToArray();
+            command.CommandText = $"""
+                SELECT BookId, CollectionId
+                FROM BookCollectionItems
+                WHERE BookId IN ({string.Join(", ", parameters)});
+                """;
+            for (var index = 0; index < batch.Length; index++)
+                command.Parameters.AddWithValue(parameters[index], batch[index].ToString());
+
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var bookId = Guid.Parse(reader.GetString(0));
+                if (!result.TryGetValue(bookId, out var collectionIds))
+                {
+                    collectionIds = [];
+                    result[bookId] = collectionIds;
+                }
+                collectionIds.Add(Guid.Parse(reader.GetString(1)));
+            }
+        }
+        return result;
     }
 
     private static async Task<Book?> FindBookByHashAsync(SqliteConnection connection, string hash, CancellationToken cancellationToken)

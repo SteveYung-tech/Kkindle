@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using Kkindle.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -6,59 +7,75 @@ namespace Kkindle;
 
 public sealed partial class MainWindow
 {
+    private enum LibraryViewMode { Grid, List, Collections }
+
     private sealed record BookCollectionMenuMarker(Book Book);
     private sealed record BookCollectionMenuContext(Book Book, BookCollection Collection);
-    private sealed record BookCollectionViewOption(string Name, BookCollection? Collection);
 
     private IReadOnlyList<BookCollection> _bookCollections = [];
-    private bool _isUpdatingBookCollectionView;
+    private LibraryViewMode _libraryViewMode = LibraryViewMode.Grid;
+
+    public ObservableCollection<BookCollectionFolderViewModel> CollectionFolders { get; } = [];
 
     private async Task RefreshBookCollectionsAsync()
     {
         _bookCollections = await _library.GetCollectionsAsync();
-        var options = new[] { new BookCollectionViewOption("全部书籍", null) }
-            .Concat(_bookCollections.Select(collection =>
-                new BookCollectionViewOption($"收藏夹 · {collection.Name}", collection)))
-            .ToArray();
-
-        _isUpdatingBookCollectionView = true;
-        try
+        CollectionFolders.Clear();
+        foreach (var collection in _bookCollections)
         {
-            BookCollectionViewBox.ItemsSource = options;
-            var selectedIndex = ViewModel.CollectionFilterId is { } collectionId
-                ? Array.FindIndex(options, option => option.Collection?.Id == collectionId)
-                : 0;
-            if (selectedIndex < 0)
-            {
-                ViewModel.CollectionFilterId = null;
-                ViewModel.CollectionFilterName = null;
-                selectedIndex = 0;
-            }
-            BookCollectionViewBox.SelectedIndex = selectedIndex;
+            var count = ViewModel.LibraryBooks.Count(book => book.CollectionIds.Contains(collection.Id));
+            CollectionFolders.Add(new BookCollectionFolderViewModel(collection, count));
         }
-        finally { _isUpdatingBookCollectionView = false; }
+
+        if (ViewModel.CollectionFilterId is { } selectedId
+            && _bookCollections.All(collection => collection.Id != selectedId))
+        {
+            ViewModel.CollectionFilterId = null;
+            ViewModel.CollectionFilterName = null;
+        }
+        else if (ViewModel.CollectionFilterId is { } activeId
+                 && CollectionFolders.FirstOrDefault(folder => folder.Collection.Id == activeId) is { } activeFolder)
+        {
+            ActiveCollectionTitleText.Text = $"{activeFolder.Name} · {activeFolder.BookCountLabel}";
+        }
+        UpdateCollectionEmptyState();
     }
 
-    private async void BookCollectionViewBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_isUpdatingBookCollectionView
-            || BookCollectionViewBox.SelectedItem is not BookCollectionViewOption option) return;
-
-        ViewModel.CollectionFilterId = option.Collection?.Id;
-        ViewModel.CollectionFilterName = option.Collection?.Name;
-        await RefreshLibraryAsync();
-        ShowLibrary();
-    }
-
-    private async Task ShowAllBooksAsync()
+    private Task ShowAllBooksAsync()
     {
         ViewModel.CollectionFilterId = null;
         ViewModel.CollectionFilterName = null;
-        _isUpdatingBookCollectionView = true;
-        try { BookCollectionViewBox.SelectedIndex = 0; }
-        finally { _isUpdatingBookCollectionView = false; }
-        await RefreshLibraryAsync();
+        RefreshLibraryView();
+        SetLibraryViewMode(LibraryViewMode.Grid);
         ShowLibrary();
+        return Task.CompletedTask;
+    }
+
+    private void CollectionFolderGrid_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not BookCollectionFolderViewModel folder) return;
+        ViewModel.CollectionFilterId = folder.Collection.Id;
+        ViewModel.CollectionFilterName = folder.Collection.Name;
+        RefreshLibraryView();
+        SetLibraryViewMode(LibraryViewMode.Grid);
+        ActiveCollectionTitleText.Text = $"{folder.Name} · {folder.BookCountLabel}";
+    }
+
+    private void BackToCollectionsButton_Click(object sender, RoutedEventArgs e)
+    {
+        ViewModel.CollectionFilterId = null;
+        ViewModel.CollectionFilterName = null;
+        RefreshLibraryView();
+        SetLibraryViewMode(LibraryViewMode.Collections);
+    }
+
+    private void UpdateCollectionEmptyState()
+    {
+        if (CollectionFolderGrid is null || EmptyCollectionState is null) return;
+        EmptyCollectionState.Visibility = _libraryViewMode == LibraryViewMode.Collections
+            && CollectionFolders.Count == 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
     }
 
     private async Task<BookCollection?> PromptCreateBookCollectionAsync(Book bookToAdd)
@@ -151,6 +168,7 @@ public sealed partial class MainWindow
             else
                 await _library.RemoveBookFromCollectionAsync(context.Book.Id, context.Collection.Id);
             await RefreshLibraryAsync();
+            await RefreshBookCollectionsAsync();
             TaskStatusText.Text = item.IsChecked
                 ? $"已将《{context.Book.Title}》加入“{context.Collection.Name}”"
                 : $"已将《{context.Book.Title}》移出“{context.Collection.Name}”";
@@ -184,14 +202,16 @@ public sealed partial class MainWindow
 
         try
         {
+            var wasActiveCollection = ViewModel.CollectionFilterId == collection.Id;
             await _library.DeleteCollectionAsync(collection.Id);
-            if (ViewModel.CollectionFilterId == collection.Id)
+            if (wasActiveCollection)
             {
                 ViewModel.CollectionFilterId = null;
                 ViewModel.CollectionFilterName = null;
             }
             await RefreshLibraryAsync();
             await RefreshBookCollectionsAsync();
+            if (wasActiveCollection) SetLibraryViewMode(LibraryViewMode.Collections);
             TaskStatusText.Text = $"已删除收藏夹“{collection.Name}”";
         }
         catch (Exception exception)
@@ -199,4 +219,18 @@ public sealed partial class MainWindow
             await ShowMessageAsync("无法删除收藏夹", exception.Message);
         }
     }
+}
+
+public sealed class BookCollectionFolderViewModel
+{
+    public BookCollectionFolderViewModel(BookCollection collection, int bookCount)
+    {
+        Collection = collection;
+        BookCount = bookCount;
+    }
+
+    public BookCollection Collection { get; }
+    public string Name => Collection.Name;
+    public int BookCount { get; }
+    public string BookCountLabel => $"{BookCount} 本书";
 }

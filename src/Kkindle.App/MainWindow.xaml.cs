@@ -43,6 +43,7 @@ public sealed partial class MainWindow : Window
     private bool _isTransferring;
     private CancellationTokenSource? _transferCancellation;
     private bool _isUpdatingFilters;
+    private CancellationTokenSource? _librarySearchDebounceCancellation;
     private string? _scannedDeviceId;
     private double _deviceUsedRatio;
     private string? _acceptedDeviceId;
@@ -345,6 +346,9 @@ public sealed partial class MainWindow : Window
         _readingMaterialsCancellation?.Cancel();
         _readingMaterialsCancellation?.Dispose();
         _readingMaterialsCancellation = null;
+        _librarySearchDebounceCancellation?.Cancel();
+        _librarySearchDebounceCancellation?.Dispose();
+        _librarySearchDebounceCancellation = null;
         _ = FlushReaderSessionSafelyAsync(skipWebViewCapture: true);
 
         _deviceTimer.Stop();
@@ -576,8 +580,10 @@ public sealed partial class MainWindow : Window
 
     private async Task ScanDeviceBooksAsync(KindleDevice device)
     {
-        DeviceNameText.Text = $"{device.Name} · 正在读取书籍与封面…";
-        var books = await _kindle.ScanBooksAsync(device);
+        DeviceNameText.Text = $"{device.Name} · 正在快速读取书籍列表…";
+        var scanProgress = new Progress<KindleScanProgress>(ApplyKindleScanProgress);
+        var books = await Task.Run(() =>
+            _kindle.ScanBooksProgressivelyAsync(device, scanProgress));
         DeviceBooks.Clear();
         foreach (var book in books) DeviceBooks.Add(new KindleBookCardViewModel(book));
         ReconcileLibraryPresence();
@@ -586,8 +592,62 @@ public sealed partial class MainWindow : Window
         _scannedDeviceId = device.Identity;
     }
 
+    private void RefreshLibraryView()
+    {
+        ViewModel.RefreshView();
+        UpdateLibraryPresentationState();
+    }
+
+    private void ApplyKindleScanProgress(KindleScanProgress progress)
+    {
+        if (progress.Stage == KindleScanStage.Enumerated)
+        {
+            DeviceBooks.Clear();
+            foreach (var book in progress.Books)
+                DeviceBooks.Add(new KindleBookCardViewModel(book));
+        }
+        else
+        {
+            foreach (var path in progress.RemovedPaths)
+            {
+                var existing = DeviceBooks.FirstOrDefault(card => card.Book.RelativePath.Equals(
+                    path,
+                    StringComparison.OrdinalIgnoreCase));
+                if (existing is not null) DeviceBooks.Remove(existing);
+            }
+
+            foreach (var book in progress.Books)
+            {
+                var existingIndex = -1;
+                for (var index = 0; index < DeviceBooks.Count; index++)
+                {
+                    if (!DeviceBooks[index].Book.RelativePath.Equals(
+                            book.RelativePath,
+                            StringComparison.OrdinalIgnoreCase)) continue;
+                    existingIndex = index;
+                    break;
+                }
+                var card = new KindleBookCardViewModel(book);
+                if (existingIndex >= 0) DeviceBooks[existingIndex] = card;
+                else DeviceBooks.Add(card);
+            }
+        }
+
+        DeviceBookCountText.Text = DeviceBooks.Count.ToString();
+        var deviceName = _devices.FirstOrDefault()?.Name ?? "Kindle";
+        DeviceNameText.Text = progress.Processed >= progress.Total
+            ? $"{deviceName} · 正在完成扫描…"
+            : $"{deviceName} · 已读取 {progress.Processed} / {progress.Total}";
+        ReconcileLibraryPresence();
+    }
+
     private void ReconcileLibraryPresence()
     {
+        var comparisonEnabled = _appSettings.CompareKindleLibraryEnabled;
+        foreach (var card in ViewModel.Books) card.SetLibraryPresenceVisible(comparisonEnabled);
+        foreach (var card in DeviceBooks) card.SetLibraryPresenceVisible(comparisonEnabled);
+        if (!comparisonEnabled) return;
+
         var comparison = BookLibraryComparer.Compare(
             ViewModel.LibraryBooks,
             DeviceBooks.Select(card => card.Book));
@@ -638,16 +698,42 @@ public sealed partial class MainWindow : Window
         await ImportAsync(paths);
     }
 
-    private async void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    private void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
+        CancelLibrarySearchDebounce();
         ViewModel.SearchText = sender.Text;
-        await RefreshLibraryAsync();
+        RefreshLibraryView();
     }
 
     private async void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         ViewModel.SearchText = SearchBox.Text;
-        await RefreshLibraryAsync();
+        CancelLibrarySearchDebounce();
+        var cancellation = new CancellationTokenSource();
+        _librarySearchDebounceCancellation = cancellation;
+        try
+        {
+            await Task.Delay(300, cancellation.Token);
+            if (!ReferenceEquals(_librarySearchDebounceCancellation, cancellation)) return;
+            RefreshLibraryView();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(_librarySearchDebounceCancellation, cancellation))
+                _librarySearchDebounceCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
+    private void CancelLibrarySearchDebounce()
+    {
+        var cancellation = _librarySearchDebounceCancellation;
+        _librarySearchDebounceCancellation = null;
+        cancellation?.Cancel();
+        cancellation?.Dispose();
     }
 
     private void UpdateFilterControls()
@@ -679,7 +765,9 @@ public sealed partial class MainWindow : Window
 
     private void UpdateEmptyLibraryState()
     {
-        EmptyLibraryState.Visibility = ViewModel.Books.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyLibraryState.Visibility = _libraryViewMode != LibraryViewMode.Collections && ViewModel.Books.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         var hasQuery = !string.IsNullOrWhiteSpace(ViewModel.SearchText) || ViewModel.HasActiveFilters;
         EmptyLibraryTitleText.Text = hasQuery ? "没有符合条件的书籍" : "电脑书库还是空的";
         EmptyLibraryMessageText.Text = hasQuery
@@ -687,7 +775,7 @@ public sealed partial class MainWindow : Window
             : "拖入书籍文件，或使用右上角的导入按钮";
     }
 
-    private async void FilterComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void FilterComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isUpdatingFilters) return;
         ViewModel.AuthorFilter = AuthorFilterBox.SelectedIndex <= 0 ? null : AuthorFilterBox.SelectedItem as string;
@@ -702,17 +790,17 @@ public sealed partial class MainWindow : Window
         ViewModel.SortMode = LibrarySortBox.SelectedIndex < 0
             ? LibrarySortMode.UpdatedDescending
             : (LibrarySortMode)LibrarySortBox.SelectedIndex;
-        await RefreshLibraryAsync();
+        RefreshLibraryView();
     }
 
-    private async void FavoritesOnlyCheck_Click(object sender, RoutedEventArgs e)
+    private void FavoritesOnlyCheck_Click(object sender, RoutedEventArgs e)
     {
         if (_isUpdatingFilters) return;
         ViewModel.FavoritesOnly = FavoritesOnlyCheck.IsChecked == true;
-        await RefreshLibraryAsync();
+        RefreshLibraryView();
     }
 
-    private async void ClearFiltersButton_Click(object sender, RoutedEventArgs e)
+    private void ClearFiltersButton_Click(object sender, RoutedEventArgs e)
     {
         ViewModel.AuthorFilter = null;
         ViewModel.TagFilter = null;
@@ -721,7 +809,7 @@ public sealed partial class MainWindow : Window
         ViewModel.ReadingStatusFilter = null;
         ViewModel.FavoritesOnly = false;
         ViewModel.SortMode = LibrarySortMode.UpdatedDescending;
-        await RefreshLibraryAsync();
+        RefreshLibraryView();
     }
 
     private async void ImportFilesButton_Click(object sender, RoutedEventArgs e)
@@ -968,14 +1056,45 @@ public sealed partial class MainWindow : Window
         DetailColumn.Width = new GridLength(0);
     }
 
-    private void LibraryViewToggleButton_Click(object sender, RoutedEventArgs e)
+    private async void LibraryViewToggleButton_Click(object sender, RoutedEventArgs e)
     {
-        var showList = BookGrid.Visibility == Visibility.Visible;
-        BookGrid.Visibility = showList ? Visibility.Collapsed : Visibility.Visible;
-        BookList.Visibility = showList ? Visibility.Visible : Visibility.Collapsed;
+        var nextMode = _libraryViewMode switch
+        {
+            LibraryViewMode.Grid => LibraryViewMode.List,
+            LibraryViewMode.List => LibraryViewMode.Collections,
+            _ => LibraryViewMode.Grid
+        };
+        if (nextMode == LibraryViewMode.Collections && ViewModel.CollectionFilterId is not null)
+        {
+            ViewModel.CollectionFilterId = null;
+            ViewModel.CollectionFilterName = null;
+            await RefreshLibraryAsync();
+        }
+        SetLibraryViewMode(nextMode);
+    }
 
-        LibraryViewToggleIcon.Symbol = showList ? Symbol.ViewAll : Symbol.Bullets;
-        var nextView = showList ? "网格" : "列表";
+    private void SetLibraryViewMode(LibraryViewMode mode)
+    {
+        _libraryViewMode = mode;
+        BookGrid.Visibility = mode == LibraryViewMode.Grid ? Visibility.Visible : Visibility.Collapsed;
+        BookList.Visibility = mode == LibraryViewMode.List ? Visibility.Visible : Visibility.Collapsed;
+        CollectionFolderGrid.Visibility = mode == LibraryViewMode.Collections ? Visibility.Visible : Visibility.Collapsed;
+        CollectionBookHeader.Visibility = mode != LibraryViewMode.Collections
+            && ViewModel.CollectionFilterId is not null
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        EmptyLibraryState.Visibility = mode != LibraryViewMode.Collections && ViewModel.Books.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        UpdateCollectionEmptyState();
+
+        var (symbol, nextView) = mode switch
+        {
+            LibraryViewMode.Grid => (Symbol.Bullets, "列表"),
+            LibraryViewMode.List => (Symbol.Folder, "收藏夹"),
+            _ => (Symbol.ViewAll, "网格")
+        };
+        LibraryViewToggleIcon.Symbol = symbol;
         var label = $"切换到{nextView}视图";
         AutomationProperties.SetName(LibraryViewToggleButton, label);
         ToolTipService.SetToolTip(LibraryViewToggleButton, label);

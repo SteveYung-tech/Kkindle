@@ -6,6 +6,79 @@ namespace Kkindle.Tests;
 public sealed class KindleDeviceTests
 {
     [Fact]
+    public async Task PersistentScanCacheSkipsUnchangedBookHashingAndMetadata()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        var documents = Path.Combine(root, "device", "documents");
+        Directory.CreateDirectory(documents);
+        var source = Path.Combine(documents, "cached.pdf");
+        await File.WriteAllTextAsync(source, "first cached version");
+        var paths = new AppPaths(Path.Combine(root, "app"));
+        var device = new KindleDevice
+        {
+            RootPath = Path.Combine(root, "device"),
+            VolumeSerial = "CACHE-DEVICE",
+            Name = "Cached Kindle",
+            IsReady = true
+        };
+        try
+        {
+            var firstMetadata = new CountingMetadataService();
+            var firstService = new KindleDeviceService(paths, firstMetadata);
+            var firstBook = Assert.Single(await firstService.ScanBooksAsync(device));
+            Assert.Equal(1, firstMetadata.ReadCount);
+            Assert.NotEmpty(firstBook.Sha256);
+
+            var cachedMetadata = new CountingMetadataService();
+            var cachedService = new KindleDeviceService(paths, cachedMetadata);
+            var cachedBook = Assert.Single(await cachedService.ScanBooksAsync(device));
+            Assert.Equal(0, cachedMetadata.ReadCount);
+            Assert.Equal(firstBook.Sha256, cachedBook.Sha256);
+            Assert.Equal("缓存测试书", cachedBook.Title);
+
+            await File.AppendAllTextAsync(source, " changed");
+            File.SetLastWriteTimeUtc(source, DateTime.UtcNow.AddSeconds(2));
+            var changedMetadata = new CountingMetadataService();
+            var changedService = new KindleDeviceService(paths, changedMetadata);
+            var changedBook = Assert.Single(await changedService.ScanBooksAsync(device));
+            Assert.Equal(1, changedMetadata.ReadCount);
+            Assert.NotEqual(firstBook.Sha256, changedBook.Sha256);
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task ProgressiveScanReportsFastListBeforeEnrichedBooks()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        var documents = Path.Combine(root, "documents");
+        Directory.CreateDirectory(documents);
+        await File.WriteAllTextAsync(Path.Combine(documents, "progress.pdf"), "progressive scan");
+        try
+        {
+            var updates = new List<KindleScanProgress>();
+            var service = new KindleDeviceService(null, new CountingMetadataService());
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+
+            var books = await service.ScanBooksProgressivelyAsync(
+                device,
+                new InlineProgress<KindleScanProgress>(updates.Add));
+
+            Assert.Equal(KindleScanStage.Enumerated, updates.First().Stage);
+            Assert.Empty(Assert.Single(updates.First().Books).Sha256);
+            Assert.Contains(updates, update => update.Stage == KindleScanStage.Enriched);
+            Assert.NotEmpty(Assert.Single(books).Sha256);
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
     public void DeviceIdentityUsesVolumeSerialAcrossDriveLetterChanges()
     {
         var firstDetection = new KindleDevice { RootPath = @"E:\", VolumeSerial = "A1B2C3D4" };
@@ -536,5 +609,16 @@ public sealed class KindleDeviceTests
     private sealed class InlineProgress<T>(Action<T> callback) : IProgress<T>
     {
         public void Report(T value) => callback(value);
+    }
+
+    private sealed class CountingMetadataService : IMetadataService
+    {
+        public int ReadCount { get; private set; }
+
+        public Task<BookMetadata> ReadMetadataAsync(string path, CancellationToken cancellationToken = default)
+        {
+            ReadCount++;
+            return Task.FromResult(new BookMetadata { Title = "缓存测试书", Authors = "测试作者" });
+        }
     }
 }

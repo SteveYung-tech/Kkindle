@@ -14,7 +14,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
     };
     private readonly IMetadataService _metadata;
     private readonly string? _coverCacheDirectory;
-    private readonly Dictionary<string, bool> _dictionaryClassificationCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly KindleScanCacheStore? _scanCache;
 
     public KindleDeviceService()
         : this(null, new BookMetadataService())
@@ -25,6 +25,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
     {
         _metadata = metadata;
         _coverCacheDirectory = paths is null ? null : Path.Combine(paths.Covers, "kindle");
+        _scanCache = paths is null ? null : new KindleScanCacheStore(paths);
         if (_coverCacheDirectory is not null) Directory.CreateDirectory(_coverCacheDirectory);
     }
 
@@ -58,22 +59,122 @@ public sealed class KindleDeviceService : IKindleDeviceService
         return devices;
     }
 
-    public async Task<IReadOnlyList<KindleBook>> ScanBooksAsync(KindleDevice device, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<KindleBook>> ScanBooksAsync(
+        KindleDevice device,
+        CancellationToken cancellationToken = default) =>
+        ScanBooksProgressivelyAsync(device, progress: null, cancellationToken);
+
+    public async Task<IReadOnlyList<KindleBook>> ScanBooksProgressivelyAsync(
+        KindleDevice device,
+        IProgress<KindleScanProgress>? progress = null,
+        CancellationToken cancellationToken = default)
     {
-        if (device.Transport == KindleTransport.Wpd)
-        {
-            var wpdBooks = await Task.Run(
+        var enumerated = device.Transport == KindleTransport.Wpd
+            ? await Task.Run(
                 () => WpdKindleAccess.ScanBooks(device, SupportedExtensions, cancellationToken),
-                cancellationToken);
-            var visibleBooks = new List<KindleBook>(wpdBooks.Count);
-            foreach (var book in wpdBooks)
+                cancellationToken)
+            : await Task.Run(() => EnumerateMassStorageBooks(device, cancellationToken), cancellationToken);
+        foreach (var book in enumerated) SetFallbackMetadata(book);
+
+        var cachedEntries = _scanCache is null
+            ? new Dictionary<string, KindleScanCacheEntry>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, KindleScanCacheEntry>(
+                await _scanCache.GetDeviceEntriesAsync(device.Identity, cancellationToken),
+                StringComparer.OrdinalIgnoreCase);
+        var currentEntries = new List<KindleScanCacheEntry>(enumerated.Count);
+        var visibleBooks = new List<KindleBook>(enumerated.Count);
+        var pending = new List<KindleBook>();
+
+        foreach (var book in enumerated)
+        {
+            var key = NormalizeDevicePath(book.RelativePath);
+            if (cachedEntries.TryGetValue(key, out var cached)
+                && cached.Matches(book.Size, book.ModifiedAt)
+                && (cached.CoverPath is null || File.Exists(cached.CoverPath)))
             {
-                if (await EnrichWpdBookAsync(device, book, cancellationToken)) continue;
+                ApplyCachedBook(book, cached);
+                currentEntries.Add(cached);
+                if (cached.IsDictionary) continue;
                 visibleBooks.Add(book);
+                continue;
             }
-            return visibleBooks;
+
+            visibleBooks.Add(book);
+            pending.Add(book);
         }
 
+        progress?.Report(new KindleScanProgress(
+            KindleScanStage.Enumerated,
+            visibleBooks.Select(CloneBook).ToArray(),
+            [],
+            enumerated.Count - pending.Count,
+            enumerated.Count));
+
+        var changed = new List<KindleBook>();
+        var removed = new List<string>();
+        var processed = enumerated.Count - pending.Count;
+        foreach (var book in pending)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var isDictionary = false;
+            var cacheable = true;
+            try
+            {
+                if (device.Transport == KindleTransport.Wpd)
+                    isDictionary = await EnrichWpdBookAsync(device, book, cancellationToken);
+                else
+                {
+                    var path = Path.GetFullPath(Path.Combine(device.RootPath, book.RelativePath));
+                    isDictionary = await KindleBookClassifier.IsDictionaryAsync(path, cancellationToken);
+                    if (!isDictionary)
+                    {
+                        book.Sha256 = await Hashing.Sha256Async(path, cancellationToken);
+                        await EnrichBookAsync(device, book, path, cancellationToken);
+                    }
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or TimeoutException)
+            {
+                // Keep the quickly enumerated fallback card when enrichment fails.
+                cacheable = false;
+            }
+
+            processed++;
+            if (cacheable) currentEntries.Add(CreateCacheEntry(device, book, isDictionary));
+            if (isDictionary)
+            {
+                visibleBooks.RemoveAll(candidate => candidate.RelativePath.Equals(
+                    book.RelativePath,
+                    StringComparison.OrdinalIgnoreCase));
+                removed.Add(book.RelativePath);
+            }
+            else
+            {
+                changed.Add(book);
+            }
+
+            if (changed.Count + removed.Count >= 8 || processed == enumerated.Count)
+            {
+                progress?.Report(new KindleScanProgress(
+                    KindleScanStage.Enriched,
+                    changed.ToArray(),
+                    removed.ToArray(),
+                    processed,
+                    enumerated.Count));
+                changed.Clear();
+                removed.Clear();
+            }
+        }
+
+        if (_scanCache is not null)
+            await _scanCache.ReplaceDeviceEntriesAsync(device.Identity, currentEntries, cancellationToken);
+        return visibleBooks;
+    }
+
+    private static IReadOnlyList<KindleBook> EnumerateMassStorageBooks(
+        KindleDevice device,
+        CancellationToken cancellationToken)
+    {
         var documents = GetDocumentsRoot(device);
         if (!Directory.Exists(documents)) return [];
         var books = new List<KindleBook>();
@@ -83,7 +184,6 @@ public sealed class KindleDeviceService : IKindleDeviceService
             var documentsRelativePath = Path.GetRelativePath(documents, path);
             if (IsDictionaryPath(documentsRelativePath)) continue;
             if (!SupportedExtensions.Contains(Path.GetExtension(path))) continue;
-            if (await KindleBookClassifier.IsDictionaryAsync(path, cancellationToken)) continue;
             try
             {
                 var info = new FileInfo(path);
@@ -92,16 +192,58 @@ public sealed class KindleDeviceService : IKindleDeviceService
                     RelativePath = Path.GetRelativePath(device.RootPath, path),
                     Format = Path.GetExtension(path).TrimStart('.').ToLowerInvariant(),
                     Size = info.Length,
-                    Sha256 = await Hashing.Sha256Async(path, cancellationToken),
+                    ModifiedAt = info.LastWriteTimeUtc,
                     IsManagedByKkindle = false
                 });
-                await EnrichBookAsync(device, books[^1], path, cancellationToken);
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
         return books;
     }
+
+    private static void ApplyCachedBook(KindleBook book, KindleScanCacheEntry cached)
+    {
+        book.Format = cached.Format;
+        book.Sha256 = cached.Sha256;
+        book.Title = cached.Title;
+        book.Authors = cached.Authors;
+        book.CoverPath = cached.CoverPath is not null && File.Exists(cached.CoverPath)
+            ? cached.CoverPath
+            : null;
+    }
+
+    private static KindleScanCacheEntry CreateCacheEntry(
+        KindleDevice device,
+        KindleBook book,
+        bool isDictionary) => new()
+    {
+        DeviceIdentity = device.Identity,
+        RelativePath = book.RelativePath,
+        Size = book.Size,
+        ModifiedAt = book.ModifiedAt,
+        Format = book.Format,
+        Sha256 = book.Sha256,
+        Title = book.Title,
+        Authors = book.Authors,
+        CoverPath = book.CoverPath,
+        IsDictionary = isDictionary
+    };
+
+    private static KindleBook CloneBook(KindleBook book) => new()
+    {
+        RelativePath = book.RelativePath,
+        Title = book.Title,
+        Authors = book.Authors,
+        Format = book.Format,
+        Size = book.Size,
+        Sha256 = book.Sha256,
+        CoverPath = book.CoverPath,
+        ModifiedAt = book.ModifiedAt,
+        IsManagedByKkindle = book.IsManagedByKkindle
+    };
+
+    private static string NormalizeDevicePath(string path) => path.Replace('/', '\\').TrimStart('\\');
 
     private static bool IsDictionaryPath(string relativePath)
     {
@@ -116,17 +258,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
         CancellationToken cancellationToken)
     {
         SetFallbackMetadata(book);
-        var classificationKey = $"{device.Identity}\n{book.RelativePath}\n{book.Size}";
         var cachedCover = FindCachedCover(device, book);
-        if (_dictionaryClassificationCache.TryGetValue(classificationKey, out var cachedClassification))
-        {
-            if (cachedClassification) return true;
-            if (cachedCover is not null)
-            {
-                book.CoverPath = cachedCover;
-                return false;
-            }
-        }
         if (_coverCacheDirectory is null || book.Size <= 0 || book.Size > MaximumMetadataFileSize) return false;
         if (book.Format is not ("epub" or "mobi" or "azw" or "azw3" or "kfx")) return false;
 
@@ -136,8 +268,8 @@ public sealed class KindleDeviceService : IKindleDeviceService
             var localPath = await Task.Run(
                 () => WpdKindleAccess.CopyBookToLocal(device, book, stagingDirectory, cancellationToken),
                 cancellationToken);
+            book.Sha256 = await Hashing.Sha256Async(localPath, cancellationToken);
             var isDictionary = await KindleBookClassifier.IsDictionaryAsync(localPath, cancellationToken);
-            _dictionaryClassificationCache[classificationKey] = isDictionary;
             if (isDictionary) return true;
             if (cachedCover is not null)
             {
@@ -204,7 +336,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
 
     private static string GetCoverCacheKey(KindleDevice device, KindleBook book)
     {
-        var identity = $"{device.Identity}\n{book.RelativePath}\n{book.Size}";
+        var identity = $"{device.Identity}\n{book.RelativePath}\n{book.Size}\n{book.ModifiedAt?.UtcTicks ?? 0}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
     }
 

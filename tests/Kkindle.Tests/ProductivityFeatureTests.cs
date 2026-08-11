@@ -29,6 +29,7 @@ public sealed class ProductivityFeatureTests
                 AiEnabled = false,
                 NetworkEnabled = false,
                 AutoConnectDevice = true,
+                CompareKindleLibraryEnabled = false,
                 DefaultReaderLayout = new ReaderLayoutSettings(FontScale: 9, LineHeight: -1)
             });
 
@@ -40,6 +41,7 @@ public sealed class ProductivityFeatureTests
             Assert.False(restored.AiEnabled);
             Assert.False(restored.NetworkEnabled);
             Assert.True(restored.AutoConnectDevice);
+            Assert.False(restored.CompareKindleLibraryEnabled);
             Assert.InRange(restored.DefaultReaderLayout.FontScale, 0.75, 2.0);
             Assert.InRange(restored.DefaultReaderLayout.LineHeight, 1.2, 2.8);
 
@@ -51,6 +53,7 @@ public sealed class ProductivityFeatureTests
             Assert.Equal("epub", defaults.PreferredOpenFormat);
             Assert.True(defaults.AutoGenerateEpubAndAzw3OnImport);
             Assert.True(defaults.AutoConnectDevice);
+            Assert.True(defaults.CompareKindleLibraryEnabled);
         }
         finally { TryDelete(root); }
     }

@@ -41,12 +41,25 @@ public sealed class BookLibraryComparerTests
     }
 
     [Fact]
-    public void DoesNotMatchUnknownAuthorsByTitleAlone()
+    public void MatchesUniqueCrossFormatCopiesByTitleWhenAuthorsAreUnreliable()
     {
-        var local = CreateBook("同名书", "未知作者", "LOCAL");
+        var local = CreateBook("同名书", "电子书免费赠送", "LOCAL");
         var kindle = CreateKindleBook("同名书", "未知作者", "DEVICE", "documents/other.epub");
 
         var result = BookLibraryComparer.Compare([local], [kindle]);
+
+        Assert.Contains(local.Id, result.BooksOnKindle);
+        Assert.Contains(kindle.RelativePath, result.KindleBooksOnComputer);
+    }
+
+    [Fact]
+    public void DoesNotUseTitleOnlyFallbackWhenTheTitleIsAmbiguous()
+    {
+        var firstLocal = CreateBook("同名书", "作者甲", "LOCAL-1");
+        var secondLocal = CreateBook("同名书", "作者乙", "LOCAL-2");
+        var kindle = CreateKindleBook("同名书", "未知作者", "DEVICE", "documents/other.epub");
+
+        var result = BookLibraryComparer.Compare([firstLocal, secondLocal], [kindle]);
 
         Assert.Empty(result.BooksOnKindle);
         Assert.Empty(result.KindleBooksOnComputer);

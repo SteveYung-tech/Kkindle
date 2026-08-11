@@ -40,6 +40,7 @@ public sealed class BookCardViewModel : ObservableObject
     private string _conversionProgressLabel = "0%";
     private string _conversionProgressMessage = "正在转换…";
     private BookLibraryPresence _libraryPresence = BookLibraryPresence.ComputerOnly;
+    private bool _isLibraryPresenceVisible = true;
 
     public BookLibraryPresence LibraryPresence
     {
@@ -65,6 +66,10 @@ public sealed class BookCardViewModel : ObservableObject
         BookLibraryPresence.KindleOnly => "仅 Kindle 书库有",
         _ => "仅电脑书库有"
     };
+
+    public Visibility PresenceVisibility => _isLibraryPresenceVisible
+        ? Visibility.Visible
+        : Visibility.Collapsed;
 
     public bool IsConversionProgressVisible
     {
@@ -116,6 +121,13 @@ public sealed class BookCardViewModel : ObservableObject
 
     public void SetLibraryPresence(BookLibraryPresence presence) => LibraryPresence = presence;
 
+    public void SetLibraryPresenceVisible(bool visible)
+    {
+        if (_isLibraryPresenceVisible == visible) return;
+        _isLibraryPresenceVisible = visible;
+        OnPropertyChanged(nameof(PresenceVisibility));
+    }
+
     public void Refresh()
     {
         CoverImage = null;
@@ -145,6 +157,7 @@ public sealed class BookCardViewModel : ObservableObject
 public sealed class KindleBookCardViewModel : ObservableObject
 {
     private BookLibraryPresence _libraryPresence = BookLibraryPresence.KindleOnly;
+    private bool _isLibraryPresenceVisible = true;
 
     public KindleBookCardViewModel(KindleBook book)
     {
@@ -190,7 +203,18 @@ public sealed class KindleBookCardViewModel : ObservableObject
         _ => "仅 Kindle 书库有"
     };
 
+    public Visibility PresenceVisibility => _isLibraryPresenceVisible
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
     public void SetLibraryPresence(BookLibraryPresence presence) => LibraryPresence = presence;
+
+    public void SetLibraryPresenceVisible(bool visible)
+    {
+        if (_isLibraryPresenceVisible == visible) return;
+        _isLibraryPresenceVisible = visible;
+        OnPropertyChanged(nameof(PresenceVisibility));
+    }
 }
 
 public sealed class ZLibraryBookCardViewModel : ObservableObject
@@ -328,6 +352,7 @@ public sealed class LibraryViewModel : ObservableObject
 {
     private readonly IBookLibraryService _library;
     private readonly string _dataRoot;
+    private readonly Dictionary<Guid, BookCardViewModel> _bookCards = [];
     private string _searchText = string.Empty;
     private string? _authorFilter;
     private string? _tagFilter;
@@ -441,6 +466,9 @@ public sealed class LibraryViewModel : ObservableObject
         {
             var allBooks = await _library.SearchAsync(cancellationToken: cancellationToken);
             LibraryBooks = allBooks;
+            _bookCards.Clear();
+            foreach (var book in allBooks)
+                _bookCards[book.Id] = new BookCardViewModel(book, _dataRoot);
             AvailableAuthors = allBooks
                 .SelectMany(book => book.Authors.Split(',', '，', ';', '；'))
                 .Select(author => author.Trim())
@@ -467,28 +495,43 @@ public sealed class LibraryViewModel : ObservableObject
                 .Order(StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
 
-            var filtered = allBooks.Where(MatchesFilters);
-            var books = SortMode switch
-            {
-                LibrarySortMode.TitleAscending => filtered.OrderBy(book => book.Title, StringComparer.CurrentCultureIgnoreCase).ToArray(),
-                LibrarySortMode.AuthorAscending => filtered.OrderBy(book => book.Authors, StringComparer.CurrentCultureIgnoreCase).ThenBy(book => book.Title).ToArray(),
-                LibrarySortMode.CreatedDescending => filtered.OrderByDescending(book => book.CreatedAt).ToArray(),
-                LibrarySortMode.ProgressDescending => filtered.OrderByDescending(book => book.ReadingStatus).ThenByDescending(book => book.UpdatedAt).ToArray(),
-                _ => filtered.OrderByDescending(book => book.UpdatedAt).ToArray()
-            };
-            Books.Clear();
-            foreach (var book in books) Books.Add(new BookCardViewModel(book, _dataRoot));
-            StatusText = books.Length == 0
-                ? allBooks.Count == 0 ? "书库还是空的"
-                    : CollectionFilterId is not null ? $"“{CollectionFilterName}”收藏夹还是空的"
-                    : "没有符合条件的书籍"
-                : HasActiveFilters || !string.IsNullOrWhiteSpace(SearchText)
-                    ? CollectionFilterId is not null
-                        ? $"{CollectionFilterName} · {books.Length} 本书"
-                        : $"找到 {books.Length} 本书"
-                    : $"共 {books.Length} 本书";
+            ApplyCurrentView();
         }
         finally { IsBusy = false; }
+    }
+
+    public void RefreshView() => ApplyCurrentView();
+
+    private void ApplyCurrentView()
+    {
+        var filtered = LibraryBooks.Where(MatchesFilters);
+        var books = SortMode switch
+        {
+            LibrarySortMode.TitleAscending => filtered.OrderBy(book => book.Title, StringComparer.CurrentCultureIgnoreCase).ToArray(),
+            LibrarySortMode.AuthorAscending => filtered.OrderBy(book => book.Authors, StringComparer.CurrentCultureIgnoreCase).ThenBy(book => book.Title).ToArray(),
+            LibrarySortMode.CreatedDescending => filtered.OrderByDescending(book => book.CreatedAt).ToArray(),
+            LibrarySortMode.ProgressDescending => filtered.OrderByDescending(book => book.ReadingStatus).ThenByDescending(book => book.UpdatedAt).ToArray(),
+            _ => filtered.OrderByDescending(book => book.UpdatedAt).ToArray()
+        };
+        Books.Clear();
+        foreach (var book in books)
+        {
+            if (!_bookCards.TryGetValue(book.Id, out var card))
+            {
+                card = new BookCardViewModel(book, _dataRoot);
+                _bookCards[book.Id] = card;
+            }
+            Books.Add(card);
+        }
+        StatusText = books.Length == 0
+            ? LibraryBooks.Count == 0 ? "书库还是空的"
+                : CollectionFilterId is not null ? $"“{CollectionFilterName}”收藏夹还是空的"
+                : "没有符合条件的书籍"
+            : HasActiveFilters || !string.IsNullOrWhiteSpace(SearchText)
+                ? CollectionFilterId is not null
+                    ? $"{CollectionFilterName} · {books.Length} 本书"
+                    : $"找到 {books.Length} 本书"
+                : $"共 {books.Length} 本书";
     }
 
     private bool MatchesFilters(Book book)

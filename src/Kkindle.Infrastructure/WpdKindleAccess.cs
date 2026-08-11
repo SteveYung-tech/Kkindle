@@ -98,6 +98,7 @@ internal static class WpdKindleAccess
                         RelativePath = relativePath,
                         Format = extension.TrimStart('.').ToLowerInvariant(),
                         Size = ReadInt64Property(child, "System.Size"),
+                        ModifiedAt = ReadDateTimeOffsetProperty(child, "System.DateModified"),
                         Sha256 = string.Empty,
                         IsManagedByKkindle = false
                     });
@@ -876,6 +877,19 @@ internal static class WpdKindleAccess
     {
         try { return ConvertToInt64(item.ExtendedProperty(propertyName)); }
         catch (COMException) { return 0; }
+    }
+
+    private static DateTimeOffset? ReadDateTimeOffsetProperty(dynamic item, string propertyName)
+    {
+        try
+        {
+            var value = item.ExtendedProperty(propertyName);
+            if (value is DateTime dateTime) return new DateTimeOffset(dateTime.ToUniversalTime());
+            return DateTimeOffset.TryParse((string?)Convert.ToString(value), out DateTimeOffset parsed)
+                ? parsed.ToUniversalTime()
+                : null;
+        }
+        catch (COMException) { return null; }
     }
 
     private static long ConvertToInt64(object? value)
