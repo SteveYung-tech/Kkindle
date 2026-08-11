@@ -14,6 +14,9 @@ public sealed partial class MainWindow
         bool isIndeterminate = false,
         bool autoHide = false)
     {
+        // The transfer toast is the progress surface for Kindle operations. Keep the
+        // generic task panel hidden so the two bottom-right overlays never stack.
+        TaskProgress.Visibility = Visibility.Collapsed;
         TransferToastTitleText.Text = title;
         TransferToastMessageText.Text = message;
         TransferToastProgress.IsIndeterminate = isIndeterminate;
