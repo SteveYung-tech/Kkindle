@@ -90,6 +90,7 @@ public sealed partial class MainWindow
         if (sender is FrameworkElement element
             && element.DataContext is ReaderTocMarker marker)
         {
+            SetReaderCompactHoverToolTip(null);
             NavigateToReaderTocItem(marker.Item);
         }
     }
@@ -237,7 +238,36 @@ public sealed partial class MainWindow
         }
 
         if (_readerCompactHoverToolTip is not null)
+        {
+            _readerCompactHoverToolTip.HorizontalOffset = GetReaderCompactToolTipHorizontalOffset();
             _readerCompactHoverToolTip.IsOpen = true;
+        }
+    }
+
+    private double GetReaderCompactToolTipHorizontalOffset()
+    {
+        var viewportWidth = ReaderWebView?.ActualWidth ?? 0;
+        if (viewportWidth <= 0)
+            viewportWidth = ReaderContentPanel?.ActualWidth ?? 0;
+
+        var minimumInset = Math.Clamp(
+            _readerLayout.BodyPadding,
+            ReaderLayoutDefaults.MinBodyPadding,
+            ReaderLayoutDefaults.MaxBodyPadding);
+        if (viewportWidth <= 0 || _readerLayout.VerticalWriting)
+            return minimumInset + 1;
+
+        var maximumWidth = Math.Clamp(
+            _readerLayout.MaxWidth,
+            ReaderLayoutDefaults.MinMaxWidth,
+            ReaderLayoutDefaults.MaxMaxWidth);
+        var contentInset = _readerFlowMode == 1 && _readerLayout.TwoPageMode
+            ? Math.Max(minimumInset, (viewportWidth - maximumWidth * 2) / 4)
+            : Math.Max(minimumInset, (viewportWidth - maximumWidth) / 2);
+
+        // The 50 px marker button is centered in a 52 px rail, leaving one
+        // pixel between its right edge and the reading viewport.
+        return contentInset + 1;
     }
 
     private static void SetReaderCompactMarkerWidth(Border marker, double width)
@@ -313,6 +343,7 @@ public sealed partial class MainWindow
 
     private void RefreshReaderCompactMarkers()
     {
+        SetReaderCompactHoverToolTip(null);
         ReaderTocCompactList.ItemsSource = _readerCompactNavigationItems
             .Select(item => new ReaderTocMarker(
                 item,

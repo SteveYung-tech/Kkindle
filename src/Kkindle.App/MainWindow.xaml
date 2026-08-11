@@ -2426,10 +2426,11 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="local:ReaderTocMarker">
-                                    <Button Width="42"
+                                    <Button Width="50"
                                             Height="10"
                                             MinWidth="0"
                                             Padding="0"
+                                            ClickMode="Press"
                                             HorizontalAlignment="Center"
                                             HorizontalContentAlignment="Center"
                                             VerticalContentAlignment="Center"
