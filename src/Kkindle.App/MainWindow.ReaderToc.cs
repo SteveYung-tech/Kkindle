@@ -16,7 +16,8 @@ public sealed record ReaderTocMarker(EpubReaderNavigationItem Item, bool IsCurre
     public static readonly SolidColorBrush HoverBrush = new(Colors.Black);
 
     public string Title => Item.Title;
-    public SolidColorBrush Fill => IsCurrent ? CurrentBrush : InactiveBrush;
+    public SolidColorBrush Fill => GetFill(IsCurrent);
+    public static SolidColorBrush GetFill(bool isCurrent) => isCurrent ? CurrentBrush : InactiveBrush;
 }
 
 public sealed partial class MainWindow
@@ -126,19 +127,8 @@ public sealed partial class MainWindow
         }
 
         if (closestMarker is null) return;
-        SetReaderCompactHoverToolTip(null);
         NavigateToReaderTocItem(closestMarker.Item);
         e.Handled = true;
-    }
-
-    private void ReaderCompactTocItem_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement element
-            && element.DataContext is ReaderTocMarker marker)
-        {
-            SetReaderCompactHoverToolTip(null);
-            NavigateToReaderTocItem(marker.Item);
-        }
     }
 
     private void ReaderTocCompactScrollViewer_PointerWheelChanged(
@@ -232,7 +222,13 @@ public sealed partial class MainWindow
         {
             if (button.Content is not Border marker || button.ActualHeight <= 0) continue;
             if (button.DataContext is ReaderTocMarker markerData)
-                marker.Background = markerData.Fill;
+            {
+                var isCurrent = _readerCompactSelectedTarget is not null
+                    && markerData.Item.Target.Equals(
+                        _readerCompactSelectedTarget,
+                        StringComparison.OrdinalIgnoreCase);
+                marker.Background = ReaderTocMarker.GetFill(isCurrent);
+            }
 
             try
             {
@@ -357,7 +353,6 @@ public sealed partial class MainWindow
     private void SetReaderCompactSelectedItem(EpubReaderNavigationItem? item)
     {
         _readerCompactSelectedTarget = item?.Target;
-        RefreshReaderCompactMarkers();
         QueueReaderCompactScrollIndicatorUpdate();
     }
 
