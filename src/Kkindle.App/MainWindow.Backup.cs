@@ -25,6 +25,7 @@ public sealed partial class MainWindow
         DetailColumn.Width = new GridLength(0);
         KindleEmailSettingsOverlay.Visibility = Visibility.Collapsed;
         SettingsDataPathText.Text = _paths.Data;
+        ShowSettingsSection("General");
     }
 
     private async void ExportBackupButton_Click(object sender, RoutedEventArgs e)

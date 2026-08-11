@@ -44,13 +44,13 @@ public sealed partial class MainWindow
             .FirstOrDefault(item => string.Equals(item.Tag as string, _appSettings.PreferredOpenFormat, StringComparison.OrdinalIgnoreCase))
             ?? PreferredOpenFormatBox.Items[0];
         CalibrePathBox.Text = _appSettings.CalibrePath;
-        AutoBackupCheck.IsChecked = _appSettings.AutoBackupEnabled;
-        AutoGenerateReaderFormatsCheck.IsChecked = _appSettings.AutoGenerateEpubAndAzw3OnImport;
+        AutoBackupCheck.IsOn = _appSettings.AutoBackupEnabled;
+        AutoGenerateReaderFormatsCheck.IsOn = _appSettings.AutoGenerateEpubAndAzw3OnImport;
         AutoBackupRetentionBox.Value = _appSettings.AutoBackupRetention;
-        AiEnabledCheck.IsChecked = _appSettings.AiEnabled;
-        NetworkEnabledCheck.IsChecked = _appSettings.NetworkEnabled;
-        AutoConnectDeviceCheck.IsChecked = _appSettings.AutoConnectDevice;
-        CompareKindleLibraryCheck.IsChecked = _appSettings.CompareKindleLibraryEnabled;
+        AiEnabledCheck.IsOn = _appSettings.AiEnabled;
+        NetworkEnabledCheck.IsOn = _appSettings.NetworkEnabled;
+        AutoConnectDeviceCheck.IsOn = _appSettings.AutoConnectDevice;
+        CompareKindleLibraryCheck.IsOn = _appSettings.CompareKindleLibraryEnabled;
         var version = typeof(MainWindow).Assembly.GetName().Version;
         AboutVersionText.Text = version is null ? "版本未知" : $"版本 {version.ToString(3)}";
         DefaultFontScaleBox.Value = _appSettings.DefaultReaderLayout.FontScale;
@@ -58,7 +58,7 @@ public sealed partial class MainWindow
         DefaultMaxWidthBox.Value = _appSettings.DefaultReaderLayout.MaxWidth;
         DefaultBodyPaddingBox.Value = _appSettings.DefaultReaderLayout.BodyPadding;
         SelectFontFamily(DefaultFontFamilyBox, _appSettings.DefaultReaderLayout.FontFamily);
-        DefaultVerticalWritingCheck.IsChecked = _appSettings.DefaultReaderLayout.VerticalWriting;
+        DefaultVerticalWritingCheck.IsOn = _appSettings.DefaultReaderLayout.VerticalWriting;
     }
 
     private async void SaveApplicationSettingsButton_Click(object sender, RoutedEventArgs e)
@@ -69,13 +69,13 @@ public sealed partial class MainWindow
             {
                 PreferredOpenFormat = (PreferredOpenFormatBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "epub",
                 CalibrePath = CalibrePathBox.Text,
-                AutoBackupEnabled = AutoBackupCheck.IsChecked == true,
-                AutoGenerateEpubAndAzw3OnImport = AutoGenerateReaderFormatsCheck.IsChecked == true,
+                AutoBackupEnabled = AutoBackupCheck.IsOn,
+                AutoGenerateEpubAndAzw3OnImport = AutoGenerateReaderFormatsCheck.IsOn,
                 AutoBackupRetention = double.IsFinite(AutoBackupRetentionBox.Value) ? (int)AutoBackupRetentionBox.Value : 5,
-                AiEnabled = AiEnabledCheck.IsChecked == true,
-                NetworkEnabled = NetworkEnabledCheck.IsChecked == true,
-                AutoConnectDevice = AutoConnectDeviceCheck.IsChecked == true,
-                CompareKindleLibraryEnabled = CompareKindleLibraryCheck.IsChecked == true,
+                AiEnabled = AiEnabledCheck.IsOn,
+                NetworkEnabled = NetworkEnabledCheck.IsOn,
+                AutoConnectDevice = AutoConnectDeviceCheck.IsOn,
+                CompareKindleLibraryEnabled = CompareKindleLibraryCheck.IsOn,
                 DefaultReaderLayout = new ReaderLayoutSettings(
                     DefaultFontScaleBox.Value,
                     DefaultLineHeightBox.Value,
@@ -83,7 +83,7 @@ public sealed partial class MainWindow
                     DefaultBodyPaddingBox.Value,
                     (DefaultFontFamilyBox.SelectedItem as ComboBoxItem)?.Tag as string ?? ReaderFontDefaults.DefaultFamily,
                     _appSettings.DefaultReaderLayout.FlowMode,
-                    DefaultVerticalWritingCheck.IsChecked == true,
+                    DefaultVerticalWritingCheck.IsOn,
                     _appSettings.DefaultReaderLayout.TwoPageMode)
             });
             await _appSettingsStore.SaveAsync(_appSettings);

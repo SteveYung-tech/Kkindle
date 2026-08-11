@@ -9,7 +9,7 @@ public sealed partial class MainWindow
     private async void SendBookToKindleMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is MenuFlyoutItem { Tag: Book book })
-            await SendBookToKindleFromContextAsync(book);
+            await TrackDeviceOperationAsync(() => SendBookToKindleFromContextAsync(book));
     }
 
     private async Task SendBookToKindleFromContextAsync(Book book)

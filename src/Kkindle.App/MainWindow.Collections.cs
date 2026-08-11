@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Kkindle.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace Kkindle;
 
@@ -23,8 +24,16 @@ public sealed partial class MainWindow
         CollectionFolders.Clear();
         foreach (var collection in _bookCollections)
         {
-            var count = ViewModel.LibraryBooks.Count(book => book.CollectionIds.Contains(collection.Id));
-            CollectionFolders.Add(new BookCollectionFolderViewModel(collection, count));
+            var booksInCollection = ViewModel.LibraryBooks
+                .Where(book => book.CollectionIds.Contains(collection.Id))
+                .OrderByDescending(book => book.UpdatedAt)
+                .ToList();
+            var count = booksInCollection.Count;
+            CollectionFolders.Add(new BookCollectionFolderViewModel(
+                collection,
+                count,
+                _paths.Data,
+                booksInCollection.Take(3).Select(book => book.CoverPath).ToArray()));
         }
 
         if (ViewModel.CollectionFilterId is { } selectedId
@@ -223,14 +232,42 @@ public sealed partial class MainWindow
 
 public sealed class BookCollectionFolderViewModel
 {
-    public BookCollectionFolderViewModel(BookCollection collection, int bookCount)
+    private readonly BitmapImage?[] _covers = new BitmapImage?[3];
+
+    public BookCollectionFolderViewModel(
+        BookCollection collection,
+        int bookCount,
+        string dataRoot,
+        IReadOnlyList<string?> coverPaths)
     {
         Collection = collection;
         BookCount = bookCount;
+        for (var index = 0; index < _covers.Length; index++)
+        {
+            var path = index < coverPaths.Count ? coverPaths[index] : null;
+            _covers[index] = LoadCover(dataRoot, path);
+        }
+    }
+
+    private static BitmapImage? LoadCover(string dataRoot, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        try
+        {
+            var fullPath = Path.GetFullPath(Path.Combine(dataRoot, path));
+            return File.Exists(fullPath) ? new BitmapImage(new Uri(fullPath)) : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public BookCollection Collection { get; }
     public string Name => Collection.Name;
     public int BookCount { get; }
     public string BookCountLabel => $"{BookCount} 本书";
+    public BitmapImage? Cover1 => _covers[0];
+    public BitmapImage? Cover2 => _covers[1];
+    public BitmapImage? Cover3 => _covers[2];
 }

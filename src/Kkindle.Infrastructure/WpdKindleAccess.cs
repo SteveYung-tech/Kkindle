@@ -8,6 +8,24 @@ internal static class WpdKindleAccess
     private const int MyComputerShellFolder = 17;
     private const int CopyWithoutUi = 4 | 16 | 1024;
 
+    public static void ReleaseDeviceSessions(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Shell.Application exposes WPD objects through COM wrappers. Releasing
+        // their final references closes the WPD session, matching calibre's MTP
+        // eject semantics without placing the physical device in pending-eject.
+        FlushReleasedComObjects();
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    public static void CloseDeviceSession(KindleDevice device, CancellationToken cancellationToken)
+    {
+        ReleaseDeviceSessions(cancellationToken);
+        WpdSessionCloser.CloseSession(device.RootPath, cancellationToken);
+        FlushReleasedComObjects();
+    }
+
     public static IReadOnlyList<KindleDevice> DetectDevices(CancellationToken cancellationToken)
     {
         var devices = new List<KindleDevice>();
@@ -47,6 +65,7 @@ internal static class WpdKindleAccess
         finally
         {
             Release(shell);
+            FlushReleasedComObjects();
         }
         return devices;
     }
@@ -112,6 +131,7 @@ internal static class WpdKindleAccess
         finally
         {
             Release(shell);
+            FlushReleasedComObjects();
         }
         return books.OrderBy(book => book.RelativePath, StringComparer.CurrentCultureIgnoreCase).ToArray();
     }
@@ -403,16 +423,20 @@ internal static class WpdKindleAccess
     {
         Directory.CreateDirectory(destinationDirectory);
         dynamic? shell = null;
+        dynamic? kindle = null;
+        dynamic? storage = null;
+        dynamic? item = null;
+        dynamic? destination = null;
         try
         {
             shell = CreateShell();
-            dynamic? kindle = FindDevice(shell, device.RootPath)
+            kindle = FindDevice(shell, device.RootPath)
                 ?? throw new IOException("Kindle 已断开连接。");
-            dynamic? storage = FindFirstStorage(kindle)
+            storage = FindFirstStorage(kindle)
                 ?? throw new IOException("无法读取 Kindle 内部存储。");
-            dynamic? item = FindItemByRelativePath(storage, $"documents\\{book.RelativePath}")
+            item = FindItemByRelativePath(storage, $"documents\\{book.RelativePath}")
                 ?? throw new FileNotFoundException("Kindle 书籍不存在。", book.RelativePath);
-            dynamic? destination = shell.NameSpace(destinationDirectory)
+            destination = shell.NameSpace(destinationDirectory)
                 ?? throw new IOException("无法创建封面缓存目录。");
 
             var destinationPath = Path.Combine(destinationDirectory, book.FileName);
@@ -437,7 +461,12 @@ internal static class WpdKindleAccess
         }
         finally
         {
+            Release(destination);
+            Release(item);
+            Release(storage);
+            Release(kindle);
             Release(shell);
+            FlushReleasedComObjects();
         }
     }
 
@@ -906,4 +935,12 @@ internal static class WpdKindleAccess
         if (value is not null && Marshal.IsComObject(value))
             Marshal.FinalReleaseComObject(value);
     }
+
+    private static void FlushReleasedComObjects()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
+
 }

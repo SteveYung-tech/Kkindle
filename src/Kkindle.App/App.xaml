@@ -72,6 +72,24 @@
             <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPointerOver" Color="#FFFFFF" />
             <SolidColorBrush x:Key="CheckBoxCheckGlyphForegroundCheckedPressed" Color="#FFFFFF" />
 
+            <!-- Monochrome ToggleSwitch on-states. -->
+            <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOnDisabled" Color="#BFBFBF" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOn" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPressed" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOnDisabled" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOn" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOnPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOnPressed" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOnDisabled" Color="#BFBFBF" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobStrokeOn" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobStrokeOnPointerOver" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobStrokeOnPressed" Color="#000000" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobStrokeOnDisabled" Color="#BFBFBF" />
+
             <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFill" Color="#000000" />
             <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFillPointerOver" Color="#000000" />
             <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFillPressed" Color="#000000" />

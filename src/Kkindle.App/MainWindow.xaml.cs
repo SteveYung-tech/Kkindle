@@ -15,6 +15,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Web.WebView2.Core;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage.Pickers;
+using Windows.UI;
 using WinRT.Interop;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
@@ -41,7 +42,13 @@ public sealed partial class MainWindow : Window
     private IReadOnlyList<KindleDevice> _devices = [];
     private bool _isRefreshingDevices;
     private bool _isTransferring;
+    private readonly object _deviceOperationSync = new();
+    private readonly HashSet<Task> _activeDeviceOperations = [];
+    private bool _deviceEjectInProgress;
+    private EventHandler<object>? _deviceStatusLayoutUpdatedHandler;
     private CancellationTokenSource? _transferCancellation;
+    private CancellationTokenSource? _deviceScanCancellation;
+    private Task? _deviceScanTask;
     private bool _isUpdatingFilters;
     private CancellationTokenSource? _librarySearchDebounceCancellation;
     private string? _scannedDeviceId;
@@ -178,14 +185,22 @@ public sealed partial class MainWindow : Window
 
         _deviceTimer = DispatcherQueue.CreateTimer();
         _deviceTimer.Interval = TimeSpan.FromSeconds(3);
-        _deviceTimer.Tick += async (_, _) => await RefreshDevicesAsync();
+        _deviceTimer.Tick += async (_, _) =>
+        {
+            // Native device notifications handle removal while connected. Polling a
+            // live MTP Kindle repeatedly reopens WPD and can defeat its Disconnect UI.
+            if ((_devices.Count == 0 || _deviceChangeMonitor is null)
+                && _manuallyDisconnectedDeviceId is null)
+                await RefreshDevicesAsync();
+        };
         _deviceTimer.Start();
         _deviceConnectedToastTimer = DispatcherQueue.CreateTimer();
         _deviceConnectedToastTimer.Interval = TimeSpan.FromSeconds(3);
         _deviceConnectedToastTimer.Tick += (_, _) =>
         {
             _deviceConnectedToastTimer.Stop();
-            DeviceConnectedToast.Visibility = Visibility.Collapsed;
+            ClearPendingDeviceStatusPositionUpdate();
+            DeviceStatusPopup.IsOpen = false;
         };
         RootGrid.Loaded += MainWindow_Loaded;
         RootGrid.Loaded += (_, _) => EnsureInteractiveControlToolTips(RootGrid);
@@ -307,7 +322,13 @@ public sealed partial class MainWindow : Window
 
     private void DeviceChangeMonitor_DeviceChanged(object? sender, EventArgs e)
     {
-        DispatcherQueue.TryEnqueue(async () => await RefreshDevicesAsync());
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            // A real USB removal/reconnect is the signal that polling may resume
+            // after the user explicitly disconnected an MTP Kindle.
+            _manuallyDisconnectedDeviceId = null;
+            await RefreshDevicesAsync();
+        });
     }
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)
@@ -343,6 +364,9 @@ public sealed partial class MainWindow : Window
         _deviceResourceCancellation?.Cancel();
         _deviceResourceCancellation?.Dispose();
         _deviceResourceCancellation = null;
+        _deviceResourceScanCancellation?.Cancel();
+        _deviceResourceScanCancellation?.Dispose();
+        _deviceResourceScanCancellation = null;
         _readingMaterialsCancellation?.Cancel();
         _readingMaterialsCancellation?.Dispose();
         _readingMaterialsCancellation = null;
@@ -353,6 +377,8 @@ public sealed partial class MainWindow : Window
 
         _deviceTimer.Stop();
         _deviceConnectedToastTimer.Stop();
+        _deviceScanCancellation?.Cancel();
+        _deviceScanCancellation?.Dispose();
         HideTransferToast();
         _transferCancellation?.Cancel();
         _transferCancellation?.Dispose();
@@ -441,6 +467,10 @@ public sealed partial class MainWindow : Window
     private async Task RefreshDevicesAsync()
     {
         if (_isRefreshingDevices) return;
+        // Do not reopen Windows Shell/WPD sessions after an explicit disconnect.
+        // Repeated polling prevented Kindle's own Disconnect button from completing
+        // on the first press. RefreshDeviceButton and native USB changes clear this.
+        if (_manuallyDisconnectedDeviceId is not null) return;
         _isRefreshingDevices = true;
         try
         {
@@ -456,16 +486,6 @@ public sealed partial class MainWindow : Window
             }
 
             var device = detectedDevices[0];
-            if (string.Equals(
-                    _manuallyDisconnectedDeviceId,
-                    device.Identity,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                SetDisconnectedDeviceState($"已断开 {device.Name} · 点击刷新设备可重新连接");
-                return;
-            }
-            if (_manuallyDisconnectedDeviceId is not null)
-                _manuallyDisconnectedDeviceId = null;
             var wasConnectedToSameDevice = _devices.Count > 0
                 && string.Equals(_devices[0].Identity, device.Identity, StringComparison.OrdinalIgnoreCase);
             if (_isTransferring
@@ -507,13 +527,21 @@ public sealed partial class MainWindow : Window
             KindleConnectionText.Text = $"{device.ConnectionLabel} · 已连接";
             EjectDeviceButton.Visibility = Visibility.Visible;
             EjectDeviceButton.IsEnabled = true;
-            ToolTipService.SetToolTip(EjectDeviceButton, "弹出设备");
+            var disconnectAction = device.Transport == KindleTransport.Wpd
+                ? "停止访问设备"
+                : "安全弹出设备";
+            AutomationProperties.SetName(EjectDeviceButton, disconnectAction);
+            ToolTipService.SetToolTip(EjectDeviceButton, disconnectAction);
             DeviceStorageText.Text = device.CapacityLabel;
+            DevicePageEjectButton.IsEnabled = true;
+            AutomationProperties.SetName(DevicePageEjectButton, disconnectAction);
+            ToolTipService.SetToolTip(DevicePageEjectButton, disconnectAction);
             _deviceUsedRatio = device.TotalBytes <= 0
                 ? 0
                 : Math.Clamp((device.TotalBytes - device.FreeBytes) / (double)device.TotalBytes, 0, 1);
             UpdateDeviceStorageBar();
             DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
+            KindleConnectionText.Visibility = Visibility.Visible;
             if (!wasConnectedToSameDevice) ShowDeviceConnectedToast(device);
             if (!string.Equals(_scannedDeviceId, device.Identity, StringComparison.OrdinalIgnoreCase))
                 await ScanDeviceBooksAsync(device);
@@ -526,6 +554,10 @@ public sealed partial class MainWindow : Window
                 && !string.Equals(_readingMaterialsDeviceId, device.Identity, StringComparison.OrdinalIgnoreCase))
                 await RefreshReadingMaterialsAsync();
         }
+        catch (OperationCanceledException) when (_manuallyDisconnectedDeviceId is not null)
+        {
+            // Explicit disconnect cancels the active WPD scan before ejecting.
+        }
         catch
         {
             SetDisconnectedDeviceState("设备状态读取失败");
@@ -533,16 +565,24 @@ public sealed partial class MainWindow : Window
         finally { _isRefreshingDevices = false; }
     }
 
-    private void SetDisconnectedDeviceState(string? detail = null)
+    private void SetDisconnectedDeviceState(
+        string? detail = null,
+        bool preserveDeviceToast = false)
     {
         var refreshReadingMaterials = ReadingMaterialsPage.Visibility == Visibility.Visible
             && (_readingMaterialsDeviceId is not null
                 || _allReadingMaterials.Any(item => item.Source == ReadingMaterialSource.Kindle));
         _deviceResourceCancellation?.Cancel();
+        _deviceResourceScanCancellation?.Cancel();
         _readingMaterialsCancellation?.Cancel();
+        _deviceScanCancellation?.Cancel();
         _devices = [];
-        _deviceConnectedToastTimer.Stop();
-        DeviceConnectedToast.Visibility = Visibility.Collapsed;
+        if (!preserveDeviceToast)
+        {
+            _deviceConnectedToastTimer.Stop();
+            ClearPendingDeviceStatusPositionUpdate();
+            DeviceStatusPopup.IsOpen = false;
+        }
         _scannedDeviceId = null;
         _scannedResourceDeviceId = null;
         _scannedResourceKind = null;
@@ -551,10 +591,17 @@ public sealed partial class MainWindow : Window
         ReconcileLibraryPresence();
         KindleStatusText.Text = "无设备连接";
         KindleConnectionText.Text = detail ?? string.Empty;
+        KindleConnectionText.Visibility = string.IsNullOrWhiteSpace(detail)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         EjectDeviceButton.Visibility = Visibility.Visible;
         EjectDeviceButton.IsEnabled = false;
+        AutomationProperties.SetName(EjectDeviceButton, "未连接设备");
         ToolTipService.SetToolTip(EjectDeviceButton, "未连接设备");
         DeviceStorageText.Text = "无存储信息";
+        DevicePageEjectButton.IsEnabled = false;
+        AutomationProperties.SetName(DevicePageEjectButton, "未连接设备");
+        ToolTipService.SetToolTip(DevicePageEjectButton, "未连接设备");
         _deviceUsedRatio = 0;
         UpdateDeviceStorageBar();
         DeviceNameText.Text = "未检测到设备";
@@ -571,25 +618,117 @@ public sealed partial class MainWindow : Window
     }
 
     private void ShowDeviceConnectedToast(KindleDevice device)
+        => ShowDeviceStatusToast($"{device.Name} 已连接");
+
+    private void ShowDeviceStatusToast(string message)
     {
-        DeviceConnectedToastText.Text = $"{device.Name} 已连接";
-        DeviceConnectedToast.Visibility = Visibility.Visible;
+        DeviceConnectedToastText.Text = message;
+        DeviceStatusPopup.IsOpen = true;
+        PositionDeviceStatusToast();
+        ScheduleDeviceStatusPositionAfterLayout();
         _deviceConnectedToastTimer.Stop();
         _deviceConnectedToastTimer.Start();
     }
 
+    private void ScheduleDeviceStatusPositionAfterLayout()
+    {
+        ClearPendingDeviceStatusPositionUpdate();
+        EventHandler<object>? handler = null;
+        handler = (_, _) =>
+        {
+            if (handler is not null) EjectDeviceButton.LayoutUpdated -= handler;
+            if (ReferenceEquals(_deviceStatusLayoutUpdatedHandler, handler))
+                _deviceStatusLayoutUpdatedHandler = null;
+            DispatcherQueue.TryEnqueue(PositionDeviceStatusToast);
+        };
+        _deviceStatusLayoutUpdatedHandler = handler;
+        EjectDeviceButton.LayoutUpdated += handler;
+    }
+
+    private void ClearPendingDeviceStatusPositionUpdate()
+    {
+        if (_deviceStatusLayoutUpdatedHandler is null) return;
+        EjectDeviceButton.LayoutUpdated -= _deviceStatusLayoutUpdatedHandler;
+        _deviceStatusLayoutUpdatedHandler = null;
+    }
+
+    private void PositionDeviceStatusToast()
+    {
+        var anchor = EjectDeviceButton;
+        if (!DeviceStatusPopup.IsOpen || anchor.XamlRoot is null) return;
+        DeviceStatusToast.Measure(
+            new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        var popupSize = DeviceStatusToast.DesiredSize;
+        // Both eject icons are 8-DIP upward triangles centered in their buttons.
+        // Anchor to the triangle apex rather than the button bounds.
+        var anchorTriangleApex = anchor.TransformToVisual(RootGrid).TransformPoint(
+            new Windows.Foundation.Point(anchor.ActualWidth / 2, anchor.ActualHeight / 2 - 4));
+        const double edgeMargin = 8;
+        const double pointerCenterFromLeft = 20;
+        var maxLeft = Math.Max(edgeMargin, RootGrid.ActualWidth - popupSize.Width - edgeMargin);
+        var popupLeft = Math.Clamp(anchorTriangleApex.X - pointerCenterFromLeft, edgeMargin, maxLeft);
+        var popupTop = Math.Max(edgeMargin, anchorTriangleApex.Y - popupSize.Height - 2);
+        var pointerLeft = Math.Clamp(
+            anchorTriangleApex.X - popupLeft - DeviceStatusToastPointer.Width / 2,
+            0,
+            Math.Max(0, popupSize.Width - DeviceStatusToastPointer.Width));
+
+        DeviceStatusToastPointer.Margin = new Thickness(pointerLeft, 0, 0, 0);
+        DeviceStatusPopup.HorizontalOffset = popupLeft;
+        DeviceStatusPopup.VerticalOffset = popupTop;
+    }
+
     private async Task ScanDeviceBooksAsync(KindleDevice device)
     {
+        _deviceScanCancellation?.Cancel();
+        _deviceScanCancellation?.Dispose();
+        var cancellation = new CancellationTokenSource();
+        _deviceScanCancellation = cancellation;
         DeviceNameText.Text = $"{device.Name} · 正在快速读取书籍列表…";
         var scanProgress = new Progress<KindleScanProgress>(ApplyKindleScanProgress);
-        var books = await Task.Run(() =>
-            _kindle.ScanBooksProgressivelyAsync(device, scanProgress));
-        DeviceBooks.Clear();
-        foreach (var book in books) DeviceBooks.Add(new KindleBookCardViewModel(book));
-        ReconcileLibraryPresence();
-        DeviceBookCountText.Text = books.Count.ToString();
-        DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
-        _scannedDeviceId = device.Identity;
+        var scanTask = _kindle.ScanBooksProgressivelyAsync(device, scanProgress, cancellation.Token);
+        _deviceScanTask = scanTask;
+        try
+        {
+            var books = await scanTask;
+            cancellation.Token.ThrowIfCancellationRequested();
+            DeviceBooks.Clear();
+            foreach (var book in books) DeviceBooks.Add(new KindleBookCardViewModel(book));
+            ReconcileLibraryPresence();
+            DeviceBookCountText.Text = books.Count.ToString();
+            DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
+            _scannedDeviceId = device.Identity;
+        }
+        finally
+        {
+            if (ReferenceEquals(_deviceScanTask, scanTask)) _deviceScanTask = null;
+            if (ReferenceEquals(_deviceScanCancellation, cancellation))
+            {
+                _deviceScanCancellation = null;
+                cancellation.Dispose();
+            }
+        }
+    }
+
+    private async Task StopDeviceAccessAsync()
+    {
+        _deviceResourceCancellation?.Cancel();
+        _readingMaterialsCancellation?.Cancel();
+        _deviceScanCancellation?.Cancel();
+
+        var scanTask = _deviceScanTask;
+        if (scanTask is null) return;
+        try
+        {
+            await scanTask.WaitAsync(TimeSpan.FromSeconds(8));
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (TimeoutException)
+        {
+            throw new IOException("后台 Kindle 扫描未能及时停止，请稍后重试断开。");
+        }
     }
 
     private void RefreshLibraryView()
@@ -758,7 +897,9 @@ public sealed partial class MainWindow : Window
                 .Count(value => !string.IsNullOrWhiteSpace(value));
             if (ViewModel.ReadingStatusFilter is not null) activeCount++;
             if (ViewModel.FavoritesOnly) activeCount++;
-            FilterButton.Content = activeCount == 0 ? "筛选" : $"筛选 · {activeCount}";
+            var filterLabel = activeCount == 0 ? "筛选" : $"筛选 · 已启用 {activeCount} 项";
+            AutomationProperties.SetName(FilterButton, filterLabel);
+            ToolTipService.SetToolTip(FilterButton, filterLabel);
         }
         finally { _isUpdatingFilters = false; }
     }
@@ -971,7 +1112,10 @@ public sealed partial class MainWindow : Window
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(DetailsReadingStatusButton, label);
     }
 
-    private async void SendToKindleButton_Click(object sender, RoutedEventArgs e)
+    private async void SendToKindleButton_Click(object sender, RoutedEventArgs e) =>
+        await TrackDeviceOperationAsync(SendToKindleAsync);
+
+    private async Task SendToKindleAsync()
     {
         if (_isTransferring) return;
         if (_selectedBook is null || _selectedBook.Files.Count == 0)
@@ -1056,12 +1200,13 @@ public sealed partial class MainWindow : Window
         DetailColumn.Width = new GridLength(0);
     }
 
-    private async void LibraryViewToggleButton_Click(object sender, RoutedEventArgs e)
+    private async void LibraryViewMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        var nextMode = _libraryViewMode switch
+        if (sender is not FrameworkElement { Tag: string tag }) return;
+        var nextMode = tag switch
         {
-            LibraryViewMode.Grid => LibraryViewMode.List,
-            LibraryViewMode.List => LibraryViewMode.Collections,
+            "List" => LibraryViewMode.List,
+            "Collections" => LibraryViewMode.Collections,
             _ => LibraryViewMode.Grid
         };
         if (nextMode == LibraryViewMode.Collections && ViewModel.CollectionFilterId is not null)
@@ -1088,16 +1233,22 @@ public sealed partial class MainWindow : Window
             : Visibility.Collapsed;
         UpdateCollectionEmptyState();
 
-        var (symbol, nextView) = mode switch
+        var (symbol, label) = mode switch
         {
-            LibraryViewMode.Grid => (Symbol.Bullets, "列表"),
-            LibraryViewMode.List => (Symbol.Folder, "收藏夹"),
-            _ => (Symbol.ViewAll, "网格")
+            LibraryViewMode.Grid => (Symbol.ViewAll, "网格"),
+            LibraryViewMode.List => (Symbol.Bullets, "列表"),
+            _ => (Symbol.Folder, "收藏夹")
         };
         LibraryViewToggleIcon.Symbol = symbol;
-        var label = $"切换到{nextView}视图";
-        AutomationProperties.SetName(LibraryViewToggleButton, label);
-        ToolTipService.SetToolTip(LibraryViewToggleButton, label);
+        if (LibraryViewGridItem is not null)
+        {
+            LibraryViewGridItem.IsChecked = mode == LibraryViewMode.Grid;
+            LibraryViewListItem.IsChecked = mode == LibraryViewMode.List;
+            LibraryViewCollectionsItem.IsChecked = mode == LibraryViewMode.Collections;
+        }
+        var viewLabel = $"当前：{label}视图";
+        AutomationProperties.SetName(LibraryViewToggleButton, viewLabel);
+        ToolTipService.SetToolTip(LibraryViewToggleButton, viewLabel);
     }
 
     private void FilterButton_Click(object sender, RoutedEventArgs e) =>
@@ -1108,6 +1259,38 @@ public sealed partial class MainWindow : Window
     private async void AddTagButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("标签", "可以在书籍详情中直接编辑标签，多个标签用逗号分隔。");
     private async void AddCategoryButton_Click(object sender, RoutedEventArgs e) => await ShowMessageAsync("分类", "分类功能将在书库筛选基础完成后接入。");
     private void SettingsButton_Click(object sender, RoutedEventArgs e) => ShowSettings();
+
+    private void SettingsCategoryButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag }) return;
+        ShowSettingsSection(tag);
+    }
+
+    private void ShowSettingsSection(string tag)
+    {
+        SettingsGeneralSection.Visibility = tag == "General" ? Visibility.Visible : Visibility.Collapsed;
+        SettingsLibrarySection.Visibility = tag == "Library" ? Visibility.Visible : Visibility.Collapsed;
+        SettingsKindleSection.Visibility = tag == "Kindle" ? Visibility.Visible : Visibility.Collapsed;
+        SettingsReadingSection.Visibility = tag == "Reading" ? Visibility.Visible : Visibility.Collapsed;
+        SettingsBackupSection.Visibility = tag == "Backup" ? Visibility.Visible : Visibility.Collapsed;
+        SettingsAboutSection.Visibility = tag == "About" ? Visibility.Visible : Visibility.Collapsed;
+
+        var selectedColor = Color.FromArgb(255, 0x00, 0x00, 0x00);
+        var idleColor = Color.FromArgb(255, 0x5A, 0x5A, 0x5A);
+        var idleIndicatorColor = Color.FromArgb(255, 0xCF, 0xCF, 0xCF);
+        foreach (var button in new[]
+        {
+            SettingsGeneralButton, SettingsLibraryButton, SettingsKindleButton,
+            SettingsReadingButton, SettingsBackupButton, SettingsAboutButton
+        })
+        {
+            var selected = string.Equals(button.Tag as string, tag, StringComparison.OrdinalIgnoreCase);
+            button.Background = new SolidColorBrush(Colors.White);
+            button.Foreground = new SolidColorBrush(selected ? selectedColor : idleColor);
+            button.BorderBrush = new SolidColorBrush(selected ? selectedColor : idleIndicatorColor);
+            button.FontWeight = selected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+        }
+    }
     private void KindleBooksButton_Click(object sender, RoutedEventArgs e) => OpenDevicePage();
 
     private void OpenDevicePage()
@@ -1137,36 +1320,103 @@ public sealed partial class MainWindow : Window
         await RefreshDevicesAsync();
     }
 
+    private bool HasActiveDeviceOperations
+    {
+        get
+        {
+            lock (_deviceOperationSync) return _activeDeviceOperations.Count > 0;
+        }
+    }
+
+    private async Task TrackDeviceOperationAsync(Func<Task> operation)
+    {
+        // Once eject begins, existing operations are drained and new device work
+        // must not reopen a WPD session before the removal request completes.
+        if (_deviceEjectInProgress) return;
+        var task = operation();
+        lock (_deviceOperationSync) _activeDeviceOperations.Add(task);
+        try
+        {
+            await task;
+        }
+        finally
+        {
+            lock (_deviceOperationSync) _activeDeviceOperations.Remove(task);
+        }
+    }
+
+    private async Task WaitForActiveDeviceOperationsAsync()
+    {
+        while (true)
+        {
+            Task[] tasks;
+            lock (_deviceOperationSync) tasks = _activeDeviceOperations.ToArray();
+            if (tasks.Length == 0) return;
+            await Task.WhenAll(tasks);
+        }
+    }
+
     private async void EjectDeviceButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_isTransferring)
-        {
-            await ShowMessageAsync("正在传输", "请等待书籍传输完成后再弹出设备。");
-            return;
-        }
-        if (_devices.Count == 0) return;
+        if (_devices.Count == 0 || _deviceEjectInProgress) return;
+        _deviceEjectInProgress = true;
+        var refreshReadingMaterialsAfterEject = false;
 
         var device = _devices[0];
         var isWpd = device.Transport == KindleTransport.Wpd;
-        if (!await ShowDevicePromptAsync(
-                isWpd ? "断开 Kindle？" : "安全弹出 Kindle？",
-                isWpd
-                    ? "Kindle Scribe 使用 MTP 连接，不提供磁盘安全弹出。Kkindle 将停止访问设备，随后可以断开 USB。"
-                    : "请确认当前没有正在进行的传输。",
-                isWpd ? "断开" : "弹出",
-                "取消")) return;
-
         try
         {
-            if (!isWpd) await _kindle.EjectAsync(device);
+            if (!await ShowDevicePromptAsync(
+                    isWpd ? "停止访问 Kindle？" : "安全弹出 Kindle？",
+                    isWpd
+                        ? "Kkindle 将停止访问并释放设备会话；随后请在 Kindle 屏幕上点击“断开连接”。若有传输任务正在进行，将等待其完成后自动断开。"
+                        : "若有传输任务正在进行，将等待其完成后自动断开。",
+                    isWpd ? "停止访问" : "弹出",
+                    "取消")) return;
+
+            // Block refresh polling before waiting so no new WPD session can be
+            // opened between the final operation and the eject request.
+            _manuallyDisconnectedDeviceId = device.Identity;
+            _deviceResourceScanCancellation?.Cancel();
+            _readingMaterialsCancellation?.Cancel();
+            _deviceScanCancellation?.Cancel();
+
+            if (_isTransferring || _deviceResourceOperationInProgress || HasActiveDeviceOperations)
+            {
+                ShowTransferToast(
+                    "正在等待设备操作完成",
+                    "检测到设备任务正在进行，完成后将自动断开设备。",
+                    isIndeterminate: true);
+                try
+                {
+                    await WaitForActiveDeviceOperationsAsync();
+                }
+                finally
+                {
+                    HideTransferToast();
+                }
+            }
+
+            await StopDeviceAccessAsync();
+            await _kindle.EjectAsync(device);
             _acceptedDeviceId = null;
             _ignoredDeviceId = null;
-            _manuallyDisconnectedDeviceId = device.Identity;
-            SetDisconnectedDeviceState(isWpd ? $"已断开 {device.Name}" : $"已弹出 {device.Name}");
+            var disconnectedMessage = isWpd
+                ? $"{device.Name} 已停止访问，现在可以安全移除你的设备"
+                : $"{device.Name} 已安全弹出，现在可以安全移除你的设备";
+            SetDisconnectedDeviceState(preserveDeviceToast: true);
+            ShowDeviceStatusToast(disconnectedMessage);
+            refreshReadingMaterialsAfterEject = ReadingMaterialsPage.Visibility == Visibility.Visible;
         }
         catch (Exception ex)
         {
+            _manuallyDisconnectedDeviceId = null;
             await ShowMessageAsync("无法弹出设备", ex.Message);
+        }
+        finally
+        {
+            _deviceEjectInProgress = false;
+            if (refreshReadingMaterialsAfterEject) _ = RefreshReadingMaterialsAsync();
         }
     }
 

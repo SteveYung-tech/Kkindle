@@ -34,7 +34,10 @@ public sealed partial class MainWindow
         await RefreshReadingMaterialsAsync();
     }
 
-    private async Task RefreshReadingMaterialsAsync()
+    private Task RefreshReadingMaterialsAsync() =>
+        TrackDeviceOperationAsync(RefreshReadingMaterialsCoreAsync);
+
+    private async Task RefreshReadingMaterialsCoreAsync()
     {
         _readingMaterialsCancellation?.Cancel();
         _readingMaterialsCancellation?.Dispose();

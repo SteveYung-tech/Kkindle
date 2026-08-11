@@ -38,12 +38,17 @@ public sealed partial class MainWindow
     private async void ExportDeviceBookToLibraryMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuFlyoutItem { Tag: KindleBookCardViewModel card }) return;
-        await ExportDeviceBookToLibraryAsync(card.Book);
+        await TrackDeviceOperationAsync(() => ExportDeviceBookToLibraryAsync(card.Book));
     }
 
     private async void DeleteDeviceBookMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuFlyoutItem { Tag: KindleBookCardViewModel card }) return;
+        await TrackDeviceOperationAsync(() => DeleteDeviceBookAsync(card));
+    }
+
+    private async Task DeleteDeviceBookAsync(KindleBookCardViewModel card)
+    {
         if (_isTransferring)
         {
             ShowTransferToast("从 Kindle 删除", "已有传输任务正在进行中。", autoHide: true);

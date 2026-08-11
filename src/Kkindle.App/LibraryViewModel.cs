@@ -50,14 +50,17 @@ public sealed class BookCardViewModel : ObservableObject
             if (!SetProperty(ref _libraryPresence, value)) return;
             OnPropertyChanged(nameof(PresenceGlyph));
             OnPropertyChanged(nameof(PresenceLabel));
+            OnPropertyChanged(nameof(ComputerOnlyPresenceVisibility));
+            OnPropertyChanged(nameof(KindleOnlyPresenceVisibility));
+            OnPropertyChanged(nameof(BothLibrariesPresenceVisibility));
         }
     }
 
     public string PresenceGlyph => LibraryPresence switch
     {
-        BookLibraryPresence.Both => "\uE72E",
+        BookLibraryPresence.Both => "\uE73E",
         BookLibraryPresence.KindleOnly => "\uE70A",
-        _ => "\uE7F8"
+        _ => "\uE7F4"
     };
 
     public string PresenceLabel => LibraryPresence switch
@@ -66,6 +69,18 @@ public sealed class BookCardViewModel : ObservableObject
         BookLibraryPresence.KindleOnly => "仅 Kindle 书库有",
         _ => "仅电脑书库有"
     };
+
+    public Visibility ComputerOnlyPresenceVisibility => LibraryPresence == BookLibraryPresence.ComputerOnly
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Visibility KindleOnlyPresenceVisibility => LibraryPresence == BookLibraryPresence.KindleOnly
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Visibility BothLibrariesPresenceVisibility => LibraryPresence == BookLibraryPresence.Both
+        ? Visibility.Visible
+        : Visibility.Collapsed;
 
     public Visibility PresenceVisibility => _isLibraryPresenceVisible
         ? Visibility.Visible
@@ -186,13 +201,16 @@ public sealed class KindleBookCardViewModel : ObservableObject
             if (!SetProperty(ref _libraryPresence, value)) return;
             OnPropertyChanged(nameof(PresenceGlyph));
             OnPropertyChanged(nameof(PresenceLabel));
+            OnPropertyChanged(nameof(ComputerOnlyPresenceVisibility));
+            OnPropertyChanged(nameof(KindleOnlyPresenceVisibility));
+            OnPropertyChanged(nameof(BothLibrariesPresenceVisibility));
         }
     }
 
     public string PresenceGlyph => LibraryPresence switch
     {
-        BookLibraryPresence.Both => "\uE72E",
-        BookLibraryPresence.ComputerOnly => "\uE7F8",
+        BookLibraryPresence.Both => "\uE73E",
+        BookLibraryPresence.ComputerOnly => "\uE7F4",
         _ => "\uE70A"
     };
 
@@ -202,6 +220,18 @@ public sealed class KindleBookCardViewModel : ObservableObject
         BookLibraryPresence.ComputerOnly => "仅电脑书库有",
         _ => "仅 Kindle 书库有"
     };
+
+    public Visibility ComputerOnlyPresenceVisibility => LibraryPresence == BookLibraryPresence.ComputerOnly
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Visibility KindleOnlyPresenceVisibility => LibraryPresence == BookLibraryPresence.KindleOnly
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Visibility BothLibrariesPresenceVisibility => LibraryPresence == BookLibraryPresence.Both
+        ? Visibility.Visible
+        : Visibility.Collapsed;
 
     public Visibility PresenceVisibility => _isLibraryPresenceVisible
         ? Visibility.Visible

@@ -115,6 +115,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
         var processed = enumerated.Count - pending.Count;
         foreach (var book in pending)
         {
+            var stopWpdEnrichment = false;
             cancellationToken.ThrowIfCancellationRequested();
             var isDictionary = false;
             var cacheable = true;
@@ -137,6 +138,9 @@ public sealed class KindleDeviceService : IKindleDeviceService
             {
                 // Keep the quickly enumerated fallback card when enrichment fails.
                 cacheable = false;
+                // A Kindle-side disconnect first surfaces as a WPD I/O failure. Do
+                // not continue reopening the device for every remaining book.
+                stopWpdEnrichment = device.Transport == KindleTransport.Wpd;
             }
 
             processed++;
@@ -164,6 +168,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
                 changed.Clear();
                 removed.Clear();
             }
+            if (stopWpdEnrichment) break;
         }
 
         if (_scanCache is not null)
@@ -669,7 +674,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (device.Transport == KindleTransport.Wpd)
-            throw new NotSupportedException("MTP Kindle 无法通过磁盘弹出接口弹出，请等待传输完成后直接断开连接。");
+            return Task.Run(() => WpdKindleAccess.CloseDeviceSession(device, cancellationToken), cancellationToken);
         return Task.Run(() => EjectDrive(device.RootPath), cancellationToken);
     }
 

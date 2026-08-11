@@ -12,6 +12,7 @@ public sealed partial class MainWindow
     private KindleDeviceResource? _selectedDeviceResource;
     private bool _deviceResourceOperationInProgress;
     private CancellationTokenSource? _deviceResourceCancellation;
+    private CancellationTokenSource? _deviceResourceScanCancellation;
     private string? _scannedResourceDeviceId;
     private KindleResourceKind? _scannedResourceKind;
 
@@ -39,7 +40,10 @@ public sealed partial class MainWindow
         await RefreshDeviceResourcesAsync();
     }
 
-    private async Task RefreshDeviceResourcesAsync()
+    private Task RefreshDeviceResourcesAsync() =>
+        TrackDeviceOperationAsync(RefreshDeviceResourcesCoreAsync);
+
+    private async Task RefreshDeviceResourcesCoreAsync()
     {
         _selectedDeviceResource = null;
         DeviceResourceList.SelectedItem = null;
@@ -56,13 +60,17 @@ public sealed partial class MainWindow
             return;
         }
 
+        _deviceResourceScanCancellation?.Cancel();
+        _deviceResourceScanCancellation?.Dispose();
+        var cancellation = new CancellationTokenSource();
+        _deviceResourceScanCancellation = cancellation;
         var device = _devices[0];
         ImportDeviceResourceButton.IsEnabled = !_deviceResourceOperationInProgress;
         DeviceResourceDeviceText.Text = $"{device.Name} · {device.ConnectionLabel}";
         DeviceResourceStatusText.Text = "正在读取设备目录…";
         try
         {
-            var resources = await _kindle.ScanResourcesAsync(device, _deviceResourceKind);
+            var resources = await _kindle.ScanResourcesAsync(device, _deviceResourceKind, cancellation.Token);
             foreach (var resource in resources) DeviceResources.Add(resource);
             DeviceResourceCountText.Text = $"{resources.Count} 个文件";
             DeviceResourceEmptyText.Visibility = resources.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -72,10 +80,21 @@ public sealed partial class MainWindow
             _scannedResourceDeviceId = device.Identity;
             _scannedResourceKind = _deviceResourceKind;
         }
+        catch (OperationCanceledException)
+        {
+        }
         catch (Exception exception)
         {
             DeviceResourceEmptyText.Visibility = Visibility.Visible;
             DeviceResourceStatusText.Text = $"读取失败：{exception.Message}";
+        }
+        finally
+        {
+            if (ReferenceEquals(_deviceResourceScanCancellation, cancellation))
+            {
+                _deviceResourceScanCancellation = null;
+                cancellation.Dispose();
+            }
         }
     }
 
@@ -157,9 +176,15 @@ public sealed partial class MainWindow
         });
     }
 
-    private async Task RunDeviceResourceOperationAsync(
+    private Task RunDeviceResourceOperationAsync(
         Func<KindleDevice, CancellationToken, Task> operation,
         bool refreshAfter = true)
+        => TrackDeviceOperationAsync(
+            () => RunDeviceResourceOperationCoreAsync(operation, refreshAfter));
+
+    private async Task RunDeviceResourceOperationCoreAsync(
+        Func<KindleDevice, CancellationToken, Task> operation,
+        bool refreshAfter)
     {
         if (_devices.Count == 0 || _deviceResourceOperationInProgress) return;
         _deviceResourceOperationInProgress = true;

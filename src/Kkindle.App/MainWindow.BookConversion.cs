@@ -236,6 +236,9 @@ public sealed partial class MainWindow
         string targetFormat,
         FormatConversionProgress progress)
     {
+        // The conversion popup is the progress surface for format work. Keep the
+        // generic task panel hidden so the two bottom-right overlays never stack.
+        TaskProgress.Visibility = Visibility.Collapsed;
         BookConversionPopupTitleText.Text = $"转换《{book.Title}》";
         BookConversionPopupFormatText.Text =
             $"Calibre · {sourceFormat.ToUpperInvariant()} → {targetFormat.ToUpperInvariant()}";
