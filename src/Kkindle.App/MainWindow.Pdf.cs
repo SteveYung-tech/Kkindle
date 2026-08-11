@@ -40,6 +40,7 @@ public sealed partial class MainWindow
         ReaderZoomInButton.Visibility = Visibility.Collapsed;
         ReaderPreviousButton.Visibility = Visibility.Visible;
         ReaderNextButton.Visibility = Visibility.Visible;
+        SetReaderFooterNavigationMode(chapterNavigation: false);
         ReaderProgressSlider.Visibility = Visibility.Visible;
         ReaderPdfBottomText.Visibility = Visibility.Visible;
         ReaderFlowButton.Visibility = Visibility.Collapsed;

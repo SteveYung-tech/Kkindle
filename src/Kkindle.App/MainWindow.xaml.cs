@@ -1164,6 +1164,7 @@ public sealed partial class MainWindow : Window
             ReaderZoomInButton.Visibility = Visibility.Visible;
             ReaderPreviousButton.Visibility = Visibility.Visible;
             ReaderNextButton.Visibility = Visibility.Visible;
+            SetReaderFooterNavigationMode(chapterNavigation: true);
             ReaderProgressSlider.Visibility = Visibility.Visible;
             ReaderPdfBottomText.Visibility = Visibility.Collapsed;
             ReaderFlowButton.Visibility = Visibility.Visible;
@@ -1558,7 +1559,7 @@ public sealed partial class MainWindow : Window
             : $"{_readerChapterIndex + 1} / {_readerChapters.Count} 章";
         ReaderPreviousButton.IsEnabled = _readerChapterIndex > 0;
         ReaderNextButton.IsEnabled = _readerChapterIndex + 1 < _readerChapters.Count;
-        RefreshReaderCompactMarkers();
+        QueueReaderCompactScrollIndicatorUpdate();
         UpdateReaderProgress();
     }
 
@@ -1600,15 +1601,46 @@ public sealed partial class MainWindow : Window
     private async void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
     {
         if (IsPdfReader) { await NavigatePdfPageAsync(_pdfCurrentPage - 1); return; }
-        _readerContinuousLocked = false;
-        await TurnReaderPageAsync(-1);
+        await NavigateReaderChapterAsync(-1);
     }
 
     private async void ReaderNextButton_Click(object sender, RoutedEventArgs e)
     {
         if (IsPdfReader) { await NavigatePdfPageAsync(_pdfCurrentPage + 1); return; }
+        await NavigateReaderChapterAsync(1);
+    }
+
+    private async Task<bool> NavigateReaderChapterAsync(int direction)
+    {
+        if (ReaderPane.Visibility != Visibility.Visible) return false;
+        if (!_readerHasToc || _readerChapters.Count == 0) return false;
+        if (_readerCloseRequested || _readerTransitionActive) return false;
+
+        var normalizedDirection = direction < 0 ? -1 : 1;
+        var targetIndex = _readerChapterIndex + normalizedDirection;
+        if (targetIndex < 0 || targetIndex >= _readerChapters.Count) return false;
+
         _readerContinuousLocked = false;
-        await TurnReaderPageAsync(1);
+        _readerChapterIndex = targetIndex;
+        _readerNavigateToEnd = false;
+        _readerLastChapterChange = DateTimeOffset.UtcNow;
+        UpdateReaderChapterControls();
+        _ = SaveReaderProgressThrottledAsync();
+        await ShowReaderChapterAsync(
+            normalizedDirection,
+            animate: _readerPageAnimation > ReaderAnimationNone,
+            intent: ReaderNavigationIntent.Toc);
+        return true;
+    }
+
+    private void SetReaderFooterNavigationMode(bool chapterNavigation)
+    {
+        var previousLabel = chapterNavigation ? "上一章" : "上一页";
+        var nextLabel = chapterNavigation ? "下一章" : "下一页";
+        AutomationProperties.SetName(ReaderPreviousButton, previousLabel);
+        AutomationProperties.SetName(ReaderNextButton, nextLabel);
+        ToolTipService.SetToolTip(ReaderPreviousButton, previousLabel);
+        ToolTipService.SetToolTip(ReaderNextButton, nextLabel);
     }
 
     private void ReaderZoomOutButton_Click(object sender, RoutedEventArgs e)
@@ -1802,8 +1834,8 @@ public sealed partial class MainWindow : Window
     }
 
     // ------------------------------------------------------------------
-    // Page turning shared by the prev/next buttons, the keyboard arrows
-    // and the pagination-mode click zones. Returns whether a turn happened.
+    // Page turning shared by the keyboard arrows and pagination-mode click
+    // zones. The footer arrows use direct chapter navigation instead.
     // ------------------------------------------------------------------
 
     private async Task<bool> TurnReaderPageAsync(int direction)
