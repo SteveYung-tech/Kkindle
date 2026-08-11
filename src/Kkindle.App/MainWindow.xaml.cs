@@ -2545,13 +2545,14 @@ public sealed partial class MainWindow : Window
             pagination: _readerFlowMode == 1,
             vertical: vertical,
             twoPage: _readerLayout.TwoPageMode,
-            horizontalPadding: _readerLayout.BodyPadding);
+            horizontalPadding: _readerLayout.BodyPadding,
+            maxContentWidth: _readerLayout.MaxWidth);
         var lineHeight = _readerLayout.LineHeight.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
         var bodyPadding = (int)_readerLayout.BodyPadding;
         var bodyLayoutCss = vertical
             ? $"max-width: none !important; writing-mode: vertical-rl !important; text-orientation: mixed;"
               + $" margin: 0 auto !important; padding: {bodyPadding}px !important;"
-            : $"max-width: {(int)_readerLayout.MaxWidth}px; margin: 0 auto !important;"
+            : $"width: 100%; max-width: calc({(int)_readerLayout.MaxWidth}px + {bodyPadding * 2}px); margin: 0 auto !important;"
               + $" padding: {bodyPadding}px !important;"
               + " writing-mode: horizontal-tb !important;";
         var bodyTextCss = vertical

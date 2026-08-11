@@ -11,7 +11,8 @@ internal static class ReaderPaginationScripts
         bool pagination,
         bool vertical,
         bool twoPage = false,
-        double horizontalPadding = ReaderPaginationDefaults.HorizontalPadding)
+        double horizontalPadding = ReaderPaginationDefaults.HorizontalPadding,
+        double maxContentWidth = ReaderLayoutDefaults.DefaultMaxWidth)
     {
         if (!pagination)
         {
@@ -27,18 +28,27 @@ internal static class ReaderPaginationScripts
                 ReaderLayoutDefaults.MinBodyPadding,
                 ReaderLayoutDefaults.MaxBodyPadding)
             : ReaderPaginationDefaults.HorizontalPadding;
+        var safeMaxContentWidth = double.IsFinite(maxContentWidth)
+            ? Math.Clamp(
+                maxContentWidth,
+                ReaderLayoutDefaults.MinMaxWidth,
+                ReaderLayoutDefaults.MaxMaxWidth)
+            : ReaderLayoutDefaults.DefaultMaxWidth;
         var horizontalPaddingCss = Format(safeHorizontalPadding);
+        var maxContentWidthCss = Format(safeMaxContentWidth);
         var bottomPadding = Format(ReaderPaginationDefaults.BottomPadding);
         // The distance from one column start to the next must remain exactly
         // one viewport (or half a viewport in a two-page spread). Treat the
-        // inter-column gap as the adjoining right + left page margins so a
-        // custom margin cannot make page turns drift off the column boundary.
-        var columnGap = Format(safeHorizontalPadding * 2);
-        var outerInsets = Format(safeHorizontalPadding * 2);
-        var spreadReservedWidth = Format(safeHorizontalPadding * 4);
+        // inter-column gap as the adjoining right + left page margins. Grow
+        // that gap when the viewport is wider than the requested text width;
+        // this centers a capped text column without changing the page step.
+        var minimumColumnGap = Format(safeHorizontalPadding * 2);
+        var columnGap = twoPage
+            ? $"max({minimumColumnGap}px, calc((var({ViewportWidthVariable}, 100vw) - {Format(safeMaxContentWidth * 2)}px) / 2))"
+            : $"max({minimumColumnGap}px, calc(var({ViewportWidthVariable}, 100vw) - {maxContentWidthCss}px))";
         var columnWidth = twoPage
-            ? $"calc((var({ViewportWidthVariable}, 100vw) - {spreadReservedWidth}px) / 2)"
-            : $"calc(var({ViewportWidthVariable}, 100vw) - {outerInsets}px)";
+            ? $"calc((var({ViewportWidthVariable}, 100vw) - var(--kkindle-page-column-gap) - var(--kkindle-page-column-gap)) / 2)"
+            : $"calc(var({ViewportWidthVariable}, 100vw) - var(--kkindle-page-column-gap))";
         if (vertical)
         {
             var verticalColumnHeight = $"calc(100vh - {Format(ReaderPaginationDefaults.TopPadding + ReaderPaginationDefaults.BottomPadding)}px)";
@@ -46,12 +56,12 @@ internal static class ReaderPaginationScripts
                 + $" body {{ width: 100% !important; height: 100% !important; margin: 0 !important; overflow: visible !important;"
                 + $" padding: {topPadding}px {horizontalPaddingCss}px {bottomPadding}px !important; box-sizing: border-box !important;"
                 + $" writing-mode: vertical-rl !important; text-orientation: mixed !important; column-width: {verticalColumnHeight} !important;"
-                + $" column-gap: {columnGap}px !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
+                + $" column-gap: {minimumColumnGap}px !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
         }
         return $"html {{ height: 100%; overflow: hidden !important; writing-mode: horizontal-tb !important; }}"
-            + $" body {{ width: 100% !important; min-width: 0 !important; height: 100% !important; margin: 0 !important; overflow: visible !important; padding: {topPadding}px {horizontalPaddingCss}px {bottomPadding}px !important; box-sizing: border-box !important;"
+            + $" body {{ --kkindle-page-column-gap: {columnGap}; width: 100% !important; min-width: 0 !important; height: 100% !important; margin: 0 !important; overflow: visible !important; padding: {topPadding}px calc(var(--kkindle-page-column-gap) / 2) {bottomPadding}px !important; box-sizing: border-box !important;"
             + $" writing-mode: horizontal-tb !important; column-width: {columnWidth} !important;"
-            + $" column-gap: {columnGap}px !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
+            + $" column-gap: var(--kkindle-page-column-gap) !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
     }
 
     // The scroll container is the source of truth for page geometry. Prefer
