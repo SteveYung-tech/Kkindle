@@ -200,6 +200,76 @@ public sealed class ReaderProductivityTests
     }
 
     [Fact]
+    public async Task SearchBookDoesNotRepeatTitleOnlyMatchesAcrossChapterChunks()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var service = new ReaderDataService(new AppPaths(Path.Combine(root, "app")));
+            await service.InitializeAsync();
+            var bookId = Guid.NewGuid();
+            var fileId = Guid.NewGuid();
+            var hash = new string('f', 64);
+
+            await service.ReplaceBookChunksAsync(bookId, fileId, hash,
+            [
+                new BookContentChunkDraft(0, 0, "1. 简介概述和总结", "text/one.xhtml", 0, 32,
+                    "第一段正文不包含搜索词。"),
+                new BookContentChunkDraft(0, 1, "1. 简介概述和总结", "text/one.xhtml", 32, 64,
+                    "第二段正文也不包含搜索词。"),
+                new BookContentChunkDraft(1, 0, "2. 其他章节", "text/two.xhtml", 0, 32,
+                    "另一章的正文。")
+            ]);
+
+            var shortQuery = await service.SearchBookAsync(bookId, "简介");
+            var longQuery = await service.SearchBookAsync(bookId, "简介概述");
+
+            Assert.Single(shortQuery);
+            Assert.Equal(0, shortQuery[0].ChunkIndex);
+            Assert.Single(longQuery);
+            Assert.Equal(0, longQuery[0].ChunkIndex);
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task SearchBookCollapsesMatchesRepeatedByOverlappingChunks()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var service = new ReaderDataService(new AppPaths(Path.Combine(root, "app")));
+            await service.InitializeAsync();
+            var bookId = Guid.NewGuid();
+            var fileId = Guid.NewGuid();
+            var hash = new string('d', 64);
+            var chapter = new string('甲', 900) + "这个月份值得记录。" + new string('乙', 300);
+
+            await service.ReplaceBookChunksAsync(bookId, fileId, hash,
+            [
+                new BookContentChunkDraft(0, 0, "第一章", "text/one.xhtml", 0, 1000,
+                    chapter[..1000]),
+                // Simulate an older index whose normalized overlap retained a
+                // stale numeric offset. Text context must still identify it as
+                // the same visible result as the first chunk.
+                new BookContentChunkDraft(0, 1, "第一章", "text/one.xhtml", 1200, 1600,
+                    chapter[840..]),
+                new BookContentChunkDraft(1, 0, "第一章副本", "text/duplicate.xhtml", 0, 400,
+                    chapter[840..]),
+                new BookContentChunkDraft(2, 0, "第二章", "text/two.xhtml", 0, 20,
+                    "另一个月份发生了不同的事情。")
+            ]);
+
+            var results = await service.SearchBookAsync(bookId, "月份", 20);
+
+            Assert.Equal(2, results.Count);
+            Assert.Single(results, result => result.ChapterPath == "text/one.xhtml");
+            Assert.Single(results, result => result.ChapterPath == "text/two.xhtml");
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
     public async Task AccumulatesReadingTimeWithoutLosingExistingStats()
     {
         var root = CreateTempDirectory();

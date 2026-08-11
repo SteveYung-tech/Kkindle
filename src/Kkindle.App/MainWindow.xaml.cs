@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
@@ -62,6 +63,9 @@ public sealed partial class MainWindow : Window
     private Button? _activeNavigationSectionButton;
     private readonly HashSet<Button> _hoveredSidebarSections = [];
     private KindleBookViewMode _kindleBookViewMode = KindleBookViewMode.Grid;
+    // Cached on the UI thread so the low-level mouse-hook callback can check
+    // the foreground window without touching WinUI objects.
+    private IntPtr _readerWindowHandle;
     private TaskCompletionSource<bool>? _devicePromptCompletion;
     private bool _nativeChromeConfigured;
     private AppWindow? _appWindow;
@@ -114,10 +118,13 @@ public sealed partial class MainWindow : Window
     private bool _readerLastNearTop = true;
     private bool _readerLastNearBottom;
     private IntPtr _readerMouseHook;
-    private bool _readerMouseDownInside;
+    private IntPtr _readerKeyboardHook;
+    private volatile bool _readerMouseDownInside;
     private POINT _readerMouseDownPoint;
-    private int _readerWheelDeltaRemainder;
+    private volatile int _readerWheelDeltaRemainder;
     private LowLevelMouseProc? _readerMouseProc;
+    private LowLevelKeyboardProc? _readerKeyboardProc;
+    private volatile bool _readerTextInputFocused;
     // The low-level mouse hook runs on a system thread and must NEVER touch
     // XAML objects (cross-thread DependencyObject access can block the hook
     // thread, and UnhookWindowsHookEx then deadlocks the UI thread). The hook
@@ -138,6 +145,10 @@ public sealed partial class MainWindow : Window
     // own sequence guard to prevent an older async location task from winning.
     private int _readerLocationSequence;
     private bool _readerOpenInProgress;
+    // The first EPUB document must not be revealed until Kreader's font CSS
+    // has been injected and the browser font set has finished loading. Without
+    // this guard the EPUB font paints for one frame before the reader font.
+    private bool _readerInitialRevealPending;
     private Task? _readerWebViewInitializationTask;
 
     // Direction + animation style for the incoming chapter transition. Style is
@@ -180,6 +191,8 @@ public sealed partial class MainWindow : Window
         _epubReader = new EpubReaderPreparationService(paths);
         ViewModel = new LibraryViewModel(library, paths.Data);
         InitializeComponent();
+        ReadingMaterialsCollectionViewSource.Source = ReadingMaterialGroups;
+        ReadingMaterialsList.ItemsSource = ReadingMaterialsCollectionViewSource.View;
         ConfigureReaderFeatureHosts();
         ConfigureTitleBar();
         SetActiveNavigation(AllBooksButton);
@@ -208,12 +221,17 @@ public sealed partial class MainWindow : Window
         RootGrid.Loaded += MainWindow_Loaded;
         RootGrid.Loaded += (_, _) => EnsureInteractiveControlToolTips(RootGrid);
         RootGrid.KeyDown += RootGrid_KeyDown;
+        RootGrid.GotFocus += (_, _) => _readerTextInputFocused = IsReaderTextInputFocused();
+        RootGrid.LostFocus += (_, _) => DispatcherQueue.TryEnqueue(
+            () => _readerTextInputFocused = IsReaderTextInputFocused());
     }
 
     public LibraryViewModel ViewModel { get; }
     public ObservableCollection<KindleBookCardViewModel> DeviceBooks { get; } = [];
     public ObservableCollection<KindleDeviceResource> DeviceResources { get; } = [];
     public ObservableCollection<ReadingMaterialItemViewModel> ReadingMaterials { get; } = [];
+    public ObservableCollection<ReadingMaterialGroupViewModel> ReadingMaterialGroups { get; } = [];
+    public CollectionViewSource ReadingMaterialsCollectionViewSource { get; } = new() { IsSourceGrouped = true };
 
     private void ConfigureTitleBar()
     {
@@ -224,8 +242,17 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
     {
+        _readerWindowHandle = WindowNative.GetWindowHandle(this);
         _windowActive = args.WindowActivationState == WindowActivationState.CodeActivated
             || args.WindowActivationState == WindowActivationState.PointerActivated;
+        if (!_windowActive)
+        {
+            // Do not carry a press or partial wheel delta across an
+            // Alt+Tab/minimize transition. Otherwise the next activation
+            // could complete input that began in another application.
+            _readerMouseDownInside = false;
+            _readerWheelDeltaRemainder = 0;
+        }
         if (_nativeChromeConfigured) return;
         _nativeChromeConfigured = true;
 
@@ -1516,6 +1543,9 @@ public sealed partial class MainWindow : Window
             var sessionDataTask = LoadReaderSessionDataAsync(readerToken);
             await Task.WhenAll(webViewTask, sessionDataTask);
             ReaderBookInfoText.Text = $"{book.Title} · {file.Format.ToUpperInvariant()}";
+            var isPdf = file.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase);
+            _readerInitialRevealPending = !isPdf;
+            ReaderWebViewHost.Opacity = isPdf ? 1 : 0;
             ReaderPane.Visibility = Visibility.Visible;
             ReaderBrandText.Visibility = Visibility.Visible;
             ReaderPane.UpdateLayout();
@@ -1531,7 +1561,7 @@ public sealed partial class MainWindow : Window
             SyncReaderPageAnimationMenu();
             ApplyReaderPanelLayout();
 
-            if (file.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase))
+            if (isPdf)
             {
                 await OpenPdfReaderAsync(path, _readerFeatureCancellation!.Token);
                 return;
@@ -1978,7 +2008,7 @@ public sealed partial class MainWindow : Window
             // chapter's first line, fragment entries to their anchor, and
             // bookmark/annotation/search/AI locations to their own target.
             if (intent != ReaderNavigationIntent.None)
-                _ = RunSameChapterLocationAsync(intent, target, locationSequence);
+                return RunSameChapterLocationAsync(intent, target, locationSequence);
             return Task.CompletedTask;
         }
 
@@ -2107,6 +2137,7 @@ public sealed partial class MainWindow : Window
 
     private async Task<bool> NavigateReaderChapterAsync(int direction)
     {
+        if (!IsReaderWindowForeground()) return false;
         if (ReaderPane.Visibility != Visibility.Visible) return false;
         if (!_readerHasToc || _readerChapters.Count == 0) return false;
         if (_readerCloseRequested || _readerTransitionActive) return false;
@@ -2335,6 +2366,7 @@ public sealed partial class MainWindow : Window
 
     private async Task<bool> TurnReaderPageAsync(int direction)
     {
+        if (!IsReaderWindowForeground()) return false;
         if (ReaderPane.Visibility != Visibility.Visible) return false;
         if (ReaderWebView.CoreWebView2 is null) return false;
         if (!_readerHasToc || _readerChapters.Count == 0) return false;
@@ -2515,13 +2547,15 @@ public sealed partial class MainWindow : Window
 
     // ------------------------------------------------------------------
     // Keyboard reading navigation. Paginated single/double-page modes use
-    // left/right; continuous scroll mode uses up/down. Keeping the modes
-    // disjoint avoids an arrow key unexpectedly changing the reading position.
+    // left/right for pages. Continuous scroll mode uses left/right for chapters
+    // and up/down only for scrolling, so reaching a scroll edge never changes
+    // chapter unexpectedly.
     // ------------------------------------------------------------------
 
     private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (ReaderPane.Visibility != Visibility.Visible) return;
+        if (!IsReaderWindowForeground()) return;
 
         if (e.Key == Windows.System.VirtualKey.Escape)
         {
@@ -2565,19 +2599,46 @@ public sealed partial class MainWindow : Window
 
         if (IsReaderTextInputFocused()) return;
 
-        var direction = _readerFlowMode switch
+        if (TryHandleReaderArrowKey(e.Key)) e.Handled = true;
+    }
+
+    private bool TryHandleReaderArrowKey(Windows.System.VirtualKey key)
+    {
+        if (_readerCloseRequested || _readerTransitionActive) return false;
+        if (_readerFlowMode == 1)
         {
-            1 when e.Key == Windows.System.VirtualKey.Left => -1,
-            1 when e.Key == Windows.System.VirtualKey.Right => 1,
-            0 when e.Key == Windows.System.VirtualKey.Up => -1,
-            0 when e.Key == Windows.System.VirtualKey.Down => 1,
+            var pageDirection = key switch
+            {
+                Windows.System.VirtualKey.Left => -1,
+                Windows.System.VirtualKey.Right => 1,
+                _ => 0
+            };
+            if (pageDirection == 0) return false;
+            _ = TurnReaderPageAsync(pageDirection);
+            return true;
+        }
+
+        var chapterDirection = key switch
+        {
+            Windows.System.VirtualKey.Left => -1,
+            Windows.System.VirtualKey.Right => 1,
             _ => 0
         };
-        if (direction == 0) return;
-        e.Handled = true;
-        _ = _readerFlowMode == 0
-            ? ScrollReaderWithKeyboardAsync(direction)
-            : TurnReaderPageAsync(direction);
+        if (chapterDirection != 0)
+        {
+            _ = NavigateReaderChapterAsync(chapterDirection);
+            return true;
+        }
+
+        var scrollDirection = key switch
+        {
+            Windows.System.VirtualKey.Up => -1,
+            Windows.System.VirtualKey.Down => 1,
+            _ => 0
+        };
+        if (scrollDirection == 0) return false;
+        _ = ScrollReaderWithKeyboardAsync(scrollDirection);
+        return true;
     }
 
     private bool IsReaderTextInputFocused()
@@ -2590,20 +2651,14 @@ public sealed partial class MainWindow : Window
 
     private async Task ScrollReaderWithKeyboardAsync(int direction)
     {
+        if (!IsReaderWindowForeground()) return;
         if (_readerCloseRequested || _readerTransitionActive) return;
         if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
 
-        // Arrow keys in continuous mode should feel like scrolling, not like a
-        // nearly full-screen page jump. If the chapter edge has been reached,
-        // fall back to the shared turn path so continuous reading can still
-        // cross into the adjacent chapter.
-        if (await ExecuteReaderBooleanScriptAsync(
-                CreateReaderKeyboardScrollScript(direction, _readerLayout.VerticalWriting)))
-        {
-            return;
-        }
-
-        await TurnReaderPageAsync(direction);
+        // Up/down are scroll-only in continuous mode. At a chapter edge they
+        // simply stop; left/right own chapter navigation explicitly.
+        await ExecuteReaderBooleanScriptAsync(
+            CreateReaderKeyboardScrollScript(direction, _readerLayout.VerticalWriting));
     }
 
     private static string CreateReaderKeyboardScrollScript(int direction, bool vertical) =>
@@ -2794,6 +2849,7 @@ public sealed partial class MainWindow : Window
         _readerPendingNavigationTarget = null;
         _readerActiveLocationTarget = null;
         _readerNavigationIntent = ReaderNavigationIntent.None;
+        _readerInitialRevealPending = false;
         _readerRelayoutCancellation?.Cancel();
         _readerRelayoutCancellation?.Dispose();
         _readerRelayoutCancellation = null;
@@ -2937,9 +2993,15 @@ public sealed partial class MainWindow : Window
             // hidden behind the pane's opaque background (never a black flash).
             // Slow, non-first-screen work (annotations, footnotes, stats,
             // progress) is deferred to RunReaderPostNavigationWorkAsync.
-            if (turnIn is not null) ReaderWebViewHost.Opacity = 0;
+            var initialReveal = _readerInitialRevealPending;
+            if (turnIn is not null || initialReveal) ReaderWebViewHost.Opacity = 0;
             await ApplyReaderAppearanceAsync();
             if (IsStaleReaderNavigation(sequence, token)) return;
+            if (initialReveal)
+            {
+                await WaitForReaderFontsAsync(token);
+                if (IsStaleReaderNavigation(sequence, token)) return;
+            }
             // The first screen is positioned according to WHY this navigation
             // was requested. An explicit user target (TOC chapter first line,
             // fragment anchor, search/bookmark/annotation/AI location, progress
@@ -2966,6 +3028,7 @@ public sealed partial class MainWindow : Window
 
             // The new first screen is ready: short fade/slide reveal (or show
             // immediately in 无动画 mode), then let the deferred work run.
+            _readerInitialRevealPending = false;
             if (turnIn is { } pending)
             {
                 await AnimateReaderPageTurnAsync(pending.Direction, isOut: false, pending.Style, token);
@@ -2985,6 +3048,7 @@ public sealed partial class MainWindow : Window
             // leave the reader or the window in a broken state.
             _readerPendingTurnInAnimation = null;
             _readerPendingNavigationTarget = null;
+            _readerInitialRevealPending = false;
             ResetReaderWebViewTransform();
             _readerTransitionActive = false;
         }
@@ -3138,6 +3202,12 @@ public sealed partial class MainWindow : Window
                        {{bodyTextCss}} }
                 body { margin-left: auto !important; margin-right: auto !important;
                        padding: {{bodyPadding}}px !important; }
+                ::selection, body *::selection {
+                  background: #000000 !important;
+                  background-color: #000000 !important;
+                  color: #FFFFFF !important;
+                  -webkit-text-fill-color: #FFFFFF !important;
+                }
                 ruby { ruby-align: center !important; }
                 rt { font-size: 0.5em !important; color: inherit !important; }
                 p { margin: 0.55em 0 1.05em !important; }
@@ -3165,8 +3235,15 @@ public sealed partial class MainWindow : Window
               // hidden would make the pagination columns narrower than the
               // actual reading surface and expose a clipped right edge.
               const kkScroller = document.scrollingElement || root;
-              const renderedWidth = kkScroller?.getBoundingClientRect?.().width || 0;
-              const viewportWidth = renderedWidth || kkScroller?.clientWidth || root?.clientWidth || window.innerWidth || 0;
+              // visualViewport is the actual visible WebView width. During a
+              // multicolumn reflow, documentElement.getBoundingClientRect()
+              // can transiently describe the laid-out content width and make
+              // the right column extend underneath the assistant panel.
+              const viewportWidth = window.visualViewport?.width
+                || window.innerWidth
+                || root?.clientWidth
+                || kkScroller?.clientWidth
+                || 0;
               if (root && viewportWidth > 0) {
                 root.style.setProperty('{{ReaderPaginationScripts.ViewportWidthVariable}}', viewportWidth + 'px');
               }
@@ -3181,6 +3258,13 @@ public sealed partial class MainWindow : Window
                 const kkPadBottom = parseFloat(kkStyle.paddingBottom) || 0;
                 const kkContentH = kkBody.clientHeight - kkPadTop - kkPadBottom;
                 if (kkContentH > 0) kkRoot.style.setProperty('--kkindle-page-content-h', kkContentH + 'px');
+                // Explicitly start loading the computed reader font before the
+                // hidden first document is revealed. The host polls the font
+                // set status; no page callback or script event is required.
+                try {
+                  if (document.fonts)
+                    void document.fonts.load('1rem ' + kkStyle.fontFamily);
+                } catch (_) {}
               }
             })();
             """;
@@ -3196,6 +3280,31 @@ public sealed partial class MainWindow : Window
             // columns split by the column gap.
             await FitReaderImagesAsync();
             await SnapReaderPaginationAsync();
+        }
+    }
+
+    private async Task WaitForReaderFontsAsync(CancellationToken cancellationToken)
+    {
+        if (ReaderWebView.CoreWebView2 is null) return;
+        // ExecuteScriptAsync does not await promises when page scripts are
+        // disabled, so poll the synchronous FontFaceSet status with a short,
+        // bounded wait. The body measurement in ApplyReaderAppearanceAsync has
+        // already triggered loading of the newly injected @font-face rules.
+        for (var attempt = 0; attempt < 24; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var status = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                    "document.fonts ? document.fonts.status : 'loaded';");
+                if (status.Trim().Trim('"').Equals("loaded", StringComparison.OrdinalIgnoreCase))
+                    return;
+            }
+            catch
+            {
+                return;
+            }
+            await Task.Delay(25, cancellationToken);
         }
     }
 
@@ -3304,6 +3413,7 @@ public sealed partial class MainWindow : Window
     private void PruneReaderPendingLocations(ReaderNavigationIntent intent)
     {
         if (!ReaderNavigationLocationPolicy.KeepsChunkOffset(intent)) _pendingReaderChunkOffset = null;
+        if (intent != ReaderNavigationIntent.Search) _pendingReaderSearchQuery = null;
         if (!ReaderNavigationLocationPolicy.KeepsBookmarkQuote(intent))
         {
             _pendingReaderBookmarkQuote = null;
@@ -3616,23 +3726,30 @@ public sealed partial class MainWindow : Window
         bool animate)
     {
         var targetBackground = isActive
-            ? Colors.Black
+            ? Colors.White
             : isHovered
                 ? Windows.UI.Color.FromArgb(0xFF, 0xF2, 0xF2, 0xF2)
                 : Colors.White;
-        var targetForeground = isActive ? Colors.White : Colors.Black;
+        var targetForeground = Colors.Black;
+        var targetBorder = isActive || isHovered
+            ? Colors.Black
+            : Windows.UI.Color.FromArgb(0xFF, 0xBF, 0xBF, 0xBF);
         var currentBackground = (sectionButton.Background as SolidColorBrush)?.Color ?? targetBackground;
         var currentForeground = (sectionButton.Foreground as SolidColorBrush)?.Color ?? targetForeground;
+        var currentBorder = (sectionButton.BorderBrush as SolidColorBrush)?.Color ?? targetBorder;
         var backgroundBrush = new SolidColorBrush(currentBackground);
         var foregroundBrush = new SolidColorBrush(currentForeground);
+        var borderBrush = new SolidColorBrush(currentBorder);
         sectionButton.Background = backgroundBrush;
         sectionButton.Foreground = foregroundBrush;
+        sectionButton.BorderBrush = borderBrush;
         chevron.Foreground = foregroundBrush;
 
         if (!animate)
         {
             backgroundBrush.Color = targetBackground;
             foregroundBrush.Color = targetForeground;
+            borderBrush.Color = targetBorder;
             return;
         }
 
@@ -3649,15 +3766,25 @@ public sealed partial class MainWindow : Window
             To = targetForeground,
             Duration = duration
         };
+        var borderAnimation = new ColorAnimation
+        {
+            From = currentBorder,
+            To = targetBorder,
+            Duration = duration
+        };
         Storyboard.SetTarget(backgroundAnimation, backgroundBrush);
         Storyboard.SetTargetProperty(backgroundAnimation, "Color");
         Storyboard.SetTarget(foregroundAnimation, foregroundBrush);
         Storyboard.SetTargetProperty(foregroundAnimation, "Color");
+        Storyboard.SetTarget(borderAnimation, borderBrush);
+        Storyboard.SetTargetProperty(borderAnimation, "Color");
         var storyboard = new Storyboard();
         storyboard.Children.Add(backgroundAnimation);
         storyboard.Children.Add(foregroundAnimation);
+        storyboard.Children.Add(borderAnimation);
         backgroundBrush.Color = targetBackground;
         foregroundBrush.Color = targetForeground;
+        borderBrush.Color = targetBorder;
         storyboard.Begin();
     }
 

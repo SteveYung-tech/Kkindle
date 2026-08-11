@@ -14,6 +14,7 @@ public static class KindleThumbnailService
     private const int CdeTypeRecordType = 501;
     private const int LanguageRecordType = 524;
     private const int OverrideKindleFontsRecordType = 528;
+    private const string DefaultCdeType = "EBOK";
 
     public static async Task<KindleThumbnail?> CreateAsync(
         string bookPath,
@@ -131,8 +132,11 @@ public static class KindleThumbnailService
                 else if (record.Type == CdeTypeRecordType) cdeType = value;
             }
 
-            if (IsSafeIdentifier(asin) && IsSafeIdentifier(cdeType))
+            if (IsSafeIdentifier(asin))
+            {
+                cdeType = IsSafeIdentifier(cdeType) ? cdeType : DefaultCdeType;
                 return $"thumbnail_{asin}_{cdeType}_portrait.jpg";
+            }
         }
         return null;
     }

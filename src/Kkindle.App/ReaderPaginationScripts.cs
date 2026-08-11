@@ -64,11 +64,10 @@ internal static class ReaderPaginationScripts
             + $" column-gap: var(--kkindle-page-column-gap) !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
     }
 
-    // The scroll container is the source of truth for page geometry. Prefer
-    // its rendered width over window.innerWidth/clientWidth: the latter can
-    // be rounded under DPI scaling, while CSS columns use fractional pixels.
-    // Page boundaries start at scroll origin 0; the body's horizontal padding
-    // must remain visible inside each viewport.
+    // visualViewport is the source of truth for page geometry: unlike the
+    // multicolumn document bounds it always describes the visible WebView and
+    // retains fractional CSS pixels under DPI scaling. Page boundaries start
+    // at scroll origin 0; body padding stays inside each viewport.
     public static string Snap => CreateSnapScript();
 
     private static string CreateSnapScript()
@@ -78,8 +77,8 @@ internal static class ReaderPaginationScripts
             (() => {
               const el = document.scrollingElement || document.documentElement;
               if (!el) return;
-              const renderedWidth = el.getBoundingClientRect?.().width || 0;
-              const step = renderedWidth || el.clientWidth || document.documentElement.clientWidth || window.innerWidth || 0;
+              const step = window.visualViewport?.width || window.innerWidth
+                || document.documentElement.clientWidth || el.clientWidth || 0;
               if (step <= 0) return;
               const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
               const trailingInset = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
@@ -102,8 +101,8 @@ internal static class ReaderPaginationScripts
             (() => {
               const el = document.scrollingElement || document.documentElement;
               if (!el) return false;
-              const renderedWidth = el.getBoundingClientRect?.().width || 0;
-              const step = renderedWidth || el.clientWidth || document.documentElement.clientWidth || window.innerWidth || 0;
+              const step = window.visualViewport?.width || window.innerWidth
+                || document.documentElement.clientWidth || el.clientWidth || 0;
               if (step <= 0) return false;
               const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
               const trailingInset = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
@@ -131,8 +130,8 @@ internal static class ReaderPaginationScripts
             (() => {
               const el = document.scrollingElement || document.documentElement;
               if (!el) return false;
-              const renderedWidth = el.getBoundingClientRect?.().width || 0;
-              const step = renderedWidth || el.clientWidth || document.documentElement.clientWidth || window.innerWidth || 0;
+              const step = window.visualViewport?.width || window.innerWidth
+                || document.documentElement.clientWidth || el.clientWidth || 0;
               if (step <= 0) return false;
               const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
               const trailingInset = parseFloat(getComputedStyle(document.body).paddingRight) || 0;

@@ -735,10 +735,7 @@ public sealed partial class MainWindow
         _pendingReaderChunkOffset = source.StartOffset;
         UpdateReaderChapterControls();
         var target = new Uri(targetPath);
-        if (ReaderWebView.Source?.LocalPath.Equals(target.LocalPath, StringComparison.OrdinalIgnoreCase) == true)
-            _ = ScrollToPendingReaderChunkAsync();
-        else
-            _ = NavigateReaderSourceAsync(target, 1, animate: true, ReaderNavigationIntent.AiSource);
+        _ = NavigateReaderSourceAsync(target, 1, animate: true, ReaderNavigationIntent.AiSource);
     }
 
     private async Task ScrollToPendingReaderChunkAsync()
@@ -748,67 +745,174 @@ public sealed partial class MainWindow
         var searchQuery = _pendingReaderSearchQuery;
         _pendingReaderSearchQuery = null;
         var serializedQuery = System.Text.Json.JsonSerializer.Serialize(searchQuery ?? string.Empty);
+        var pagination = _readerFlowMode == 1 ? "true" : "false";
         var script = $$"""
             (() => {
+              try {
               const root = document.body;
-              if (!root) return;
-              // Clear an earlier search hit without changing the chapter text.
+              if (!root) return 0;
+              // Clear the previous hit without changing the chapter text.
               document.querySelectorAll('mark.kkindle-search-hit').forEach(mark => {
                 const parent = mark.parentNode;
-                mark.replaceWith(document.createTextNode(mark.textContent || ''));
-                parent?.normalize();
+                if (!parent) return;
+                parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+                if (typeof parent.normalize === 'function') parent.normalize();
               });
-              const query = {{serializedQuery}};
-              const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-                acceptNode(node) {
-                  const parent = node.parentElement;
-                  return !parent || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)
-                    ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
-                }
-              });
+              const query = ({{serializedQuery}} || '').trim();
+              const foldedQuery = query.toLocaleLowerCase();
+              const terms = [...new Set(query
+                .split(/\s+/)
+                .map(term => term.trim())
+                .filter(Boolean))];
+              // Do not pass a NodeFilter callback. Reader pages intentionally
+              // have script execution disabled; WebView2 can run this injected
+              // host script, but rejects callbacks invoked later by DOM APIs
+              // with "The provided callback is no longer runnable".
+              const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+              const foldedTerms = terms
+                .filter(term => term.toLocaleLowerCase() !== foldedQuery)
+                .map(term => ({ original: term, folded: term.toLocaleLowerCase() }));
               let cursor = 0;
               let fallback = null;
-              let bestMatch = null;
-              let bestDistance = Number.POSITIVE_INFINITY;
-              const foldedQuery = query.toLocaleLowerCase();
+              let bestExact = null;
+              let bestExactDistance = Number.POSITIVE_INFINITY;
+              const exactMatches = [];
+              let bestTerm = null;
+              let bestTermDistance = Number.POSITIVE_INFINITY;
+
+              const consider = (current, distance, kind) => {
+                if (kind === 'exact') {
+                  if (distance < bestExactDistance) {
+                    bestExactDistance = distance;
+                    bestExact = current;
+                  }
+                } else if (distance < bestTermDistance) {
+                  bestTermDistance = distance;
+                  bestTerm = current;
+                }
+              };
+
               while (walker.nextNode()) {
                 const node = walker.currentNode;
-                if (!fallback && cursor + node.data.length >= {{offset}})
+                const parent = node.parentElement;
+                if (!parent
+                    || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)
+                    || (typeof parent.closest === 'function'
+                        && parent.closest('mark.kkindle-search-hit'))) continue;
+                const text = node.data || '';
+                if (!fallback && cursor + text.length >= {{offset}})
                   fallback = node.parentElement || root;
-                if (foldedQuery.length > 0) {
-                  const foldedText = node.data.toLocaleLowerCase();
+                const foldedText = text.toLocaleLowerCase();
+                if (foldedQuery) {
                   let localIndex = foldedText.indexOf(foldedQuery);
                   while (localIndex >= 0) {
-                    const absoluteIndex = cursor + localIndex;
-                    const distance = Math.abs(absoluteIndex - {{offset}});
-                    if (distance < bestDistance) {
-                      bestDistance = distance;
-                      bestMatch = { node, localIndex };
-                    }
-                    localIndex = foldedText.indexOf(foldedQuery, localIndex + Math.max(1, foldedQuery.length));
+                    const current = {
+                      node,
+                      start: localIndex,
+                      length: query.length,
+                      block: parent.closest?.('p,li,blockquote,dd,dt,h1,h2,h3,h4,h5,h6,div') || parent
+                    };
+                    exactMatches.push(current);
+                    consider(current, Math.abs(cursor + localIndex - {{offset}}), 'exact');
+                    localIndex = foldedText.indexOf(
+                      foldedQuery,
+                      localIndex + Math.max(1, foldedQuery.length));
                   }
                 }
-                cursor += node.data.length;
+                for (const term of foldedTerms) {
+                  let localIndex = foldedText.indexOf(term.folded);
+                  while (localIndex >= 0) {
+                    consider({ node, start: localIndex, length: term.original.length },
+                      Math.abs(cursor + localIndex - {{offset}}), 'term');
+                    localIndex = foldedText.indexOf(
+                      term.folded,
+                      localIndex + Math.max(1, term.folded.length));
+                  }
+                }
+                cursor += text.length;
               }
 
-              if (bestMatch) {
+              const target = bestExact || bestTerm;
+              if (!target) {
+                if (fallback) fallback.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+                return 0;
+              }
+
+              const createMark = current => {
                 const range = document.createRange();
-                range.setStart(bestMatch.node, bestMatch.localIndex);
-                range.setEnd(bestMatch.node, bestMatch.localIndex + query.length);
-                const mark = document.createElement('mark');
-                mark.className = 'kkindle-search-hit';
-                mark.style.setProperty('background', '#000000', 'important');
-                mark.style.setProperty('color', '#ffffff', 'important');
-                mark.style.setProperty('text-decoration', 'none', 'important');
-                range.surroundContents(mark);
-                mark.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-                return;
-              }
+                range.setStart(current.node, current.start);
+                range.setEnd(current.node, current.start + current.length);
+                const hit = document.createElement('mark');
+                hit.className = 'kkindle-search-hit';
+                hit.style.setProperty('background', '#000000', 'important');
+                hit.style.setProperty('background-color', '#000000', 'important');
+                hit.style.setProperty('color', '#ffffff', 'important');
+                hit.style.setProperty('text-decoration', 'none', 'important');
+                range.surroundContents(hit);
+                return hit;
+              };
 
-              fallback?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              let mark = null;
+              if (bestExact) {
+                // Mark every exact occurrence in the selected paragraph. Walk
+                // backward so wrapping a later occurrence cannot invalidate
+                // offsets for an earlier occurrence in the same text node.
+                for (let index = exactMatches.length - 1; index >= 0; index--) {
+                  const current = exactMatches[index];
+                  if (current.block !== bestExact.block) continue;
+                  const hit = createMark(current);
+                  if (current.node === bestExact.node && current.start === bestExact.start)
+                    mark = hit;
+                }
+              }
+              if (!mark) mark = createMark(target);
+
+              if ({{pagination}}) {
+                const scroller = document.scrollingElement || document.documentElement;
+                const step = window.visualViewport?.width || window.innerWidth
+                  || document.documentElement.clientWidth || scroller.clientWidth || 0;
+                const rects = mark.getClientRects ? Array.from(mark.getClientRects()) : [];
+                const rect = rects.find(item => item.width > 0 || item.height > 0)
+                  || mark.getBoundingClientRect();
+                if (step > 0 && rect && Number.isFinite(rect.left)) {
+                  const absoluteLeft = rect.left + scroller.scrollLeft + Math.max(0, rect.width) / 2;
+                  const rawMax = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+                  const targetPage = Math.floor(Math.max(0, absoluteLeft) / step) * step;
+                  const targetLeft = Math.max(0, Math.min(rawMax, targetPage));
+                  window.scrollTo({ left: targetLeft, top: 0, behavior: 'instant' });
+                } else {
+                  mark.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+                }
+              } else {
+                mark.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              }
+              return 1;
+              } catch (error) {
+                return 0;
+              }
             })();
             """;
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
+        try
+        {
+            var attempts = string.IsNullOrWhiteSpace(searchQuery) ? 1 : 3;
+            for (var attempt = 0; attempt < attempts; attempt++)
+            {
+                var result = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script);
+                var diagnostic = result.Trim().Trim('"');
+                if (int.TryParse(
+                        diagnostic,
+                        System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out var hitCount)
+                    && hitCount > 0)
+                {
+                    break;
+                }
+
+                if (attempt < attempts - 1)
+                    await Task.Delay(80 + attempt * 100);
+            }
+        }
         catch { }
         if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
     }

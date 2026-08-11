@@ -218,8 +218,8 @@ internal static class ReaderNavigationScripts
           if (flowMode === 1) {
             const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
             const padRight = parseFloat(bodyStyle.paddingRight) || 0;
-            const renderedWidth = scroller.getBoundingClientRect?.().width || 0;
-            const step = renderedWidth || scroller.clientWidth || 0;
+            const step = window.visualViewport?.width || window.innerWidth
+              || document.documentElement.clientWidth || scroller.clientWidth || 0;
             const rawMax = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
             const max = step > 0
               ? Math.max(0, Math.min(rawMax, Math.round(Math.max(0, rawMax - padRight) / step) * step))
@@ -257,8 +257,8 @@ internal static class ReaderNavigationScripts
             // gets the extra whitespace seen in the reported screenshot.
             const horizontalError = after.left - (parseFloat(bodyStyle.paddingLeft) || 0);
             if (Math.abs(horizontalError) > 0.5) {
-              const renderedWidth = scroller.getBoundingClientRect?.().width || 0;
-              const step = renderedWidth || scroller.clientWidth || 0;
+              const step = window.visualViewport?.width || window.innerWidth
+                || document.documentElement.clientWidth || scroller.clientWidth || 0;
               const rawMax = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
               const padRight = parseFloat(bodyStyle.paddingRight) || 0;
               const max = step > 0
@@ -274,8 +274,8 @@ internal static class ReaderNavigationScripts
           }
           const computed = getComputedStyle(block);
           const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
-          const renderedWidth = scroller.getBoundingClientRect?.().width || 0;
-          const step = renderedWidth || scroller.clientWidth || 0;
+          const step = window.visualViewport?.width || window.innerWidth
+            || document.documentElement.clientWidth || scroller.clientWidth || 0;
           const column = flowMode === 1 ? {
             step,
             padLeft,

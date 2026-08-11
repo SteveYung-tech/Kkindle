@@ -776,7 +776,8 @@
                           DoubleTapped="BookList_DoubleTapped"
                           SelectionChanged="BookList_SelectionChanged">
                     <ListView.ItemContainerStyle>
-                        <Style TargetType="ListViewItem">
+                        <Style TargetType="ListViewItem"
+                               BasedOn="{StaticResource OutlinedListItemStyle}">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                             <Setter Property="Padding" Value="0" />
                             <Setter Property="Margin" Value="0,0,0,1" />
@@ -1230,7 +1231,8 @@
                       SelectionMode="Single"
                       SelectionChanged="ZLibraryBookList_SelectionChanged">
                 <ListView.ItemContainerStyle>
-                    <Style TargetType="ListViewItem">
+                    <Style TargetType="ListViewItem"
+                           BasedOn="{StaticResource OutlinedListItemStyle}">
                         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                         <Setter Property="Padding" Value="0,3" />
                     </Style>
@@ -2489,6 +2491,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <Grid>
@@ -2502,27 +2505,60 @@
                     </StackPanel>
                     <TextBlock x:Name="ReadingMaterialsStatusText" Text="汇总本地书籍与 Kindle 的划线笔记" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
                 </StackPanel>
-                <StackPanel Grid.Column="1" Margin="0,46,0,0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                <StackPanel x:Name="ReadingMaterialsNotesActions" Grid.Column="1" Margin="0,46,0,0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
                     <Button x:Name="LocateReadingMaterialButton" Content="在阅读器中定位" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" Click="LocateReadingMaterialButton_Click" />
                     <Button x:Name="DeleteReadingMaterialButton" Content="删除所选" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" Click="DeleteReadingMaterialButton_Click" />
                     <Button Content="刷新" Style="{StaticResource QuietButtonStyle}" Click="RefreshReadingMaterialsButton_Click" />
                     <Button Content="返回书架" Click="AllBooksButton_Click" />
                 </StackPanel>
+                <StackPanel x:Name="ReadingMaterialsExportActions" Grid.Column="1" Margin="0,46,0,0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top" Visibility="Collapsed">
+                    <Button Content="刷新资料" Style="{StaticResource QuietButtonStyle}" Click="RefreshReadingMaterialsButton_Click" />
+                    <Button Content="返回书架" Click="AllBooksButton_Click" />
+                </StackPanel>
             </Grid>
 
             <Grid Grid.Row="1" Margin="0,24,0,14" ColumnSpacing="10">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                 <ComboBox x:Name="ReadingMaterialsSourceBox" Header="来源" SelectedIndex="0" SelectionChanged="ReadingMaterialsFilter_Changed">
                     <ComboBoxItem Content="全部来源" Tag="all" />
                     <ComboBoxItem Content="本地书籍" Tag="local" />
                     <ComboBoxItem Content="Kindle" Tag="kindle" />
                 </ComboBox>
                 <TextBox x:Name="ReadingMaterialsSearchBox" Grid.Column="1" Header="搜索" PlaceholderText="书名、划线、笔记或位置" TextChanged="ReadingMaterialsSearchBox_TextChanged" />
-                <Button Grid.Column="2" Margin="0,22,0,0" Content="导出 Markdown" Click="ExportReadingMaterialsMarkdownButton_Click" />
-                <Button Grid.Column="3" Margin="0,22,0,0" Content="导出文本" Style="{StaticResource QuietButtonStyle}" Click="ExportReadingMaterialsTextButton_Click" />
             </Grid>
 
-            <Border Grid.Row="2"
+            <Border x:Name="ReadingMaterialsExportPanel"
+                    Grid.Row="2"
+                    Margin="0,0,0,14"
+                    Padding="16,14"
+                    Background="#FFFFFF"
+                    BorderBrush="#000000"
+                    BorderThickness="2"
+                    Visibility="Collapsed">
+                <Grid ColumnSpacing="18">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="导出当前筛选结果" FontSize="16" FontWeight="Bold" />
+                        <TextBlock x:Name="ReadingMaterialsExportScopeText"
+                                   Text="当前筛选范围：全部来源 · 共 0 条记录"
+                                   Foreground="{StaticResource MutedInkBrush}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="Markdown 适合保留标题层级；纯文本适合在任意设备上阅读。"
+                                   Foreground="{StaticResource MutedInkBrush}"
+                                   FontSize="11"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Content="导出 Markdown" Click="ExportReadingMaterialsMarkdownButton_Click" />
+                        <Button Content="导出文本" Style="{StaticResource QuietButtonStyle}" Click="ExportReadingMaterialsTextButton_Click" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="3"
                     Margin="0,0,0,14"
                     Padding="14,11"
                     Background="#FFFFFF"
@@ -2534,13 +2570,44 @@
                            FontWeight="SemiBold" />
             </Border>
 
-            <Grid Grid.Row="3">
+            <Grid Grid.Row="4">
                 <ListView x:Name="ReadingMaterialsList"
-                          ItemsSource="{x:Bind ReadingMaterials}"
                           SelectionMode="Single"
                           SelectionChanged="ReadingMaterialsList_SelectionChanged"
                           IsItemClickEnabled="True"
                           ItemClick="ReadingMaterialsList_ItemClick">
+                    <ListView.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.HeaderTemplate>
+                                <DataTemplate x:DataType="local:ReadingMaterialGroupViewModel">
+                                    <Border Margin="0,14,0,4"
+                                            Padding="12,9"
+                                            Background="#FFFFFF"
+                                            BorderBrush="#000000"
+                                            BorderThickness="1,1,1,2">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Spacing="2">
+                                                <TextBlock Text="{x:Bind BookTitle}"
+                                                           FontSize="16"
+                                                           FontWeight="Bold" />
+                                                <TextBlock Text="{x:Bind SourceLabel}"
+                                                           FontSize="11"
+                                                           Foreground="{StaticResource MutedInkBrush}" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{x:Bind CountLabel}"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="{StaticResource MutedInkBrush}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </GroupStyle.HeaderTemplate>
+                        </GroupStyle>
+                    </ListView.GroupStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:ReadingMaterialItemViewModel">
                             <Grid Padding="12,10" ColumnSpacing="14">
@@ -2704,8 +2771,9 @@
                 Background="#FFFFFF"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="1,0,0,0">
-            <ScrollViewer>
-                <StackPanel Padding="24,70,24,24" Spacing="13">
+            <Grid>
+                <ScrollViewer>
+                    <StackPanel Padding="24,70,24,24" Spacing="13">
                     <Grid HorizontalAlignment="Left" ColumnSpacing="12">
                         <Grid.Resources>
                             <Style x:Key="DetailActionIconButtonStyle" TargetType="Button">
@@ -2890,25 +2958,34 @@
                         </StackPanel>
                     </Grid>
                     <Rectangle Height="1" Fill="#E2E2DE" Margin="0,8,0,2" />
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <Button Content="保存修改"
-                                HorizontalAlignment="Stretch"
-                                HorizontalContentAlignment="Center"
-                                Click="SaveDetailsButton_Click" />
-                        <Button Grid.Column="1"
-                                Content="从书库删除"
-                                Padding="14,8"
-                                Background="#FFFFFF"
-                                Foreground="#B3261E"
-                                BorderBrush="#B3261E"
-                                Click="DeleteBookButton_Click" />
-                    </Grid>
-                </StackPanel>
-            </ScrollViewer>
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Button Content="保存修改"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Click="SaveDetailsButton_Click" />
+                            <Button Grid.Column="1"
+                                    Content="从书库删除"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Padding="14,8"
+                                    Background="#FFFFFF"
+                                    Foreground="#B3261E"
+                                    BorderBrush="#B3261E"
+                                    Click="DeleteBookButton_Click" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- Keep scrolled detail content out of the transparent title-bar drag area. -->
+                <Border Height="38"
+                        VerticalAlignment="Top"
+                        Background="#FFFFFF"
+                        IsHitTestVisible="False" />
+            </Grid>
         </Border>
 
         <!-- Focused three-pane EPUB/PDF reader inspired by desktop reading tools. -->
@@ -2918,34 +2995,6 @@
               Canvas.ZIndex="40"
               Background="#FFFFFF"
               Visibility="Collapsed">
-            <Grid.Resources>
-                <!-- Keep every native scrollbar inside the reader consistent
-                     with the original directory scrollbar. -->
-                <SolidColorBrush x:Key="ScrollBarBackground" Color="#FFFFFF" />
-                <SolidColorBrush x:Key="ScrollBarBackgroundPointerOver" Color="#FFFFFF" />
-                <SolidColorBrush x:Key="ScrollBarBackgroundDisabled" Color="#FFFFFF" />
-                <SolidColorBrush x:Key="ScrollBarBorderBrush" Color="#000000" />
-                <SolidColorBrush x:Key="ScrollBarBorderBrushPointerOver" Color="#000000" />
-                <SolidColorBrush x:Key="ScrollBarBorderBrushDisabled" Color="#FFFFFF" />
-                <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#000000" />
-                <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#111111" />
-                <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#000000" />
-                <SolidColorBrush x:Key="ScrollBarThumbFillDisabled" Color="#777777" />
-                <SolidColorBrush x:Key="ScrollBarThumbBorderBrush" Color="#000000" />
-                <SolidColorBrush x:Key="ScrollBarTrackFill" Color="#FFFFFF" />
-                <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#FFFFFF" />
-                <SolidColorBrush x:Key="ScrollBarTrackFillDisabled" Color="#FFFFFF" />
-                <SolidColorBrush x:Key="ScrollBarTrackStroke" Color="#FFFFFF" />
-                <SolidColorBrush x:Key="ScrollBarTrackStrokePointerOver" Color="#FFFFFF" />
-                <SolidColorBrush x:Key="ScrollBarTrackStrokeDisabled" Color="#FFFFFF" />
-                <SolidColorBrush x:Key="ScrollBarThumbBackground" Color="#000000" />
-                <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#000000" />
-                <SolidColorBrush x:Key="ScrollBarPanningThumbBackgroundDisabled" Color="#777777" />
-                <x:Double x:Key="ScrollBarSize">10</x:Double>
-                <x:Double x:Key="ScrollBarVerticalThumbMinWidth">8</x:Double>
-                <x:Double x:Key="ScrollBarThumbOffset">1</x:Double>
-                <CornerRadius x:Key="ScrollBarCornerRadius">0</CornerRadius>
-            </Grid.Resources>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="ReaderTocColumn" Width="286" />
                 <ColumnDefinition x:Name="ReaderContentColumn" Width="*" />
@@ -3141,28 +3190,47 @@
                             <ListView x:Name="ReaderSearchResultList"
                                       Grid.Row="2"
                                       SelectionMode="None"
-                                      IsItemClickEnabled="True"
-                                      ItemClick="ReaderSearchResultList_ItemClick"
                                       ScrollViewer.HorizontalScrollMode="Disabled"
                                       ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="local:ReaderSearchResultItem">
-                                        <StackPanel Padding="14,9,14,9" Spacing="3">
-                                            <TextBlock Tag="{x:Bind Title}"
-                                                       FontSize="12"
-                                                       FontWeight="SemiBold"
-                                                       TextWrapping="Wrap"
-                                                       MaxLines="2"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       Loaded="ReaderSearchHighlightedText_Loaded" />
-                                            <TextBlock Tag="{x:Bind Snippet}"
-                                                       FontSize="10"
-                                                       Foreground="#707070"
-                                                       TextWrapping="Wrap"
-                                                       MaxLines="4"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       Loaded="ReaderSearchHighlightedText_Loaded" />
-                                        </StackPanel>
+                                        <Button Padding="0"
+                                                BorderThickness="1"
+                                                BorderBrush="{x:Bind ResultBorderBrush, Mode=OneWay}"
+                                                Background="Transparent"
+                                                UseSystemFocusVisuals="False"
+                                                HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Stretch"
+                                                Click="ReaderSearchResultButton_Click">
+                                            <Button.Template>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}"
+                                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                                            BorderThickness="{TemplateBinding BorderThickness}">
+                                                        <ContentPresenter Content="{TemplateBinding Content}"
+                                                                          Padding="{TemplateBinding Padding}"
+                                                                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Button.Template>
+                                            <StackPanel Padding="14,9,14,9" Spacing="3">
+                                                <TextBlock Tag="{x:Bind Title}"
+                                                           FontSize="12"
+                                                           FontWeight="SemiBold"
+                                                           TextWrapping="Wrap"
+                                                           MaxLines="2"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Loaded="ReaderSearchHighlightedText_Loaded" />
+                                                <TextBlock Tag="{x:Bind Snippet}"
+                                                           FontSize="10"
+                                                           Foreground="#707070"
+                                                           TextWrapping="Wrap"
+                                                           MaxLines="4"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Loaded="ReaderSearchHighlightedText_Loaded" />
+                                            </StackPanel>
+                                        </Button>
                                     </DataTemplate>
                                 </ListView.ItemTemplate>
                             </ListView>

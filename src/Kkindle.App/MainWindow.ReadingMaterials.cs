@@ -14,9 +14,11 @@ public sealed partial class MainWindow
     private ReadingMaterialItemViewModel? _selectedReadingMaterial;
     private CancellationTokenSource? _readingMaterialsCancellation;
     private string? _readingMaterialsDeviceId;
+    private bool _readingMaterialsExportMode;
 
     private async Task OpenReadingMaterialsPageAsync(bool exportMode)
     {
+        _readingMaterialsExportMode = exportMode;
         SetActiveNavigation(exportMode ? ReaderExportNavigationButton : ReaderNotesNavigationButton);
         LibraryPane.Visibility = Visibility.Collapsed;
         SettingsPane.Visibility = Visibility.Collapsed;
@@ -27,10 +29,13 @@ public sealed partial class MainWindow
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
         ReadingMaterialsPage.Visibility = Visibility.Visible;
+        ReadingMaterialsNotesActions.Visibility = exportMode ? Visibility.Collapsed : Visibility.Visible;
+        ReadingMaterialsExportActions.Visibility = exportMode ? Visibility.Visible : Visibility.Collapsed;
+        ReadingMaterialsExportPanel.Visibility = exportMode ? Visibility.Visible : Visibility.Collapsed;
         ReadingMaterialsPageTitle.Text = exportMode ? "导出记录" : "笔记与标注";
         ReadingMaterialsStatusText.Text = exportMode
-            ? "选择本地书籍、Kindle 或全部来源后导出"
-            : "统一浏览本地书籍与 Kindle 的划线笔记";
+            ? "先筛选要导出的阅读资料，再选择文件格式保存到电脑"
+            : "统一浏览本地书籍与 Kindle 的划线、笔记和批注";
         await RefreshReadingMaterialsAsync();
     }
 
@@ -95,7 +100,9 @@ public sealed partial class MainWindow
                 _readingMaterialsDeviceId = _devices[0].Identity;
             }
             ApplyReadingMaterialsFilter();
-            ReadingMaterialsStatusText.Text = $"本地资料已读取 · {kindleStatus}";
+            ReadingMaterialsStatusText.Text = _readingMaterialsExportMode
+                ? $"导出预览已准备 · {kindleStatus}"
+                : $"本地资料已读取 · {kindleStatus}";
         }
         catch (OperationCanceledException) { }
         catch (Exception exception)
@@ -126,10 +133,30 @@ public sealed partial class MainWindow
             .ToArray();
         ReadingMaterials.Clear();
         foreach (var item in filtered) ReadingMaterials.Add(item);
+        ReadingMaterialGroups.Clear();
+        foreach (var group in filtered
+            .GroupBy(item => item.Source)
+            .SelectMany(sourceGroup => sourceGroup
+                .GroupBy(item => item.BookTitle, StringComparer.CurrentCultureIgnoreCase)
+                .Select(bookGroup => new ReadingMaterialGroupViewModel(
+                    sourceGroup.Key,
+                    bookGroup.Key,
+                    bookGroup)))
+            .OrderByDescending(group => group.Max(item => item.UpdatedAt ?? DateTimeOffset.MinValue))
+            .ThenBy(group => group.BookTitle, StringComparer.CurrentCultureIgnoreCase))
+        {
+            ReadingMaterialGroups.Add(group);
+        }
         var localCount = _allReadingMaterials.Count(item => item.Source == ReadingMaterialSource.Local);
         var kindleCount = _allReadingMaterials.Count(item => item.Source == ReadingMaterialSource.Kindle);
-        ReadingMaterialsSummaryText.Text = $"本地 {localCount} 条 · Kindle {kindleCount} 条 · 当前显示 {filtered.Length} 条";
+        ReadingMaterialsSummaryText.Text = _readingMaterialsExportMode
+            ? $"导出预览 · 本地 {localCount} 条 · Kindle {kindleCount} 条 · 当前将导出 {filtered.Length} 条"
+            : $"本地 {localCount} 条 · Kindle {kindleCount} 条 · 当前显示 {filtered.Length} 条";
+        ReadingMaterialsExportScopeText.Text = $"当前筛选范围：{GetReadingMaterialsSourceLabel(source)} · 共 {filtered.Length} 条记录";
         ReadingMaterialsEmptyText.Visibility = filtered.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ReadingMaterialsEmptyText.Text = _readingMaterialsExportMode
+            ? "当前筛选范围没有可导出的阅读资料"
+            : "没有符合条件的划线、笔记与批注";
     }
 
     private void ReadingMaterialsFilter_Changed(object sender, SelectionChangedEventArgs e)
@@ -145,8 +172,10 @@ public sealed partial class MainWindow
     private void ReadingMaterialsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         _selectedReadingMaterial = ReadingMaterialsList.SelectedItem as ReadingMaterialItemViewModel;
-        LocateReadingMaterialButton.IsEnabled = _selectedReadingMaterial?.Source == ReadingMaterialSource.Local;
-        DeleteReadingMaterialButton.IsEnabled = _selectedReadingMaterial is not null;
+        LocateReadingMaterialButton.IsEnabled = !_readingMaterialsExportMode
+            && _selectedReadingMaterial?.Source == ReadingMaterialSource.Local;
+        DeleteReadingMaterialButton.IsEnabled = !_readingMaterialsExportMode
+            && _selectedReadingMaterial is not null;
     }
 
     private async void ReadingMaterialsList_ItemClick(object sender, ItemClickEventArgs e)
@@ -233,4 +262,11 @@ public sealed partial class MainWindow
         await File.WriteAllTextAsync(file.Path, text, new UTF8Encoding(true));
         ReadingMaterialsStatusText.Text = $"已导出 {records.Length} 条记录到 {file.Path}";
     }
+
+    private static string GetReadingMaterialsSourceLabel(string source) => source switch
+    {
+        "local" => "本地书籍",
+        "kindle" => "Kindle",
+        _ => "全部来源"
+    };
 }

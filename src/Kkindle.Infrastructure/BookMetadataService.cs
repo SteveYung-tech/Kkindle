@@ -9,6 +9,8 @@ namespace Kkindle.Infrastructure;
 
 public sealed class BookMetadataService : IMetadataService
 {
+    private const uint KindleCoverOffsetRecordType = 201;
+
     public async Task<BookMetadata> ReadMetadataAsync(string path, CancellationToken cancellationToken = default)
     {
         var extension = Path.GetExtension(path).ToLowerInvariant();
@@ -150,10 +152,10 @@ public sealed class BookMetadataService : IMetadataService
         var mobiOffset = IndexOf(firstRecord, "MOBI"u8);
         if (mobiOffset < 0 || mobiOffset > firstRecord.Length - 0x70) return null;
 
-        var firstImageIndex = ReadUInt32(firstRecord, mobiOffset + 0x6C);
-        if (!TryReadExthUInt32(firstRecord, 201, out var coverOffset)) return null;
-
-        var coverRecordIndex = (ulong)firstImageIndex + coverOffset;
+        var firstImageIndex = ReadUInt32(firstRecord, mobiOffset + 0x5C);
+        var coverRecordIndex = (ulong)firstImageIndex;
+        if (TryReadExthUInt32(firstRecord, KindleCoverOffsetRecordType, out var coverOffset))
+            coverRecordIndex += coverOffset;
         if (coverRecordIndex >= (ulong)records.Count) return null;
 
         var coverRecord = records[(int)coverRecordIndex];

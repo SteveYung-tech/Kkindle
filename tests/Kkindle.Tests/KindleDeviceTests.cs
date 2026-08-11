@@ -530,6 +530,22 @@ public sealed class KindleDeviceTests
     }
 
     [Fact]
+    public void DefaultsMissingKindleCdeTypeToEbook()
+    {
+        var bytes = new byte[100];
+        "EXTH"u8.CopyTo(bytes.AsSpan(16));
+        WriteBigEndian(bytes, 20, 56);
+        WriteBigEndian(bytes, 24, 1);
+        WriteBigEndian(bytes, 28, 113);
+        WriteBigEndian(bytes, 32, 44);
+        "1f0297e3-39ec-412a-8c08-6cc41d5d2711"u8.CopyTo(bytes.AsSpan(36));
+
+        Assert.Equal(
+            "thumbnail_1f0297e3-39ec-412a-8c08-6cc41d5d2711_EBOK_portrait.jpg",
+            KindleThumbnailService.ReadThumbnailFileName(bytes));
+    }
+
+    [Fact]
     public async Task ReadsKindleCoverRecordInsteadOfLargestEmbeddedImage()
     {
         var path = Path.Combine(
@@ -550,7 +566,7 @@ public sealed class KindleDeviceTests
         WriteBigEndian(bytes, 94, interiorRecordOffset);
 
         "MOBI"u8.CopyTo(bytes.AsSpan(firstRecordOffset + 16));
-        WriteBigEndian(bytes, firstRecordOffset + 16 + 0x6C, 1);
+        WriteBigEndian(bytes, firstRecordOffset + 16 + 0x5C, 1);
         var exthOffset = firstRecordOffset + 160;
         "EXTH"u8.CopyTo(bytes.AsSpan(exthOffset));
         WriteBigEndian(bytes, exthOffset + 4, 24);

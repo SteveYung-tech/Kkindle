@@ -794,10 +794,10 @@ public sealed partial class MainWindow
                 const scroller = document.scrollingElement || document.documentElement;
                 if (!scroller) return false;
                 if (pagination) {
-                  const step = scroller.getBoundingClientRect?.().width
-                    || scroller.clientWidth
-                    || document.documentElement.clientWidth
+                  const step = window.visualViewport?.width
                     || window.innerWidth
+                    || document.documentElement.clientWidth
+                    || scroller.clientWidth
                     || 0;
                   if (step <= 0) return false;
                   const absoluteX = rect.left + (scroller.scrollLeft || 0) + Math.max(0, rect.width) / 2;
@@ -1075,11 +1075,15 @@ public sealed partial class MainWindow
     // ------------------------------------------------------------------
 
     private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+    private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
     private const int WhMouseLl = 14;
+    private const int WhKeyboardLl = 13;
     private const uint WmLButtonDown = 0x0201;
     private const uint WmLButtonUp = 0x0202;
     private const uint WmMouseWheel = 0x020A;
+    private const uint WmKeyDown = 0x0100;
+    private const uint WmSysKeyDown = 0x0104;
     private const int MouseWheelDelta = 120;
     private const int ClickDragTolerance = 12;
 
@@ -1100,11 +1104,27 @@ public sealed partial class MainWindow
         public IntPtr dwExtraInfo;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KbdLlHookStruct
+    {
+        public uint vkCode;
+        public uint scanCode;
+        public uint flags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
 
     [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
     private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
@@ -1117,26 +1137,52 @@ public sealed partial class MainWindow
 
     private void InstallReaderMouseHook()
     {
-        if (_readerMouseHook != IntPtr.Zero) return;
+        _readerWindowHandle = WindowNative.GetWindowHandle(this);
         _readerHookEnabled = true;
-        _readerMouseProc = ReaderMouseHookCallback;
-        _readerMouseHook = SetWindowsHookEx(WhMouseLl, _readerMouseProc, GetModuleHandle(null), 0);
-        if (_readerMouseHook == IntPtr.Zero) _readerHookEnabled = false;
+        var module = GetModuleHandle(null);
+        if (_readerMouseHook == IntPtr.Zero)
+        {
+            _readerMouseProc = ReaderMouseHookCallback;
+            _readerMouseHook = SetWindowsHookEx(WhMouseLl, _readerMouseProc, module, 0);
+        }
+        if (_readerKeyboardHook == IntPtr.Zero)
+        {
+            _readerKeyboardProc = ReaderKeyboardHookCallback;
+            _readerKeyboardHook = SetWindowsHookEx(WhKeyboardLl, _readerKeyboardProc, module, 0);
+        }
+        if (_readerMouseHook == IntPtr.Zero && _readerKeyboardHook == IntPtr.Zero)
+            _readerHookEnabled = false;
     }
 
     private void UninstallReaderMouseHook()
     {
         _readerHookEnabled = false;
         _readerWheelDeltaRemainder = 0;
-        if (_readerMouseHook == IntPtr.Zero) return;
-        _ = UnhookWindowsHookEx(_readerMouseHook);
-        _readerMouseHook = IntPtr.Zero;
+        if (_readerMouseHook != IntPtr.Zero)
+        {
+            _ = UnhookWindowsHookEx(_readerMouseHook);
+            _readerMouseHook = IntPtr.Zero;
+        }
         _readerMouseProc = null;
+        if (_readerKeyboardHook != IntPtr.Zero)
+        {
+            _ = UnhookWindowsHookEx(_readerKeyboardHook);
+            _readerKeyboardHook = IntPtr.Zero;
+        }
+        _readerKeyboardProc = null;
     }
 
     // Runs on the system hook thread. It only reads plain cached fields (never
     // XAML), so uninstalling the hook while a callback is in flight cannot
     // deadlock the UI thread; the click handling is enqueued to the dispatcher.
+    private bool IsReaderWindowForeground()
+    {
+        var windowHandle = _readerWindowHandle;
+        return _windowActive
+            && windowHandle != IntPtr.Zero
+            && GetForegroundWindow() == windowHandle;
+    }
+
     private IntPtr ReaderMouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
         if (nCode >= 0 && _readerHookEnabled)
@@ -1145,7 +1191,9 @@ public sealed partial class MainWindow
             switch ((uint)wParam.ToInt64())
             {
                 case WmLButtonDown:
-                    if (!IsReaderPointerBlocked() && IsInsideCachedReaderWebViewScreenRect(data.pt))
+                    if (IsReaderWindowForeground()
+                        && !IsReaderPointerBlocked()
+                        && IsInsideCachedReaderWebViewScreenRect(data.pt))
                     {
                         _readerMouseDownInside = true;
                         _readerMouseDownPoint = data.pt;
@@ -1156,7 +1204,10 @@ public sealed partial class MainWindow
                     }
                     break;
                 case WmLButtonUp:
-                    if (_readerMouseDownInside && IsInsideCachedReaderWebViewScreenRect(data.pt))
+                    if (_readerMouseDownInside
+                        && IsReaderWindowForeground()
+                        && !IsReaderPointerBlocked()
+                        && IsInsideCachedReaderWebViewScreenRect(data.pt))
                     {
                         var moved = Math.Abs(data.pt.X - _readerMouseDownPoint.X)
                             + Math.Abs(data.pt.Y - _readerMouseDownPoint.Y);
@@ -1175,6 +1226,7 @@ public sealed partial class MainWindow
                     // buttons and keyboard arrows. Continuous mode is left to
                     // WebView2's native scrolling for pixel-smooth movement.
                     if (_readerFlowMode == 1
+                        && IsReaderWindowForeground()
                         && !IsReaderPointerBlocked()
                         && IsInsideCachedReaderWebViewScreenRect(data.pt))
                     {
@@ -1204,6 +1256,31 @@ public sealed partial class MainWindow
         return CallNextHookEx(_readerMouseHook, nCode, wParam, lParam);
     }
 
+    private IntPtr ReaderKeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0
+            && _readerHookEnabled
+            && IsReaderWindowForeground()
+            && !_readerTextInputFocused
+            && !_readerSearchVisible
+            && !IsReaderPointerBlocked()
+            && (uint)wParam.ToInt64() is WmKeyDown or WmSysKeyDown)
+        {
+            var data = Marshal.PtrToStructure<KbdLlHookStruct>(lParam);
+            var key = (Windows.System.VirtualKey)data.vkCode;
+            var handled = _readerFlowMode == 1
+                ? key is Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right
+                : key is Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right
+                    or Windows.System.VirtualKey.Up or Windows.System.VirtualKey.Down;
+            if (handled)
+            {
+                DispatcherQueue.TryEnqueue(() => TryHandleReaderArrowKey(key));
+                return new IntPtr(1);
+            }
+        }
+        return CallNextHookEx(_readerKeyboardHook, nCode, wParam, lParam);
+    }
+
     private bool IsInsideCachedReaderWebViewScreenRect(POINT point)
     {
         var rect = _readerWebViewScreenRect;
@@ -1217,8 +1294,7 @@ public sealed partial class MainWindow
         || _readerMenuFlyoutOpen
         || _readerLayoutPopupOpen
         || _readerAiSettingsPopupOpen
-        || _readerFootnotePopupOpen
-        || _readerSearchVisible;
+        || _readerFootnotePopupOpen;
 
     private Windows.Foundation.Rect GetReaderWebViewScreenRect()
     {
@@ -1246,6 +1322,7 @@ public sealed partial class MainWindow
 
     private async Task HandleReaderZoneClickAsync(POINT screenPoint)
     {
+        if (!IsReaderWindowForeground()) return;
         if (_readerCloseRequested || _readerTransitionActive) return;
         if (_readerFlowMode != 1 || ReaderWebView.CoreWebView2 is null) return;
         if (IsReaderPointerBlocked()) return;

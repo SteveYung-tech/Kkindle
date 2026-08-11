@@ -53,7 +53,7 @@ public sealed partial class MainWindow
     private DateTimeOffset _readerSessionStart = DateTimeOffset.UtcNow;
     private long _readerActiveSeconds;
     private long _readerStatsBaseSeconds;
-    private bool _windowActive = true;
+    private volatile bool _windowActive = true;
     private volatile bool _readerSearchVisible;
     private bool _readerSearchLayoutCaptured;
     private bool _readerSearchPreviousTocExpanded;
@@ -61,6 +61,7 @@ public sealed partial class MainWindow
     private bool _readerSearchPreviousBookmarkTabActive;
     private string _readerSearchQuery = string.Empty;
     private string? _pendingReaderSearchQuery;
+    private ReaderSearchResultItem? _selectedReaderSearchResult;
     private CancellationTokenSource? _readerSearchQueryCancellation;
 
     private void ConfigureReaderToolsPopupHosts()
@@ -226,6 +227,7 @@ public sealed partial class MainWindow
         _readerSearchLayoutCaptured = false;
         _readerSearchQuery = string.Empty;
         _pendingReaderSearchQuery = null;
+        ClearReaderSearchResultSelection();
         _readerSearchQueryCancellation?.Cancel();
         _readerSearchQueryCancellation?.Dispose();
         _readerSearchQueryCancellation = null;
@@ -869,6 +871,7 @@ public sealed partial class MainWindow
 
         if (query.Length == 0)
         {
+            ClearReaderSearchResultSelection();
             ReaderSearchResultList.ItemsSource = null;
             ReaderSearchCountText.Text = string.Empty;
             ShowReaderSearchStatus("输入关键词，实时搜索整本书。");
@@ -905,6 +908,7 @@ public sealed partial class MainWindow
             return;
         }
         ShowReaderSearchStatus("正在本地搜索…");
+        ClearReaderSearchResultSelection();
         ReaderSearchResultList.ItemsSource = null;
         try
         {
@@ -921,9 +925,19 @@ public sealed partial class MainWindow
             token.ThrowIfCancellationRequested();
             var results = await _readerData.SearchBookAsync(book.Id, query, 40, token);
             token.ThrowIfCancellationRequested();
-            ReaderSearchResultList.ItemsSource = results.Select(result => new ReaderSearchResultItem(result, query)).ToArray();
-            ReaderSearchCountText.Text = $"{results.Count} 条结果 · 仅本地检索，不上传正文";
-            ShowReaderSearchStatus(results.Count == 0 ? "没有找到匹配的片段。" : null);
+            // The same visible excerpt can come from duplicate EPUB spine
+            // entries or legacy chunks with different paths/offsets. At this
+            // final presentation boundary, identical title + snippet means an
+            // identical user-facing result and must only be shown once.
+            var resultItems = results
+                .Select(result => new ReaderSearchResultItem(result, query))
+                .DistinctBy(
+                    item => $"{item.Title}\u001f{item.Snippet}",
+                    StringComparer.CurrentCultureIgnoreCase)
+                .ToArray();
+            ReaderSearchResultList.ItemsSource = resultItems;
+            ReaderSearchCountText.Text = $"{resultItems.Length} 段结果 · 同段多处命中会同时高亮 · 仅本地检索";
+            ShowReaderSearchStatus(resultItems.Length == 0 ? "没有找到匹配的片段。" : null);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -972,21 +986,44 @@ public sealed partial class MainWindow
         }
     }
 
-    private async void ReaderSearchResultList_ItemClick(object sender, ItemClickEventArgs e)
+    private async void ReaderSearchResultButton_Click(object sender, RoutedEventArgs e)
     {
-        if (e.ClickedItem is not ReaderSearchResultItem result) return;
+        if (sender is not Button { DataContext: ReaderSearchResultItem result }) return;
+        if (!ReferenceEquals(_selectedReaderSearchResult, result))
+        {
+            if (_selectedReaderSearchResult is not null)
+                _selectedReaderSearchResult.IsSelected = false;
+            _selectedReaderSearchResult = result;
+            result.IsSelected = true;
+        }
+        ReaderSearchStatusText.Text = "正在跳转并定位关键词…";
         var source = result.Source;
         if (IsPdfReader) await NavigatePdfLocationAsync(source.ChapterPath);
         else await NavigateToReaderChunkAsync(source, result.Query);
     }
 
+    private void ClearReaderSearchResultSelection()
+    {
+        if (_selectedReaderSearchResult is not null)
+            _selectedReaderSearchResult.IsSelected = false;
+        _selectedReaderSearchResult = null;
+    }
+
     private async Task NavigateToReaderChunkAsync(BookContentChunk source, string query)
     {
-        if (_readerAllowedRoot is null) return;
+        if (_readerAllowedRoot is null)
+        {
+            ReaderSearchStatusText.Text = "无法定位正文：书籍内容尚未准备完成。";
+            return;
+        }
         var targetPath = Path.GetFullPath(Path.Combine(
             _readerAllowedRoot,
             source.ChapterPath.Replace('/', Path.DirectorySeparatorChar)));
-        if (!IsPathInside(_readerAllowedRoot, targetPath) || !File.Exists(targetPath)) return;
+        if (!IsPathInside(_readerAllowedRoot, targetPath) || !File.Exists(targetPath))
+        {
+            ReaderSearchStatusText.Text = "无法定位正文：对应章节文件不存在。";
+            return;
+        }
         _readerChapterIndex = Math.Clamp(source.ChapterIndex, 0, _readerChapters.Count - 1);
         var matchOffset = source.Content.IndexOf(query, StringComparison.CurrentCultureIgnoreCase);
         _pendingReaderChunkOffset = source.StartOffset + Math.Max(0, matchOffset);
@@ -994,10 +1031,7 @@ public sealed partial class MainWindow
         _readerNavigateToEnd = false;
         UpdateReaderChapterControls();
         var target = new Uri(targetPath);
-        if (ReaderWebView.Source?.LocalPath.Equals(target.LocalPath, StringComparison.OrdinalIgnoreCase) == true)
-            await ScrollToPendingReaderChunkAsync();
-        else
-            await NavigateReaderSourceAsync(target, 1, animate: true, ReaderNavigationIntent.Search);
+        await NavigateReaderSourceAsync(target, 1, animate: true, ReaderNavigationIntent.Search);
         ReaderSearchStatusText.Text = $"已跳转到《{source.ChapterTitle}》相关位置。";
     }
 

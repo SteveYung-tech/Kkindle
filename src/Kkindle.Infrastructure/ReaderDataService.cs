@@ -869,13 +869,19 @@ public sealed partial class ReaderDataService
     {
         var terms = BuildSearchTerms(query);
         if (terms.Count == 0) return [];
+        var requestedLimit = Math.Clamp(limit, 1, 100);
+        // Adjacent index chunks overlap so a phrase crossing a chunk boundary
+        // remains searchable. Fetch extra candidates, then collapse candidates
+        // whose first matching character resolves to the same chapter offset.
+        var candidateLimit = Math.Clamp(requestedLimit * 3, requestedLimit, 100);
 
         if (_ftsAvailable && terms.Any(term => term.Length >= 3))
         {
             try
             {
-                var ftsResults = await SearchFullTextAsync(bookId, terms, limit, cancellationToken);
-                if (ftsResults.Count > 0) return ftsResults;
+                var ftsResults = await SearchFullTextAsync(bookId, terms, candidateLimit, cancellationToken);
+                if (ftsResults.Count > 0)
+                    return DeduplicateSearchResults(ftsResults, query, terms, requestedLimit);
             }
             catch (SqliteException)
             {
@@ -883,7 +889,8 @@ public sealed partial class ReaderDataService
             }
         }
 
-        return await SearchLikeAsync(bookId, terms, limit, cancellationToken);
+        var likeResults = await SearchLikeAsync(bookId, terms, candidateLimit, cancellationToken);
+        return DeduplicateSearchResults(likeResults, query, terms, requestedLimit);
     }
 
     public async Task<IReadOnlyList<BookContentChunk>> GetBookOverviewChunksAsync(
@@ -923,28 +930,53 @@ public sealed partial class ReaderDataService
     {
         var searchable = terms.Where(term => term.Length >= 3).Take(16).ToArray();
         if (searchable.Length == 0) return [];
-        var match = string.Join(" OR ", searchable.Select(term => $"\"{term.Replace("\"", "\"\"")}\""));
+        // ChapterTitle is stored on every content chunk for navigation. Search
+        // it only on the first chunk below; otherwise a title-only query would
+        // return the same chapter once for every chunk in that chapter.
+        var contentMatch = BuildFtsColumnQuery("Content", searchable);
+        var titleMatch = BuildFtsColumnQuery("ChapterTitle", searchable);
 
         await using var connection = await OpenConnectionAsync(cancellationToken);
         var command = connection.CreateCommand();
         command.CommandText = """
+            WITH matched AS (
+                SELECT c.Id, bm25(BookContentFts, 1.0, 2.8) AS Rank
+                FROM BookContentFts
+                INNER JOIN BookContentChunks c ON c.Id = BookContentFts.rowid
+                WHERE BookContentFts MATCH $contentQuery AND c.BookId = $bookId
+                UNION ALL
+                SELECT c.Id, bm25(BookContentFts, 1.0, 2.8) AS Rank
+                FROM BookContentFts
+                INNER JOIN BookContentChunks c ON c.Id = BookContentFts.rowid
+                WHERE BookContentFts MATCH $titleQuery
+                  AND c.BookId = $bookId
+                  AND c.ChunkIndex = 0
+            ), best_matches AS (
+                SELECT Id, MIN(Rank) AS Rank
+                FROM matched
+                GROUP BY Id
+            )
             SELECT c.Id, c.BookId, c.BookFileId, c.SourceHash, c.ChapterIndex, c.ChunkIndex,
                    c.ChapterTitle, c.ChapterPath, c.StartOffset, c.EndOffset, c.Content,
-                   bm25(BookContentFts, 1.0, 2.8) AS Rank
-            FROM BookContentFts
-            INNER JOIN BookContentChunks c ON c.Id = BookContentFts.rowid
-            WHERE BookContentFts MATCH $query AND c.BookId = $bookId
-            ORDER BY Rank, c.ChapterIndex, c.ChunkIndex
+                   best_matches.Rank
+            FROM best_matches
+            INNER JOIN BookContentChunks c ON c.Id = best_matches.Id
+            ORDER BY best_matches.Rank, c.ChapterIndex, c.ChunkIndex
             LIMIT $limit;
             """;
-        command.Parameters.AddWithValue("$query", match);
+        command.Parameters.AddWithValue("$contentQuery", contentMatch);
+        command.Parameters.AddWithValue("$titleQuery", titleMatch);
         command.Parameters.AddWithValue("$bookId", bookId.ToString());
-        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 20));
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
         var result = new List<BookContentChunk>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken)) result.Add(ReadChunk(reader, includeRank: true));
         return result;
     }
+
+    private static string BuildFtsColumnQuery(string column, IEnumerable<string> terms) =>
+        string.Join(" OR ", terms.Select(term =>
+            $"{column} : \"{term.Replace("\"", "\"\"")}\""));
 
     private async Task<IReadOnlyList<BookContentChunk>> SearchLikeAsync(
         Guid bookId,
@@ -958,7 +990,10 @@ public sealed partial class ReaderDataService
         var predicates = new List<string>();
         for (var index = 0; index < selectedTerms.Length; index++)
         {
-            predicates.Add($"(Content LIKE $term{index} OR ChapterTitle LIKE $term{index})");
+            // ChapterTitle is duplicated on every chunk. Only the chapter's
+            // opening chunk represents a title-only match; content matches
+            // still return every relevant chunk.
+            predicates.Add($"(Content LIKE $term{index} OR (ChunkIndex = 0 AND ChapterTitle LIKE $term{index}))");
             command.Parameters.AddWithValue($"$term{index}", $"%{selectedTerms[index]}%");
         }
         command.CommandText = $"""
@@ -970,11 +1005,84 @@ public sealed partial class ReaderDataService
             LIMIT $limit;
             """;
         command.Parameters.AddWithValue("$bookId", bookId.ToString());
-        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 20));
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
         var result = new List<BookContentChunk>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken)) result.Add(ReadChunk(reader));
         return result;
+    }
+
+    internal static IReadOnlyList<BookContentChunk> DeduplicateSearchResults(
+        IEnumerable<BookContentChunk> candidates,
+        string query,
+        IReadOnlyList<string> terms,
+        int limit)
+    {
+        var results = new List<BookContentChunk>();
+        var seenLocations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenContexts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in candidates)
+        {
+            var localOffset = FindPrimarySearchMatch(candidate.Content, query, terms);
+            var location = localOffset >= 0
+                ? candidate.StartOffset + localOffset
+                : candidate.StartOffset;
+            var key = $"{candidate.BookFileId:N}\u001f{candidate.ChapterPath}\u001f{location}";
+            if (seenLocations.Contains(key)) continue;
+            // Older indexes can contain overlapping chunks whose recorded
+            // offsets were produced before whitespace normalization. Their
+            // numeric locations differ even though the result shown to the
+            // user is identical, so also collapse equal chapter-local context.
+            var context = BuildSearchContext(candidate.Content, query, terms);
+            // Duplicate EPUB spine documents may expose the same text under
+            // different chapter paths. Equal book-local context is still the
+            // same search occurrence from the user's perspective.
+            var contextKey = $"{candidate.BookFileId:N}\u001f{context}";
+            if (context.Length > 0 && seenContexts.Contains(contextKey)) continue;
+            seenLocations.Add(key);
+            if (context.Length > 0) seenContexts.Add(contextKey);
+            results.Add(candidate);
+            if (results.Count >= Math.Clamp(limit, 1, 100)) break;
+        }
+        return results;
+    }
+
+    private static int FindPrimarySearchMatch(
+        string content,
+        string query,
+        IReadOnlyList<string> terms)
+    {
+        var exactQuery = query.Trim();
+        if (exactQuery.Length > 0)
+        {
+            var exact = content.IndexOf(exactQuery, StringComparison.CurrentCultureIgnoreCase);
+            if (exact >= 0) return exact;
+        }
+
+        var earliest = -1;
+        foreach (var term in terms)
+        {
+            var match = content.IndexOf(term, StringComparison.CurrentCultureIgnoreCase);
+            if (match >= 0 && (earliest < 0 || match < earliest)) earliest = match;
+        }
+        return earliest;
+    }
+
+    private static string BuildSearchContext(
+        string content,
+        string query,
+        IReadOnlyList<string> terms)
+    {
+        var normalized = WhitespaceRegex().Replace(content ?? string.Empty, " ").Trim();
+        if (normalized.Length == 0) return string.Empty;
+        var match = FindPrimarySearchMatch(normalized, query, terms);
+        if (match < 0) match = 0;
+        // Keep the context anchored to the match. Rebalancing a short tail by
+        // moving the window backward makes two overlapping chunks differ by a
+        // few characters even though they represent the same occurrence.
+        var start = Math.Max(0, match - 40);
+        var end = Math.Min(normalized.Length, match + 60);
+        return normalized[start..end];
     }
 
     internal static IReadOnlyList<string> BuildSearchTerms(string query)

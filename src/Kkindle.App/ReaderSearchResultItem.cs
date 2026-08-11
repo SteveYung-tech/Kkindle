@@ -1,10 +1,18 @@
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Kkindle.Core;
+using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 
 namespace Kkindle;
 
-public sealed class ReaderSearchResultItem
+public sealed class ReaderSearchResultItem : INotifyPropertyChanged
 {
+    private static readonly Brush SelectedBorder = new SolidColorBrush(Color.FromArgb(255, 0, 0, 0));
+    private static readonly Brush IdleBorder = new SolidColorBrush(Color.FromArgb(255, 190, 190, 190));
+    private bool _isSelected;
+
     public ReaderSearchResultItem(BookContentChunk source, string query)
     {
         Source = source;
@@ -20,6 +28,25 @@ public sealed class ReaderSearchResultItem
     public string Title { get; }
 
     public string Snippet { get; }
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected == value) return;
+            _isSelected = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ResultBorderBrush));
+        }
+    }
+
+    public Brush ResultBorderBrush => IsSelected ? SelectedBorder : IdleBorder;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
     private static string CreateSnippet(string content, string query)
     {
