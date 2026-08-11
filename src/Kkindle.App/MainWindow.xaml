@@ -2436,9 +2436,15 @@
                                             Background="Transparent"
                                             BorderThickness="0"
                                             AutomationProperties.Name="{x:Bind Title}"
-                                            ToolTipService.Placement="Right"
-                                            ToolTipService.ToolTip="{x:Bind Title}"
                                             Click="ReaderCompactTocItem_Click">
+                                        <ToolTipService.ToolTip>
+                                            <ToolTip Placement="Right">
+                                                <TextBlock Text="{x:Bind Title}"
+                                                           MaxWidth="320"
+                                                           TextAlignment="Center"
+                                                           TextWrapping="Wrap" />
+                                            </ToolTip>
+                                        </ToolTipService.ToolTip>
                                         <Button.Template>
                                             <ControlTemplate TargetType="Button">
                                                 <ContentPresenter Content="{TemplateBinding Content}"

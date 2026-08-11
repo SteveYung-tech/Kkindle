@@ -13,6 +13,7 @@ public sealed record ReaderTocMarker(EpubReaderNavigationItem Item, bool IsCurre
 {
     private static readonly SolidColorBrush CurrentBrush = new(ColorHelper.FromArgb(255, 91, 98, 104));
     private static readonly SolidColorBrush InactiveBrush = new(ColorHelper.FromArgb(255, 211, 213, 209));
+    public static readonly SolidColorBrush HoverBrush = new(Colors.Black);
 
     public string Title => Item.Title;
     public SolidColorBrush Fill => IsCurrent ? CurrentBrush : InactiveBrush;
@@ -36,6 +37,7 @@ public sealed partial class MainWindow
     private DateTimeOffset _readerCompactScrollStartedAt;
     private bool _readerCompactPointerActive;
     private double _readerCompactPointerY;
+    private ToolTip? _readerCompactHoverToolTip;
 
     private void ReaderTocMinimalToggleButton_Click(object sender, RoutedEventArgs e)
     {
@@ -176,9 +178,14 @@ public sealed partial class MainWindow
             return;
         }
 
+        Border? hoveredMarker = null;
+        ToolTip? hoveredToolTip = null;
+        var hoveredDistance = double.MaxValue;
         foreach (var button in FindDescendants<Button>(ReaderTocCompactList))
         {
             if (button.Content is not Border marker || button.ActualHeight <= 0) continue;
+            if (button.DataContext is ReaderTocMarker markerData)
+                marker.Background = markerData.Fill;
 
             try
             {
@@ -196,17 +203,41 @@ public sealed partial class MainWindow
                     Math.Abs(markerCenter - _readerCompactPointerY) / ReaderCompactMarkerWaveRadius,
                     0,
                     1);
+                var distance = Math.Abs(markerCenter - _readerCompactPointerY);
                 var wave = Math.Sin((1 - normalizedDistance) * Math.PI / 2);
                 SetReaderCompactMarkerWidth(
                     marker,
                     ReaderCompactMarkerMinimumWidth
                         + (ReaderCompactMarkerMaximumWidth - ReaderCompactMarkerMinimumWidth) * wave);
+                if (distance < hoveredDistance)
+                {
+                    hoveredDistance = distance;
+                    hoveredMarker = marker;
+                    hoveredToolTip = ToolTipService.GetToolTip(button) as ToolTip;
+                }
             }
             catch (InvalidOperationException)
             {
                 // The item may be between visual trees during a layout pass.
             }
         }
+
+        if (hoveredMarker is not null)
+            hoveredMarker.Background = ReaderTocMarker.HoverBrush;
+        SetReaderCompactHoverToolTip(hoveredToolTip);
+    }
+
+    private void SetReaderCompactHoverToolTip(ToolTip? toolTip)
+    {
+        if (!ReferenceEquals(_readerCompactHoverToolTip, toolTip))
+        {
+            if (_readerCompactHoverToolTip is not null)
+                _readerCompactHoverToolTip.IsOpen = false;
+            _readerCompactHoverToolTip = toolTip;
+        }
+
+        if (_readerCompactHoverToolTip is not null)
+            _readerCompactHoverToolTip.IsOpen = true;
     }
 
     private static void SetReaderCompactMarkerWidth(Border marker, double width)
@@ -249,6 +280,7 @@ public sealed partial class MainWindow
         _readerTocMinimal = minimal;
         _readerTocExpanded = !minimal;
         _readerCompactPointerActive = false;
+        SetReaderCompactHoverToolTip(null);
         ApplyReaderPanelLayout();
         UpdateReaderZenTocToggle();
         QueueReaderCompactScrollIndicatorUpdate();
@@ -267,6 +299,7 @@ public sealed partial class MainWindow
         StopReaderCompactScrollAnimation();
         _readerCompactNavigationItems = [];
         _readerCompactSelectedTarget = null;
+        SetReaderCompactHoverToolTip(null);
         ReaderTocCompactList.ItemsSource = null;
         QueueReaderCompactScrollIndicatorUpdate();
     }
