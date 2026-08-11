@@ -126,9 +126,7 @@ public sealed partial class MainWindow
         }
 
         if (closestMarker is null) return;
-        _readerCompactPointerActive = false;
         SetReaderCompactHoverToolTip(null);
-        UpdateReaderCompactMarkerWave();
         NavigateToReaderTocItem(closestMarker.Item);
         e.Handled = true;
     }
