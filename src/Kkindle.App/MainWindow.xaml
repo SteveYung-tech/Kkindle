@@ -2430,14 +2430,13 @@
                                             Height="10"
                                             MinWidth="0"
                                             Padding="0"
-                                            ClickMode="Press"
                                             HorizontalAlignment="Center"
                                             HorizontalContentAlignment="Center"
                                             VerticalContentAlignment="Center"
                                             Background="Transparent"
                                             BorderThickness="0"
                                             AutomationProperties.Name="{x:Bind Title}"
-                                            Click="ReaderCompactTocItem_Click">
+                                            IsTabStop="False">
                                         <ToolTipService.ToolTip>
                                             <ToolTip Placement="Right">
                                                 <TextBlock Text="{x:Bind Title}"

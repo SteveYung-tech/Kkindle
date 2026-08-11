@@ -38,6 +38,7 @@ public sealed partial class MainWindow
     private bool _readerCompactPointerActive;
     private double _readerCompactPointerY;
     private ToolTip? _readerCompactHoverToolTip;
+    private bool _readerCompactPointerPressedHandlerRegistered;
 
     private void ReaderTocMinimalToggleButton_Click(object sender, RoutedEventArgs e)
     {
@@ -57,8 +58,19 @@ public sealed partial class MainWindow
         UpdateReaderCompactMarkerWave();
     }
 
-    private void ReaderTocCompactScrollViewer_Loaded(object sender, RoutedEventArgs e) =>
+    private void ReaderTocCompactScrollViewer_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (!_readerCompactPointerPressedHandlerRegistered)
+        {
+            ReaderTocCompactScrollViewer.AddHandler(
+                UIElement.PointerPressedEvent,
+                new PointerEventHandler(ReaderTocCompactScrollViewer_PointerPressed),
+                handledEventsToo: true);
+            _readerCompactPointerPressedHandlerRegistered = true;
+        }
+
         UpdateReaderCompactMarkerWave();
+    }
 
     private void ReaderTocCompactScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e) =>
         UpdateReaderCompactMarkerWave();
@@ -83,6 +95,40 @@ public sealed partial class MainWindow
             0,
             ReaderTocCompactScrollViewer.ActualHeight);
         UpdateReaderCompactMarkerWave();
+    }
+
+    private void ReaderTocCompactScrollViewer_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        var point = e.GetCurrentPoint(ReaderTocCompactScrollViewer);
+        if (!point.Properties.IsLeftButtonPressed) return;
+
+        var pointerY = point.Position.Y;
+        ReaderTocMarker? closestMarker = null;
+        var closestDistance = double.MaxValue;
+        foreach (var button in FindDescendants<Button>(ReaderTocCompactList))
+        {
+            if (button.DataContext is not ReaderTocMarker marker || button.ActualHeight <= 0) continue;
+            try
+            {
+                var markerCenter = button
+                    .TransformToVisual(ReaderTocCompactScrollViewer)
+                    .TransformPoint(new Windows.Foundation.Point(0, button.ActualHeight / 2))
+                    .Y;
+                var distance = Math.Abs(markerCenter - pointerY);
+                if (distance >= closestDistance) continue;
+                closestDistance = distance;
+                closestMarker = marker;
+            }
+            catch (InvalidOperationException)
+            {
+                // The item may be between visual trees during a layout pass.
+            }
+        }
+
+        if (closestMarker is null) return;
+        SetReaderCompactHoverToolTip(null);
+        NavigateToReaderTocItem(closestMarker.Item);
+        e.Handled = true;
     }
 
     private void ReaderCompactTocItem_Click(object sender, RoutedEventArgs e)
@@ -239,35 +285,9 @@ public sealed partial class MainWindow
 
         if (_readerCompactHoverToolTip is not null)
         {
-            _readerCompactHoverToolTip.HorizontalOffset = GetReaderCompactToolTipHorizontalOffset();
+            _readerCompactHoverToolTip.HorizontalOffset = 6;
             _readerCompactHoverToolTip.IsOpen = true;
         }
-    }
-
-    private double GetReaderCompactToolTipHorizontalOffset()
-    {
-        var viewportWidth = ReaderWebView?.ActualWidth ?? 0;
-        if (viewportWidth <= 0)
-            viewportWidth = ReaderContentPanel?.ActualWidth ?? 0;
-
-        var minimumInset = Math.Clamp(
-            _readerLayout.BodyPadding,
-            ReaderLayoutDefaults.MinBodyPadding,
-            ReaderLayoutDefaults.MaxBodyPadding);
-        if (viewportWidth <= 0 || _readerLayout.VerticalWriting)
-            return minimumInset + 1;
-
-        var maximumWidth = Math.Clamp(
-            _readerLayout.MaxWidth,
-            ReaderLayoutDefaults.MinMaxWidth,
-            ReaderLayoutDefaults.MaxMaxWidth);
-        var contentInset = _readerFlowMode == 1 && _readerLayout.TwoPageMode
-            ? Math.Max(minimumInset, (viewportWidth - maximumWidth * 2) / 4)
-            : Math.Max(minimumInset, (viewportWidth - maximumWidth) / 2);
-
-        // The 50 px marker button is centered in a 52 px rail, leaving one
-        // pixel between its right edge and the reading viewport.
-        return contentInset + 1;
     }
 
     private static void SetReaderCompactMarkerWidth(Border marker, double width)
