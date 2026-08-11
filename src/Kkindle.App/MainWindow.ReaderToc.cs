@@ -293,11 +293,14 @@ public sealed partial class MainWindow
             const double minimumTop = 38d;
             var maximumTop = Math.Max(minimumTop, ReaderPane.ActualHeight - labelHeight);
             var top = Math.Clamp(markerCenter.Y - labelHeight / 2, minimumTop, maximumTop);
-            ReaderTocCompactHoverLabel.Margin = new Thickness(
-                ReaderTocMinimalWidth + 6,
-                top,
-                0,
-                0);
+            var translation = ReaderTocCompactHoverLabel.RenderTransform as TranslateTransform;
+            if (translation is null)
+            {
+                translation = new TranslateTransform();
+                ReaderTocCompactHoverLabel.RenderTransform = translation;
+            }
+            translation.X = ReaderTocMinimalWidth + 6;
+            translation.Y = top;
         }
         catch (InvalidOperationException)
         {
