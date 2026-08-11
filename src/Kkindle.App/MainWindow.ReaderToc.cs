@@ -182,7 +182,7 @@ public sealed partial class MainWindow
             {
                 if (!_readerCompactPointerActive)
                 {
-                    marker.Width = ReaderCompactMarkerMinimumWidth;
+                    SetReaderCompactMarkerWidth(marker, ReaderCompactMarkerMinimumWidth);
                     continue;
                 }
 
@@ -195,14 +195,32 @@ public sealed partial class MainWindow
                     0,
                     1);
                 var wave = Math.Sin((1 - normalizedDistance) * Math.PI / 2);
-                marker.Width = ReaderCompactMarkerMinimumWidth
-                    + (ReaderCompactMarkerMaximumWidth - ReaderCompactMarkerMinimumWidth) * wave;
+                SetReaderCompactMarkerWidth(
+                    marker,
+                    ReaderCompactMarkerMinimumWidth
+                        + (ReaderCompactMarkerMaximumWidth - ReaderCompactMarkerMinimumWidth) * wave);
             }
             catch (InvalidOperationException)
             {
                 // The item may be between visual trees during a layout pass.
             }
         }
+    }
+
+    private static void SetReaderCompactMarkerWidth(Border marker, double width)
+    {
+        marker.Width = width;
+        var translation = marker.RenderTransform as TranslateTransform;
+        if (translation is null)
+        {
+            translation = new TranslateTransform();
+            marker.RenderTransform = translation;
+        }
+
+        // The resting marker stays centered. As the hover wave grows, shift it
+        // by half of the added width so its left edge remains fixed and only
+        // the right-hand side extends into the reading area.
+        translation.X = (width - ReaderCompactMarkerMinimumWidth) / 2;
     }
 
     private static IEnumerable<T> FindDescendants<T>(DependencyObject root) where T : DependencyObject
