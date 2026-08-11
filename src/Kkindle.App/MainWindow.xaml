@@ -2437,14 +2437,6 @@
                                             BorderThickness="0"
                                             AutomationProperties.Name="{x:Bind Title}"
                                             IsTabStop="False">
-                                        <ToolTipService.ToolTip>
-                                            <ToolTip Placement="Right">
-                                                <TextBlock Text="{x:Bind Title}"
-                                                           MaxWidth="320"
-                                                           TextAlignment="Center"
-                                                           TextWrapping="Wrap" />
-                                            </ToolTip>
-                                        </ToolTipService.ToolTip>
                                         <Button.Template>
                                             <ControlTemplate TargetType="Button">
                                                 <ContentPresenter Content="{TemplateBinding Content}"
@@ -2476,6 +2468,27 @@
                                VerticalAlignment="Center"
                                AutomationProperties.Name="Down chapter status" />
                 </Grid>
+            </Border>
+
+            <Border x:Name="ReaderTocCompactHoverLabel"
+                    Grid.ColumnSpan="3"
+                    MaxWidth="340"
+                    Padding="10,6"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Top"
+                    Background="#FFFFFF"
+                    BorderBrush="#D7D7D3"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Canvas.ZIndex="90"
+                    IsHitTestVisible="False"
+                    Visibility="Collapsed">
+                <TextBlock x:Name="ReaderTocCompactHoverLabelText"
+                           MaxWidth="320"
+                           Foreground="#555555"
+                           FontSize="12"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap" />
             </Border>
 
             <!-- Reading canvas and compact controls. -->

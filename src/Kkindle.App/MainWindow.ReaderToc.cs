@@ -38,7 +38,6 @@ public sealed partial class MainWindow
     private DateTimeOffset _readerCompactScrollStartedAt;
     private bool _readerCompactPointerActive;
     private double _readerCompactPointerY;
-    private ToolTip? _readerCompactHoverToolTip;
     private bool _readerCompactPointerPressedHandlerRegistered;
 
     private void ReaderTocMinimalToggleButton_Click(object sender, RoutedEventArgs e)
@@ -216,12 +215,14 @@ public sealed partial class MainWindow
         }
 
         Border? hoveredMarker = null;
-        ToolTip? hoveredToolTip = null;
+        Button? hoveredButton = null;
+        string? hoveredTitle = null;
         var hoveredDistance = double.MaxValue;
         foreach (var button in FindDescendants<Button>(ReaderTocCompactList))
         {
             if (button.Content is not Border marker || button.ActualHeight <= 0) continue;
-            if (button.DataContext is ReaderTocMarker markerData)
+            var markerData = button.DataContext as ReaderTocMarker;
+            if (markerData is not null)
             {
                 var isCurrent = _readerCompactSelectedTarget is not null
                     && markerData.Item.Target.Equals(
@@ -256,7 +257,8 @@ public sealed partial class MainWindow
                 {
                     hoveredDistance = distance;
                     hoveredMarker = marker;
-                    hoveredToolTip = ToolTipService.GetToolTip(button) as ToolTip;
+                    hoveredButton = button;
+                    hoveredTitle = markerData?.Title;
                 }
             }
             catch (InvalidOperationException)
@@ -267,23 +269,46 @@ public sealed partial class MainWindow
 
         if (hoveredMarker is not null)
             hoveredMarker.Background = ReaderTocMarker.HoverBrush;
-        SetReaderCompactHoverToolTip(hoveredToolTip);
+        UpdateReaderCompactHoverLabel(hoveredButton, hoveredTitle);
     }
 
-    private void SetReaderCompactHoverToolTip(ToolTip? toolTip)
+    private void UpdateReaderCompactHoverLabel(Button? target, string? title)
     {
-        if (!ReferenceEquals(_readerCompactHoverToolTip, toolTip))
+        if (target is null || string.IsNullOrWhiteSpace(title))
         {
-            if (_readerCompactHoverToolTip is not null)
-                _readerCompactHoverToolTip.IsOpen = false;
-            _readerCompactHoverToolTip = toolTip;
+            HideReaderCompactHoverLabel();
+            return;
         }
 
-        if (_readerCompactHoverToolTip is not null)
+        try
         {
-            _readerCompactHoverToolTip.HorizontalOffset = 6;
-            _readerCompactHoverToolTip.IsOpen = true;
+            ReaderTocCompactHoverLabelText.Text = title;
+            ReaderTocCompactHoverLabel.Visibility = Visibility.Visible;
+            ReaderTocCompactHoverLabel.Measure(
+                new Windows.Foundation.Size(340, double.PositiveInfinity));
+            var markerCenter = target
+                .TransformToVisual(ReaderPane)
+                .TransformPoint(new Windows.Foundation.Point(0, target.ActualHeight / 2));
+            var labelHeight = ReaderTocCompactHoverLabel.DesiredSize.Height;
+            const double minimumTop = 38d;
+            var maximumTop = Math.Max(minimumTop, ReaderPane.ActualHeight - labelHeight);
+            var top = Math.Clamp(markerCenter.Y - labelHeight / 2, minimumTop, maximumTop);
+            ReaderTocCompactHoverLabel.Margin = new Thickness(
+                ReaderTocMinimalWidth + 6,
+                top,
+                0,
+                0);
         }
+        catch (InvalidOperationException)
+        {
+            HideReaderCompactHoverLabel();
+        }
+    }
+
+    private void HideReaderCompactHoverLabel()
+    {
+        if (ReaderTocCompactHoverLabel is not null)
+            ReaderTocCompactHoverLabel.Visibility = Visibility.Collapsed;
     }
 
     private static void SetReaderCompactMarkerWidth(Border marker, double width)
@@ -326,7 +351,7 @@ public sealed partial class MainWindow
         _readerTocMinimal = minimal;
         _readerTocExpanded = !minimal;
         _readerCompactPointerActive = false;
-        SetReaderCompactHoverToolTip(null);
+        HideReaderCompactHoverLabel();
         ApplyReaderPanelLayout();
         UpdateReaderZenTocToggle();
         QueueReaderCompactScrollIndicatorUpdate();
@@ -345,7 +370,7 @@ public sealed partial class MainWindow
         StopReaderCompactScrollAnimation();
         _readerCompactNavigationItems = [];
         _readerCompactSelectedTarget = null;
-        SetReaderCompactHoverToolTip(null);
+        HideReaderCompactHoverLabel();
         ReaderTocCompactList.ItemsSource = null;
         QueueReaderCompactScrollIndicatorUpdate();
     }
@@ -358,7 +383,7 @@ public sealed partial class MainWindow
 
     private void RefreshReaderCompactMarkers()
     {
-        SetReaderCompactHoverToolTip(null);
+        HideReaderCompactHoverLabel();
         ReaderTocCompactList.ItemsSource = _readerCompactNavigationItems
             .Select(item => new ReaderTocMarker(
                 item,
