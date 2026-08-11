@@ -70,6 +70,8 @@ public sealed class ReaderBookmark
     public string ChapterPath { get; set; } = string.Empty;
     public string? Fragment { get; set; }
     public int ChapterIndex { get; set; }
+    public int? ScrollPosition { get; set; }
+    public int FlowMode { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Quote { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

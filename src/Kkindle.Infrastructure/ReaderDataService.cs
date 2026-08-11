@@ -88,6 +88,8 @@ public sealed partial class ReaderDataService
                     ChapterPath TEXT NOT NULL,
                     Fragment TEXT NULL,
                     ChapterIndex INTEGER NOT NULL DEFAULT 0,
+                    ScrollPosition INTEGER NULL,
+                    FlowMode INTEGER NOT NULL DEFAULT 0,
                     Title TEXT NOT NULL DEFAULT '',
                     Quote TEXT NOT NULL DEFAULT '',
                     CreatedAt TEXT NOT NULL
@@ -134,6 +136,7 @@ public sealed partial class ReaderDataService
             await command.ExecuteNonQueryAsync(cancellationToken);
             await EnsureReaderLayoutTwoPageColumnAsync(connection, cancellationToken);
             await EnsureReaderAnnotationStyleColumnAsync(connection, cancellationToken);
+            await EnsureReaderBookmarkPositionColumnsAsync(connection, cancellationToken);
 
             _ftsAvailable = await EnsureFullTextIndexAsync(connection, cancellationToken);
         }
@@ -339,7 +342,8 @@ public sealed partial class ReaderDataService
         await using var connection = await OpenConnectionAsync(cancellationToken);
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, BookId, BookFileId, ChapterPath, Fragment, ChapterIndex, Title, Quote, CreatedAt
+            SELECT Id, BookId, BookFileId, ChapterPath, Fragment, ChapterIndex,
+                   ScrollPosition, FlowMode, Title, Quote, CreatedAt
             FROM ReaderBookmarks
             WHERE BookFileId = $bookFileId
             ORDER BY ChapterIndex, CreatedAt;
@@ -357,9 +361,11 @@ public sealed partial class ReaderDataService
                 ChapterPath = reader.GetString(3),
                 Fragment = reader.IsDBNull(4) ? null : reader.GetString(4),
                 ChapterIndex = reader.GetInt32(5),
-                Title = reader.GetString(6),
-                Quote = reader.GetString(7),
-                CreatedAt = DateTimeOffset.Parse(reader.GetString(8))
+                ScrollPosition = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                FlowMode = reader.GetInt32(7),
+                Title = reader.GetString(8),
+                Quote = reader.GetString(9),
+                CreatedAt = DateTimeOffset.Parse(reader.GetString(10))
             });
         }
         return result;
@@ -374,12 +380,15 @@ public sealed partial class ReaderDataService
             var command = connection.CreateCommand();
             command.CommandText = """
                 INSERT INTO ReaderBookmarks (
-                    Id, BookId, BookFileId, ChapterPath, Fragment, ChapterIndex, Title, Quote, CreatedAt)
+                    Id, BookId, BookFileId, ChapterPath, Fragment, ChapterIndex,
+                    ScrollPosition, FlowMode, Title, Quote, CreatedAt)
                 VALUES (
-                    $id, $bookId, $bookFileId, $chapterPath, $fragment, $chapterIndex, $title, $quote, $createdAt)
+                    $id, $bookId, $bookFileId, $chapterPath, $fragment, $chapterIndex,
+                    $scrollPosition, $flowMode, $title, $quote, $createdAt)
                 ON CONFLICT(Id) DO UPDATE SET
                     BookId=$bookId, BookFileId=$bookFileId, ChapterPath=$chapterPath, Fragment=$fragment,
-                    ChapterIndex=$chapterIndex, Title=$title, Quote=$quote, CreatedAt=$createdAt;
+                    ChapterIndex=$chapterIndex, ScrollPosition=$scrollPosition, FlowMode=$flowMode,
+                    Title=$title, Quote=$quote, CreatedAt=$createdAt;
                 """;
             command.Parameters.AddWithValue("$id", bookmark.Id.ToString());
             command.Parameters.AddWithValue("$bookId", bookmark.BookId.ToString());
@@ -387,6 +396,8 @@ public sealed partial class ReaderDataService
             command.Parameters.AddWithValue("$chapterPath", bookmark.ChapterPath);
             command.Parameters.AddWithValue("$fragment", (object?)bookmark.Fragment ?? DBNull.Value);
             command.Parameters.AddWithValue("$chapterIndex", bookmark.ChapterIndex);
+            command.Parameters.AddWithValue("$scrollPosition", (object?)bookmark.ScrollPosition ?? DBNull.Value);
+            command.Parameters.AddWithValue("$flowMode", bookmark.FlowMode);
             command.Parameters.AddWithValue("$title", bookmark.Title);
             command.Parameters.AddWithValue("$quote", bookmark.Quote);
             command.Parameters.AddWithValue("$createdAt", bookmark.CreatedAt.ToString("O"));
@@ -470,6 +481,34 @@ public sealed partial class ReaderDataService
         using var alter = connection.CreateCommand();
         alter.CommandText = "ALTER TABLE ReaderAnnotations ADD COLUMN UnderlineStyle TEXT NOT NULL DEFAULT 'solid';";
         await alter.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task EnsureReaderBookmarkPositionColumnsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        using var inspect = connection.CreateCommand();
+        inspect.CommandText = "PRAGMA table_info(ReaderBookmarks);";
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using (var reader = await inspect.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+                columns.Add(reader.GetString(1));
+        }
+
+        if (!columns.Contains("ScrollPosition"))
+        {
+            using var addPosition = connection.CreateCommand();
+            addPosition.CommandText = "ALTER TABLE ReaderBookmarks ADD COLUMN ScrollPosition INTEGER NULL;";
+            await addPosition.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        if (!columns.Contains("FlowMode"))
+        {
+            using var addFlowMode = connection.CreateCommand();
+            addFlowMode.CommandText = "ALTER TABLE ReaderBookmarks ADD COLUMN FlowMode INTEGER NOT NULL DEFAULT 0;";
+            await addFlowMode.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     public async Task<ReaderLayoutSettings?> GetLayoutSettingsAsync(

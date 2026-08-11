@@ -7,6 +7,60 @@ namespace Kkindle.Tests;
 public sealed class LibraryTests
 {
     [Fact]
+    public async Task CreatesCollectionsAndPersistsDraggedBookMembership()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "collection.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+
+            var reading = await service.CreateCollectionAsync("待读");
+            var favorites = await service.CreateCollectionAsync("喜欢的书");
+            await service.AddBookToCollectionAsync(book.Id, reading.Id);
+            await service.AddBookToCollectionAsync(book.Id, favorites.Id);
+
+            var restored = Assert.Single(await service.SearchAsync());
+            Assert.Equal(2, restored.CollectionIds.Count);
+            Assert.Contains(reading.Id, restored.CollectionIds);
+            Assert.Contains(favorites.Id, restored.CollectionIds);
+            Assert.Equal(2, (await service.GetCollectionsAsync()).Count);
+
+            await service.RemoveBookFromCollectionAsync(book.Id, reading.Id);
+            await service.DeleteCollectionAsync(favorites.Id);
+
+            restored = Assert.Single(await service.SearchAsync());
+            Assert.Empty(restored.CollectionIds);
+            Assert.Equal(reading.Id, Assert.Single(await service.GetCollectionsAsync()).Id);
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task RejectsDuplicateCollectionNamesIgnoringCase()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.CreateCollectionAsync("Science");
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.CreateCollectionAsync(" science "));
+
+            Assert.Contains("同名收藏夹", exception.Message);
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
     public void PlansDefaultReaderFormatsFromImportedFormat()
     {
         Assert.Equal(

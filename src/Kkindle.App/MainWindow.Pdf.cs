@@ -44,8 +44,8 @@ public sealed partial class MainWindow
         ReaderProgressSlider.Visibility = Visibility.Visible;
         ReaderPdfBottomText.Visibility = Visibility.Visible;
         ReaderFlowButton.Visibility = Visibility.Collapsed;
-        ReaderHighlightButton.Visibility = Visibility.Visible;
-        ReaderAnnotateButton.Visibility = Visibility.Visible;
+        ReaderHighlightButton.Visibility = Visibility.Collapsed;
+        ReaderAnnotateButton.Visibility = Visibility.Collapsed;
         ReaderBookmarkButton.Visibility = Visibility.Visible;
         ReaderSearchToolbarButton.Visibility = Visibility.Visible;
         ReaderBookmarkTabButton.Visibility = Visibility.Visible;

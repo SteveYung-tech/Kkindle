@@ -745,10 +745,20 @@ public sealed partial class MainWindow
     {
         if (_pendingReaderChunkOffset is not int offset || ReaderWebView.CoreWebView2 is null) return;
         _pendingReaderChunkOffset = null;
+        var searchQuery = _pendingReaderSearchQuery;
+        _pendingReaderSearchQuery = null;
+        var serializedQuery = System.Text.Json.JsonSerializer.Serialize(searchQuery ?? string.Empty);
         var script = $$"""
             (() => {
               const root = document.body;
               if (!root) return;
+              // Clear an earlier search hit without changing the chapter text.
+              document.querySelectorAll('mark.kkindle-search-hit').forEach(mark => {
+                const parent = mark.parentNode;
+                mark.replaceWith(document.createTextNode(mark.textContent || ''));
+                parent?.normalize();
+              });
+              const query = {{serializedQuery}};
               const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
                 acceptNode(node) {
                   const parent = node.parentElement;
@@ -757,14 +767,45 @@ public sealed partial class MainWindow
                 }
               });
               let cursor = 0;
+              let fallback = null;
+              let bestMatch = null;
+              let bestDistance = Number.POSITIVE_INFINITY;
+              const foldedQuery = query.toLocaleLowerCase();
               while (walker.nextNode()) {
                 const node = walker.currentNode;
-                if (cursor + node.data.length >= {{offset}}) {
-                  (node.parentElement || root).scrollIntoView({ block: 'center', behavior: 'smooth' });
-                  return;
+                if (!fallback && cursor + node.data.length >= {{offset}})
+                  fallback = node.parentElement || root;
+                if (foldedQuery.length > 0) {
+                  const foldedText = node.data.toLocaleLowerCase();
+                  let localIndex = foldedText.indexOf(foldedQuery);
+                  while (localIndex >= 0) {
+                    const absoluteIndex = cursor + localIndex;
+                    const distance = Math.abs(absoluteIndex - {{offset}});
+                    if (distance < bestDistance) {
+                      bestDistance = distance;
+                      bestMatch = { node, localIndex };
+                    }
+                    localIndex = foldedText.indexOf(foldedQuery, localIndex + Math.max(1, foldedQuery.length));
+                  }
                 }
                 cursor += node.data.length;
               }
+
+              if (bestMatch) {
+                const range = document.createRange();
+                range.setStart(bestMatch.node, bestMatch.localIndex);
+                range.setEnd(bestMatch.node, bestMatch.localIndex + query.length);
+                const mark = document.createElement('mark');
+                mark.className = 'kkindle-search-hit';
+                mark.style.setProperty('background', '#000000', 'important');
+                mark.style.setProperty('color', '#ffffff', 'important');
+                mark.style.setProperty('text-decoration', 'none', 'important');
+                range.surroundContents(mark);
+                mark.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+                return;
+              }
+
+              fallback?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
             })();
             """;
         try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }

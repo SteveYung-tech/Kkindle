@@ -365,6 +365,12 @@
                             Orientation="Horizontal"
                             Spacing="8"
                             HorizontalAlignment="Left">
+                    <ComboBox x:Name="BookCollectionViewBox"
+                              Width="180"
+                              Height="38"
+                              DisplayMemberPath="Name"
+                              SelectionChanged="BookCollectionViewBox_SelectionChanged"
+                              AutomationProperties.Name="切换电脑书库显示" />
                     <Button x:Name="FilterButton"
                             Style="{StaticResource LibraryIconButtonStyle}"
                             Click="FilterButton_Click"
@@ -578,9 +584,25 @@
                                                FontSize="10" />
                                 </StackPanel>
                                 <Border Grid.Row="0"
+                                        Width="28"
+                                        Height="28"
+                                        Margin="0,0,5,5"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Bottom"
+                                        Background="#FFFFFF"
+                                        BorderBrush="#000000"
+                                        BorderThickness="1"
+                                        Canvas.ZIndex="4"
+                                        ToolTipService.ToolTip="{x:Bind PresenceLabel, Mode=OneWay}"
+                                        AutomationProperties.Name="{x:Bind PresenceLabel, Mode=OneWay}">
+                                    <FontIcon Glyph="{x:Bind PresenceGlyph, Mode=OneWay}"
+                                              FontFamily="Segoe MDL2 Assets"
+                                              FontSize="14" />
+                                </Border>
+                                <Border Grid.Row="0"
                                         Width="68"
                                         Height="25"
-                                        Margin="0,0,5,5"
+                                        Margin="0,0,5,38"
                                         HorizontalAlignment="Right"
                                         VerticalAlignment="Bottom"
                                         Background="#FFFFFF"
@@ -681,9 +703,25 @@
                                     <ColumnDefinition Width="100" />
                                     <ColumnDefinition Width="76" />
                                 </Grid.ColumnDefinitions>
-                                <Border Width="36" Height="48" Background="#D9D9D9" BorderBrush="#000000" BorderThickness="1" CornerRadius="0">
-                                    <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
-                                </Border>
+                                <Grid Width="36" Height="48">
+                                    <Border Background="#D9D9D9" BorderBrush="#000000" BorderThickness="1" CornerRadius="0">
+                                        <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
+                                    </Border>
+                                    <Border Width="18"
+                                            Height="18"
+                                            Margin="0,0,2,2"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Bottom"
+                                            Background="#FFFFFF"
+                                            BorderBrush="#000000"
+                                            BorderThickness="1"
+                                            ToolTipService.ToolTip="{x:Bind PresenceLabel, Mode=OneWay}"
+                                            AutomationProperties.Name="{x:Bind PresenceLabel, Mode=OneWay}">
+                                        <FontIcon Glyph="{x:Bind PresenceGlyph, Mode=OneWay}"
+                                                  FontFamily="Segoe MDL2 Assets"
+                                                  FontSize="10" />
+                                    </Border>
+                                </Grid>
                                 <StackPanel Grid.Column="1" Margin="12,0,12,0" VerticalAlignment="Center">
                                     <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                     <TextBlock Text="{x:Bind FileCountLabel}" Foreground="{StaticResource MutedInkBrush}" FontSize="11" />
@@ -1601,6 +1639,22 @@
                                            Foreground="{StaticResource MutedInkBrush}"
                                            FontSize="10" />
                             </StackPanel>
+                            <Border Grid.Row="0"
+                                    Width="28"
+                                    Height="28"
+                                    Margin="0,0,5,5"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Bottom"
+                                    Background="#FFFFFF"
+                                    BorderBrush="#000000"
+                                    BorderThickness="1"
+                                    Canvas.ZIndex="4"
+                                    ToolTipService.ToolTip="{x:Bind PresenceLabel, Mode=OneWay}"
+                                    AutomationProperties.Name="{x:Bind PresenceLabel, Mode=OneWay}">
+                                <FontIcon Glyph="{x:Bind PresenceGlyph, Mode=OneWay}"
+                                          FontFamily="Segoe MDL2 Assets"
+                                          FontSize="14" />
+                            </Border>
                         </Grid>
                     </DataTemplate>
                 </GridView.ItemTemplate>
@@ -2155,13 +2209,15 @@
                         <RowDefinition Height="50" />
                     </Grid.RowDefinitions>
 
-                    <!-- Keep the content divider continuous through the footer. -->
+                    <!-- Start the divider below the shared header rule. Keep it
+                         above search content so it remains continuous. -->
                     <Rectangle Grid.Row="1"
                                Grid.RowSpan="5"
                                Width="1"
                                HorizontalAlignment="Right"
                                Fill="#000000"
-                               IsHitTestVisible="False" />
+                               IsHitTestVisible="False"
+                               Canvas.ZIndex="100" />
 
                     <Grid Padding="14,8" BorderBrush="#000000" BorderThickness="0,0,0,1">
                         <Grid.ColumnDefinitions>
@@ -2201,7 +2257,10 @@
                         </StackPanel>
                     </Grid>
 
-                    <Grid Grid.Row="1" Padding="14,0,14,8" ColumnSpacing="6">
+                    <Grid x:Name="ReaderTocTabsPanel"
+                          Grid.Row="1"
+                          Padding="14,4,14,4"
+                          ColumnSpacing="6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
@@ -2220,16 +2279,6 @@
                                 Style="{StaticResource ReaderToolbarButtonStyle}"
                                 Click="ReaderBookmarkTabButton_Click" />
                     </Grid>
-
-                    <TextBox x:Name="ReaderTocSearchBox"
-                             Grid.Row="2"
-                             Margin="14,0,14,10"
-                             Height="34"
-                             Padding="10,5"
-                             CornerRadius="0"
-                             BorderBrush="#000000"
-                             PlaceholderText="搜索目录"
-                             TextChanged="ReaderTocSearchBox_TextChanged" />
 
                     <Grid Grid.Row="3">
                         <ListView x:Name="ReaderTocList"
@@ -2308,9 +2357,72 @@
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center" />
                         </Grid>
+
+                        <!-- Whole-book search reuses the normal TOC surface. -->
+                        <Grid x:Name="ReaderSearchPanel"
+                              Background="#FFFFFF"
+                              Visibility="Collapsed">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBox x:Name="ReaderTocSearchBox"
+                                     Margin="14,4,14,10"
+                                     Height="34"
+                                     Padding="10,5"
+                                     CornerRadius="0"
+                                     BorderBrush="#000000"
+                                     PlaceholderText="搜索整本书…"
+                                     TextChanged="ReaderTocSearchBox_TextChanged" />
+                            <TextBlock x:Name="ReaderSearchCountText"
+                                       Grid.Row="1"
+                                       Margin="14,0,14,8"
+                                       FontSize="10"
+                                       Foreground="#5E5E5E" />
+                            <ListView x:Name="ReaderSearchResultList"
+                                      Grid.Row="2"
+                                      SelectionMode="None"
+                                      IsItemClickEnabled="True"
+                                      ItemClick="ReaderSearchResultList_ItemClick"
+                                      ScrollViewer.HorizontalScrollMode="Disabled"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="local:ReaderSearchResultItem">
+                                        <StackPanel Padding="14,8" Spacing="4">
+                                            <TextBlock Tag="{x:Bind Title}"
+                                                       FontSize="11"
+                                                       FontWeight="SemiBold"
+                                                       TextWrapping="Wrap"
+                                                       MaxLines="2"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Loaded="ReaderSearchHighlightedText_Loaded" />
+                                            <TextBlock Tag="{x:Bind Snippet}"
+                                                       FontSize="10"
+                                                       Foreground="#5A5A5A"
+                                                       TextWrapping="Wrap"
+                                                       MaxLines="4"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Loaded="ReaderSearchHighlightedText_Loaded" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                            <TextBlock x:Name="ReaderSearchStatusText"
+                                       Grid.Row="2"
+                                       Margin="20"
+                                       Text="输入关键词，实时搜索整本书。"
+                                       TextAlignment="Center"
+                                       FontSize="11"
+                                       Foreground="#5E5E5E"
+                                       TextWrapping="Wrap"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                        </Grid>
                     </Grid>
 
-                    <StackPanel Grid.Row="4"
+                    <StackPanel x:Name="ReaderReadingInfoPanel"
+                                Grid.Row="4"
                                 Margin="14,4,14,8"
                                 Spacing="2">
                         <Grid HorizontalAlignment="Left" ColumnSpacing="8">
@@ -2625,19 +2737,26 @@
                             <Button x:Name="ReaderHighlightButton"
                                     Content="划线"
                                     Style="{StaticResource ReaderHeaderButtonStyle}"
+                                    Visibility="Collapsed"
                                     ToolTipService.ToolTip="为正文中选中的文字添加划线"
                                     Click="ReaderHighlightButton_Click" />
                             <Button x:Name="ReaderAnnotateButton"
                                     Content="批注"
                                     Style="{StaticResource ReaderHeaderButtonStyle}"
+                                    Visibility="Collapsed"
                                     ToolTipService.ToolTip="为正文中选中的文字添加笔记"
                                     Click="ReaderAnnotateButton_Click" />
                             <Button x:Name="ReaderBookmarkButton"
                                     Content="书签"
                                     Style="{StaticResource ReaderHeaderButtonStyle}"
                                     AutomationProperties.Name="添加书签"
-                                    ToolTipService.ToolTip="添加或取消当前阅读位置的书签（Ctrl+B）"
-                                    Click="ReaderBookmarkButton_Click" />
+                                    Click="ReaderBookmarkButton_Click">
+                                <ToolTipService.ToolTip>
+                                    <ToolTip x:Name="ReaderBookmarkFeedbackToolTip"
+                                             Content="添加或取消当前阅读位置的书签（Ctrl+B）"
+                                             Placement="Bottom" />
+                                </ToolTipService.ToolTip>
+                            </Button>
                             <Rectangle Width="1" Height="22" Margin="3,0" Fill="#D5D5D1" VerticalAlignment="Center" />
                             <Button x:Name="ReaderAssistantToggleButton"
                                     Content="助手"
@@ -2788,52 +2907,55 @@
                                Fill="#000000"
                                IsHitTestVisible="False" />
 
-                    <!-- The short header rule is intentionally omitted. -->
-                    <Grid Padding="14,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="AI 助手" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
-                            <TextBlock x:Name="ReaderAiProviderText"
-                                        Text="DeepSeek · 未配置"
-                                        FontSize="9"
-                                        MaxWidth="170"
-                                        Foreground="#888888"
-                                       VerticalAlignment="Center"
-                                       TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1"
-                                    Orientation="Horizontal"
-                                    Spacing="6"
-                                    VerticalAlignment="Center">
-                            <Button x:Name="ReaderAiSettingsButton"
-                                    VerticalAlignment="Center"
-                                    Style="{StaticResource ReaderHeaderIconButtonStyle}"
-                                    AutomationProperties.Name="配置 AI API"
-                                    ToolTipService.ToolTip="配置 AI API"
-                                    Click="ReaderAiSettingsButton_Click">
-                                <FontIcon Glyph="&#xE713;"
-                                          FontFamily="Segoe MDL2 Assets"
-                                          FontSize="13"
-                                          VerticalAlignment="Center" />
-                            </Button>
-                            <Button VerticalAlignment="Center"
-                                    Style="{StaticResource ReaderHeaderIconButtonStyle}"
-                                    AutomationProperties.Name="收起阅读助手"
-                                    ToolTipService.ToolTip="收起阅读助手"
-                                    Click="ReaderAssistantToggleButton_Click">
-                                <FontIcon Glyph="&#xE76C;"
-                                          FontFamily="Segoe MDL2 Assets"
-                                          FontSize="13"
-                                          HorizontalAlignment="Center"
-                                          VerticalAlignment="Center" />
-                            </Button>
-                        </StackPanel>
-                    </Grid>
+                    <Border Background="#FFFFFF"
+                            BorderBrush="#000000"
+                            BorderThickness="0,0,0,1">
+                        <Grid Padding="14,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="AI 助手" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                <TextBlock x:Name="ReaderAiProviderText"
+                                           Text="DeepSeek · 未配置"
+                                           FontSize="9"
+                                           MaxWidth="170"
+                                           Foreground="#888888"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        Spacing="6"
+                                        VerticalAlignment="Center">
+                                <Button x:Name="ReaderAiSettingsButton"
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource ReaderHeaderIconButtonStyle}"
+                                        AutomationProperties.Name="配置 AI API"
+                                        ToolTipService.ToolTip="配置 AI API"
+                                        Click="ReaderAiSettingsButton_Click">
+                                    <FontIcon Glyph="&#xE713;"
+                                              FontFamily="Segoe MDL2 Assets"
+                                              FontSize="13"
+                                              VerticalAlignment="Center" />
+                                </Button>
+                                <Button VerticalAlignment="Center"
+                                        Style="{StaticResource ReaderHeaderIconButtonStyle}"
+                                        AutomationProperties.Name="收起阅读助手"
+                                        ToolTipService.ToolTip="收起阅读助手"
+                                        Click="ReaderAssistantToggleButton_Click">
+                                    <FontIcon Glyph="&#xE76C;"
+                                              FontFamily="Segoe MDL2 Assets"
+                                              FontSize="13"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
 
-                    <Grid Grid.Row="1" Padding="12,4" ColumnSpacing="6" BorderBrush="#000000" BorderThickness="0,1,0,0">
+                    <Grid Grid.Row="1" Padding="12,4" ColumnSpacing="6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
@@ -3398,96 +3520,6 @@
                 </Border>
             </Grid>
 
-            <!-- Whole-book search panel. It occupies the original TOC column so
-                 the search results stay beside the正文 instead of floating over it. -->
-            <Border x:Name="ReaderSearchPanel"
-                    Width="360"
-                    Grid.Column="0"
-                    Margin="0,38,0,0"
-                    HorizontalAlignment="Stretch"
-                    VerticalAlignment="Stretch"
-                    Background="#FFFFFF"
-                    BorderBrush="#000000"
-                    BorderThickness="1"
-                    CornerRadius="0"
-                    Canvas.ZIndex="90"
-                    Visibility="Collapsed">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Grid Padding="10,8" ColumnSpacing="6" BorderBrush="#000000" BorderThickness="0,0,0,1">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="ReaderSearchBox"
-                                 Height="32"
-                                 Padding="9,5"
-                                 PlaceholderText="搜索整本书…"
-                                 KeyDown="ReaderSearchBox_KeyDown" />
-                        <Button Grid.Column="1"
-                                Content="搜索"
-                                Style="{StaticResource ReaderToolbarButtonStyle}"
-                                BorderThickness="1"
-                                Click="ReaderSearchButton_Click" />
-                        <Button Grid.Column="2"
-                                Content="×"
-                                FontSize="14"
-                                Style="{StaticResource ReaderToolbarButtonStyle}"
-                                AutomationProperties.Name="关闭搜索"
-                                Click="CloseReaderSearchButton_Click" />
-                    </Grid>
-                    <Grid Grid.Row="1">
-                        <ListView x:Name="ReaderSearchResultList"
-                                  SelectionMode="None"
-                                  IsItemClickEnabled="True"
-                                  ItemClick="ReaderSearchResultList_ItemClick"
-                                  ScrollViewer.HorizontalScrollMode="Disabled"
-                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="core:BookContentChunk">
-                                    <Border Margin="0,0,0,6"
-                                            Padding="10"
-                                            Background="#FFFFFF"
-                                            BorderBrush="#000000"
-                                            BorderThickness="1"
-                                            CornerRadius="0">
-                                        <StackPanel Spacing="4">
-                                            <TextBlock Text="{x:Bind ChapterTitle}"
-                                                       FontSize="11"
-                                                       FontWeight="SemiBold"
-                                                       TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{x:Bind Content}"
-                                                       FontSize="10"
-                                                       Foreground="#5A5A5A"
-                                                       MaxLines="4"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
-                        <TextBlock x:Name="ReaderSearchStatusText"
-                                   Margin="14"
-                                   TextAlignment="Center"
-                                   FontSize="11"
-                                   Foreground="#5E5E5E"
-                                   TextWrapping="Wrap"
-                                   VerticalAlignment="Center" />
-                    </Grid>
-                    <TextBlock x:Name="ReaderSearchCountText"
-                               Grid.Row="2"
-                               Margin="12,8"
-                               FontSize="10"
-                               Foreground="#5E5E5E" />
-                </Grid>
-            </Border>
-
             <!-- Text-selection quick action bar (monochrome). Hosted in a Popup
                  positioned above the current selection in the WebView. -->
             <Border x:Name="ReaderSelectionBar"
@@ -3565,7 +3597,9 @@
                     <Rectangle Style="{StaticResource ReaderSelectionSeparatorStyle}" />
                     <Button x:Name="ReaderSelectionHighlightButton"
                             Content="划线 ▾"
-                            Style="{StaticResource ReaderSelectionActionStyle}">
+                            Style="{StaticResource ReaderSelectionActionStyle}"
+                            PointerEntered="ReaderSelectionHighlightButton_PointerEntered"
+                            PointerExited="ReaderSelectionHighlightButton_PointerExited">
                         <Button.Flyout>
                             <MenuFlyout Placement="BottomEdgeAlignedLeft">
                                 <MenuFlyoutItem Text="直线  ───" Tag="solid" Click="ReaderSelectionHighlightStyle_Click" />

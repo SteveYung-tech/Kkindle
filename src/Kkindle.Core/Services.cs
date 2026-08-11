@@ -9,6 +9,11 @@ public interface IBookLibraryService
     Task UpdateMetadataAsync(Book book, CancellationToken cancellationToken = default);
     Task DeleteFileAsync(Guid bookId, Guid bookFileId, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid bookId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<BookCollection>> GetCollectionsAsync(CancellationToken cancellationToken = default);
+    Task<BookCollection> CreateCollectionAsync(string name, CancellationToken cancellationToken = default);
+    Task DeleteCollectionAsync(Guid collectionId, CancellationToken cancellationToken = default);
+    Task AddBookToCollectionAsync(Guid bookId, Guid collectionId, CancellationToken cancellationToken = default);
+    Task RemoveBookFromCollectionAsync(Guid bookId, Guid collectionId, CancellationToken cancellationToken = default);
     string GetAbsoluteFilePath(BookFile file);
 }
 

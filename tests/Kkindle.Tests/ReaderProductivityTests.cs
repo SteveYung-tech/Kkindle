@@ -83,6 +83,8 @@ public sealed class ReaderProductivityTests
                 ChapterPath = "text/chapter-3.xhtml",
                 Fragment = "section-2",
                 ChapterIndex = 2,
+                ScrollPosition = 1840,
+                FlowMode = 1,
                 Title = "第三章",
                 Quote = "城市人口和基础设施"
             };
@@ -92,6 +94,9 @@ public sealed class ReaderProductivityTests
             var list = await service.GetBookmarksAsync(fileId);
             Assert.Equal(2, list.Count);
             Assert.Contains(list, bookmark => bookmark.Quote.Contains("城市人口", StringComparison.Ordinal));
+            var restoredSecond = Assert.Single(list, bookmark => bookmark.Id == second.Id);
+            Assert.Equal(1840, restoredSecond.ScrollPosition);
+            Assert.Equal(1, restoredSecond.FlowMode);
 
             await service.DeleteBookmarkAsync(second.Id);
             var remaining = await service.GetBookmarksAsync(fileId);

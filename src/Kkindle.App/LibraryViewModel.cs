@@ -39,6 +39,32 @@ public sealed class BookCardViewModel : ObservableObject
     private double _conversionProgress;
     private string _conversionProgressLabel = "0%";
     private string _conversionProgressMessage = "正在转换…";
+    private BookLibraryPresence _libraryPresence = BookLibraryPresence.ComputerOnly;
+
+    public BookLibraryPresence LibraryPresence
+    {
+        get => _libraryPresence;
+        private set
+        {
+            if (!SetProperty(ref _libraryPresence, value)) return;
+            OnPropertyChanged(nameof(PresenceGlyph));
+            OnPropertyChanged(nameof(PresenceLabel));
+        }
+    }
+
+    public string PresenceGlyph => LibraryPresence switch
+    {
+        BookLibraryPresence.Both => "\uE72E",
+        BookLibraryPresence.KindleOnly => "\uE70A",
+        _ => "\uE7F8"
+    };
+
+    public string PresenceLabel => LibraryPresence switch
+    {
+        BookLibraryPresence.Both => "电脑与 Kindle 书库都有",
+        BookLibraryPresence.KindleOnly => "仅 Kindle 书库有",
+        _ => "仅电脑书库有"
+    };
 
     public bool IsConversionProgressVisible
     {
@@ -88,6 +114,8 @@ public sealed class BookCardViewModel : ObservableObject
         ConversionProgressMessage = "正在转换…";
     }
 
+    public void SetLibraryPresence(BookLibraryPresence presence) => LibraryPresence = presence;
+
     public void Refresh()
     {
         CoverImage = null;
@@ -114,8 +142,10 @@ public sealed class BookCardViewModel : ObservableObject
     }
 }
 
-public sealed class KindleBookCardViewModel
+public sealed class KindleBookCardViewModel : ObservableObject
 {
+    private BookLibraryPresence _libraryPresence = BookLibraryPresence.KindleOnly;
+
     public KindleBookCardViewModel(KindleBook book)
     {
         Book = book;
@@ -134,6 +164,33 @@ public sealed class KindleBookCardViewModel
     public string InfoLabel => $"{FormatLabel} · {SizeLabel}";
     public string RelativePath => Book.RelativePath;
     public BitmapImage? CoverImage { get; }
+
+    public BookLibraryPresence LibraryPresence
+    {
+        get => _libraryPresence;
+        private set
+        {
+            if (!SetProperty(ref _libraryPresence, value)) return;
+            OnPropertyChanged(nameof(PresenceGlyph));
+            OnPropertyChanged(nameof(PresenceLabel));
+        }
+    }
+
+    public string PresenceGlyph => LibraryPresence switch
+    {
+        BookLibraryPresence.Both => "\uE72E",
+        BookLibraryPresence.ComputerOnly => "\uE7F8",
+        _ => "\uE70A"
+    };
+
+    public string PresenceLabel => LibraryPresence switch
+    {
+        BookLibraryPresence.Both => "电脑与 Kindle 书库都有",
+        BookLibraryPresence.ComputerOnly => "仅电脑书库有",
+        _ => "仅 Kindle 书库有"
+    };
+
+    public void SetLibraryPresence(BookLibraryPresence presence) => LibraryPresence = presence;
 }
 
 public sealed class ZLibraryBookCardViewModel : ObservableObject
@@ -276,6 +333,8 @@ public sealed class LibraryViewModel : ObservableObject
     private string? _tagFilter;
     private string? _formatFilter;
     private string? _categoryFilter;
+    private Guid? _collectionFilterId;
+    private string? _collectionFilterName;
     private LibraryReadingStatus? _readingStatusFilter;
     private bool _favoritesOnly;
     private LibrarySortMode _sortMode;
@@ -289,6 +348,7 @@ public sealed class LibraryViewModel : ObservableObject
     }
 
     public ObservableCollection<BookCardViewModel> Books { get; } = [];
+    public IReadOnlyList<Book> LibraryBooks { get; private set; } = [];
     public IReadOnlyList<string> AvailableAuthors { get; private set; } = [];
     public IReadOnlyList<string> AvailableTags { get; private set; } = [];
     public IReadOnlyList<string> AvailableFormats { get; private set; } = [];
@@ -330,6 +390,18 @@ public sealed class LibraryViewModel : ObservableObject
         set => SetProperty(ref _categoryFilter, value);
     }
 
+    public Guid? CollectionFilterId
+    {
+        get => _collectionFilterId;
+        set => SetProperty(ref _collectionFilterId, value);
+    }
+
+    public string? CollectionFilterName
+    {
+        get => _collectionFilterName;
+        set => SetProperty(ref _collectionFilterName, value);
+    }
+
     public LibraryReadingStatus? ReadingStatusFilter
     {
         get => _readingStatusFilter;
@@ -353,7 +425,8 @@ public sealed class LibraryViewModel : ObservableObject
         || !string.IsNullOrWhiteSpace(FormatFilter)
         || !string.IsNullOrWhiteSpace(CategoryFilter)
         || ReadingStatusFilter is not null
-        || FavoritesOnly;
+        || FavoritesOnly
+        || CollectionFilterId is not null;
 
     public string StatusText
     {
@@ -367,6 +440,7 @@ public sealed class LibraryViewModel : ObservableObject
         try
         {
             var allBooks = await _library.SearchAsync(cancellationToken: cancellationToken);
+            LibraryBooks = allBooks;
             AvailableAuthors = allBooks
                 .SelectMany(book => book.Authors.Split(',', '，', ';', '；'))
                 .Select(author => author.Trim())
@@ -405,9 +479,13 @@ public sealed class LibraryViewModel : ObservableObject
             Books.Clear();
             foreach (var book in books) Books.Add(new BookCardViewModel(book, _dataRoot));
             StatusText = books.Length == 0
-                ? allBooks.Count == 0 ? "书库还是空的" : "没有符合条件的书籍"
+                ? allBooks.Count == 0 ? "书库还是空的"
+                    : CollectionFilterId is not null ? $"“{CollectionFilterName}”收藏夹还是空的"
+                    : "没有符合条件的书籍"
                 : HasActiveFilters || !string.IsNullOrWhiteSpace(SearchText)
-                    ? $"找到 {books.Length} 本书"
+                    ? CollectionFilterId is not null
+                        ? $"{CollectionFilterName} · {books.Length} 本书"
+                        : $"找到 {books.Length} 本书"
                     : $"共 {books.Length} 本书";
         }
         finally { IsBusy = false; }
@@ -429,6 +507,7 @@ public sealed class LibraryViewModel : ObservableObject
             && !string.Equals(book.Category.Trim(), CategoryFilter, StringComparison.CurrentCultureIgnoreCase)) return false;
         if (ReadingStatusFilter is { } readingStatus && book.ReadingStatus != readingStatus) return false;
         if (FavoritesOnly && !book.IsFavorite) return false;
+        if (CollectionFilterId is { } collectionId && !book.CollectionIds.Contains(collectionId)) return false;
         return string.IsNullOrWhiteSpace(FormatFilter)
             || book.Files.Any(file => string.Equals(file.Format, FormatFilter, StringComparison.OrdinalIgnoreCase));
     }

@@ -5,6 +5,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
@@ -29,6 +30,8 @@ public sealed partial class MainWindow
     private Popup? _readerSelectionPopup;
     private DispatcherQueueTimer? _readerSelectionTimer;
     private DispatcherQueueTimer? _readerStatsTimer;
+    private DispatcherQueueTimer? _readerHighlightFlyoutCloseTimer;
+    private DispatcherQueueTimer? _readerBookmarkFeedbackTimer;
     private CancellationTokenSource? _readerLayoutApplyCancellation;
     private bool _suppressReaderLayoutChange;
     private bool _readerBookmarkTabActive;
@@ -42,6 +45,8 @@ public sealed partial class MainWindow
     private volatile bool _readerFootnotePopupOpen;
     private int? _pendingReaderRestorePosition;
     private string? _pendingReaderBookmarkQuote;
+    private int? _pendingReaderBookmarkPosition;
+    private int _pendingReaderBookmarkFlowMode;
     private ReaderProgressRow? _savedReaderProgress;
     private ReaderProgressRow? _readerLastProgress;
     private DateTimeOffset _readerProgressLastSave = DateTimeOffset.MinValue;
@@ -53,6 +58,10 @@ public sealed partial class MainWindow
     private bool _readerSearchLayoutCaptured;
     private bool _readerSearchPreviousTocExpanded;
     private bool _readerSearchPreviousTocMinimal;
+    private bool _readerSearchPreviousBookmarkTabActive;
+    private string _readerSearchQuery = string.Empty;
+    private string? _pendingReaderSearchQuery;
+    private CancellationTokenSource? _readerSearchQueryCancellation;
 
     private void ConfigureReaderToolsPopupHosts()
     {
@@ -98,6 +107,28 @@ public sealed partial class MainWindow
             flyout.Opened += ReaderBlockingFlyout_Opened;
             flyout.Closed += ReaderBlockingFlyout_Closed;
         }
+
+        _readerHighlightFlyoutCloseTimer = DispatcherQueue.CreateTimer();
+        _readerHighlightFlyoutCloseTimer.Interval = TimeSpan.FromMilliseconds(240);
+        _readerHighlightFlyoutCloseTimer.IsRepeating = false;
+        _readerHighlightFlyoutCloseTimer.Tick += ReaderHighlightFlyoutCloseTimer_Tick;
+        _readerBookmarkFeedbackTimer = DispatcherQueue.CreateTimer();
+        _readerBookmarkFeedbackTimer.Interval = TimeSpan.FromMilliseconds(1600);
+        _readerBookmarkFeedbackTimer.IsRepeating = false;
+        _readerBookmarkFeedbackTimer.Tick += (_, _) =>
+        {
+            _readerBookmarkFeedbackTimer?.Stop();
+            ReaderBookmarkFeedbackToolTip.IsOpen = false;
+        };
+        if (ReaderSelectionHighlightButton.Flyout is MenuFlyout highlightFlyout)
+        {
+            highlightFlyout.Closed += ReaderSelectionHighlightFlyout_Closed;
+            foreach (var item in highlightFlyout.Items.OfType<MenuFlyoutItem>())
+            {
+                item.PointerEntered += ReaderSelectionHighlightFlyoutItem_PointerEntered;
+                item.PointerExited += ReaderSelectionHighlightFlyoutItem_PointerExited;
+            }
+        }
     }
 
     private void ReaderBlockingFlyout_Opened(object? sender, object e) =>
@@ -105,6 +136,70 @@ public sealed partial class MainWindow
 
     private void ReaderBlockingFlyout_Closed(object? sender, object e) =>
         _readerMenuFlyoutOpen = false;
+
+    private void ReaderSelectionHighlightButton_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        _readerHighlightFlyoutCloseTimer?.Stop();
+        if (_readerMenuFlyoutOpen || sender is not Button button || button.Flyout is null) return;
+        button.Flyout.ShowAt(button);
+    }
+
+    private void ReaderSelectionHighlightButton_PointerExited(object sender, PointerRoutedEventArgs e) =>
+        StartReaderHighlightFlyoutCloseTimer();
+
+    private void ReaderSelectionHighlightFlyoutItem_PointerEntered(object sender, PointerRoutedEventArgs e) =>
+        _readerHighlightFlyoutCloseTimer?.Stop();
+
+    private void ReaderSelectionHighlightFlyoutItem_PointerExited(object sender, PointerRoutedEventArgs e) =>
+        StartReaderHighlightFlyoutCloseTimer();
+
+    private void StartReaderHighlightFlyoutCloseTimer()
+    {
+        if (_readerHighlightFlyoutCloseTimer is null) return;
+        _readerHighlightFlyoutCloseTimer.Stop();
+        _readerHighlightFlyoutCloseTimer.Start();
+    }
+
+    private void ReaderHighlightFlyoutCloseTimer_Tick(DispatcherQueueTimer sender, object args)
+    {
+        sender.Stop();
+        // Opening a MenuFlyout can synthesize PointerExited on its owner even
+        // while the physical cursor is still over the button. Keep polling in
+        // that case instead of closing/reopening the menu in a loop.
+        if (IsPointerOverReaderElement(ReaderSelectionHighlightButton))
+        {
+            sender.Start();
+            return;
+        }
+        ReaderSelectionHighlightButton.Flyout?.Hide();
+    }
+
+    private bool IsPointerOverReaderElement(FrameworkElement element)
+    {
+        if (!GetCursorPos(out var cursor) || element.XamlRoot is null) return false;
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(this);
+            var clientOrigin = new POINT { X = 0, Y = 0 };
+            _ = ClientToScreen(hwnd, ref clientOrigin);
+            var origin = element.TransformToVisual(null)
+                .TransformPoint(new Windows.Foundation.Point(0, 0));
+            var scale = element.XamlRoot.RasterizationScale;
+            var left = clientOrigin.X + origin.X * scale;
+            var top = clientOrigin.Y + origin.Y * scale;
+            var right = left + element.ActualWidth * scale;
+            var bottom = top + element.ActualHeight * scale;
+            return cursor.X >= left && cursor.X <= right
+                && cursor.Y >= top && cursor.Y <= bottom;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void ReaderSelectionHighlightFlyout_Closed(object? sender, object e) =>
+        _readerHighlightFlyoutCloseTimer?.Stop();
 
     private void ResetReaderToolsSession()
     {
@@ -114,6 +209,8 @@ public sealed partial class MainWindow
         _readerSelectionText = null;
         _pendingReaderRestorePosition = null;
         _pendingReaderBookmarkQuote = null;
+        _pendingReaderBookmarkPosition = null;
+        _pendingReaderBookmarkFlowMode = 0;
         _savedReaderProgress = null;
         _readerLastProgress = null;
         _readerProgressLastSave = DateTimeOffset.MinValue;
@@ -127,6 +224,11 @@ public sealed partial class MainWindow
         _readerAiSettingsPopupOpen = false;
         _readerFootnotePopupOpen = false;
         _readerSearchLayoutCaptured = false;
+        _readerSearchQuery = string.Empty;
+        _pendingReaderSearchQuery = null;
+        _readerSearchQueryCancellation?.Cancel();
+        _readerSearchQueryCancellation?.Dispose();
+        _readerSearchQueryCancellation = null;
         ReaderSearchPanel.Visibility = Visibility.Collapsed;
     }
 
@@ -135,6 +237,9 @@ public sealed partial class MainWindow
         StopReaderFootnoteHoverPoll();
         StopReaderSelectionPoll();
         StopReaderStatsTimer();
+        _readerHighlightFlyoutCloseTimer?.Stop();
+        _readerBookmarkFeedbackTimer?.Stop();
+        ReaderBookmarkFeedbackToolTip.IsOpen = false;
         HideReaderSearchPanel();
         HideReaderSelectionPopup();
         if (_readerLayoutPopup is not null) _readerLayoutPopup.IsOpen = false;
@@ -452,13 +557,16 @@ public sealed partial class MainWindow
         var quote = IsPdfReader
             ? $"PDF 第 {_pdfCurrentPage} 页"
             : await CaptureReaderSelectionTextAsync() ?? await CaptureCurrentSectionQuoteAsync();
+        var progress = await CaptureReaderProgressAsync(book, bookFile);
 
         var existing = _readerBookmarks.FirstOrDefault(bookmark =>
             bookmark.ChapterPath.Equals(chapterPath, StringComparison.OrdinalIgnoreCase)
             && string.Equals(bookmark.Fragment, fragment, StringComparison.OrdinalIgnoreCase)
-            && (string.IsNullOrWhiteSpace(bookmark.Quote)
-                || string.IsNullOrWhiteSpace(quote)
-                || bookmark.Quote.Equals(quote, StringComparison.OrdinalIgnoreCase)));
+            && (bookmark.ScrollPosition is int savedPosition && progress?.ScrollPosition is int currentPosition
+                ? Math.Abs(savedPosition - currentPosition) <= 4
+                : string.IsNullOrWhiteSpace(bookmark.Quote)
+                  || string.IsNullOrWhiteSpace(quote)
+                  || bookmark.Quote.Equals(quote, StringComparison.OrdinalIgnoreCase)));
         try
         {
             if (existing is not null)
@@ -466,6 +574,7 @@ public sealed partial class MainWindow
                 await _readerData.DeleteBookmarkAsync(existing.Id, token);
                 _readerBookmarks.Remove(existing);
                 ReaderStatusText.Text = "已取消书签";
+                ShowReaderBookmarkFeedback("已取消书签");
             }
             else
             {
@@ -476,13 +585,16 @@ public sealed partial class MainWindow
                     ChapterPath = chapterPath,
                     Fragment = fragment,
                     ChapterIndex = _readerChapterIndex,
+                    ScrollPosition = progress?.ScrollPosition,
+                    FlowMode = progress?.FlowMode ?? _readerFlowMode,
                     Title = GetCurrentReaderChapterTitle(),
                     Quote = quote ?? string.Empty,
                     CreatedAt = DateTimeOffset.UtcNow
                 };
                 await _readerData.SaveBookmarkAsync(bookmark, token);
                 _readerBookmarks.Add(bookmark);
-                ReaderStatusText.Text = "书签已保存（Ctrl+B 可再次取消）";
+                ReaderStatusText.Text = "已添加书签";
+                ShowReaderBookmarkFeedback("已添加书签");
             }
         }
         catch (Exception exception)
@@ -490,6 +602,14 @@ public sealed partial class MainWindow
             ReaderStatusText.Text = $"书签保存失败：{exception.Message}";
         }
         RefreshReaderBookmarkList();
+    }
+
+    private void ShowReaderBookmarkFeedback(string message)
+    {
+        ReaderBookmarkFeedbackToolTip.Content = message;
+        ReaderBookmarkFeedbackToolTip.IsOpen = true;
+        _readerBookmarkFeedbackTimer?.Stop();
+        _readerBookmarkFeedbackTimer?.Start();
     }
 
     private async Task<string?> CaptureCurrentSectionQuoteAsync()
@@ -509,16 +629,16 @@ public sealed partial class MainWindow
         ReaderBookmarkEmptyText.Visibility = _readerBookmarks.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void ReaderBookmarkList_ItemClick(object sender, ItemClickEventArgs e)
+    private async void ReaderBookmarkList_ItemClick(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is ReaderBookmark bookmark) NavigateToReaderBookmark(bookmark);
+        if (e.ClickedItem is ReaderBookmark bookmark) await NavigateToReaderBookmarkAsync(bookmark);
     }
 
-    private void NavigateToReaderBookmark(ReaderBookmark bookmark)
+    private async Task NavigateToReaderBookmarkAsync(ReaderBookmark bookmark)
     {
         if (IsPdfReader)
         {
-            _ = NavigatePdfLocationAsync(bookmark.ChapterPath);
+            await NavigatePdfLocationAsync(bookmark.ChapterPath);
             return;
         }
         if (_readerAllowedRoot is null) return;
@@ -532,13 +652,16 @@ public sealed partial class MainWindow
         _readerChapterIndex = chapterIndex;
         _readerNavigateToEnd = false;
         _pendingReaderBookmarkQuote = bookmark.Quote;
+        _pendingReaderBookmarkPosition = bookmark.ScrollPosition;
+        _pendingReaderBookmarkFlowMode = bookmark.FlowMode;
         UpdateReaderChapterControls();
         var target = new Uri(targetPath).AbsoluteUri;
         if (!string.IsNullOrWhiteSpace(bookmark.Fragment)) target += $"#{bookmark.Fragment}";
-        if (ReaderWebView.Source?.AbsoluteUri.Equals(target, StringComparison.OrdinalIgnoreCase) == true)
-            _ = ScrollToPendingReaderBookmarkAsync();
+        var targetUri = new Uri(target);
+        if (ReaderNavigationLocationPolicy.TargetsSameDocument(ReaderWebView.Source, targetUri))
+            await ScrollToPendingReaderBookmarkAsync();
         else
-            _ = NavigateReaderSourceAsync(new Uri(target), 1, animate: true, ReaderNavigationIntent.Bookmark);
+            await NavigateReaderSourceAsync(targetUri, 1, animate: true, ReaderNavigationIntent.Bookmark);
     }
 
     private async void ReaderBookmarkDeleteButton_Click(object sender, RoutedEventArgs e)
@@ -560,7 +683,25 @@ public sealed partial class MainWindow
 
     private async Task ScrollToPendingReaderBookmarkAsync()
     {
-        if (_pendingReaderBookmarkQuote is not string quote || ReaderWebView.CoreWebView2 is null) return;
+        if (ReaderWebView.CoreWebView2 is null) return;
+        var position = _pendingReaderBookmarkPosition;
+        var savedFlowMode = _pendingReaderBookmarkFlowMode;
+        _pendingReaderBookmarkPosition = null;
+        _pendingReaderBookmarkFlowMode = 0;
+        if (position is int exactPosition && savedFlowMode == _readerFlowMode)
+        {
+            var horizontal = _readerFlowMode == 1 || _readerLayout.VerticalWriting;
+            var positionScript = horizontal
+                ? $"window.scrollTo({{ left: {exactPosition}, top: 0, behavior: 'instant' }});"
+                : $"window.scrollTo({{ top: {exactPosition}, behavior: 'instant' }});";
+            try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(positionScript); }
+            catch { }
+            _pendingReaderBookmarkQuote = null;
+            if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
+            return;
+        }
+
+        if (_pendingReaderBookmarkQuote is not string quote) return;
         _pendingReaderBookmarkQuote = null;
         if (quote.Length < 2) return;
         var needle = quote.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ");
@@ -594,9 +735,27 @@ public sealed partial class MainWindow
         if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
     }
 
-    private void ReaderTocTabButton_Click(object sender, RoutedEventArgs e) => SetReaderTocTab(bookmarkTab: false);
+    private void ReaderTocTabButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_readerSearchVisible)
+        {
+            ShowReaderTocFromSearch(bookmarkTab: false);
+            return;
+        }
 
-    private void ReaderBookmarkTabButton_Click(object sender, RoutedEventArgs e) => SetReaderTocTab(bookmarkTab: true);
+        SetReaderTocTab(bookmarkTab: false);
+    }
+
+    private void ReaderBookmarkTabButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_readerSearchVisible)
+        {
+            ShowReaderTocFromSearch(bookmarkTab: true);
+            return;
+        }
+
+        SetReaderTocTab(bookmarkTab: true);
+    }
 
     private void SetReaderTocTab(bool bookmarkTab)
     {
@@ -605,7 +764,9 @@ public sealed partial class MainWindow
         ReaderTocTabButton.Foreground = new SolidColorBrush(bookmarkTab ? ColorHelper.FromArgb(255, 36, 36, 36) : Colors.White);
         ReaderBookmarkTabButton.Background = new SolidColorBrush(bookmarkTab ? Colors.Black : Colors.Transparent);
         ReaderBookmarkTabButton.Foreground = new SolidColorBrush(bookmarkTab ? Colors.White : ColorHelper.FromArgb(255, 36, 36, 36));
-        ReaderTocSearchBox.Visibility = bookmarkTab ? Visibility.Collapsed : Visibility.Visible;
+        // The input is reserved for whole-book search; the normal TOC no
+        // longer has a separate title-filter box.
+        ReaderTocSearchBox.Visibility = _readerSearchVisible ? Visibility.Visible : Visibility.Collapsed;
         ReaderTocList.Visibility = bookmarkTab ? Visibility.Collapsed : Visibility.Visible;
         ReaderTocEmptyText.Visibility = bookmarkTab || _readerHasToc ? Visibility.Collapsed : Visibility.Visible;
         ReaderBookmarkPane.Visibility = bookmarkTab ? Visibility.Visible : Visibility.Collapsed;
@@ -617,9 +778,11 @@ public sealed partial class MainWindow
     // never uploads content).
     // ------------------------------------------------------------------
 
-    private void ReaderSearchToolbarButton_Click(object sender, RoutedEventArgs e) => ShowReaderSearchPanel();
-
-    private void CloseReaderSearchButton_Click(object sender, RoutedEventArgs e) => HideReaderSearchPanel();
+    private void ReaderSearchToolbarButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_readerSearchVisible) HideReaderSearchPanel();
+        else ShowReaderSearchPanel();
+    }
 
     private void ShowReaderSearchPanel()
     {
@@ -628,95 +791,196 @@ public sealed partial class MainWindow
         {
             _readerSearchPreviousTocExpanded = _readerTocExpanded;
             _readerSearchPreviousTocMinimal = _readerTocMinimal;
+            _readerSearchPreviousBookmarkTabActive = _readerBookmarkTabActive;
             _readerSearchLayoutCaptured = true;
             _readerTocExpanded = true;
             _readerTocMinimal = false;
             _readerSearchVisible = true;
-            ApplyReaderPanelLayout();
         }
 
+        ReaderTocPanel.Visibility = Visibility.Visible;
+        ReaderTocTabsPanel.Visibility = Visibility.Collapsed;
+        ReaderReadingInfoPanel.Visibility = Visibility.Collapsed;
         ReaderSearchPanel.Visibility = Visibility.Visible;
-        if (string.IsNullOrWhiteSpace(ReaderSearchStatusText.Text))
-            ReaderSearchStatusText.Text = "输入关键词后按 Enter 或点击“搜索”。";
-        ReaderSearchBox.Focus(FocusState.Programmatic);
+        ReaderTocList.Visibility = Visibility.Collapsed;
+        ReaderTocEmptyText.Visibility = Visibility.Collapsed;
+        ReaderBookmarkPane.Visibility = Visibility.Collapsed;
+        ReaderTocTabButton.Background = new SolidColorBrush(Colors.Transparent);
+        ReaderTocTabButton.Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 36, 36, 36));
+        ReaderBookmarkTabButton.Background = new SolidColorBrush(Colors.Transparent);
+        ReaderBookmarkTabButton.Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 36, 36, 36));
+        ReaderSearchToolbarButton.Opacity = 0.58;
+        ReaderTocSearchBox.PlaceholderText = "搜索整本书…";
+        ReaderTocSearchBox.Visibility = Visibility.Visible;
+        ReaderTocSearchBox.Text = _readerSearchQuery;
+        ShowReaderSearchStatus(string.IsNullOrWhiteSpace(_readerSearchQuery)
+            ? "输入关键词，实时搜索整本书。"
+            : "正在本地搜索…");
+        ApplyReaderPanelLayout();
+        ReaderTocSearchBox.Focus(FocusState.Programmatic);
+        if (!string.IsNullOrWhiteSpace(_readerSearchQuery))
+            ScheduleReaderSearch(_readerSearchQuery);
     }
 
-    private void HideReaderSearchPanel()
+    private void HideReaderSearchPanel(bool restorePreviousLayout = true)
     {
         var restoreTocLayout = _readerSearchVisible && _readerSearchLayoutCaptured;
+        if (_readerSearchVisible) _readerSearchQuery = ReaderTocSearchBox.Text;
         _readerSearchVisible = false;
+        _readerSearchQueryCancellation?.Cancel();
+        _readerSearchQueryCancellation?.Dispose();
+        _readerSearchQueryCancellation = null;
         ReaderSearchPanel.Visibility = Visibility.Collapsed;
-        if (!restoreTocLayout) return;
+        ReaderTocTabsPanel.Visibility = Visibility.Visible;
+        ReaderReadingInfoPanel.Visibility = Visibility.Visible;
+        ReaderSearchToolbarButton.Opacity = 1;
+        ReaderTocSearchBox.Text = string.Empty;
+        ReaderTocSearchBox.Visibility = Visibility.Collapsed;
+        SetReaderTocTab(restorePreviousLayout && _readerSearchPreviousBookmarkTabActive);
+        if (!restoreTocLayout)
+        {
+            ApplyReaderPanelLayout();
+            return;
+        }
 
-        _readerTocExpanded = _readerSearchPreviousTocExpanded;
-        _readerTocMinimal = _readerSearchPreviousTocMinimal;
+        _readerTocExpanded = restorePreviousLayout ? _readerSearchPreviousTocExpanded : true;
+        _readerTocMinimal = restorePreviousLayout && _readerSearchPreviousTocMinimal;
         _readerSearchLayoutCaptured = false;
         ApplyReaderPanelLayout();
     }
 
-    private async void ReaderSearchBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    private void ShowReaderTocFromSearch(bool bookmarkTab)
     {
-        if (e.Key != Windows.System.VirtualKey.Enter) return;
-        e.Handled = true;
-        await RunReaderSearchAsync(ReaderSearchBox.Text.Trim());
+        if (!_readerSearchVisible) return;
+        HideReaderSearchPanel(restorePreviousLayout: false);
+        _readerTocExpanded = true;
+        _readerTocMinimal = false;
+        SetReaderTocTab(bookmarkTab);
+        ApplyReaderPanelLayout();
     }
 
-    private async void ReaderSearchButton_Click(object sender, RoutedEventArgs e)
+    private void ScheduleReaderSearch(string query)
     {
-        await RunReaderSearchAsync(ReaderSearchBox.Text.Trim());
+        _readerSearchQuery = query;
+        _readerSearchQueryCancellation?.Cancel();
+        _readerSearchQueryCancellation?.Dispose();
+        _readerSearchQueryCancellation = new CancellationTokenSource();
+        var token = _readerSearchQueryCancellation.Token;
+
+        if (query.Length == 0)
+        {
+            ReaderSearchResultList.ItemsSource = null;
+            ReaderSearchCountText.Text = string.Empty;
+            ShowReaderSearchStatus("输入关键词，实时搜索整本书。");
+            return;
+        }
+
+        ShowReaderSearchStatus("正在本地搜索…");
+        _ = RunReaderSearchDebouncedAsync(query, token);
     }
 
-    private async Task RunReaderSearchAsync(string query)
+    private async Task RunReaderSearchDebouncedAsync(string query, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(180, token);
+            await RunReaderSearchAsync(query, token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task RunReaderSearchAsync(string query, CancellationToken token)
     {
         var book = _readerBook;
-        var token = _readerFeatureCancellation?.Token ?? CancellationToken.None;
         if (book is null || _readerBookFile is null)
         {
-            ReaderSearchStatusText.Text = "请先打开 EPUB 再搜索。";
+            ShowReaderSearchStatus("请先打开书籍再搜索。");
             return;
         }
         if (query.Length == 0)
         {
-            ReaderSearchStatusText.Text = "请输入搜索关键词。";
+            ShowReaderSearchStatus("输入关键词，实时搜索整本书。");
             return;
         }
-        ReaderSearchStatusText.Text = "正在本地搜索…";
+        ShowReaderSearchStatus("正在本地搜索…");
         ReaderSearchResultList.ItemsSource = null;
         try
         {
             if (IsPdfReader)
             {
                 var pdfResults = SearchPdf(query);
-                ReaderSearchResultList.ItemsSource = pdfResults;
+                token.ThrowIfCancellationRequested();
+                ReaderSearchResultList.ItemsSource = pdfResults.Select(result => new ReaderSearchResultItem(result, query)).ToArray();
                 ReaderSearchCountText.Text = $"{pdfResults.Count} 条结果 · PDF 本地文本索引";
-                ReaderSearchStatusText.Text = pdfResults.Count == 0 ? "没有找到匹配的内容。" : "点击结果跳转到对应页。";
+                ShowReaderSearchStatus(pdfResults.Count == 0 ? "没有找到匹配的内容。" : null);
                 return;
             }
             if (_readerIndexTask is not null) await _readerIndexTask;
+            token.ThrowIfCancellationRequested();
             var results = await _readerData.SearchBookAsync(book.Id, query, 40, token);
-            ReaderSearchResultList.ItemsSource = results;
+            token.ThrowIfCancellationRequested();
+            ReaderSearchResultList.ItemsSource = results.Select(result => new ReaderSearchResultItem(result, query)).ToArray();
             ReaderSearchCountText.Text = $"{results.Count} 条结果 · 仅本地检索，不上传正文";
-            ReaderSearchStatusText.Text = results.Count == 0
-                ? "没有找到匹配的片段。"
-                : "点击结果跳转到对应章节和片段。";
+            ShowReaderSearchStatus(results.Count == 0 ? "没有找到匹配的片段。" : null);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
         }
         catch (Exception exception)
         {
-            ReaderSearchStatusText.Text = $"搜索失败：{exception.Message}";
+            ShowReaderSearchStatus($"搜索失败：{exception.Message}");
+        }
+    }
+
+    private void ShowReaderSearchStatus(string? message)
+    {
+        ReaderSearchStatusText.Text = message ?? string.Empty;
+        ReaderSearchStatusText.Visibility = message is null ? Visibility.Collapsed : Visibility.Visible;
+        ReaderSearchResultList.Visibility = message is null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ReaderSearchHighlightedText_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBlock textBlock
+            || textBlock.DataContext is not ReaderSearchResultItem item)
+        {
+            return;
+        }
+
+        var text = textBlock.Tag as string ?? string.Empty;
+        textBlock.Text = text;
+        textBlock.TextHighlighters.Clear();
+        foreach (var term in item.Query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                     .Distinct(StringComparer.CurrentCultureIgnoreCase))
+        {
+            var highlighter = new TextHighlighter
+            {
+                Background = new SolidColorBrush(Colors.Black),
+                Foreground = new SolidColorBrush(Colors.White)
+            };
+            var start = 0;
+            while (start < text.Length)
+            {
+                var index = text.IndexOf(term, start, StringComparison.CurrentCultureIgnoreCase);
+                if (index < 0) break;
+                highlighter.Ranges.Add(new TextRange { StartIndex = index, Length = term.Length });
+                start = index + Math.Max(1, term.Length);
+            }
+            if (highlighter.Ranges.Count > 0) textBlock.TextHighlighters.Add(highlighter);
         }
     }
 
     private async void ReaderSearchResultList_ItemClick(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is not BookContentChunk source) return;
+        if (e.ClickedItem is not ReaderSearchResultItem result) return;
+        var source = result.Source;
         if (IsPdfReader) await NavigatePdfLocationAsync(source.ChapterPath);
-        else await NavigateToReaderChunkAsync(source);
+        else await NavigateToReaderChunkAsync(source, result.Query);
     }
 
-    private async Task NavigateToReaderChunkAsync(BookContentChunk source)
+    private async Task NavigateToReaderChunkAsync(BookContentChunk source, string query)
     {
         if (_readerAllowedRoot is null) return;
         var targetPath = Path.GetFullPath(Path.Combine(
@@ -724,7 +988,9 @@ public sealed partial class MainWindow
             source.ChapterPath.Replace('/', Path.DirectorySeparatorChar)));
         if (!IsPathInside(_readerAllowedRoot, targetPath) || !File.Exists(targetPath)) return;
         _readerChapterIndex = Math.Clamp(source.ChapterIndex, 0, _readerChapters.Count - 1);
-        _pendingReaderChunkOffset = source.StartOffset;
+        var matchOffset = source.Content.IndexOf(query, StringComparison.CurrentCultureIgnoreCase);
+        _pendingReaderChunkOffset = source.StartOffset + Math.Max(0, matchOffset);
+        _pendingReaderSearchQuery = query;
         _readerNavigateToEnd = false;
         UpdateReaderChapterControls();
         var target = new Uri(targetPath);
@@ -916,9 +1182,9 @@ public sealed partial class MainWindow
         var text = _readerSelectionText ?? await CaptureReaderSelectionTextAsync();
         HideReaderSelectionPopup();
         ShowReaderSearchPanel();
-        ReaderSearchBox.Text = text ?? string.Empty;
-        if (!string.IsNullOrWhiteSpace(ReaderSearchBox.Text))
-            await RunReaderSearchAsync(ReaderSearchBox.Text);
+        ReaderTocSearchBox.Text = text ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(ReaderTocSearchBox.Text))
+            ScheduleReaderSearch(ReaderTocSearchBox.Text.Trim());
     }
 
     private async Task<string?> CaptureReaderSelectionTextAsync()

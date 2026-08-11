@@ -10,6 +10,12 @@ public sealed partial class MainWindow
     {
         if (sender is not MenuFlyout flyout) return;
 
+        foreach (var existing in flyout.Items
+                     .OfType<MenuFlyoutSubItem>()
+                     .Where(item => item.Tag is BookCollectionMenuMarker)
+                     .ToArray())
+            flyout.Items.Remove(existing);
+
         var submenus = flyout.Items
             .OfType<MenuFlyoutSubItem>()
             .ToArray();
@@ -23,6 +29,8 @@ public sealed partial class MainWindow
         {
             var isDeleteSubmenu = string.Equals(submenu.Text, "删除格式", StringComparison.Ordinal);
             var isConvertSubmenu = string.Equals(submenu.Text, "转换为", StringComparison.Ordinal);
+            var isOpenSubmenu = string.Equals(submenu.Text, "打开书籍", StringComparison.Ordinal);
+            if (!isDeleteSubmenu && !isConvertSubmenu && !isOpenSubmenu) continue;
             var formats = isDeleteSubmenu
                 ? book.Files.Select(file => file.Format.Trim())
                 : ReaderBookSelectionPolicy.GetSupportedFiles(book.Files).Select(file => file.Format.Trim());
@@ -52,6 +60,8 @@ public sealed partial class MainWindow
 
             submenu.IsEnabled = isConvertSubmenu || supportedFormats.Count > 0;
         }
+
+        AddBookCollectionContextMenu(flyout, book);
     }
 
     private async void OpenBookFormatMenuItem_Click(object sender, RoutedEventArgs e)

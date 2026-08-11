@@ -376,6 +376,7 @@ public sealed partial class MainWindow : Window
         _zLibrarySettings = await _zLibrarySettingsStore.LoadAsync();
         UpdateZLibraryAccountStatus();
         await RefreshLibraryAsync();
+        await RefreshBookCollectionsAsync();
         await RefreshDevicesAsync();
     }
 
@@ -430,6 +431,7 @@ public sealed partial class MainWindow : Window
         UpdateFilterControls();
         UpdateEmptyLibraryState();
         ApplyBookConversionCardState();
+        ReconcileLibraryPresence();
     }
 
     private async Task RefreshDevicesAsync()
@@ -542,6 +544,7 @@ public sealed partial class MainWindow : Window
         _scannedResourceKind = null;
         _readingMaterialsDeviceId = null;
         DeviceBooks.Clear();
+        ReconcileLibraryPresence();
         KindleStatusText.Text = "无设备连接";
         KindleConnectionText.Text = detail ?? string.Empty;
         EjectDeviceButton.Visibility = Visibility.Visible;
@@ -577,9 +580,27 @@ public sealed partial class MainWindow : Window
         var books = await _kindle.ScanBooksAsync(device);
         DeviceBooks.Clear();
         foreach (var book in books) DeviceBooks.Add(new KindleBookCardViewModel(book));
+        ReconcileLibraryPresence();
         DeviceBookCountText.Text = books.Count.ToString();
         DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
         _scannedDeviceId = device.Identity;
+    }
+
+    private void ReconcileLibraryPresence()
+    {
+        var comparison = BookLibraryComparer.Compare(
+            ViewModel.LibraryBooks,
+            DeviceBooks.Select(card => card.Book));
+
+        foreach (var card in ViewModel.Books)
+            card.SetLibraryPresence(comparison.BooksOnKindle.Contains(card.Book.Id)
+                ? BookLibraryPresence.Both
+                : BookLibraryPresence.ComputerOnly);
+
+        foreach (var card in DeviceBooks)
+            card.SetLibraryPresence(comparison.KindleBooksOnComputer.Contains(card.Book.RelativePath)
+                ? BookLibraryPresence.Both
+                : BookLibraryPresence.KindleOnly);
     }
 
     private void LibraryPane_DragOver(object sender, DragEventArgs e)
@@ -986,7 +1007,8 @@ public sealed partial class MainWindow : Window
         DevicePage.Visibility = Visibility.Visible;
     }
 
-    private void AllBooksButton_Click(object sender, RoutedEventArgs e) => ShowLibrary();
+    private async void AllBooksButton_Click(object sender, RoutedEventArgs e) =>
+        await ShowAllBooksAsync();
 
     private async void RefreshDeviceButton_Click(object sender, RoutedEventArgs e)
     {
@@ -1168,8 +1190,8 @@ public sealed partial class MainWindow : Window
             ReaderProgressSlider.Visibility = Visibility.Visible;
             ReaderPdfBottomText.Visibility = Visibility.Collapsed;
             ReaderFlowButton.Visibility = Visibility.Visible;
-            ReaderHighlightButton.Visibility = Visibility.Visible;
-            ReaderAnnotateButton.Visibility = Visibility.Visible;
+            ReaderHighlightButton.Visibility = Visibility.Collapsed;
+            ReaderAnnotateButton.Visibility = Visibility.Collapsed;
             ReaderBookmarkButton.Visibility = Visibility.Visible;
             ReaderSearchToolbarButton.Visibility = Visibility.Visible;
             ReaderBookmarkTabButton.Visibility = Visibility.Visible;
@@ -1241,12 +1263,19 @@ public sealed partial class MainWindow : Window
 
     private void RootGrid_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        ConstrainRootToViewport();
+        // SizeChanged carries the layout pass that is actually being rendered.
+        // XamlRoot.Size can lag one pass behind while a window is maximizing,
+        // which used to leave the reader constrained to the pre-maximize width.
+        ConstrainRootToViewport(e.NewSize.Width);
     }
 
-    private void ConstrainRootToViewport()
+    private void ConstrainRootToViewport() => ConstrainRootToViewport(null);
+
+    private void ConstrainRootToViewport(double? layoutWidth)
     {
-        var viewportWidth = RootGrid.XamlRoot?.Size.Width ?? 0;
+        var viewportWidth = layoutWidth is > 0
+            ? layoutWidth.Value
+            : RootGrid.XamlRoot?.Size.Width ?? 0;
         if (viewportWidth <= 0) return;
         if (double.IsNaN(RootGrid.Width) || Math.Abs(RootGrid.Width - viewportWidth) > 0.5)
             RootGrid.Width = viewportWidth;
@@ -1255,6 +1284,13 @@ public sealed partial class MainWindow : Window
 
     private void ReaderTocToggleButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_readerSearchVisible && ReferenceEquals(sender, ReaderTocToggleButton))
+        {
+            ShowReaderTocFromSearch(bookmarkTab: false);
+            return;
+        }
+        if (_readerSearchVisible)
+            HideReaderSearchPanel(restorePreviousLayout: false);
         if (_readerTocMinimal)
         {
             _readerTocMinimal = false;
@@ -1276,7 +1312,9 @@ public sealed partial class MainWindow : Window
     private void ApplyReaderPanelLayout(double? availableWidth = null)
     {
         if (ReaderPane.Visibility != Visibility.Visible) return;
-        var width = RootGrid.XamlRoot?.Size.Width ?? availableWidth ?? RootGrid.ActualWidth;
+        // An explicit width comes from the current SizeChanged pass and is more
+        // reliable than XamlRoot.Size during maximize/restore transitions.
+        var width = availableWidth ?? RootGrid.XamlRoot?.Size.Width ?? RootGrid.ActualWidth;
         if (width <= 0) return;
         var assistantWidth = _readerAssistantExpanded ? 360d : 0d;
         var readerWidth = Math.Max(0, width - assistantWidth);
@@ -1303,7 +1341,6 @@ public sealed partial class MainWindow : Window
         Canvas.SetZIndex(ReaderTocCompactPanel, 0);
         if (_readerSearchVisible)
         {
-            ReaderSearchPanel.Width = tocWidth;
             ReaderSearchPanel.Visibility = Visibility.Visible;
         }
 
@@ -1350,14 +1387,66 @@ public sealed partial class MainWindow : Window
                 if (token.IsCancellationRequested) return;
                 try
                 {
+                    await WaitForReaderViewportToMatchHostAsync(token);
+                    if (token.IsCancellationRequested) return;
                     await ApplyReaderAppearanceAsync();
+                    if (token.IsCancellationRequested) return;
                     await RealignReaderAfterRelayoutAsync();
+                }
+                catch (OperationCanceledException)
+                {
                 }
                 catch
                 {
                 }
             });
         });
+    }
+
+    // WebView2's Chromium viewport may trail the WinUI host by a few compositor
+    // frames during maximize/restore. Applying pagination against that stale
+    // viewport creates columns using the old width and leaves the visible page
+    // horizontally offset. Wait until both surfaces agree before the final
+    // appearance pass and page snap.
+    private async Task WaitForReaderViewportToMatchHostAsync(CancellationToken token)
+    {
+        if (ReaderWebView.CoreWebView2 is null) return;
+
+        const int maximumAttempts = 10;
+        const double tolerance = 2;
+        for (var attempt = 0; attempt < maximumAttempts; attempt++)
+        {
+            token.ThrowIfCancellationRequested();
+            var expectedWidth = ReaderWebViewHost.ActualWidth;
+            var expectedHeight = ReaderWebViewHost.ActualHeight;
+            if (expectedWidth <= 0 || expectedHeight <= 0) return;
+
+            try
+            {
+                var json = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                    "JSON.stringify({width: window.innerWidth, height: window.innerHeight})");
+                var serialized = JsonSerializer.Deserialize<string>(json);
+                if (!string.IsNullOrWhiteSpace(serialized))
+                {
+                    using var document = JsonDocument.Parse(serialized);
+                    var root = document.RootElement;
+                    var viewportWidth = root.GetProperty("width").GetDouble();
+                    var viewportHeight = root.GetProperty("height").GetDouble();
+                    if (Math.Abs(viewportWidth - expectedWidth) <= tolerance
+                        && Math.Abs(viewportHeight - expectedHeight) <= tolerance)
+                    {
+                        return;
+                    }
+                }
+            }
+            catch
+            {
+                // A navigation can briefly make the document unavailable.
+                // The next attempt will observe the settled viewport.
+            }
+
+            await Task.Delay(40, token);
+        }
     }
 
     private async Task ClampReaderScrollAsync()
@@ -1394,7 +1483,16 @@ public sealed partial class MainWindow : Window
         await ClampReaderScrollAsync();
     }
 
-    private void ReaderTocSearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyReaderTocFilter();
+    private void ReaderTocSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_readerSearchVisible)
+        {
+            ScheduleReaderSearch(ReaderTocSearchBox.Text.Trim());
+            return;
+        }
+
+        ApplyReaderTocFilter();
+    }
 
     private void ApplyReaderTocFilter()
     {
@@ -2809,7 +2907,12 @@ public sealed partial class MainWindow : Window
     private void PruneReaderPendingLocations(ReaderNavigationIntent intent)
     {
         if (!ReaderNavigationLocationPolicy.KeepsChunkOffset(intent)) _pendingReaderChunkOffset = null;
-        if (!ReaderNavigationLocationPolicy.KeepsBookmarkQuote(intent)) _pendingReaderBookmarkQuote = null;
+        if (!ReaderNavigationLocationPolicy.KeepsBookmarkQuote(intent))
+        {
+            _pendingReaderBookmarkQuote = null;
+            _pendingReaderBookmarkPosition = null;
+            _pendingReaderBookmarkFlowMode = 0;
+        }
         if (!ReaderNavigationLocationPolicy.KeepsAnnotationScroll(intent)) _pendingReaderAnnotationScroll = null;
         if (!ReaderNavigationLocationPolicy.KeepsRestorePosition(intent)) _pendingReaderRestorePosition = null;
     }
@@ -3242,7 +3345,7 @@ public sealed partial class MainWindow : Window
     {
         if (sender is Button button && button == AllBooksButton)
         {
-            ShowLibrary();
+            await ShowAllBooksAsync();
             return;
         }
         if (sender is Button)

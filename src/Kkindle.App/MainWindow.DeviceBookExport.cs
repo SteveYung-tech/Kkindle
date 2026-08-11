@@ -73,6 +73,7 @@ public sealed partial class MainWindow
         {
             await _kindle.RemoveBookAsync(device, book, _transferCancellation.Token);
             DeviceBooks.Remove(card);
+            ReconcileLibraryPresence();
             DeviceBookCountText.Text = DeviceBooks.Count.ToString();
             _scannedDeviceId = null;
             TaskStatusText.Text = "已从 Kindle 删除";

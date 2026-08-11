@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Kkindle.Core;
 
 public sealed class Book
@@ -23,12 +25,20 @@ public sealed class Book
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public List<BookFile> Files { get; set; } = [];
+    public List<Guid> CollectionIds { get; set; } = [];
 
     public string FormatSummary => Files.Count == 0
         ? string.Empty
         : string.Join(" · ", Files.Select(x => x.Format.ToUpperInvariant()).Distinct());
 
     public string ProgressLabel => Files.Count == 0 ? string.Empty : $"{FormatSummary}  ·  {Files.Count} 个文件";
+}
+
+public sealed class BookCollection
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "新收藏夹";
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 public sealed class BookFile
@@ -85,6 +95,101 @@ public sealed class KindleBook
     public string SizeLabel => Size >= 1024L * 1024
         ? $"{Size / 1024d / 1024:0.0} MB"
         : $"{Size / 1024d:0} KB";
+}
+
+public enum BookLibraryPresence
+{
+    ComputerOnly,
+    KindleOnly,
+    Both
+}
+
+public sealed record BookLibraryComparisonResult(
+    IReadOnlySet<Guid> BooksOnKindle,
+    IReadOnlySet<string> KindleBooksOnComputer);
+
+public static class BookLibraryComparer
+{
+    public static BookLibraryComparisonResult Compare(
+        IEnumerable<Book> computerBooks,
+        IEnumerable<KindleBook> kindleBooks)
+    {
+        ArgumentNullException.ThrowIfNull(computerBooks);
+        ArgumentNullException.ThrowIfNull(kindleBooks);
+
+        var localBooks = computerBooks.ToArray();
+        var deviceBooks = kindleBooks.ToArray();
+        var localHashes = BuildLookup(
+            localBooks.SelectMany(book => book.Files
+                .Where(file => !string.IsNullOrWhiteSpace(file.Sha256))
+                .Select(file => (Key: NormalizeHash(file.Sha256), Book: book))));
+        var localMetadata = BuildLookup(localBooks
+            .Select(book => (Key: CreateMetadataKey(book.Title, book.Authors), Book: book))
+            .Where(item => item.Key is not null)
+            .Select(item => (item.Key!, item.Book)));
+
+        var matchedLocalIds = new HashSet<Guid>();
+        var matchedDevicePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kindleBook in deviceBooks)
+        {
+            var matches = new HashSet<Book>();
+            var hash = NormalizeHash(kindleBook.Sha256);
+            if (hash.Length > 0 && localHashes.TryGetValue(hash, out var hashMatches))
+                matches.UnionWith(hashMatches);
+
+            if (matches.Count == 0
+                && CreateMetadataKey(kindleBook.Title, kindleBook.Authors) is { } metadataKey
+                && localMetadata.TryGetValue(metadataKey, out var metadataMatches))
+                matches.UnionWith(metadataMatches);
+
+            if (matches.Count == 0) continue;
+            foreach (var match in matches) matchedLocalIds.Add(match.Id);
+            matchedDevicePaths.Add(kindleBook.RelativePath);
+        }
+
+        return new BookLibraryComparisonResult(matchedLocalIds, matchedDevicePaths);
+    }
+
+    private static Dictionary<string, List<Book>> BuildLookup(IEnumerable<(string Key, Book Book)> entries)
+    {
+        var lookup = new Dictionary<string, List<Book>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, book) in entries)
+        {
+            if (!lookup.TryGetValue(key, out var books))
+            {
+                books = [];
+                lookup[key] = books;
+            }
+            books.Add(book);
+        }
+        return lookup;
+    }
+
+    private static string NormalizeHash(string? hash) => (hash ?? string.Empty).Trim();
+
+    private static string? CreateMetadataKey(string? title, string? authors)
+    {
+        var normalizedTitle = NormalizeMetadata(title);
+        var normalizedAuthors = NormalizeAuthors(authors);
+        if (normalizedTitle.Length == 0 || normalizedAuthors.Length == 0) return null;
+        if (normalizedAuthors is "未知作者" or "UNKNOWN AUTHOR") return null;
+        return $"{normalizedTitle}\n{normalizedAuthors}";
+    }
+
+    private static string NormalizeMetadata(string? value) => string.Concat(
+        (value ?? string.Empty)
+            .Normalize(NormalizationForm.FormKC)
+            .Trim()
+            .Where(character => !char.IsWhiteSpace(character)))
+        .ToUpperInvariant();
+
+    private static string NormalizeAuthors(string? authors) => string.Join("|",
+        (authors ?? string.Empty)
+            .Split([',', '，', ';', '；', '&'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(NormalizeMetadata)
+            .Where(author => author.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase));
 }
 
 public enum KindleResourceKind
