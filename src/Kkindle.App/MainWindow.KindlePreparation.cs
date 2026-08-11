@@ -47,10 +47,7 @@ public sealed partial class MainWindow
         if (!System.IO.File.Exists(sourcePath))
             throw new FileNotFoundException("找不到本地书籍文件，请先刷新书库。", sourcePath);
 
-        var sourceFormat = sourceFile.Format.Trim().TrimStart('.').ToLowerInvariant();
         var requiresConversion = KindleTransferPolicy.RequiresConversionToAzw3(sourceFile);
-        if (sourceFormat == "azw3")
-            requiresConversion = !await KindleThumbnailService.IsKindleReadyAzw3Async(sourcePath, cancellationToken);
 
         if (!requiresConversion)
             return new PreparedKindleTransfer(sourceFile, sourcePath);

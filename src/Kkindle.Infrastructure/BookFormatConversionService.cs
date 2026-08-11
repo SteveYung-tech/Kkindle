@@ -102,9 +102,6 @@ public sealed class BookFormatConversionService : IBookFormatConverter
             // cleanup also protects the built-in WebView reader's EPUB cache.
             startInfo.ArgumentList.Add("--filter-css");
             startInfo.ArgumentList.Add("font-family,color,background-color");
-            // Large omnibus books commonly use layout tables that are expensive
-            // for Kindle's renderer and can make opening/page turns appear stuck.
-            startInfo.ArgumentList.Add("--linearize-tables");
         }
 
         using var process = new Process { StartInfo = startInfo };
