@@ -2404,6 +2404,7 @@
 
                     <ScrollViewer Grid.Row="1"
                                   x:Name="ReaderTocCompactScrollViewer"
+                                  HorizontalContentAlignment="Center"
                                   HorizontalScrollBarVisibility="Hidden"
                                   HorizontalScrollMode="Disabled"
                                   VerticalScrollBarVisibility="Hidden"
@@ -2430,7 +2431,7 @@
                                             MinWidth="0"
                                             Padding="0"
                                             HorizontalAlignment="Center"
-                                            HorizontalContentAlignment="Left"
+                                            HorizontalContentAlignment="Center"
                                             VerticalContentAlignment="Center"
                                             Background="Transparent"
                                             BorderThickness="0"
@@ -2443,7 +2444,7 @@
                                                 Background="{x:Bind Fill}"
                                                 BorderThickness="0"
                                                 IsHitTestVisible="False"
-                                                HorizontalAlignment="Left"
+                                                HorizontalAlignment="Center"
                                                 VerticalAlignment="Center" />
                                     </Button>
                                 </DataTemplate>
