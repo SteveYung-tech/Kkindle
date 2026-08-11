@@ -24,6 +24,8 @@ namespace Kkindle;
 
 public sealed partial class MainWindow : Window
 {
+    private enum KindleBookViewMode { Grid, List }
+
     private static readonly HashSet<string> ImportableExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".epub", ".pdf", ".mobi", ".azw3"
@@ -59,6 +61,7 @@ public sealed partial class MainWindow : Window
     private Button? _activeNavigationButton;
     private Button? _activeNavigationSectionButton;
     private readonly HashSet<Button> _hoveredSidebarSections = [];
+    private KindleBookViewMode _kindleBookViewMode = KindleBookViewMode.Grid;
     private TaskCompletionSource<bool>? _devicePromptCompletion;
     private bool _nativeChromeConfigured;
     private AppWindow? _appWindow;
@@ -1275,6 +1278,10 @@ public sealed partial class MainWindow : Window
         SettingsBackupSection.Visibility = tag == "Backup" ? Visibility.Visible : Visibility.Collapsed;
         SettingsAboutSection.Visibility = tag == "About" ? Visibility.Visible : Visibility.Collapsed;
 
+        // Keep the content panel anchored to its top so every category opens with
+        // the same starting position relative to the left navigation column.
+        SettingsScrollViewer.ChangeView(null, 0, null, disableAnimation: true);
+
         var selectedColor = Color.FromArgb(255, 0x00, 0x00, 0x00);
         var idleColor = Color.FromArgb(255, 0x5A, 0x5A, 0x5A);
         var idleIndicatorColor = Color.FromArgb(255, 0xCF, 0xCF, 0xCF);
@@ -1293,11 +1300,32 @@ public sealed partial class MainWindow : Window
     }
     private void KindleBooksButton_Click(object sender, RoutedEventArgs e) => OpenDevicePage();
 
+    private void KindleViewMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string tag }) return;
+        SetKindleBookViewMode(tag == "List" ? KindleBookViewMode.List : KindleBookViewMode.Grid);
+    }
+
+    private void SetKindleBookViewMode(KindleBookViewMode mode)
+    {
+        _kindleBookViewMode = mode;
+        DeviceBookGrid.Visibility = mode == KindleBookViewMode.Grid ? Visibility.Visible : Visibility.Collapsed;
+        DeviceBookList.Visibility = mode == KindleBookViewMode.List ? Visibility.Visible : Visibility.Collapsed;
+
+        var (symbol, label) = mode == KindleBookViewMode.List
+            ? (Symbol.Bullets, "列表")
+            : (Symbol.ViewAll, "网格");
+        DeviceViewToggleIcon.Symbol = symbol;
+        DeviceViewGridItem.IsChecked = mode == KindleBookViewMode.Grid;
+        DeviceViewListItem.IsChecked = mode == KindleBookViewMode.List;
+        ToolTipService.SetToolTip(DeviceViewToggleButton, $"当前：{label}视图");
+    }
+
     private void OpenDevicePage()
     {
         SetActiveNavigation(KindleBooksButton);
         DevicePageTitleText.Text = "Kindle书库";
-        DeviceBookList.Visibility = Visibility.Visible;
+        SetKindleBookViewMode(_kindleBookViewMode);
         LibraryPane.Visibility = Visibility.Collapsed;
         SettingsPane.Visibility = Visibility.Collapsed;
         ZLibraryPage.Visibility = Visibility.Collapsed;

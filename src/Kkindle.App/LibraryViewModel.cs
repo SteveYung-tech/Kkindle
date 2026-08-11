@@ -23,6 +23,9 @@ public sealed class BookCardViewModel : ObservableObject
     public string Authors => Book.Authors;
     public string FormatLabel => Book.FormatSummary;
     public string FileCountLabel => Book.Files.Count == 0 ? string.Empty : $"{Book.Files.Count} 个文件";
+    public string TotalSizeLabel => Book.Files.Count == 0 ? "暂无文件" : FormatSize(Book.Files.Sum(file => file.Size));
+    public string FileSummaryLabel => string.Join(" · ", new[] { FormatLabel, FileCountLabel, TotalSizeLabel }
+        .Where(value => value.Length > 0));
     public string SeriesLabel => string.IsNullOrWhiteSpace(Book.Series) ? "未设置系列" : Book.Series;
     public string TagsLabel => string.IsNullOrWhiteSpace(Book.Tags) ? "未设置标签" : Book.Tags;
     public string CategoryLabel => string.IsNullOrWhiteSpace(Book.Category) ? "未分类" : Book.Category;
@@ -33,6 +36,59 @@ public sealed class BookCardViewModel : ObservableObject
         LibraryReadingStatus.Finished => "已读",
         _ => "待读"
     };
+    public string ReadingStateLabel => string.Join(" · ", new[] { ReadingStatusLabel, FavoriteLabel }
+        .Where(value => value.Length > 0));
+    public string OrganizationLabel
+    {
+        get
+        {
+            var labels = new[]
+            {
+                string.IsNullOrWhiteSpace(Book.Category) ? string.Empty : $"分类：{Book.Category}",
+                string.IsNullOrWhiteSpace(Book.Tags) ? string.Empty : $"标签：{Book.Tags}"
+            }.Where(value => value.Length > 0).ToArray();
+            return labels.Length == 0 ? "暂无分类或标签" : string.Join(" · ", labels);
+        }
+    }
+    public string PublicationLabel
+    {
+        get
+        {
+            var labels = new[]
+            {
+                string.IsNullOrWhiteSpace(Book.Publisher) ? string.Empty : $"出版社：{Book.Publisher}",
+                string.IsNullOrWhiteSpace(Book.PublishDate) ? string.Empty : $"出版：{Book.PublishDate}",
+                string.IsNullOrWhiteSpace(Book.PageCount) ? string.Empty : $"页数：{Book.PageCount}",
+                string.IsNullOrWhiteSpace(Book.Binding) ? string.Empty : $"装帧：{Book.Binding}"
+            }.Where(value => value.Length > 0).ToArray();
+            return labels.Length == 0 ? "暂无出版信息" : string.Join(" · ", labels);
+        }
+    }
+    public string IdentifierLabel
+    {
+        get
+        {
+            var labels = new[]
+            {
+                string.IsNullOrWhiteSpace(Book.Isbn) ? string.Empty : $"ISBN：{Book.Isbn}",
+                Book.DoubanRating is { } rating
+                    ? $"豆瓣：{rating:0.0}（{Book.DoubanRatingCount ?? 0} 人评价）"
+                    : string.Empty
+            }.Where(value => value.Length > 0).ToArray();
+            return labels.Length == 0 ? "暂无 ISBN 或评分" : string.Join(" · ", labels);
+        }
+    }
+    public string DescriptionSummaryLabel
+    {
+        get
+        {
+            var description = string.IsNullOrWhiteSpace(Book.Description)
+                ? "暂无简介"
+                : Regex.Replace(Book.Description, @"\s+", " ").Trim();
+            return description.Length <= 90 ? description : $"{description[..90]}…";
+        }
+    }
+    public string UpdatedLabel => $"更新于 {Book.UpdatedAt.ToLocalTime():yyyy-MM-dd HH:mm}";
     public string DescriptionLabel => string.IsNullOrWhiteSpace(Book.Description) ? "暂无简介" : Book.Description;
     public BitmapImage? CoverImage { get; private set; }
     private bool _isConversionProgressVisible;
@@ -143,6 +199,14 @@ public sealed class BookCardViewModel : ObservableObject
         OnPropertyChanged(nameof(PresenceVisibility));
     }
 
+    private static string FormatSize(long bytes)
+    {
+        if (bytes >= 1024L * 1024 * 1024) return $"{bytes / 1024d / 1024 / 1024:0.0} GB";
+        if (bytes >= 1024L * 1024) return $"{bytes / 1024d / 1024:0.0} MB";
+        if (bytes >= 1024L) return $"{bytes / 1024d:0} KB";
+        return $"{bytes} B";
+    }
+
     public void Refresh()
     {
         CoverImage = null;
@@ -159,11 +223,19 @@ public sealed class BookCardViewModel : ObservableObject
         OnPropertyChanged(nameof(Authors));
         OnPropertyChanged(nameof(FormatLabel));
         OnPropertyChanged(nameof(FileCountLabel));
+        OnPropertyChanged(nameof(TotalSizeLabel));
+        OnPropertyChanged(nameof(FileSummaryLabel));
         OnPropertyChanged(nameof(SeriesLabel));
         OnPropertyChanged(nameof(TagsLabel));
         OnPropertyChanged(nameof(CategoryLabel));
         OnPropertyChanged(nameof(FavoriteLabel));
         OnPropertyChanged(nameof(ReadingStatusLabel));
+        OnPropertyChanged(nameof(ReadingStateLabel));
+        OnPropertyChanged(nameof(OrganizationLabel));
+        OnPropertyChanged(nameof(PublicationLabel));
+        OnPropertyChanged(nameof(IdentifierLabel));
+        OnPropertyChanged(nameof(DescriptionSummaryLabel));
+        OnPropertyChanged(nameof(UpdatedLabel));
         OnPropertyChanged(nameof(DescriptionLabel));
         OnPropertyChanged(nameof(CoverImage));
     }
@@ -190,7 +262,14 @@ public sealed class KindleBookCardViewModel : ObservableObject
     public string FormatLabel => Book.Format.ToUpperInvariant();
     public string SizeLabel => Book.SizeLabel;
     public string InfoLabel => $"{FormatLabel} · {SizeLabel}";
+    public string FileName => Book.FileName;
     public string RelativePath => Book.RelativePath;
+    public string ModifiedLabel => Book.ModifiedAt is { } modifiedAt
+        ? $"修改于 {modifiedAt.ToLocalTime():yyyy-MM-dd HH:mm}"
+        : "修改时间未知";
+    public string HashLabel => string.IsNullOrWhiteSpace(Book.Sha256)
+        ? "SHA-256 未计算"
+        : $"SHA-256 {Book.Sha256[..Math.Min(12, Book.Sha256.Length)]}…";
     public BitmapImage? CoverImage { get; }
 
     public BookLibraryPresence LibraryPresence

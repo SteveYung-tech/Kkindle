@@ -530,6 +530,54 @@ public sealed class KindleDeviceTests
     }
 
     [Fact]
+    public async Task ReadsKindleCoverRecordInsteadOfLargestEmbeddedImage()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            "KkindleTests",
+            Guid.NewGuid().ToString("N"),
+            "cover.azw3");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        const int recordTableEnd = 102;
+        const int firstRecordOffset = recordTableEnd;
+        const int coverRecordOffset = 400;
+        const int interiorRecordOffset = 600;
+        var bytes = new byte[interiorRecordOffset + 12 * 1024];
+        WriteBigEndianShort(bytes, 76, 3);
+        WriteBigEndian(bytes, 78, firstRecordOffset);
+        WriteBigEndian(bytes, 86, coverRecordOffset);
+        WriteBigEndian(bytes, 94, interiorRecordOffset);
+
+        "MOBI"u8.CopyTo(bytes.AsSpan(firstRecordOffset + 16));
+        WriteBigEndian(bytes, firstRecordOffset + 16 + 0x6C, 1);
+        var exthOffset = firstRecordOffset + 160;
+        "EXTH"u8.CopyTo(bytes.AsSpan(exthOffset));
+        WriteBigEndian(bytes, exthOffset + 4, 24);
+        WriteBigEndian(bytes, exthOffset + 8, 1);
+        WriteBigEndian(bytes, exthOffset + 12, 201);
+        WriteBigEndian(bytes, exthOffset + 16, 12);
+        WriteBigEndian(bytes, exthOffset + 20, 0);
+
+        WriteTestJpeg(bytes, coverRecordOffset, 0x42, 180);
+        WriteTestJpeg(bytes, interiorRecordOffset, 0x99, 10 * 1024);
+        await File.WriteAllBytesAsync(path, bytes);
+
+        try
+        {
+            var metadata = await new BookMetadataService().ReadMetadataAsync(path);
+
+            Assert.NotNull(metadata.CoverBytes);
+            Assert.Equal((byte)0x42, metadata.CoverBytes![8]);
+            Assert.Equal(180, metadata.CoverBytes.Length);
+        }
+        finally
+        {
+            try { Directory.Delete(Path.GetDirectoryName(path)!, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public async Task RecognizesStructurallyValidKindleReadyAzw3()
     {
         var path = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"), "ready.azw3");
@@ -604,6 +652,23 @@ public sealed class KindleDeviceTests
         bytes[offset + 1] = (byte)(value >> 16);
         bytes[offset + 2] = (byte)(value >> 8);
         bytes[offset + 3] = (byte)value;
+    }
+
+    private static void WriteBigEndianShort(byte[] bytes, int offset, ushort value)
+    {
+        bytes[offset] = (byte)(value >> 8);
+        bytes[offset + 1] = (byte)value;
+    }
+
+    private static void WriteTestJpeg(byte[] bytes, int offset, byte marker, int length)
+    {
+        bytes[offset] = 0xFF;
+        bytes[offset + 1] = 0xD8;
+        bytes[offset + 2] = 0xFF;
+        bytes[offset + 3] = 0xE0;
+        bytes[offset + 8] = marker;
+        bytes[offset + length - 2] = 0xFF;
+        bytes[offset + length - 1] = 0xD9;
     }
 
     private sealed class InlineProgress<T>(Action<T> callback) : IProgress<T>

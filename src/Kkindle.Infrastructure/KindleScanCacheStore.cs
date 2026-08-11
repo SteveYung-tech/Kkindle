@@ -27,7 +27,7 @@ internal sealed class KindleScanCacheEntry
 
 internal sealed class KindleScanCacheStore
 {
-    private const int CurrentVersion = 1;
+    private const int CurrentVersion = 2;
     private readonly string _path;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private CacheDocument? _document;

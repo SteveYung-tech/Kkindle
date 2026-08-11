@@ -775,9 +775,16 @@
                           ItemsSource="{x:Bind ViewModel.Books}"
                           DoubleTapped="BookList_DoubleTapped"
                           SelectionChanged="BookList_SelectionChanged">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0,0,0,1" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:BookCardViewModel">
-                            <Grid Padding="8,9" MinHeight="66">
+                            <Grid Padding="8,10" MinHeight="84">
                                 <Grid.ContextFlyout>
                                     <MenuFlyout Opening="BookContextFlyout_Opening"
                                                 MenuFlyoutPresenterStyle="{StaticResource MonochromeMenuFlyoutPresenterStyle}">
@@ -836,13 +843,13 @@
                                     </MenuFlyout>
                                 </Grid.ContextFlyout>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="42" />
-                                    <ColumnDefinition Width="2*" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="100" />
-                                    <ColumnDefinition Width="76" />
+                                    <ColumnDefinition Width="48" />
+                                    <ColumnDefinition Width="1.55*" />
+                                    <ColumnDefinition Width="1.65*" />
+                                    <ColumnDefinition Width="1.2*" />
+                                    <ColumnDefinition Width="140" />
                                 </Grid.ColumnDefinitions>
-                                <Grid Width="36" Height="48">
+                                <Grid Width="40" Height="56">
                                     <Border Background="#D9D9D9" BorderBrush="#000000" BorderThickness="1" CornerRadius="0">
                                         <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
                                     </Border>
@@ -871,37 +878,90 @@
                                         </ContentControl>
                                     </Border>
                                 </Grid>
-                                <StackPanel Grid.Column="1" Margin="12,0,12,0" VerticalAlignment="Center">
-                                    <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{x:Bind FileCountLabel}" Foreground="{StaticResource MutedInkBrush}" FontSize="11" />
+                                <StackPanel Grid.Column="1"
+                                            Margin="12,0,16,0"
+                                            VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind Title}"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{x:Bind Title}" />
+                                    <TextBlock Text="{x:Bind Authors}"
+                                               Foreground="{StaticResource MutedInkBrush}"
+                                               FontSize="11"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{x:Bind Authors}" />
+                                    <TextBlock Text="{x:Bind FileSummaryLabel}"
+                                               Foreground="#777777"
+                                               FontSize="10"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{x:Bind FileSummaryLabel}" />
                                 </StackPanel>
-                                <TextBlock Grid.Column="2" Text="{x:Bind Authors}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Grid.Column="3" Text="{x:Bind FormatLabel}" VerticalAlignment="Center" Foreground="{StaticResource MutedInkBrush}" />
-                                <Border Grid.Column="4"
-                                        Width="68"
-                                        Height="25"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Center"
-                                        Background="#FFFFFF"
-                                        BorderBrush="#000000"
-                                        BorderThickness="1"
-                                        Visibility="{x:Bind ConversionProgressVisibility, Mode=OneWay}"
-                                        Tapped="BookConversionProgressIndicator_Tapped"
-                                        AutomationProperties.Name="打开格式转换进度">
-                                    <Grid Width="66" Height="23">
-                                        <local:RectangularProgressBar Height="5"
-                                                                      Margin="5,0,5,3"
-                                                                      VerticalAlignment="Bottom"
-                                                                      Minimum="0"
-                                                                      Maximum="100"
-                                                                      Value="{x:Bind ConversionProgress, Mode=OneWay}" />
-                                        <TextBlock Text="{x:Bind ConversionProgressLabel, Mode=OneWay}"
-                                                   Foreground="#000000"
-                                                   FontSize="10"
-                                                   HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
+                                <StackPanel Grid.Column="2"
+                                            VerticalAlignment="Center"
+                                            Spacing="3">
+                                    <TextBlock Text="{x:Bind OrganizationLabel}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{x:Bind OrganizationLabel}" />
+                                    <TextBlock Text="{x:Bind PublicationLabel}"
+                                               Foreground="#777777"
+                                               FontSize="10"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{x:Bind PublicationLabel}" />
+                                    <TextBlock Text="{x:Bind IdentifierLabel}"
+                                               Foreground="#777777"
+                                               FontSize="10"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{x:Bind IdentifierLabel}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="3"
+                                            VerticalAlignment="Center"
+                                            Spacing="3">
+                                    <TextBlock Text="{x:Bind ReadingStateLabel}"
+                                               Foreground="{StaticResource MutedInkBrush}"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{x:Bind SeriesLabel}"
+                                               Foreground="#777777"
+                                               FontSize="10"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{x:Bind DescriptionSummaryLabel}"
+                                               Foreground="#777777"
+                                               FontSize="10"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{x:Bind DescriptionLabel}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="4"
+                                            VerticalAlignment="Center"
+                                            Spacing="5">
+                                    <TextBlock Text="{x:Bind UpdatedLabel}"
+                                               Foreground="#777777"
+                                               FontSize="10"
+                                               HorizontalAlignment="Right"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTipService.ToolTip="{x:Bind UpdatedLabel}" />
+                                    <Border Width="68"
+                                            Height="25"
+                                            HorizontalAlignment="Right"
+                                            Background="#FFFFFF"
+                                            BorderBrush="#000000"
+                                            BorderThickness="1"
+                                            Visibility="{x:Bind ConversionProgressVisibility, Mode=OneWay}"
+                                            Tapped="BookConversionProgressIndicator_Tapped"
+                                            AutomationProperties.Name="打开格式转换进度">
+                                        <Grid Width="66" Height="23">
+                                            <local:RectangularProgressBar Height="5"
+                                                                          Margin="5,0,5,3"
+                                                                          VerticalAlignment="Bottom"
+                                                                          Minimum="0"
+                                                                          Maximum="100"
+                                                                          Value="{x:Bind ConversionProgress, Mode=OneWay}" />
+                                            <TextBlock Text="{x:Bind ConversionProgressLabel, Mode=OneWay}"
+                                                       Foreground="#000000"
+                                                       FontSize="10"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
                             </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
@@ -1496,10 +1556,29 @@
                             Tag="About"
                             Style="{StaticResource SettingsCategoryButtonStyle}"
                             Click="SettingsCategoryButton_Click" />
+                    <Border Margin="0,12,0,0"
+                            Padding="0,12,0,0"
+                            BorderBrush="#E2E2DE"
+                            BorderThickness="0,1,0,0">
+                        <StackPanel Spacing="6">
+                            <Button Content="保存应用设置"
+                                    HorizontalAlignment="Stretch"
+                                    Click="SaveApplicationSettingsButton_Click"
+                                    ToolTipService.ToolTip="保存所有设置页中的选项和默认阅读排版设置。"
+                                    AutomationProperties.HelpText="保存所有设置页中的选项和默认阅读排版设置。" />
+                            <TextBlock x:Name="ApplicationSettingsStatusText"
+                                       FontSize="11"
+                                       Foreground="{StaticResource MutedInkBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
-                <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
-                    <StackPanel MaxWidth="760" Spacing="16">
+                <ScrollViewer x:Name="SettingsScrollViewer"
+                              Grid.Column="1"
+                              HorizontalContentAlignment="Left"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="16">
                     <Border x:Name="SettingsBackupSection"
                             Visibility="Collapsed"
                             Padding="18"
@@ -1908,23 +1987,6 @@
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>
-                <Border Grid.Row="1"
-                        Grid.Column="1"
-                        Margin="0,12,0,0"
-                        Padding="0,12,0,0"
-                        BorderBrush="#E2E2DE"
-                        BorderThickness="0,1,0,0">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="保存应用设置"
-                                Click="SaveApplicationSettingsButton_Click"
-                                ToolTipService.ToolTip="保存所有设置页中的选项和默认阅读排版设置。"
-                                AutomationProperties.HelpText="保存所有设置页中的选项和默认阅读排版设置。" />
-                        <TextBlock x:Name="ApplicationSettingsStatusText"
-                                   VerticalAlignment="Center"
-                                   FontSize="11"
-                                   Foreground="{StaticResource MutedInkBrush}" />
-                    </StackPanel>
-                </Border>
             </Grid>
         </Grid>
 
@@ -2120,6 +2182,27 @@
                             ToolTipService.ToolTip="刷新设备">
                         <SymbolIcon Symbol="Refresh" />
                     </Button>
+                    <Button x:Name="DeviceViewToggleButton"
+                            Style="{StaticResource LibraryIconButtonStyle}"
+                            AutomationProperties.Name="切换视图"
+                            ToolTipService.ToolTip="切换视图">
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <RadioMenuFlyoutItem x:Name="DeviceViewGridItem"
+                                                     Text="网格视图"
+                                                     GroupName="DeviceViewMode"
+                                                     Tag="Grid"
+                                                     IsChecked="True"
+                                                     Click="KindleViewMenuItem_Click" />
+                                <RadioMenuFlyoutItem x:Name="DeviceViewListItem"
+                                                     Text="列表视图"
+                                                     GroupName="DeviceViewMode"
+                                                     Tag="List"
+                                                     Click="KindleViewMenuItem_Click" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                        <SymbolIcon x:Name="DeviceViewToggleIcon" Symbol="ViewAll" />
+                    </Button>
                     <Button x:Name="DevicePageEjectButton"
                             Style="{StaticResource LibraryIconButtonStyle}"
                             IsEnabled="False"
@@ -2137,7 +2220,7 @@
                 </StackPanel>
             </Grid>
 
-            <GridView x:Name="DeviceBookList"
+            <GridView x:Name="DeviceBookGrid"
                       Grid.Row="1"
                       Margin="0,24,0,0"
                       ItemsSource="{x:Bind DeviceBooks}"
@@ -2176,7 +2259,7 @@
                                                Foreground="{StaticResource MutedInkBrush}"
                                                FontSize="13"
                                                CharacterSpacing="120" />
-                                    <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
+                                    <Image Source="{x:Bind CoverImage}" Stretch="Uniform" />
                                     <Border Height="4"
                                             VerticalAlignment="Top"
                                             Background="#000000"
@@ -2223,6 +2306,112 @@
                     </DataTemplate>
                 </GridView.ItemTemplate>
             </GridView>
+
+            <ListView x:Name="DeviceBookList"
+                      Grid.Row="1"
+                      Margin="0,24,0,0"
+                      Visibility="Collapsed"
+                      ItemsSource="{x:Bind DeviceBooks}"
+                      SelectionMode="None"
+                      ScrollViewer.HorizontalScrollMode="Disabled"
+                      ScrollViewer.HorizontalScrollBarVisibility="Hidden">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0,0,0,1" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="local:KindleBookCardViewModel">
+                        <Grid Padding="8,9"
+                              MinHeight="72"
+                              RightTapped="DeviceBookCard_RightTapped">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="54" />
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="180" />
+                            </Grid.ColumnDefinitions>
+                            <Grid Width="42"
+                                  Height="56"
+                                  VerticalAlignment="Center">
+                                <Border Background="#D9D9D9"
+                                        BorderBrush="#000000"
+                                        BorderThickness="1">
+                                    <Image Source="{x:Bind CoverImage}" Stretch="Uniform" />
+                                </Border>
+                                <Border Width="18"
+                                        Height="18"
+                                        Margin="0,0,0,2"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Bottom"
+                                        Background="#FFFFFF"
+                                        BorderBrush="#000000"
+                                        BorderThickness="1"
+                                        Visibility="{x:Bind PresenceVisibility, Mode=OneWay}"
+                                        ToolTipService.ToolTip="{x:Bind PresenceLabel, Mode=OneWay}"
+                                        AutomationProperties.Name="{x:Bind PresenceLabel, Mode=OneWay}">
+                                    <ContentControl Content="{Binding}"
+                                                    Padding="0"
+                                                    HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center"
+                                                    HorizontalContentAlignment="Center"
+                                                    VerticalContentAlignment="Center"
+                                                    ContentTemplate="{StaticResource LibraryPresenceGlyphTemplate}"
+                                                    RenderTransformOrigin="0.5,0.5">
+                                        <ContentControl.RenderTransform>
+                                            <ScaleTransform ScaleX="0.72" ScaleY="0.72" />
+                                        </ContentControl.RenderTransform>
+                                    </ContentControl>
+                                </Border>
+                            </Grid>
+                            <StackPanel Grid.Column="1"
+                                        Margin="12,0,12,0"
+                                        VerticalAlignment="Center">
+                                <TextBlock Text="{x:Bind Title}"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind Authors}"
+                                           Foreground="{StaticResource MutedInkBrush}"
+                                           FontSize="11"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind FileName}"
+                                           Foreground="#777777"
+                                           FontSize="10"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTipService.ToolTip="{x:Bind FileName}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2"
+                                        VerticalAlignment="Center"
+                                        Spacing="2">
+                                <TextBlock Text="{x:Bind InfoLabel}"
+                                           Foreground="{StaticResource MutedInkBrush}"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind ModifiedLabel}"
+                                           Foreground="#777777"
+                                           FontSize="10"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="3"
+                                        VerticalAlignment="Center"
+                                        Spacing="2">
+                                <TextBlock Text="{x:Bind RelativePath}"
+                                           Foreground="#777777"
+                                           TextTrimming="CharacterEllipsis"
+                                           HorizontalAlignment="Right"
+                                           ToolTipService.ToolTip="{x:Bind RelativePath}" />
+                                <TextBlock Text="{x:Bind HashLabel}"
+                                           Foreground="#999999"
+                                           FontSize="10"
+                                           TextTrimming="CharacterEllipsis"
+                                           HorizontalAlignment="Right"
+                                           ToolTipService.ToolTip="{x:Bind Book.Sha256}" />
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
         </Grid>
 
         <!-- Kindle fonts and dictionaries. Operations are restricted to fonts or documents\dictionaries. -->

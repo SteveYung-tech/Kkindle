@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -24,7 +25,7 @@ public sealed class BookMetadataService : IMetadataService
         var title = CleanFileTitle(Path.GetFileNameWithoutExtension(path));
         byte[]? coverBytes = null;
         if (extension is ".mobi" or ".azw" or ".azw3" or ".kfx")
-            coverBytes = await ReadLargestEmbeddedJpegAsync(path, cancellationToken);
+            coverBytes = await ReadKindleCoverAsync(path, cancellationToken);
         return new BookMetadata
         {
             Title = title,
@@ -129,7 +130,7 @@ public sealed class BookMetadataService : IMetadataService
         return title.Replace('_', ' ').Trim();
     }
 
-    private static async Task<byte[]?> ReadLargestEmbeddedJpegAsync(
+    private static async Task<byte[]?> ReadKindleCoverAsync(
         string path,
         CancellationToken cancellationToken)
     {
@@ -138,6 +139,111 @@ public sealed class BookMetadataService : IMetadataService
         if (!file.Exists || file.Length <= 0 || file.Length > maximumContainerSize) return null;
 
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        return TryReadKindleCoverJpeg(bytes)
+            ?? ReadLargestEmbeddedJpeg(bytes, cancellationToken);
+    }
+
+    private static byte[]? TryReadKindleCoverJpeg(ReadOnlySpan<byte> bytes)
+    {
+        if (!TryReadPalmDatabaseRecords(bytes, out var records)) return null;
+        var firstRecord = bytes.Slice(records[0].Start, records[0].Length);
+        var mobiOffset = IndexOf(firstRecord, "MOBI"u8);
+        if (mobiOffset < 0 || mobiOffset > firstRecord.Length - 0x70) return null;
+
+        var firstImageIndex = ReadUInt32(firstRecord, mobiOffset + 0x6C);
+        if (!TryReadExthUInt32(firstRecord, 201, out var coverOffset)) return null;
+
+        var coverRecordIndex = (ulong)firstImageIndex + coverOffset;
+        if (coverRecordIndex >= (ulong)records.Count) return null;
+
+        var coverRecord = records[(int)coverRecordIndex];
+        return ReadFirstEmbeddedJpeg(bytes.Slice(coverRecord.Start, coverRecord.Length));
+    }
+
+    private static bool TryReadPalmDatabaseRecords(
+        ReadOnlySpan<byte> bytes,
+        out List<(int Start, int Length)> records)
+    {
+        records = [];
+        const int recordTableOffset = 78;
+        const int recordEntryLength = 8;
+        if (bytes.Length < recordTableOffset) return false;
+
+        var recordCount = ReadUInt16(bytes, 76);
+        if (recordCount == 0) return false;
+        var tableLength = recordCount * recordEntryLength;
+        if (tableLength > bytes.Length - recordTableOffset) return false;
+
+        var recordDataStart = recordTableOffset + tableLength;
+        var starts = new int[recordCount];
+        for (var index = 0; index < recordCount; index++)
+        {
+            var recordOffset = recordTableOffset + index * recordEntryLength;
+            var start = ReadInt32(bytes, recordOffset);
+            if (start < recordDataStart || start > bytes.Length) return false;
+            if (index > 0 && start <= starts[index - 1]) return false;
+            starts[index] = start;
+        }
+
+        for (var index = 0; index < starts.Length; index++)
+        {
+            var end = index + 1 < starts.Length ? starts[index + 1] : bytes.Length;
+            if (end <= starts[index]) return false;
+            records.Add((starts[index], end - starts[index]));
+        }
+        return records.Count > 0;
+    }
+
+    private static bool TryReadExthUInt32(ReadOnlySpan<byte> bytes, uint recordType, out uint value)
+    {
+        value = 0;
+        for (var offset = 0; offset <= bytes.Length - 12; offset++)
+        {
+            if (!bytes.Slice(offset, 4).SequenceEqual("EXTH"u8)) continue;
+
+            var headerLength = ReadUInt32(bytes, offset + 4);
+            var recordCount = ReadUInt32(bytes, offset + 8);
+            if (headerLength < 12 || headerLength > bytes.Length - offset || recordCount > 4096)
+                continue;
+
+            var recordOffset = offset + 12;
+            var headerEnd = offset + (int)headerLength;
+            for (var index = 0; index < recordCount && recordOffset <= headerEnd - 8; index++)
+            {
+                var currentType = ReadUInt32(bytes, recordOffset);
+                var recordLength = ReadUInt32(bytes, recordOffset + 4);
+                if (recordLength < 8 || recordLength > headerEnd - recordOffset) break;
+                if (currentType == recordType && recordLength >= 12)
+                {
+                    value = ReadUInt32(bytes, recordOffset + 8);
+                    return true;
+                }
+                recordOffset += (int)recordLength;
+            }
+
+            offset = headerEnd - 1;
+        }
+        return false;
+    }
+
+    private static byte[]? ReadFirstEmbeddedJpeg(ReadOnlySpan<byte> bytes)
+    {
+        for (var index = 0; index <= bytes.Length - 3; index++)
+        {
+            if (bytes[index] != 0xFF || bytes[index + 1] != 0xD8 || bytes[index + 2] != 0xFF) continue;
+            for (var end = index + 3; end < bytes.Length - 1; end++)
+            {
+                if (bytes[end] != 0xFF || bytes[end + 1] != 0xD9) continue;
+                return bytes.Slice(index, end + 2 - index).ToArray();
+            }
+        }
+        return null;
+    }
+
+    private static byte[]? ReadLargestEmbeddedJpeg(
+        ReadOnlySpan<byte> bytes,
+        CancellationToken cancellationToken)
+    {
         byte[]? largest = null;
         for (var index = 0; index < bytes.Length - 3; index++)
         {
@@ -149,16 +255,32 @@ public sealed class BookMetadataService : IMetadataService
                 if (bytes[end] != 0xFF || bytes[end + 1] != 0xD9) continue;
                 var length = end + 2 - index;
                 if (length >= 8 * 1024 && (largest is null || length > largest.Length))
-                {
-                    largest = new byte[length];
-                    Buffer.BlockCopy(bytes, index, largest, 0, length);
-                }
+                    largest = bytes.Slice(index, length).ToArray();
                 index = end + 1;
                 break;
             }
         }
         return largest;
     }
+
+    private static int IndexOf(ReadOnlySpan<byte> bytes, ReadOnlySpan<byte> value)
+    {
+        if (value.Length == 0) return 0;
+        for (var offset = 0; offset <= bytes.Length - value.Length; offset++)
+        {
+            if (bytes.Slice(offset, value.Length).SequenceEqual(value)) return offset;
+        }
+        return -1;
+    }
+
+    private static int ReadInt32(ReadOnlySpan<byte> bytes, int offset) =>
+        checked((int)ReadUInt32(bytes, offset));
+
+    private static ushort ReadUInt16(ReadOnlySpan<byte> bytes, int offset) =>
+        BinaryPrimitives.ReadUInt16BigEndian(bytes.Slice(offset, 2));
+
+    private static uint ReadUInt32(ReadOnlySpan<byte> bytes, int offset) =>
+        BinaryPrimitives.ReadUInt32BigEndian(bytes.Slice(offset, 4));
 
     private static string CombineZipPath(string directory, string relative)
     {
