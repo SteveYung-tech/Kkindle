@@ -22,7 +22,9 @@ public sealed partial class MainWindow
 {
     private const double ReaderTocMinimalWidth = 52d;
     private const double ReaderCompactMarkerMinimumWidth = 8d;
-    private const double ReaderCompactMarkerMaximumWidth = 34d;
+    // A right-only wave starts at the centered 8 px resting marker. Keep its
+    // longest stroke inside the 52 px rail (including the right divider).
+    private const double ReaderCompactMarkerMaximumWidth = 28d;
     private const double ReaderCompactMarkerWaveRadius = 96d;
     private const double ReaderCompactScrollAnimationDurationMs = 160d;
     private IReadOnlyList<EpubReaderNavigationItem> _readerCompactNavigationItems = [];

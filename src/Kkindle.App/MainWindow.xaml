@@ -2439,6 +2439,15 @@
                                             ToolTipService.Placement="Right"
                                             ToolTipService.ToolTip="{x:Bind Title}"
                                             Click="ReaderCompactTocItem_Click">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                                  HorizontalAlignment="Center"
+                                                                  VerticalAlignment="Center"
+                                                                  HorizontalContentAlignment="Center"
+                                                                  VerticalContentAlignment="Center" />
+                                            </ControlTemplate>
+                                        </Button.Template>
                                         <Border Width="8"
                                                 Height="2"
                                                 Background="{x:Bind Fill}"
