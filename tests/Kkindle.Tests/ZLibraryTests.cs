@@ -10,7 +10,7 @@ public sealed class ZLibraryTests
     [Fact]
     public async Task LoginParsesCredentialsAndPersonalDomain()
     {
-        using var service = new ZLibraryService(new StubHttpMessageHandler(request =>
+        using var service = new ZLibraryService(new TestHelpers.StubHttpMessageHandler(request =>
         {
             Assert.Equal(HttpMethod.Post, request.Method);
             Assert.Equal("/eapi/user/login", request.RequestUri?.AbsolutePath);
@@ -28,7 +28,7 @@ public sealed class ZLibraryTests
     [Fact]
     public async Task SearchParsesBooksTotalAndPageCount()
     {
-        using var service = new ZLibraryService(new StubHttpMessageHandler(request =>
+        using var service = new ZLibraryService(new TestHelpers.StubHttpMessageHandler(request =>
         {
             if (request.RequestUri?.AbsolutePath == "/eapi/user/login")
                 return JsonResponse("""{"success":true,"remix-userid":"12345","remix-userkey":"abcdef"}""");
@@ -65,7 +65,7 @@ public sealed class ZLibraryTests
     [Fact]
     public async Task SearchParsesCurrentFlatResponseAndPagination()
     {
-        using var service = new ZLibraryService(new StubHttpMessageHandler(request =>
+        using var service = new ZLibraryService(new TestHelpers.StubHttpMessageHandler(request =>
         {
             if (request.RequestUri?.AbsolutePath == "/eapi/user/login")
                 return JsonResponse("""{"success":1,"user":{"id":12345,"remix_userkey":"abcdef"}}""");
@@ -102,7 +102,7 @@ public sealed class ZLibraryTests
     [Fact]
     public async Task FileEndpointReadsModernLoginResponseAndUsesCookieSession()
     {
-        using var service = new ZLibraryService(new StubHttpMessageHandler(request =>
+        using var service = new ZLibraryService(new TestHelpers.StubHttpMessageHandler(request =>
         {
             if (request.RequestUri?.AbsolutePath == "/eapi/user/login")
                 return JsonResponse("""{"success":1,"user":{"id":12345,"remix_userkey":"abcdef","personal_domain":"user.zlib.example.com"}}""");
@@ -123,7 +123,7 @@ public sealed class ZLibraryTests
     [Fact]
     public async Task DownloadUrlFallsBackToLegacyFormatsEndpoint()
     {
-        using var service = new ZLibraryService(new StubHttpMessageHandler(request =>
+        using var service = new ZLibraryService(new TestHelpers.StubHttpMessageHandler(request =>
         {
             if (request.RequestUri?.AbsolutePath == "/eapi/user/login")
                 return JsonResponse("""{"success":true,"remix-userid":"12345","remix-userkey":"abcdef"}""");
@@ -145,7 +145,7 @@ public sealed class ZLibraryTests
     public async Task DownloadWritesFileAndReportsProgress()
     {
         var payload = Encoding.UTF8.GetBytes("fake-ebook-content");
-        var service = new ZLibraryService(new StubHttpMessageHandler(request =>
+        var service = new ZLibraryService(new TestHelpers.StubHttpMessageHandler(request =>
         {
             if (request.RequestUri?.AbsolutePath == "/eapi/user/login")
                 return JsonResponse("""{"success":true,"remix-userid":"12345","remix-userkey":"abcdef"}""");
@@ -183,7 +183,7 @@ public sealed class ZLibraryTests
     [Fact]
     public async Task ApiErrorThrowsWithServerMessage()
     {
-        using var service = new ZLibraryService(new StubHttpMessageHandler(_ =>
+        using var service = new ZLibraryService(new TestHelpers.StubHttpMessageHandler(_ =>
             JsonResponse("""{"success":false,"error":"daily download limit exceeded"}""")));
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -194,7 +194,7 @@ public sealed class ZLibraryTests
     [Fact]
     public async Task LoginDiscoversWorkingBaseUrlAfterEndpointFailure()
     {
-        using var service = new ZLibraryService(new StubHttpMessageHandler(request =>
+        using var service = new ZLibraryService(new TestHelpers.StubHttpMessageHandler(request =>
         {
             if (request.RequestUri?.Host == "api.z-lib.org")
                 return JsonResponse("{}", HttpStatusCode.ServiceUnavailable);
@@ -216,7 +216,7 @@ public sealed class ZLibraryTests
     [Fact]
     public async Task SettingsStoreEncryptsPasswordAtRest()
     {
-        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -239,7 +239,7 @@ public sealed class ZLibraryTests
         }
         finally
         {
-            try { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); } catch { }
+            TestHelpers.TryDelete(root);
         }
     }
 
@@ -261,12 +261,4 @@ public sealed class ZLibraryTests
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
 
-    private sealed class StubHttpMessageHandler(
-        Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(responder(request));
-    }
 }

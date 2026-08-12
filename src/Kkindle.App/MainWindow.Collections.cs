@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Kkindle.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace Kkindle;
@@ -87,32 +88,76 @@ public sealed partial class MainWindow
                 : Visibility.Collapsed;
     }
 
-    private async Task<BookCollection?> PromptCreateBookCollectionAsync(Book bookToAdd)
+    private TaskCompletionSource<string?>? _createCollectionCompletion;
+
+    // Monochrome name input overlay; returns the trimmed name or null on cancel.
+    private Task<string?> PromptCreateCollectionNameAsync(string? bookTitle = null)
     {
-        var nameBox = new TextBox
+        if (_createCollectionCompletion is not null)
+            return _createCollectionCompletion.Task;
+
+        CreateCollectionNameBox.Text = string.Empty;
+        CreateCollectionMessageText.Text = bookTitle is null
+            ? "输入收藏夹名称，创建后可在书籍右键菜单中把书籍加入其中。"
+            : $"输入收藏夹名称，创建后会自动把《{bookTitle}》加入其中。";
+        CreateCollectionOkButton.Content = bookTitle is null ? "创建" : "创建并加入";
+        CreateCollectionOverlay.Visibility = Visibility.Visible;
+        CreateCollectionOverlay.Focus(FocusState.Programmatic);
+        CreateCollectionNameBox.Focus(FocusState.Programmatic);
+
+        var completion = new TaskCompletionSource<string?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _createCollectionCompletion = completion;
+        return completion.Task;
+    }
+
+    private async void CreateCollectionOkButton_Click(object sender, RoutedEventArgs e)
+    {
+        var name = CreateCollectionNameBox.Text?.Trim() ?? string.Empty;
+        if (name.Length == 0)
         {
-            PlaceholderText = "例如：待读、技术、小说",
-            MaxLength = 60,
-            MinWidth = 320
-        };
-        var dialog = new ContentDialog
+            await ShowMessageAsync("名称不能为空", "请输入收藏夹名称。");
+            return;
+        }
+        CompleteCreateCollectionName(name);
+    }
+
+    private void CreateCollectionCancelButton_Click(object sender, RoutedEventArgs e) =>
+        CompleteCreateCollectionName(null);
+
+    private void CreateCollectionOverlay_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Escape)
         {
-            XamlRoot = ((FrameworkElement)Content).XamlRoot,
-            Title = "新建收藏夹",
-            Content = nameBox,
-            PrimaryButtonText = "创建并加入",
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Primary
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+            e.Handled = true;
+            CompleteCreateCollectionName(null);
+        }
+        else if (e.Key == Windows.System.VirtualKey.Enter)
+        {
+            e.Handled = true;
+            CreateCollectionOkButton_Click(sender, e);
+        }
+    }
+
+    private void CompleteCreateCollectionName(string? name)
+    {
+        var completion = _createCollectionCompletion;
+        if (completion is null) return;
+        _createCollectionCompletion = null;
+        CreateCollectionOverlay.Visibility = Visibility.Collapsed;
+        completion.TrySetResult(name);
+    }
+
+    private async Task<BookCollection?> PromptCreateBookCollectionCoreAsync(string? bookTitle = null)
+    {
+        var name = await PromptCreateCollectionNameAsync(bookTitle);
+        if (string.IsNullOrWhiteSpace(name)) return null;
 
         try
         {
-            var collection = await _library.CreateCollectionAsync(nameBox.Text);
-            await _library.AddBookToCollectionAsync(bookToAdd.Id, collection.Id);
+            var collection = await _library.CreateCollectionAsync(name);
             await RefreshLibraryAsync();
             await RefreshBookCollectionsAsync();
-            TaskStatusText.Text = $"已创建收藏夹“{collection.Name}”并加入《{bookToAdd.Title}》";
             return collection;
         }
         catch (Exception exception)
@@ -121,6 +166,41 @@ public sealed partial class MainWindow
             return null;
         }
     }
+
+    private async Task<BookCollection?> PromptCreateBookCollectionAsync(Book bookToAdd)
+    {
+        var collection = await PromptCreateBookCollectionCoreAsync(bookToAdd.Title);
+        if (collection is null) return null;
+        try
+        {
+            if (_appSettings.CollectionsMutuallyExclusive)
+            {
+                foreach (var otherCollectionId in bookToAdd.CollectionIds.ToArray())
+                    await _library.RemoveBookFromCollectionAsync(bookToAdd.Id, otherCollectionId);
+            }
+            await _library.AddBookToCollectionAsync(bookToAdd.Id, collection.Id);
+            await RefreshLibraryAsync();
+            await RefreshBookCollectionsAsync();
+            TaskStatusText.Text = $"已创建收藏夹“{collection.Name}”并加入《{bookToAdd.Title}》";
+            return collection;
+        }
+        catch (Exception exception)
+        {
+            await ShowMessageAsync("无法加入收藏夹", exception.Message);
+            return collection;
+        }
+    }
+
+    private async Task<BookCollection?> CreateEmptyBookCollectionAsync()
+    {
+        var collection = await PromptCreateBookCollectionCoreAsync("创建");
+        if (collection is null) return null;
+        TaskStatusText.Text = $"已创建收藏夹“{collection.Name}”";
+        return collection;
+    }
+
+    private async void CreateBookCollectionMenuItem_Click(object sender, RoutedEventArgs e)
+        => await CreateEmptyBookCollectionAsync();
 
     private void AddBookCollectionContextMenu(MenuFlyout flyout, Book book)
     {
@@ -173,7 +253,18 @@ public sealed partial class MainWindow
         try
         {
             if (item.IsChecked)
+            {
+                if (_appSettings.CollectionsMutuallyExclusive)
+                {
+                    foreach (var otherCollectionId in context.Book.CollectionIds
+                        .Where(id => id != context.Collection.Id)
+                        .ToArray())
+                    {
+                        await _library.RemoveBookFromCollectionAsync(context.Book.Id, otherCollectionId);
+                    }
+                }
                 await _library.AddBookToCollectionAsync(context.Book.Id, context.Collection.Id);
+            }
             else
                 await _library.RemoveBookFromCollectionAsync(context.Book.Id, context.Collection.Id);
             await RefreshLibraryAsync();
@@ -198,16 +289,11 @@ public sealed partial class MainWindow
     private async void DeleteBookCollectionMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuFlyoutItem { Tag: BookCollection collection }) return;
-        var dialog = new ContentDialog
-        {
-            XamlRoot = ((FrameworkElement)Content).XamlRoot,
-            Title = "删除收藏夹？",
-            Content = $"将删除“{collection.Name}”。其中的书籍仍会保留在电脑书库。",
-            PrimaryButtonText = "删除",
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Close
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        if (!await ShowDevicePromptAsync(
+                "删除收藏夹？",
+                $"将删除“{collection.Name}”。其中的书籍仍会保留在电脑书库。",
+                "删除",
+                "取消")) return;
 
         try
         {

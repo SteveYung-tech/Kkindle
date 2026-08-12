@@ -80,7 +80,7 @@ public sealed partial class MainWindow
         _backupOperationInProgress = true;
         SetBackupStatus("正在导出书库和设置，请稍候…");
         TaskProgress.IsIndeterminate = true;
-        TaskProgress.Visibility = Visibility.Visible;
+        ShowTaskProgressPopup();
         try
         {
             var result = await _backupService.ExportAsync(destinationPath);
@@ -98,7 +98,7 @@ public sealed partial class MainWindow
         finally
         {
             TaskProgress.IsIndeterminate = false;
-            TaskProgress.Visibility = Visibility.Collapsed;
+            HideTaskProgressPopup();
             _backupOperationInProgress = false;
         }
     }
@@ -108,7 +108,7 @@ public sealed partial class MainWindow
         _backupOperationInProgress = true;
         SetBackupStatus("正在校验并导入备份，请稍候…");
         TaskProgress.IsIndeterminate = true;
-        TaskProgress.Visibility = Visibility.Visible;
+        ShowTaskProgressPopup();
         try
         {
             var result = await _backupService.ImportAsync(sourcePath);
@@ -137,7 +137,7 @@ public sealed partial class MainWindow
         finally
         {
             TaskProgress.IsIndeterminate = false;
-            TaskProgress.Visibility = Visibility.Collapsed;
+            HideTaskProgressPopup();
             _backupOperationInProgress = false;
         }
     }

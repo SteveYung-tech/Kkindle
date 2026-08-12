@@ -195,13 +195,15 @@ public sealed partial class MainWindow
             if (entry is null)
                 throw new InvalidOperationException(import.Items.FirstOrDefault()?.Message ?? "导入书库失败。");
 
+            // Refresh the library presentation before the automatic format
+            // generation so the downloaded book is visible (and the empty state
+            // is hidden) while the conversion is still running.
+            await RefreshLibraryAsync();
             var automaticFormats = await AutoGenerateReaderFormatsForImportsAsync(import);
             item.MarkDownloadCompleted();
-            item.SetStatus(automaticFormats.GeneratedCount > 0
-                ? "已下载、导入并补齐 EPUB/AZW3"
-                : automaticFormats.Failures.Count > 0
-                    ? "已导入，EPUB/AZW3 补齐失败"
-                    : "已下载并导入书库");
+            item.SetStatus(automaticFormats.Failures.Count > 0
+                ? "已导入，EPUB/AZW3 补齐失败"
+                : string.Empty);
             TaskStatusText.Text = $"《{item.Title}》已下载并导入电脑书库";
             await RefreshLibraryAsync();
             try { File.Delete(downloadedPath); } catch { /* The library copy is authoritative. */ }
@@ -315,7 +317,7 @@ public sealed partial class MainWindow
         item.IsDownloading = true;
         item.SetStatus("正在准备邮件…");
         TaskProgress.IsIndeterminate = true;
-        TaskProgress.Visibility = Visibility.Visible;
+        ShowTaskProgressPopup();
         string? downloadedPath = null;
         try
         {
@@ -364,7 +366,7 @@ public sealed partial class MainWindow
             if (ReferenceEquals(_kindleEmailSendCancellation, cancellation))
                 _kindleEmailSendCancellation = null;
             TaskProgress.IsIndeterminate = false;
-            TaskProgress.Visibility = Visibility.Collapsed;
+            HideTaskProgressPopup();
         }
     }
 

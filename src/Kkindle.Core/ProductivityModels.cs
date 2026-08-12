@@ -18,7 +18,8 @@ public sealed record AppSettings
     public string PreferredOpenFormat { get; init; } = "epub";
     public string CalibrePath { get; init; } = string.Empty;
     public bool AutoBackupEnabled { get; init; }
-    public bool AutoGenerateEpubAndAzw3OnImport { get; init; } = true;
+    public bool AutoGenerateEpubAndAzw3OnImport { get; init; }
+    public bool CollectionsMutuallyExclusive { get; init; } = true;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool AutoGenerateAzw3OnImport { get; init; }
     public int AutoBackupRetention { get; init; } = 5;

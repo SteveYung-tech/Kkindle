@@ -18,11 +18,11 @@ namespace Kkindle;
 internal static class ReaderWaveScripts
 {
     // Total host-side wait for one wave, including per-strip start delays.
-    public const int TotalDurationMs = 560;
+    public const int TotalDurationMs = 400;
 
     private const int StripCount = 32;
     // Each strip takes this long to slide/fade once its turn starts.
-    private const int StripDurationMs = 170;
+    private const int StripDurationMs = 125;
     // The first strip starts immediately and the last one after SpanMs, so the
     // leading edge of the wave reaches the far side just before the end.
     private const int SpanMs = TotalDurationMs - StripDurationMs;
@@ -30,6 +30,13 @@ internal static class ReaderWaveScripts
     // the reveal front is wavy instead of a straight curtain.
     private const double DelayWaveMs = 26;
     private const double WaveCount = 1.5;
+    // Each strip is rendered wider than its page slice (the slice is centered
+    // inside it), so neighbouring strips always overlap while the wave front
+    // staggers past; seams can never show through between strips.
+    private const double StripOverlapFactor = 1.2;
+    // Per-strip sine modulation of the slide/inner-flow speeds. Kept small so
+    // neighbouring strips never drift apart far enough to open a visible gap.
+    private const double MotionWave = 0.04;
 
     public static string CreateWaveOverlayScript(
         string dataUrl,
@@ -40,6 +47,7 @@ internal static class ReaderWaveScripts
         var w = Format(width);
         var h = Format(height);
         var stripW = Format(Math.Max(1, width / StripCount));
+        var divW = Format(Math.Max(1, (width / StripCount) * StripOverlapFactor));
         var dir = forward ? -1 : 1;
         // Gloss sweep start/end offsets (baked with the direction sign):
         // forward starts off-screen right and exits left; backward mirrors it.
@@ -49,7 +57,7 @@ internal static class ReaderWaveScripts
             (() => {
               try {
                 const root = document.documentElement;
-                const W = {{w}}, H = {{h}}, N = {{StripCount}}, STRIP_W = {{stripW}};
+                const W = {{w}}, H = {{h}}, N = {{StripCount}}, STRIP_W = {{stripW}}, DIV_W = {{divW}};
                 if (W < 2 || H < 2) return false;
                 const DATA = "{{dataUrl}}";
                 const DIR = {{dir}};
@@ -71,14 +79,13 @@ internal static class ReaderWaveScripts
                   #kk-wave { position: fixed; left: 0; top: 0; width: 100%; height: 100%;
                               overflow: hidden; pointer-events: none; z-index: 2147483000;
                               background: transparent; }
-                  #kk-wave .kk-strip { position: absolute; left: 0; top: 0; width: {{stripW}}px;
+                  #kk-wave .kk-strip { position: absolute; left: 0; top: 0; width: {{divW}}px;
                                        height: 100%; opacity: 0; will-change: transform, opacity;
                                        background-repeat: no-repeat;
                                        background-position-y: 0;
                                        background-position-x: calc(var(--kk-bx) + var(--kk-flow) * var(--kk-t));
                                        transform: translateX(calc(var(--kk-x) + var(--kk-slide) * var(--kk-t)))
-                                                  translateY(calc(var(--kk-ripple) * sin(calc(var(--kk-t) * 3.14159265))))
-                                                  rotate(calc(var(--kk-tilt) * var(--kk-t) * 1deg));
+                                                  translateY(calc(var(--kk-ripple) * sin(calc(var(--kk-t) * 3.14159265))));
                                        animation: kk-wash {{StripDurationMs}}ms ease-in-out both; }
                   @keyframes kk-wash {
                     0%   { --kk-t: 0; opacity: 1; filter: brightness(1); }
@@ -116,12 +123,15 @@ internal static class ReaderWaveScripts
                   const delay = Math.max(0, (order / N) * SPAN + AMP * wave);
                   const strip = document.createElement('div');
                   strip.className = 'kk-strip';
-                  strip.style.setProperty('--kk-x', (j * STRIP_W).toFixed(2) + 'px');
-                  strip.style.setProperty('--kk-bx', (-j * STRIP_W).toFixed(2) + 'px');
-                  strip.style.setProperty('--kk-slide', (DIR * (0.42 + 0.16 * wave) * STRIP_W).toFixed(2) + 'px');
-                  strip.style.setProperty('--kk-flow', (DIR * (0.78 + 0.16 * wave) * STRIP_W).toFixed(2) + 'px');
-                  strip.style.setProperty('--kk-ripple', (7 * wave).toFixed(2) + 'px');
-                  strip.style.setProperty('--kk-tilt', (DIR * 4 * wave).toFixed(2));
+                  const margin = (DIV_W - STRIP_W) / 2;
+                  // The first strip starts flush with the viewport edge so the
+                  // widened strip never exposes a transparent sliver there.
+                  const left = j === 0 ? 0 : margin;
+                  strip.style.setProperty('--kk-x', ((j * STRIP_W) - left).toFixed(2) + 'px');
+                  strip.style.setProperty('--kk-bx', ((-j * STRIP_W) + left).toFixed(2) + 'px');
+                  strip.style.setProperty('--kk-slide', (DIR * (0.42 + {{MotionWave}} * wave) * STRIP_W).toFixed(2) + 'px');
+                  strip.style.setProperty('--kk-flow', (DIR * (0.78 + {{MotionWave}} * wave) * STRIP_W).toFixed(2) + 'px');
+                  strip.style.setProperty('--kk-ripple', (5 * wave).toFixed(2) + 'px');
                   strip.style.animationDelay = delay.toFixed(1) + 'ms';
                   strip.style.backgroundImage = 'url("' + DATA + '")';
                   strip.style.backgroundSize = W + 'px ' + H + 'px';

@@ -100,6 +100,12 @@ public sealed partial class MainWindow
         if (_readerAssistantPopup is null || RootGrid.XamlRoot is null) return;
         var viewport = RootGrid.XamlRoot.Size;
         _readerAssistantPopup.XamlRoot = RootGrid.XamlRoot;
+        // The panel is hosted in a Popup (it floats above the WebView2 HWND
+        // island), so the Popup's VerticalOffset already provides the 38-unit
+        // title-bar clearance. ApplyReaderZenLayout / ResetReaderChromeLayout
+        // still write a top margin that would double that offset and push the
+        // whole composer below the window edge; force it back to zero here.
+        ReaderAssistantPanel.Margin = new Thickness(0);
         _readerAssistantPopup.HorizontalOffset = Math.Max(0, viewport.Width - 360);
         _readerAssistantPopup.VerticalOffset = 38;
         ReaderAssistantPanel.Width = Math.Min(360, viewport.Width);

@@ -7,49 +7,66 @@ Kkindle 是一款面向 Windows 11 的个人电子书与 Kindle 设备管理器�
 
 ## 界面预览
 
-### 电脑书库
+### 电脑书库（书架视图）
 
-![Kkindle 电脑书库](docs/images/library.png)
+![Kkindle 电脑书库主界面](docs/images/主界面.png)
 
-### Kindle 字体与字典
+### 电脑书库（画廊显示）
 
-![Kkindle Kindle 设备资源管理](docs/images/device-resources.png)
+![Kkindle 画廊显示模式](docs/images/画廊显示.png)
 
-### 应用与阅读设置
+### 电脑书库（右键菜单）
 
-![Kkindle 应用与阅读设置](docs/images/settings.png)
+![Kkindle 书库右键菜单](docs/images/电脑书库右键菜单.png)
 
-### 阅读资料中心
+### Kindle 书库管理
 
-![Kkindle 本地与 Kindle 阅读资料管理](docs/images/reading-materials.png)
+![Kkindle 设备书库管理](docs/images/Kindle书库管理.png)
+
+### Kindle 字体与字典管理
+
+![Kkindle 字体与字典管理](docs/images/Kindle字体字典管理.png)
+
+### 阅读资料（划线批注）
+
+![Kkindle 划线批注管理](docs/images/Kindle划线批注管理.png)
 
 ### Kreader 阅读器
 
-![Kreader 分页阅读界面](docs/images/kreader.png)
+![Kreader 分页阅读界面](docs/images/Kreader阅读界面.png)
 
-### AI 问答
+### Kreader 禅模式
 
-![Kreader AI 阅读助手问答界面](docs/images/ai-assistant.png)
+![Kreader 禅模式阅读界面，左侧为极简目录](docs/images/禅模式阅读界面，左侧为极简目录.png)
+
+### Z-Library 在线书库
+
+![Z-Library 在线书库](docs/images/Z-library在线书库.png)
+
+### 基础设置
+
+![Kkindle 基础设置界面](docs/images/基础设置界面.png)
 
 ## 主要功能
 
 ### 本地书库管理
 
-- 导入 EPUB、PDF、MOBI 和 AZW3，支持拖放导入与中文文件名。
+- 导入 EPUB、PDF、MOBI 和 AZW3，支持拖放导入与中文文件名；导入文件夹时可逐本选择是否自动补齐 EPUB/AZW3 格式。
 - 自动解析 EPUB 的标题、作者、简介和封面，使用 SHA-256 去重，并把同一本书的不同格式统一归档。
 - 提供标题/作者搜索、作者/标签/格式/分类/阅读状态筛选、收藏筛选和多种排序方式。
 - 支持分类、收藏、待读/阅读中/已读状态管理；开始阅读和读完时会自动更新状态。
-- 提供书架与列表视图，以及标题、作者、系列、标签、分类、简介等元数据编辑。
+- 提供书架、列表和画廊显示模式，支持封面、标题、作者、系列、标签、分类、简介等元数据编辑，以及框选/多选批量操作（发送到 Kindle、发送到邮箱、删除）。
 - 使用独立 SQLite 数据库，书籍、封面和阅读记录均保存在本机。
 
 ### Kreader 阅读器
 
 - 阅读 EPUB、PDF、AZW3 和 MOBI；打开 AZW3/MOBI 时会自动准备临时 EPUB 阅读副本。
-- EPUB 支持目录与书内搜索、横排或竖排分页/滚动阅读、双页显示、禅模式、书签和阅读进度记忆。
+- EPUB 支持目录、书签、页内查找（Ctrl+F）和阅读进度记忆，横排或竖排分页/滚动阅读、双页显示，并会预加载下一章减少切换等待。
+- 翻页动画支持无动画、淡入淡出、左右滑动和水波流动；禅模式提供真全屏阅读（F11 进入、Esc 退出），支持极简目录。
 - PDF 支持本地文本索引、全文搜索、页码进度、书签、页面笔记和 AI 上下文检索。
 - 支持字号、行高、正文宽度、页边距和 CJK 字体等按书保存的排版设置，也可配置新书默认排版。
 - 支持 EPUB 划线、笔记、批注定位与导出，阅读资料仅保存在本机。
-- 内置 AI 阅读助手，可基于当前选文和本地书籍索引对话，并支持 DeepSeek、OpenAI 及兼容接口。
+- 内置 AI 阅读助手，可基于当前选文和本地书籍索引对话，支持思考深度与模型选择，并兼容 DeepSeek、OpenAI 等接口。
 
 ### 阅读效率工具
 
@@ -64,6 +81,7 @@ Kkindle 是一款面向 Windows 11 的个人电子书与 Kindle 设备管理器�
 - 通过 Z-Library 官方 eapi 搜索并下载书籍，支持书名/作者搜索、格式与语言筛选、分页浏览。
 - 下载完成后自动导入电脑书库，自动解析元数据与封面并去重；临时下载文件自动清理。
 - 账号凭据（邮箱与密码）使用 Windows 当前用户加密保存在本机，不写入备份包；API 服务地址可配置，便于在官方域名不可用时切换到可用镜像。
+- 下载任务在列表中实时显示状态，可随时取消，完成后自动入库。
 
 ### 格式转换
 
@@ -74,8 +92,8 @@ Kkindle 是一款面向 Windows 11 的个人电子书与 Kindle 设备管理器�
 
 ### Kindle 传输
 
-- 识别 USB 磁盘以及 WPD/MTP 模式连接的 Kindle，显示设备容量、书籍和封面。
-- 支持向设备发送书籍、安全删除、传输校验、断线清理和设备插拔监听。
+- 识别 USB 磁盘以及 WPD/MTP 模式连接的 Kindle，显示设备容量、书籍和封面，并自动记忆设备型号。
+- 支持向设备发送书籍、安全删除、传输校验、断线清理和设备插拔监听；支持多选批量导出到电脑书库或从设备删除。
 - 仅访问 Kindle 的 `documents` 目录，不修改设备系统数据库。
 - Kindle 字体管理可读取、导入、导出和删除设备 `fonts` 目录中的 TTF、OTF 文件。
 - Kindle 字典管理可读取、导入、导出和删除设备 `documents\dictionaries` 目录中的 AZW、AZW3、MOBI、KFX 文件。

@@ -53,6 +53,7 @@ public sealed partial class MainWindow
             CalibrePathBox.Text = _appSettings.CalibrePath;
             AutoBackupCheck.IsOn = _appSettings.AutoBackupEnabled;
             AutoGenerateReaderFormatsCheck.IsOn = _appSettings.AutoGenerateEpubAndAzw3OnImport;
+            CollectionsMutuallyExclusiveCheck.IsOn = _appSettings.CollectionsMutuallyExclusive;
             AutoBackupRetentionBox.Value = _appSettings.AutoBackupRetention;
             AiEnabledCheck.IsOn = _appSettings.AiEnabled;
             NetworkEnabledCheck.IsOn = _appSettings.NetworkEnabled;
@@ -80,6 +81,7 @@ public sealed partial class MainWindow
     private void ConfigureAppSettingsAutoSave()
     {
         AutoBackupCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
+        CollectionsMutuallyExclusiveCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
         AiEnabledCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
         NetworkEnabledCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
         AutoGenerateReaderFormatsCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
@@ -127,6 +129,7 @@ public sealed partial class MainWindow
                 CalibrePath = CalibrePathBox.Text,
                 AutoBackupEnabled = AutoBackupCheck.IsOn,
                 AutoGenerateEpubAndAzw3OnImport = AutoGenerateReaderFormatsCheck.IsOn,
+                CollectionsMutuallyExclusive = CollectionsMutuallyExclusiveCheck.IsOn,
                 AutoBackupRetention = double.IsFinite(AutoBackupRetentionBox.Value) ? (int)AutoBackupRetentionBox.Value : 5,
                 AiEnabled = AiEnabledCheck.IsOn,
                 NetworkEnabled = NetworkEnabledCheck.IsOn,

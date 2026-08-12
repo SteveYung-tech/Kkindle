@@ -8,8 +8,7 @@ public sealed class ReaderFormatCacheTests
     [Fact]
     public async Task ConvertsAzw3OnlyOnceForSameSourceHash()
     {
-        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -31,8 +30,7 @@ public sealed class ReaderFormatCacheTests
         }
         finally
         {
-            try { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
-            catch { }
+            TestHelpers.TryDelete(root);
         }
     }
 

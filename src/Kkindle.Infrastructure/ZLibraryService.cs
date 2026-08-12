@@ -268,7 +268,7 @@ public sealed class ZLibraryService : IZLibraryService, IDisposable
                     Extension = (ReadString(bookElement, "extension") ?? string.Empty).Trim(),
                     Size = GetInt64(bookElement, "filesize", bookElement, "filesize"),
                     Language = ReadString(bookElement, "language") ?? string.Empty,
-                    CoverUrl = ReadString(bookElement, "cover_url") ?? ReadString(bookElement, "cover"),
+                    CoverUrl = ResolveApiUrl(ReadString(bookElement, "cover_url") ?? ReadString(bookElement, "cover")),
                     Hash = ReadString(item, "hash") ?? ReadString(bookElement, "hash") ?? ReadString(bookElement, "md5") ?? string.Empty,
                     Year = GetInt32Nullable(bookElement, "year"),
                     Publisher = ReadString(bookElement, "publisher"),

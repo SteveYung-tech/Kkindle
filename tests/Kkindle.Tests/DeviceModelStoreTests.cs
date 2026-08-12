@@ -8,7 +8,7 @@ public sealed class DeviceModelStoreTests
     [Fact]
     public async Task SavesAndRestoresModelBySerial()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -27,14 +27,14 @@ public sealed class DeviceModelStoreTests
         }
         finally
         {
-            TryDelete(root);
+            TestHelpers.TryDelete(root);
         }
     }
 
     [Fact]
     public async Task UpdatingModelForSameSerialOverwritesMapping()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -48,14 +48,14 @@ public sealed class DeviceModelStoreTests
         }
         finally
         {
-            TryDelete(root);
+            TestHelpers.TryDelete(root);
         }
     }
 
     [Fact]
     public async Task DifferentSerialsKeepIndependentModels()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -69,14 +69,14 @@ public sealed class DeviceModelStoreTests
         }
         finally
         {
-            TryDelete(root);
+            TestHelpers.TryDelete(root);
         }
     }
 
     [Fact]
     public async Task DeletingModelFallsBackToDefault()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -90,7 +90,7 @@ public sealed class DeviceModelStoreTests
         }
         finally
         {
-            TryDelete(root);
+            TestHelpers.TryDelete(root);
         }
     }
 
@@ -107,17 +107,5 @@ public sealed class DeviceModelStoreTests
         Assert.All(
             vendors.SelectMany(vendor => vendor.Models),
             model => Assert.False(string.IsNullOrWhiteSpace(model)));
-    }
-
-    private static string CreateTempDirectory()
-    {
-        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        return root;
-    }
-
-    private static void TryDelete(string root)
-    {
-        try { Directory.Delete(root, true); } catch { }
     }
 }

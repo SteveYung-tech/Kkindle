@@ -70,3 +70,10 @@ public interface IZLibraryService
         IProgress<TransferProgress>? progress = null,
         CancellationToken cancellationToken = default);
 }
+
+public static class BookLibraryDefaults
+{
+    // Every imported book starts in this collection until the user organizes it
+    // into other collections. Created automatically on library initialization.
+    public const string UncollectedCollectionName = "未收藏";
+}

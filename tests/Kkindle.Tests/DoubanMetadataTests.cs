@@ -9,7 +9,7 @@ public sealed class DoubanMetadataTests
     [Fact]
     public async Task SearchParsesEmbeddedCandidateData()
     {
-        using var service = new DoubanMetadataService(new StubHandler(request =>
+        using var service = new DoubanMetadataService(new TestHelpers.StubHttpMessageHandler(request =>
         {
             Assert.Equal("book.douban.com", request.RequestUri?.Host);
             Assert.Contains("subject_search", request.RequestUri?.AbsolutePath);
@@ -32,7 +32,7 @@ public sealed class DoubanMetadataTests
     [Fact]
     public async Task DetailsParsesStructuredDataInfoAndIntroduction()
     {
-        using var service = new DoubanMetadataService(new StubHandler(_ => HtmlResponse("""
+        using var service = new DoubanMetadataService(new TestHelpers.StubHttpMessageHandler(_ => HtmlResponse("""
             <html><head>
               <meta property="og:title" content="如何阅读一本书">
               <meta property="og:url" content="https://book.douban.com/subject/1013208/">
@@ -69,7 +69,7 @@ public sealed class DoubanMetadataTests
     public async Task CoverDownloadUsesDoubanReferer()
     {
         var expected = new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 };
-        using var service = new DoubanMetadataService(new StubHandler(request =>
+        using var service = new DoubanMetadataService(new TestHelpers.StubHttpMessageHandler(request =>
         {
             Assert.Equal("https://book.douban.com/", request.Headers.Referrer?.AbsoluteUri);
             return new HttpResponseMessage(HttpStatusCode.OK)
@@ -91,9 +91,4 @@ public sealed class DoubanMetadataTests
         Content = new StringContent(html, Encoding.UTF8, "text/html")
     };
 
-    private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> callback) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(callback(request));
-    }
 }

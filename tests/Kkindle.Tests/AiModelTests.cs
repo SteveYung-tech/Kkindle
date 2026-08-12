@@ -9,7 +9,7 @@ public sealed class AiModelTests
     [Fact]
     public async Task ListsModelsFromOpenAiCompatibleModelsEndpoint()
     {
-        using var client = new AiChatClient(new StubHttpMessageHandler(request =>
+        using var client = new AiChatClient(new TestHelpers.StubHttpMessageHandler(request =>
         {
             Assert.Equal(HttpMethod.Get, request.Method);
             Assert.Equal("/models", request.RequestUri?.AbsolutePath);
@@ -46,12 +46,4 @@ public sealed class AiModelTests
             AiConnectionSettings.GetModelOptions("deepseek", "deepseek-v4-flash"));
     }
 
-    private sealed class StubHttpMessageHandler(
-        Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(responder(request));
-    }
 }

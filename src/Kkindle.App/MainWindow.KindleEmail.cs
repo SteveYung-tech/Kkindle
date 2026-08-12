@@ -86,16 +86,16 @@ public sealed partial class MainWindow
     private async void SendBookToKindleEmailMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuFlyoutItem { Tag: Book book }) return;
-        await SendBookToKindleEmailAsync(book);
+        await SendBooksToKindleEmailAsync([book]);
     }
 
     private async void SendSelectedBookToKindleEmailButton_Click(object sender, RoutedEventArgs e)
     {
         if (_selectedBook is null) return;
-        await SendBookToKindleEmailAsync(_selectedBook);
+        await SendBooksToKindleEmailAsync([_selectedBook]);
     }
 
-    private async Task SendBookToKindleEmailAsync(Book book)
+    private async Task SendBooksToKindleEmailAsync(IReadOnlyList<Book> books)
     {
         if (_kindleEmailSending) return;
         if (!_appSettings.NetworkEnabled)
@@ -104,17 +104,17 @@ public sealed partial class MainWindow
             return;
         }
 
-        var file = KindleEmailSelectionPolicy.SelectPreferred(book.Files);
-        if (file is null)
+        var pending = new List<(Book Book, string SourcePath)>();
+        foreach (var book in books)
         {
-            await ShowMessageAsync("无法发送", "发送到 Kindle 邮箱目前只支持 EPUB 或 PDF 文件。\n请先为本书导入 EPUB 或 PDF 版本。");
-            return;
+            var file = KindleEmailSelectionPolicy.SelectPreferred(book.Files);
+            if (file is null) continue;
+            var sourcePath = _library.GetAbsoluteFilePath(file);
+            if (File.Exists(sourcePath)) pending.Add((book, sourcePath));
         }
-
-        var sourcePath = _library.GetAbsoluteFilePath(file);
-        if (!File.Exists(sourcePath))
+        if (pending.Count == 0)
         {
-            await ShowMessageAsync("无法发送", "找不到这本书的本地文件。请先刷新书库。");
+            await ShowMessageAsync("无法发送", "发送到 Kindle 邮箱目前只支持 EPUB 或 PDF 文件。\n请先为所选书籍导入 EPUB 或 PDF 版本。");
             return;
         }
 
@@ -127,11 +127,13 @@ public sealed partial class MainWindow
             return;
         }
 
+        var titleLines = string.Join("\n", pending.Take(3).Select(entry => $"《{entry.Book.Title}》"));
+        if (pending.Count > 3) titleLines += $"\n…等 {pending.Count} 本";
         var dialog = new ContentDialog
         {
             XamlRoot = ((FrameworkElement)Content).XamlRoot,
             Title = "发送到 Kindle 邮箱",
-            Content = $"确定将《{book.Title}》发送到 {settings.KindleEmailAddress}？",
+            Content = $"确定将以下 {pending.Count} 本书发送到 {settings.KindleEmailAddress}？\n\n{titleLines}",
             PrimaryButtonText = "发送",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary
@@ -142,17 +144,43 @@ public sealed partial class MainWindow
         _kindleEmailSendCancellation = cancellation;
         _kindleEmailSending = true;
         TaskProgress.IsIndeterminate = true;
-        TaskProgress.Visibility = Visibility.Visible;
-        TaskStatusText.Text = $"正在发送《{book.Title}》到 Kindle 邮箱…";
+        ShowTaskProgressPopup();
+        TaskStatusText.Text = "正在发送到 Kindle 邮箱…";
+        var succeeded = 0;
+        var failed = 0;
         try
         {
-            await _kindleEmailSender.SendAsync(
-                settings,
-                sourcePath,
-                $"Send to Kindle: {book.Title}",
-                cancellation.Token);
-            TaskStatusText.Text = $"《{book.Title}》已提交到 Kindle 邮箱";
-            await ShowMessageAsync("发送成功", "邮件已发送。Amazon 完成转换后，书籍会出现在 Kindle 或 Kindle 应用中。");
+            for (var index = 0; index < pending.Count; index++)
+            {
+                var (entry, sourcePath) = pending[index];
+                TaskStatusText.Text = $"正在发送《{entry.Title}》（{index + 1}/{pending.Count}）…";
+                try
+                {
+                    await _kindleEmailSender.SendAsync(
+                        settings,
+                        sourcePath,
+                        $"Send to Kindle: {entry.Title}",
+                        cancellation.Token);
+                    succeeded++;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    failed++;
+                }
+            }
+
+            TaskStatusText.Text = failed == 0
+                ? $"已提交 {succeeded} 本书到 Kindle 邮箱"
+                : $"发送完成：成功 {succeeded} 本，失败 {failed} 本";
+            await ShowMessageAsync(
+                "发送完成",
+                failed == 0
+                    ? $"已提交 {succeeded} 本书到 {settings.KindleEmailAddress}。Amazon 完成转换后，书籍会出现在 Kindle 或 Kindle 应用中。"
+                    : $"已提交 {succeeded} 本，{failed} 本发送失败。请检查邮箱设置后重试。");
         }
         catch (OperationCanceledException)
         {
@@ -170,7 +198,7 @@ public sealed partial class MainWindow
                 _kindleEmailSendCancellation = null;
             cancellation.Dispose();
             TaskProgress.IsIndeterminate = false;
-            TaskProgress.Visibility = Visibility.Collapsed;
+            HideTaskProgressPopup();
         }
     }
 }

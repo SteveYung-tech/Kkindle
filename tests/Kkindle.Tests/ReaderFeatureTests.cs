@@ -9,18 +9,18 @@ public sealed class ReaderFeatureTests
     [Fact]
     public async Task BuildsCachedChineseBookIndexAndFindsRelevantChunks()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var epub = Path.Combine(root, "index.epub");
             using (var archive = ZipFile.Open(epub, ZipArchiveMode.Create))
             {
-                AddEntry(archive, "META-INF/container.xml", """
+                TestHelpers.AddZipEntry(archive, "META-INF/container.xml", """
                     <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
                       <rootfiles><rootfile full-path="EPUB/package.opf" /></rootfiles>
                     </container>
                     """);
-                AddEntry(archive, "EPUB/package.opf", """
+                TestHelpers.AddZipEntry(archive, "EPUB/package.opf", """
                     <package xmlns="http://www.idpf.org/2007/opf">
                       <manifest>
                         <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav" />
@@ -30,7 +30,7 @@ public sealed class ReaderFeatureTests
                       <spine><itemref idref="one" /><itemref idref="two" /></spine>
                     </package>
                     """);
-                AddEntry(archive, "EPUB/nav.xhtml", """
+                TestHelpers.AddZipEntry(archive, "EPUB/nav.xhtml", """
                     <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
                       <body><nav epub:type="toc"><ol>
                         <li><a href="one.xhtml">规模与规律</a></li>
@@ -38,14 +38,14 @@ public sealed class ReaderFeatureTests
                       </ol></nav></body>
                     </html>
                     """);
-                AddEntry(archive, "EPUB/one.xhtml", """
+                TestHelpers.AddZipEntry(archive, "EPUB/one.xhtml", """
                     <html xmlns="http://www.w3.org/1999/xhtml"><body>
                       <h1>规模与规律</h1>
                       <p>规模法则描述系统尺度变化时仍然保持的数量关系。</p>
                       <p>它帮助读者比较动物、企业和城市在不同尺度下的共同结构。</p>
                     </body></html>
                     """);
-                AddEntry(archive, "EPUB/two.xhtml", """
+                TestHelpers.AddZipEntry(archive, "EPUB/two.xhtml", """
                     <html xmlns="http://www.w3.org/1999/xhtml"><body>
                       <h1>城市系统</h1><p>城市人口和基础设施之间存在可测量的统计关系。</p>
                     </body></html>
@@ -70,13 +70,13 @@ public sealed class ReaderFeatureTests
             Assert.Contains(results, chunk => chunk.Content.Contains("规模法则", StringComparison.Ordinal));
             Assert.Contains(results, chunk => chunk.ChapterTitle == "规模与规律");
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task PersistsUpdatesAndDeletesReaderAnnotations()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -113,13 +113,13 @@ public sealed class ReaderFeatureTests
             await service.DeleteAnnotationAsync(annotation.Id);
             Assert.Empty(await service.GetAnnotationsAsync(fileId));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task ResolvesOnlyFootnotesInsideEpubCache()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var epubRoot = Path.Combine(root, "cache");
@@ -144,13 +144,13 @@ public sealed class ReaderFeatureTests
             Assert.Contains("跨文件脚注内容", text);
             Assert.DoesNotContain("不应读取", text);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task ResolvesFootnoteMarkerParagraphInsteadOfOnlyAnchorText()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var epubRoot = Path.Combine(root, "cache");
@@ -171,13 +171,13 @@ public sealed class ReaderFeatureTests
             Assert.Contains("[1]", text);
             Assert.Contains("full footnote details after the marker", text);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task ResolvesFootnoteFromHtmlContainingNamedEntities()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var epubRoot = Path.Combine(root, "cache");
@@ -199,13 +199,13 @@ public sealed class ReaderFeatureTests
             Assert.Contains("注11", text);
             Assert.Contains("footnote details after an HTML entity", text);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task EncryptsAiApiKeyAtRestForCurrentWindowsUser()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -226,25 +226,6 @@ public sealed class ReaderFeatureTests
             Assert.Equal(secret, loaded.ApiKey);
             Assert.Equal("deepseek-v4-flash", loaded.Model);
         }
-        finally { TryDelete(root); }
-    }
-
-    private static void AddEntry(ZipArchive archive, string name, string content)
-    {
-        using var writer = new StreamWriter(archive.CreateEntry(name).Open());
-        writer.Write(content);
-    }
-
-    private static string CreateTempDirectory()
-    {
-        var path = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
-        return path;
-    }
-
-    private static void TryDelete(string path)
-    {
-        try { if (Directory.Exists(path)) Directory.Delete(path, true); }
-        catch { }
+        finally { TestHelpers.TryDelete(root); }
     }
 }

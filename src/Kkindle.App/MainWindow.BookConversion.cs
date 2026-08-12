@@ -132,17 +132,21 @@ public sealed partial class MainWindow
 
     private async Task<AutomaticReaderFormatGenerationResult> AutoGenerateReaderFormatsForImportsAsync(
         ImportBatchResult importResult,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>>? requestedFormatsBySourcePath = null)
     {
         if (!_appSettings.AutoGenerateEpubAndAzw3OnImport)
             return new AutomaticReaderFormatGenerationResult(0, []);
 
-        var books = importResult.Items
+        var importedItems = importResult.Items
             .Where(item => item.Succeeded && item.Added && item.Book is not null)
-            .Select(item => item.Book!)
-            .GroupBy(book => book.Id)
+            .ToArray();
+        var requestedByBook = BuildRequestedFormatsByBook(importedItems, requestedFormatsBySourcePath);
+        var books = importedItems
+            .GroupBy(item => item.Book!.Id)
             .Select(group => group.First())
-            .Where(book => BookFormatConversionPolicy.GetMissingDefaultReaderFormats(book.Files).Count > 0)
+            .Select(item => item.Book!)
+            .Where(book => GetMissingReaderFormats(book, requestedByBook).Count > 0)
             .ToArray();
         if (books.Length == 0)
             return new AutomaticReaderFormatGenerationResult(0, []);
@@ -161,7 +165,7 @@ public sealed partial class MainWindow
         {
             foreach (var book in books)
             {
-                foreach (var targetFormat in BookFormatConversionPolicy.GetMissingDefaultReaderFormats(book.Files))
+                foreach (var targetFormat in GetMissingReaderFormats(book, requestedByBook))
                 {
                     linkedCancellation.Token.ThrowIfCancellationRequested();
                     var sourceFile = BookFormatConversionPolicy.SelectSource(book.Files, targetFormat);
@@ -179,7 +183,7 @@ public sealed partial class MainWindow
                         TaskStatusText.Text = $"正在为《{book.Title}》自动生成 {targetFormat.ToUpperInvariant()}…";
                         var progress = new Progress<FormatConversionProgress>(value =>
                         {
-                            TaskProgress.Visibility = Visibility.Visible;
+                            ShowTaskProgressPopup();
                             TaskProgress.Value = value.Percentage;
                             TaskStatusText.Text = $"正在生成 {targetFormat.ToUpperInvariant()}：{book.Title}（{value.RoundedPercentage}%）";
                         });
@@ -222,11 +226,47 @@ public sealed partial class MainWindow
         }
         finally
         {
-            TaskProgress.Visibility = Visibility.Collapsed;
+            HideTaskProgressPopup();
             _automaticReaderFormatGenerationInProgress = false;
             if (ReferenceEquals(_automaticReaderFormatGenerationCancellation, linkedCancellation))
                 _automaticReaderFormatGenerationCancellation = null;
         }
+    }
+
+    // Maps each imported source file to the EPUB/AZW3 formats the user chose for
+    // it during folder import. When no per-file selection is supplied, every
+    // missing default reader format is generated (the original behavior).
+    private static Dictionary<Guid, HashSet<string>>? BuildRequestedFormatsByBook(
+        IReadOnlyList<ImportItemResult> importedItems,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>>? requestedFormatsBySourcePath)
+    {
+        if (requestedFormatsBySourcePath is null || requestedFormatsBySourcePath.Count == 0)
+            return null;
+
+        var byBook = new Dictionary<Guid, HashSet<string>>();
+        foreach (var item in importedItems)
+        {
+            if (item.Book is null) continue;
+            if (!requestedFormatsBySourcePath.TryGetValue(Path.GetFullPath(item.SourcePath), out var formats))
+                continue;
+
+            if (!byBook.TryGetValue(item.Book.Id, out var set))
+                byBook[item.Book.Id] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var format in formats)
+                set.Add(BookFormatConversionPolicy.Normalize(format));
+        }
+
+        return byBook;
+    }
+
+    private static IReadOnlyList<string> GetMissingReaderFormats(
+        Book book,
+        Dictionary<Guid, HashSet<string>>? requestedByBook)
+    {
+        var missing = BookFormatConversionPolicy.GetMissingDefaultReaderFormats(book.Files);
+        if (requestedByBook is null || !requestedByBook.TryGetValue(book.Id, out var requested))
+            return missing;
+        return missing.Where(format => requested.Contains(format)).ToArray();
     }
 
     private BookCardViewModel? FindBookCard(Guid bookId) =>

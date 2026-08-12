@@ -9,10 +9,10 @@ public sealed partial class MainWindow
     private async void SendBookToKindleMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (sender is MenuFlyoutItem { Tag: Book book })
-            await TrackDeviceOperationAsync(() => SendBookToKindleFromContextAsync(book));
+            await TrackDeviceOperationAsync(() => SendBooksToKindleFromContextAsync([book]));
     }
 
-    private async Task SendBookToKindleFromContextAsync(Book book)
+    private async Task SendBooksToKindleFromContextAsync(IReadOnlyList<Book> books)
     {
         if (_isTransferring)
         {
@@ -20,9 +20,10 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (book.Files.Count == 0)
+        var pending = books.Where(book => book.Files.Count > 0).ToArray();
+        if (pending.Length == 0)
         {
-            ShowTransferToast("发送到 Kindle 设备", "这本书没有可发送的文件。", autoHide: true);
+            ShowTransferToast("发送到 Kindle 设备", "所选书籍没有可发送的文件。", autoHide: true);
             return;
         }
 
@@ -34,9 +35,11 @@ public sealed partial class MainWindow
         }
 
         var device = _devices[0];
+        var titleLines = string.Join("\n", pending.Take(3).Select(book => $"《{book.Title}》"));
+        if (pending.Length > 3) titleLines += $"\n…等 {pending.Length} 本";
         if (!await ShowDevicePromptAsync(
-                "发送到 Kindle？",
-                $"将《{book.Title}》发送到 {device.Name}。\n\n如果设备上存在同名文件，Kkindle 会自动使用带序号的新文件名，不会覆盖原文件。",
+                $"发送到 Kindle：{pending.Length} 本书",
+                $"将以下书籍发送到 {device.Name}：\n\n{titleLines}\n\n如果设备上存在同名文件，Kkindle 会自动使用带序号的新文件名，不会覆盖原文件。",
                 "发送",
                 "取消")) return;
 
@@ -44,9 +47,12 @@ public sealed partial class MainWindow
         _transferCancellation = new CancellationTokenSource();
         TaskProgress.Value = 0;
         TaskProgress.IsIndeterminate = false;
-        TaskProgress.Visibility = Visibility.Visible;
-        ShowTransferToast("发送到 Kindle 设备", $"正在发送《{book.Title}》…", progress: 0);
+        ShowTaskProgressPopup();
+        ShowTransferToast("发送到 Kindle 设备", $"正在发送 {pending.Length} 本书…", progress: 0);
         var acceptProgressUpdates = true;
+        var hideCompletionToastWithTaskPopup = false;
+        var succeeded = 0;
+        var failed = 0;
 
         try
         {
@@ -57,21 +63,51 @@ public sealed partial class MainWindow
                 TaskStatusText.Text = value.Message;
                 ShowTransferToast("发送到 Kindle 设备", value.Message, progress: value.Percentage);
             });
-            using var prepared = await PrepareKindleTransferAsync(
-                book,
-                progress,
-                _transferCancellation.Token);
-            await _kindle.SendBookAsync(
-                device,
-                prepared.File,
-                prepared.SourcePath,
-                progress,
-                _transferCancellation.Token);
+            for (var index = 0; index < pending.Length; index++)
+            {
+                var book = pending[index];
+                TaskStatusText.Text = $"正在发送《{book.Title}》（{index + 1}/{pending.Length}）…";
+                ShowTransferToast(
+                    "发送到 Kindle 设备",
+                    $"正在发送《{book.Title}》（{index + 1}/{pending.Length}）…",
+                    progress: index * 100 / pending.Length);
+                try
+                {
+                    using var prepared = await PrepareKindleTransferAsync(book, progress, _transferCancellation.Token);
+                    await _kindle.SendBookAsync(
+                        device,
+                        prepared.File,
+                        prepared.SourcePath,
+                        progress,
+                        _transferCancellation.Token);
+                    succeeded++;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    failed++;
+                    ShowTransferToast("发送到 Kindle 设备", $"《{book.Title}》发送失败：{exception.Message}", autoHide: true);
+                }
+            }
+
             acceptProgressUpdates = false;
-            TaskStatusText.Text = "已发送到 Kindle";
-            ShowTransferToast("发送到 Kindle 设备", $"《{book.Title}》已发送完成。", progress: 100, autoHide: true);
+            TaskStatusText.Text = failed == 0
+                ? $"已发送 {succeeded} 本书"
+                : $"发送完成：成功 {succeeded} 本，失败 {failed} 本";
+            ShowTransferToast(
+                "发送到 Kindle 设备",
+                failed == 0
+                    ? $"已发送 {succeeded} 本书到 {device.Name}。"
+                    : $"发送完成：成功 {succeeded} 本，失败 {failed} 本。",
+                progress: 100);
             _scannedDeviceId = null;
             await RefreshDevicesAsync();
+            // Match the import task popup: hide the completion toast at the same
+            // moment the task popup collapses (in the finally block below).
+            hideCompletionToastWithTaskPopup = true;
         }
         catch (OperationCanceledException)
         {
@@ -90,7 +126,9 @@ public sealed partial class MainWindow
             _isTransferring = false;
             _transferCancellation.Dispose();
             _transferCancellation = null;
-            TaskProgress.Visibility = Visibility.Collapsed;
+            HideTaskProgressPopup();
+            if (hideCompletionToastWithTaskPopup)
+                HideTransferToast();
         }
     }
 }

@@ -82,6 +82,59 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
         await EnsureBookProductivityColumnsAsync(connection, cancellationToken);
+        await EnsureDefaultCollectionAsync(connection, cancellationToken);
+    }
+
+    // The "未收藏" collection is created automatically so every imported book
+    // has a default home. On first creation the currently uncollected books are
+    // backfilled into it; later removals are respected (no re-backfill).
+    private async Task EnsureDefaultCollectionAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var collectionId = await GetCollectionIdByNameAsync(
+            connection,
+            BookLibraryDefaults.UncollectedCollectionName,
+            cancellationToken);
+        if (collectionId is null)
+        {
+            collectionId = Guid.NewGuid();
+            var insert = connection.CreateCommand();
+            insert.CommandText = """
+                INSERT INTO BookCollections (Id, Name, CreatedAt)
+                VALUES ($id, $name, $createdAt);
+                """;
+            insert.Parameters.AddWithValue("$id", collectionId.Value.ToString());
+            insert.Parameters.AddWithValue("$name", BookLibraryDefaults.UncollectedCollectionName);
+            insert.Parameters.AddWithValue("$createdAt", DateTimeOffset.UtcNow.ToString("O"));
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+
+            var backfill = connection.CreateCommand();
+            backfill.CommandText = """
+                INSERT INTO BookCollectionItems (CollectionId, BookId, AddedAt)
+                SELECT $collectionId, Id, $addedAt
+                FROM Books
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM BookCollectionItems
+                    WHERE BookCollectionItems.BookId = Books.Id
+                );
+                """;
+            backfill.Parameters.AddWithValue("$collectionId", collectionId.Value.ToString());
+            backfill.Parameters.AddWithValue("$addedAt", DateTimeOffset.UtcNow.ToString("O"));
+            await backfill.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private static async Task<Guid?> GetCollectionIdByNameAsync(
+        SqliteConnection connection,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT Id FROM BookCollections WHERE Name = $name COLLATE NOCASE LIMIT 1;";
+        command.Parameters.AddWithValue("$name", name);
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is string id && Guid.TryParse(id, out var parsed) ? parsed : null;
     }
 
     public async Task<IReadOnlyList<Book>> SearchAsync(string? query = null, CancellationToken cancellationToken = default)
@@ -188,6 +241,27 @@ public sealed class SqliteBookLibraryService : IBookLibraryService
                 else
                 {
                     await UpdateBookRowAsync(connection, book, cancellationToken);
+                }
+
+                if (newBook)
+                {
+                    var defaultCollectionId = await GetCollectionIdByNameAsync(
+                        connection,
+                        BookLibraryDefaults.UncollectedCollectionName,
+                        cancellationToken);
+                    if (defaultCollectionId is not null)
+                    {
+                        var membership = connection.CreateCommand();
+                        membership.CommandText = """
+                            INSERT OR IGNORE INTO BookCollectionItems (CollectionId, BookId, AddedAt)
+                            VALUES ($collectionId, $bookId, $addedAt);
+                            """;
+                        membership.Parameters.AddWithValue("$collectionId", defaultCollectionId.Value.ToString());
+                        membership.Parameters.AddWithValue("$bookId", book.Id.ToString());
+                        membership.Parameters.AddWithValue("$addedAt", DateTimeOffset.UtcNow.ToString("O"));
+                        await membership.ExecuteNonQueryAsync(cancellationToken);
+                        book.CollectionIds.Add(defaultCollectionId.Value);
+                    }
                 }
 
                 var relativePath = Path.GetRelativePath(_paths.Data, targetPath);

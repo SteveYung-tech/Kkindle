@@ -46,7 +46,7 @@ public sealed class KindleEmailTests
     [Fact]
     public async Task EncryptsSmtpPasswordAtRest()
     {
-        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -70,11 +70,7 @@ public sealed class KindleEmailTests
         }
         finally
         {
-            try
-            {
-                if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
-            }
-            catch { }
+            TestHelpers.TryDelete(root);
         }
     }
 }

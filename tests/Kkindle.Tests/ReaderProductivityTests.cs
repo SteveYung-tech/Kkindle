@@ -1,4 +1,3 @@
-using System.IO.Compression;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 
@@ -9,7 +8,7 @@ public sealed class ReaderProductivityTests
     [Fact]
     public async Task SavesAndRestoresReadingProgress()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -51,13 +50,13 @@ public sealed class ReaderProductivityTests
             Assert.Equal(1, updated.FlowMode);
             Assert.Null(await service.GetProgressAsync(Guid.NewGuid()));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task AddsDeletesAndListsBookmarks()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -107,13 +106,13 @@ public sealed class ReaderProductivityTests
             var other = await service.GetBookmarksAsync(Guid.NewGuid());
             Assert.Empty(other);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task PersistsPerBookLayoutSettingsAndDefaultsAreRestored()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -149,13 +148,13 @@ public sealed class ReaderProductivityTests
             // A book with no saved settings still resolves to the default record.
             Assert.Null(await service.GetLayoutSettingsAsync(Guid.NewGuid()));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task ListsAnnotationsAcrossAllLocalBooks()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var service = new ReaderDataService(new AppPaths(Path.Combine(root, "app")));
@@ -178,7 +177,7 @@ public sealed class ReaderProductivityTests
             Assert.Contains(all, item => item.Id == first.Id);
             Assert.Contains(all, item => item.Id == second.Id);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
@@ -202,7 +201,7 @@ public sealed class ReaderProductivityTests
     [Fact]
     public async Task SearchBookDoesNotRepeatTitleOnlyMatchesAcrossChapterChunks()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var service = new ReaderDataService(new AppPaths(Path.Combine(root, "app")));
@@ -229,13 +228,13 @@ public sealed class ReaderProductivityTests
             Assert.Single(longQuery);
             Assert.Equal(0, longQuery[0].ChunkIndex);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task SearchBookCollapsesMatchesRepeatedByOverlappingChunks()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var service = new ReaderDataService(new AppPaths(Path.Combine(root, "app")));
@@ -266,13 +265,13 @@ public sealed class ReaderProductivityTests
             Assert.Single(results, result => result.ChapterPath == "text/one.xhtml");
             Assert.Single(results, result => result.ChapterPath == "text/two.xhtml");
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task WholeBookSearchIsNotTruncatedAtTheInteractiveResultLimit()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var service = new ReaderDataService(new AppPaths(Path.Combine(root, "app")));
@@ -298,13 +297,13 @@ public sealed class ReaderProductivityTests
             Assert.Equal(40, bounded.Count);
             Assert.Equal(140, wholeBook.Count);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task SearchBookMergesDifferentHitsFromOverlappingPartsOfOneParagraph()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var service = new ReaderDataService(new AppPaths(Path.Combine(root, "app")));
@@ -330,13 +329,13 @@ public sealed class ReaderProductivityTests
             Assert.Single(results, result => result.ChapterPath == "text/one.xhtml");
             Assert.Single(results, result => result.ChapterPath == "text/two.xhtml");
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task AccumulatesReadingTimeWithoutLosingExistingStats()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -359,13 +358,13 @@ public sealed class ReaderProductivityTests
             var after = await service.GetReadingStatsAsync(fileId);
             Assert.Equal(125, after!.CumulativeSeconds);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task SearchesIndexedBookAndUsesLikeFallbackForShortTerms()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -391,7 +390,7 @@ public sealed class ReaderProductivityTests
             var fallback = await service.SearchBookAsync(bookId, "规模");
             Assert.Contains(fallback, chunk => chunk.ChapterTitle == "第一章");
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
@@ -440,24 +439,5 @@ public sealed class ReaderProductivityTests
         // Empty annotation list still produces a valid, explicit document.
         var empty = ReaderAnnotationExport.BuildMarkdown("空书", "作者", [], null);
         Assert.Contains("暂无划线与批注", empty);
-    }
-
-    private static void AddEntry(ZipArchive archive, string name, string content)
-    {
-        using var writer = new StreamWriter(archive.CreateEntry(name).Open());
-        writer.Write(content);
-    }
-
-    private static string CreateTempDirectory()
-    {
-        var path = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
-        return path;
-    }
-
-    private static void TryDelete(string path)
-    {
-        try { if (Directory.Exists(path)) Directory.Delete(path, true); }
-        catch { }
     }
 }

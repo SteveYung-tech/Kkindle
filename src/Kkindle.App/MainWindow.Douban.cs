@@ -82,7 +82,7 @@ public sealed partial class MainWindow
         _doubanMatchCancellation = cancellation;
         DoubanMatchButton.IsEnabled = false;
         TaskProgress.IsIndeterminate = true;
-        TaskProgress.Visibility = Visibility.Visible;
+        ShowTaskProgressPopup();
         TaskStatusText.Text = $"正在豆瓣匹配《{book.Title}》…";
         OpenDoubanOverlay();
         SetDoubanBusy(true, "正在搜索豆瓣图书…");
@@ -174,7 +174,7 @@ public sealed partial class MainWindow
             cancellation.Dispose();
             DoubanMatchButton.IsEnabled = _selectedBook is not null;
             TaskProgress.IsIndeterminate = false;
-            TaskProgress.Visibility = Visibility.Collapsed;
+            HideTaskProgressPopup();
         }
     }
 

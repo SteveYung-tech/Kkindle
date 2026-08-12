@@ -65,7 +65,7 @@ public sealed class KindleDeviceTests
 
             var books = await service.ScanBooksProgressivelyAsync(
                 device,
-                new InlineProgress<KindleScanProgress>(updates.Add));
+                new TestHelpers.InlineProgress<KindleScanProgress>(updates.Add));
 
             Assert.Equal(KindleScanStage.Enumerated, updates.First().Stage);
             Assert.Empty(Assert.Single(updates.First().Books).Sha256);
@@ -312,7 +312,7 @@ public sealed class KindleDeviceTests
             var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
             var file = new BookFile { Sha256 = await ComputeHashAsync(source) };
             using var cancellation = new CancellationTokenSource();
-            var progress = new InlineProgress<TransferProgress>(_ => cancellation.Cancel());
+            var progress = new TestHelpers.InlineProgress<TransferProgress>(_ => cancellation.Cancel());
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
                 service.SendBookAsync(device, file, source, progress, cancellation.Token));
@@ -436,7 +436,7 @@ public sealed class KindleDeviceTests
             var service = new KindleDeviceService();
             var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
             using var cancellation = new CancellationTokenSource();
-            var progress = new InlineProgress<TransferProgress>(_ => cancellation.Cancel());
+            var progress = new TestHelpers.InlineProgress<TransferProgress>(_ => cancellation.Cancel());
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
                 service.SendResourceAsync(device, KindleResourceKind.Font, source, progress, cancellation.Token));
@@ -685,11 +685,6 @@ public sealed class KindleDeviceTests
         bytes[offset + 8] = marker;
         bytes[offset + length - 2] = 0xFF;
         bytes[offset + length - 1] = 0xD9;
-    }
-
-    private sealed class InlineProgress<T>(Action<T> callback) : IProgress<T>
-    {
-        public void Report(T value) => callback(value);
     }
 
     private sealed class CountingMetadataService : IMetadataService

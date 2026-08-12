@@ -9,7 +9,7 @@ public sealed class LibraryTests
     [Fact]
     public async Task CreatesCollectionsAndPersistsDraggedBookMembership()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var source = Path.Combine(root, "collection.epub");
@@ -20,31 +20,60 @@ public sealed class LibraryTests
             await service.ImportAsync([source]);
             var book = Assert.Single(await service.SearchAsync());
 
+            var uncollected = (await service.GetCollectionsAsync())
+                .Single(collection => collection.Name == BookLibraryDefaults.UncollectedCollectionName);
             var reading = await service.CreateCollectionAsync("待读");
             var favorites = await service.CreateCollectionAsync("喜欢的书");
             await service.AddBookToCollectionAsync(book.Id, reading.Id);
             await service.AddBookToCollectionAsync(book.Id, favorites.Id);
 
             var restored = Assert.Single(await service.SearchAsync());
-            Assert.Equal(2, restored.CollectionIds.Count);
+            Assert.Equal(3, restored.CollectionIds.Count);
+            Assert.Contains(uncollected.Id, restored.CollectionIds);
             Assert.Contains(reading.Id, restored.CollectionIds);
             Assert.Contains(favorites.Id, restored.CollectionIds);
-            Assert.Equal(2, (await service.GetCollectionsAsync()).Count);
+            Assert.Equal(3, (await service.GetCollectionsAsync()).Count);
 
             await service.RemoveBookFromCollectionAsync(book.Id, reading.Id);
             await service.DeleteCollectionAsync(favorites.Id);
 
             restored = Assert.Single(await service.SearchAsync());
-            Assert.Empty(restored.CollectionIds);
-            Assert.Equal(reading.Id, Assert.Single(await service.GetCollectionsAsync()).Id);
+            Assert.Equal(uncollected.Id, Assert.Single(restored.CollectionIds));
+            Assert.Equal(2, (await service.GetCollectionsAsync()).Count);
+            Assert.Contains(uncollected.Id, (await service.GetCollectionsAsync()).Select(collection => collection.Id));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task DefaultUncollectedCollectionReceivesImportedBooks()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var first = Path.Combine(root, "first.epub");
+            var second = Path.Combine(root, "second.epub");
+            CreateEpub(first, "first", "第一本");
+            CreateEpub(second, "second", "第二本");
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+
+            var uncollected = Assert.Single(await service.GetCollectionsAsync());
+            Assert.Equal(BookLibraryDefaults.UncollectedCollectionName, uncollected.Name);
+
+            await service.ImportAsync([first, second]);
+            var books = await service.SearchAsync();
+            Assert.Equal(2, books.Count);
+            Assert.All(books, book => Assert.Contains(uncollected.Id, book.CollectionIds));
+        }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task RejectsDuplicateCollectionNamesIgnoringCase()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -57,7 +86,7 @@ public sealed class LibraryTests
 
             Assert.Contains("同名收藏夹", exception.Message);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
@@ -82,7 +111,7 @@ public sealed class LibraryTests
     [Fact]
     public async Task ImportsEpubMetadataCoverAndAvoidsDuplicateHash()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var source = Path.Combine(root, "纸上书.epub");
@@ -108,13 +137,13 @@ public sealed class LibraryTests
             Assert.NotNull(books[0].CoverPath);
             Assert.True(File.Exists(service.GetAbsoluteFilePath(books[0].Files[0])));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task SearchMatchesTitleAndTags()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var source = Path.Combine(root, "search.epub");
@@ -131,13 +160,13 @@ public sealed class LibraryTests
             Assert.Empty(await service.SearchAsync("不存在"));
             Assert.Equal(1, imported.SuccessCount);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task AddsConvertedFormatToExistingBookWithoutCreatingDuplicateBook()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var source = Path.Combine(root, "原书.epub");
@@ -159,13 +188,13 @@ public sealed class LibraryTests
             Assert.Contains(books[0].Files, file => file.Format == "pdf");
             Assert.All(books[0].Files, file => Assert.True(File.Exists(service.GetAbsoluteFilePath(file))));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task DeletesOnlySelectedFormatAndRemovesBookAfterLastFormat()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var source = Path.Combine(root, "原书.epub");
@@ -194,13 +223,13 @@ public sealed class LibraryTests
             Assert.Empty(await service.SearchAsync());
             Assert.False(File.Exists(epubPath));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task BatchImportReportsMetadataFailureAndContinuesWithOtherFiles()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var broken = Path.Combine(root, "损坏.epub");
@@ -222,13 +251,13 @@ public sealed class LibraryTests
             Assert.Equal("测试书", book.Title);
             Assert.Empty(Directory.EnumerateFiles(paths.Library, "*.part", SearchOption.AllDirectories));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task SameBookWithSameSourceNameKeepsBothFilesUsingNumberedName()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var firstDirectory = Path.Combine(root, "first");
@@ -255,13 +284,13 @@ public sealed class LibraryTests
             Assert.Contains("同名 (2).epub", importedNames);
             Assert.All(book.Files, file => Assert.True(File.Exists(service.GetAbsoluteFilePath(file))));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task CancellationCleansPartialImportAndLeavesLibraryEmpty()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var source = Path.Combine(root, "取消导入.pdf");
@@ -270,7 +299,7 @@ public sealed class LibraryTests
             var service = new SqliteBookLibraryService(paths, new BookMetadataService());
             await service.InitializeAsync();
             using var cancellation = new CancellationTokenSource();
-            var progress = new InlineProgress<TransferProgress>(_ => cancellation.Cancel());
+            var progress = new TestHelpers.InlineProgress<TransferProgress>(_ => cancellation.Cancel());
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
                 service.ImportAsync([source], progress, cancellation.Token));
@@ -279,13 +308,13 @@ public sealed class LibraryTests
             Assert.Empty(Directory.EnumerateFiles(paths.Library, "*.part", SearchOption.AllDirectories));
             Assert.Empty(Directory.EnumerateFiles(paths.Library, "*", SearchOption.AllDirectories));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public void RejectsBookFilePathOutsideManagedDataDirectory()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -296,13 +325,13 @@ public sealed class LibraryTests
             Assert.Throws<InvalidOperationException>(() =>
                 service.GetAbsoluteFilePath(new BookFile { RelativePath = relativeOutsidePath }));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task FallbackMetadataCleansHashBeforeDownloadSourceMarker()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var source = Path.Combine(root, "纸上作品_0123456789ABCDEF0123456789ABCDEF (Z-Library).pdf");
@@ -313,23 +342,23 @@ public sealed class LibraryTests
             Assert.Equal("纸上作品", metadata.Title);
             Assert.Equal("未知作者", metadata.Authors);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
-    private static void CreateEpub(string path, string? uniqueMarker = null)
+    private static void CreateEpub(string path, string? uniqueMarker = null, string? title = null)
     {
         using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
-        AddEntry(archive, "META-INF/container.xml", """
+        TestHelpers.AddZipEntry(archive, "META-INF/container.xml", """
             <?xml version="1.0"?>
             <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
               <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml" /></rootfiles>
             </container>
             """);
-        AddEntry(archive, "OEBPS/content.opf", """
+        TestHelpers.AddZipEntry(archive, "OEBPS/content.opf", $$"""
             <?xml version="1.0" encoding="utf-8"?>
             <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
               <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-                <dc:title>测试书</dc:title>
+                <dc:title>{{(title ?? "测试书")}}</dc:title>
                 <dc:creator>测试作者</dc:creator>
                 <dc:description>一本测试用书</dc:description>
                 <meta name="cover" content="cover" />
@@ -338,30 +367,12 @@ public sealed class LibraryTests
             </package>
             """);
         if (uniqueMarker is not null)
-            AddEntry(archive, "OEBPS/test-marker.txt", uniqueMarker);
+            TestHelpers.AddZipEntry(archive, "OEBPS/test-marker.txt", uniqueMarker);
         var cover = archive.CreateEntry("OEBPS/cover.jpg");
         using var stream = cover.Open();
         stream.Write([1, 2, 3, 4]);
     }
 
-    private static void AddEntry(ZipArchive archive, string name, string content)
-    {
-        using var writer = new StreamWriter(archive.CreateEntry(name).Open());
-        writer.Write(content);
-    }
-
-    private static string CreateTempDirectory()
-    {
-        var path = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
-        return path;
-    }
-
-    private static void TryDelete(string path)
-    {
-        try { if (Directory.Exists(path)) Directory.Delete(path, true); }
-        catch { }
-    }
 
     private sealed class SelectiveFailureMetadataService(
         string failingFileName,
@@ -373,10 +384,5 @@ public sealed class LibraryTests
                 ? Task.FromException<BookMetadata>(new InvalidDataException("图书文件已损坏。"))
                 : inner.ReadMetadataAsync(path, cancellationToken);
         }
-    }
-
-    private sealed class InlineProgress<T>(Action<T> callback) : IProgress<T>
-    {
-        public void Report(T value) => callback(value);
     }
 }

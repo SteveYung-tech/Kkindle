@@ -8,7 +8,7 @@ public sealed class BackupTests
     [Fact]
     public async Task ExportsAndRestoresLibraryReaderDataAndSafeSettings()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var sourceBook = Path.Combine(root, "source.epub");
@@ -81,20 +81,20 @@ public sealed class BackupTests
         }
         finally
         {
-            TryDelete(root);
+            TestHelpers.TryDelete(root);
         }
     }
 
     private static void CreateEpub(string path)
     {
         using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
-        AddEntry(archive, "META-INF/container.xml", """
+        TestHelpers.AddZipEntry(archive, "META-INF/container.xml", """
             <?xml version="1.0"?>
             <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
               <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml" /></rootfiles>
             </container>
             """);
-        AddEntry(archive, "OEBPS/content.opf", """
+        TestHelpers.AddZipEntry(archive, "OEBPS/content.opf", """
             <?xml version="1.0" encoding="utf-8"?>
             <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
               <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -103,29 +103,5 @@ public sealed class BackupTests
               </metadata>
             </package>
             """);
-    }
-
-    private static void AddEntry(ZipArchive archive, string name, string content)
-    {
-        using var writer = new StreamWriter(archive.CreateEntry(name).Open());
-        writer.Write(content);
-    }
-
-    private static string CreateTempDirectory()
-    {
-        var path = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
-        return path;
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
-        }
-        catch
-        {
-        }
     }
 }

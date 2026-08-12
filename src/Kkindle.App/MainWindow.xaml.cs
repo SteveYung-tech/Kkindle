@@ -72,6 +72,8 @@ public sealed partial class MainWindow : Window
     private sealed record MessageDialogRequest(string Title, string Message, TaskCompletionSource<bool> Completion);
     private readonly Queue<MessageDialogRequest> _messageDialogQueue = new();
     private MessageDialogRequest? _activeMessageDialog;
+    private readonly List<(string FilePath, ToggleSwitch Toggle)> _importFormatSelectionRows = [];
+    private TaskCompletionSource<IReadOnlyDictionary<string, IReadOnlyCollection<string>>?>? _importFormatSelectionCompletion;
     private bool _nativeChromeConfigured;
     private AppWindow? _appWindow;
     private OverlappedPresenter? _windowPresenter;
@@ -180,9 +182,14 @@ public sealed partial class MainWindow : Window
     private Task? _readerPreloadWebViewInitializationTask;
 
     // Direction + animation style for the incoming chapter transition. Style is
-    // 1 = fade (淡入淡出), 2 = slide (左右滑动). Recorded when the navigation starts
-    // so a far-chapter jump never plays a long per-page-looking slide.
-    private readonly record struct ReaderTurnInAnimation(int Direction, int Style);
+    // 1 = fade (淡入淡出), 2 = slide (左右滑动), 3 = wave (水波流动). Recorded when the
+    // navigation starts so a far-chapter jump never plays a long per-page-looking
+    // slide. Wave transitions carry the outgoing page snapshot so the same
+    // flowing effect can reveal the new chapter underneath.
+    private readonly record struct ReaderTurnInAnimation(
+        int Direction,
+        int Style,
+        byte[]? Snapshot = null);
 
     public MainWindow(
         AppPaths paths,
@@ -613,6 +620,7 @@ public sealed partial class MainWindow : Window
 
     private async Task RefreshLibraryAsync()
     {
+        ClearMultiSelection();
         try
         {
             await ViewModel.RefreshAsync();
@@ -633,6 +641,9 @@ public sealed partial class MainWindow : Window
         ApplyBookConversionCardState();
         ReconcileLibraryPresence();
         ApplyLibraryGalleryDisplay();
+        // Collection folder counts and cover thumbnails depend on the current
+        // library membership, so keep them in sync after imports/deletes/etc.
+        _ = RefreshBookCollectionsAsync();
     }
 
     private async Task RefreshDevicesAsync()
@@ -764,6 +775,7 @@ public sealed partial class MainWindow : Window
         _scannedResourceKind = null;
         _readingMaterialsDeviceId = null;
         DeviceBooks.Clear();
+        ClearDeviceMultiSelection();
         ReconcileLibraryPresence();
         KindleStatusText.Text = "无设备连接";
         KindleConnectionText.Text = detail ?? string.Empty;
@@ -915,6 +927,7 @@ public sealed partial class MainWindow : Window
             var books = await scanTask;
             cancellation.Token.ThrowIfCancellationRequested();
             DeviceBooks.Clear();
+            ClearDeviceMultiSelection();
             foreach (var book in books) DeviceBooks.Add(new KindleBookCardViewModel(book));
             ApplyLibraryGalleryDisplay();
             ReconcileLibraryPresence();
@@ -965,6 +978,7 @@ public sealed partial class MainWindow : Window
         if (progress.Stage == KindleScanStage.Enumerated)
         {
             DeviceBooks.Clear();
+            ClearDeviceMultiSelection();
             foreach (var book in progress.Books)
                 DeviceBooks.Add(new KindleBookCardViewModel(book));
         }
@@ -1040,6 +1054,25 @@ public sealed partial class MainWindow : Window
         DropImportOverlay.Visibility = Visibility.Collapsed;
     }
 
+    // Expands dropped or picked paths into the actual book files to import:
+    // files are kept as-is when supported, folders are scanned recursively.
+    private static IEnumerable<string> ExpandImportableFiles(IEnumerable<string> paths)
+    {
+        foreach (var input in paths.Where(path => !string.IsNullOrWhiteSpace(path)))
+        {
+            if (File.Exists(input) && ImportableExtensions.Contains(Path.GetExtension(input)))
+            {
+                yield return Path.GetFullPath(input);
+                continue;
+            }
+
+            if (!Directory.Exists(input)) continue;
+            foreach (var file in Directory.EnumerateFiles(input, "*.*", SearchOption.AllDirectories)
+                .Where(file => ImportableExtensions.Contains(Path.GetExtension(file))))
+                yield return Path.GetFullPath(file);
+        }
+    }
+
     private async void LibraryPane_Drop(object sender, DragEventArgs e)
     {
         DropImportOverlay.Visibility = Visibility.Collapsed;
@@ -1047,17 +1080,30 @@ public sealed partial class MainWindow : Window
 
         var items = await e.DataView.GetStorageItemsAsync();
         var paths = items
-            .OfType<Windows.Storage.StorageFile>()
-            .Where(file => ImportableExtensions.Contains(file.FileType))
-            .Select(file => file.Path)
+            .Where(item => item is Windows.Storage.StorageFile or Windows.Storage.StorageFolder)
+            .Select(item => item.Path)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .ToArray();
-        if (paths.Length == 0)
+        var files = ExpandImportableFiles(paths)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (files.Count == 0)
         {
-            await ShowMessageAsync("无法导入", "请拖入 EPUB、PDF、MOBI 或 AZW3 书籍文件。");
+            await ShowMessageAsync("无法导入", "拖入的文件或文件夹中没有 EPUB、PDF、MOBI 或 AZW3 书籍文件。");
             return;
         }
-        await ImportAsync(paths);
+
+        if (!_appSettings.AutoGenerateEpubAndAzw3OnImport)
+        {
+            await ImportAsync(files);
+            return;
+        }
+
+        var formatSelection = await PromptImportFormatSelectionAsync(files);
+        if (formatSelection is null) return;
+        await ImportAsync(
+            formatSelection.Count == 0 ? files : formatSelection.Keys,
+            formatSelection);
     }
 
     private void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
@@ -1109,13 +1155,14 @@ public sealed partial class MainWindow : Window
             CategoryFilterBox.ItemsSource = new[] { "全部分类" }.Concat(ViewModel.AvailableCategories).ToArray();
             ReadingStatusFilterBox.ItemsSource = new[] { "全部状态", "待读", "阅读中", "已读" };
             LibrarySortBox.ItemsSource = new[] { "最近更新", "标题", "作者", "导入时间", "阅读状态" };
+            FavoritesOnlyFilterBox.ItemsSource = new[] { "全部", "仅收藏" };
             AuthorFilterBox.SelectedItem = ViewModel.AuthorFilter ?? "全部作者";
             TagFilterBox.SelectedItem = ViewModel.TagFilter ?? "全部标签";
             FormatFilterBox.SelectedItem = ViewModel.FormatFilter?.ToUpperInvariant() ?? "全部格式";
             CategoryFilterBox.SelectedItem = ViewModel.CategoryFilter ?? "全部分类";
             ReadingStatusFilterBox.SelectedIndex = ViewModel.ReadingStatusFilter is { } status ? (int)status + 1 : 0;
             LibrarySortBox.SelectedIndex = (int)ViewModel.SortMode;
-            FavoritesOnlyCheck.IsChecked = ViewModel.FavoritesOnly;
+            FavoritesOnlyFilterBox.SelectedIndex = ViewModel.FavoritesOnly ? 1 : 0;
             var activeCount = new[] { ViewModel.AuthorFilter, ViewModel.TagFilter, ViewModel.FormatFilter, ViewModel.CategoryFilter }
                 .Count(value => !string.IsNullOrWhiteSpace(value));
             if (ViewModel.ReadingStatusFilter is not null) activeCount++;
@@ -1151,16 +1198,10 @@ public sealed partial class MainWindow : Window
         ViewModel.ReadingStatusFilter = ReadingStatusFilterBox.SelectedIndex <= 0
             ? null
             : (LibraryReadingStatus)(ReadingStatusFilterBox.SelectedIndex - 1);
+        ViewModel.FavoritesOnly = FavoritesOnlyFilterBox.SelectedIndex > 0;
         ViewModel.SortMode = LibrarySortBox.SelectedIndex < 0
             ? LibrarySortMode.UpdatedDescending
             : (LibrarySortMode)LibrarySortBox.SelectedIndex;
-        RefreshLibraryView();
-    }
-
-    private void FavoritesOnlyCheck_Click(object sender, RoutedEventArgs e)
-    {
-        if (_isUpdatingFilters) return;
-        ViewModel.FavoritesOnly = FavoritesOnlyCheck.IsChecked == true;
         RefreshLibraryView();
     }
 
@@ -1195,12 +1236,137 @@ public sealed partial class MainWindow : Window
         picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
         picker.FileTypeFilter.Add("*");
         var folder = await picker.PickSingleFolderAsync();
-        if (folder is not null) await ImportAsync([folder.Path]);
+        if (folder is null) return;
+
+        if (!_appSettings.AutoGenerateEpubAndAzw3OnImport)
+        {
+            await ImportAsync([folder.Path]);
+            return;
+        }
+
+        var files = ExpandImportableFiles([folder.Path]).ToList();
+        var formatSelection = await PromptImportFormatSelectionAsync(
+            files,
+            file => Path.GetRelativePath(folder.Path, file));
+        if (formatSelection is null) return;
+        await ImportAsync(
+            formatSelection.Count == 0 ? [folder.Path] : formatSelection.Keys,
+            formatSelection);
     }
 
-    private async Task ImportAsync(IEnumerable<string> paths)
+    // Import with the "补齐 EPUB 与 AZW3" option enabled asks the user to choose
+    // per book whether the missing formats should be generated after the import.
+    // The monochrome overlay lists every book file with one toggle switch (on by
+    // default); the returned map is keyed by the full path of each book file and
+    // holds the formats the user kept switched on.
+    private Task<IReadOnlyDictionary<string, IReadOnlyCollection<string>>?> PromptImportFormatSelectionAsync(
+        IReadOnlyCollection<string> files,
+        Func<string, string>? displayNameSelector = null)
     {
-        TaskProgress.Visibility = Visibility.Visible;
+        if (_importFormatSelectionCompletion is not null)
+            return _importFormatSelectionCompletion.Task;
+
+        var orderedFiles = files
+            .OrderBy(file => displayNameSelector?.Invoke(file) ?? Path.GetFileName(file), StringComparer.OrdinalIgnoreCase)
+            .Select(Path.GetFullPath)
+            .ToList();
+
+        if (orderedFiles.Count == 0)
+            return Task.FromResult<IReadOnlyDictionary<string, IReadOnlyCollection<string>>?>(
+                new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.OrdinalIgnoreCase));
+
+        ImportFormatSelectionList.Children.Clear();
+        _importFormatSelectionRows.Clear();
+        foreach (var file in orderedFiles)
+        {
+            var displayName = displayNameSelector?.Invoke(file) ?? Path.GetFileName(file);
+            var format = Path.GetExtension(file).TrimStart('.').ToUpperInvariant();
+            var name = new TextBlock
+            {
+                Text = $"{displayName}（{format}）",
+                FontSize = 14,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            ToolTipService.SetToolTip(name, file);
+            var toggle = new ToggleSwitch
+            {
+                OnContent = "开",
+                OffContent = "关",
+                IsOn = true,
+                MinWidth = 120,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            ToolTipService.SetToolTip(toggle, "导入后自动补齐缺失的 EPUB / AZW3");
+            var row = new Grid { ColumnSpacing = 16 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(name, 0);
+            Grid.SetColumn(toggle, 1);
+            row.Children.Add(name);
+            row.Children.Add(toggle);
+            ImportFormatSelectionList.Children.Add(row);
+            _importFormatSelectionRows.Add((file, toggle));
+        }
+
+        ImportFormatSelectionSummaryText.Text =
+            $"将导入 {orderedFiles.Count} 本书籍文件；打开开关表示导入后自动补齐缺失的 EPUB / AZW3（默认全部开启）。";
+        ImportFormatSelectionOverlay.Visibility = Visibility.Visible;
+        ImportFormatSelectionOverlay.Focus(FocusState.Programmatic);
+
+        var completion = new TaskCompletionSource<IReadOnlyDictionary<string, IReadOnlyCollection<string>>?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _importFormatSelectionCompletion = completion;
+        return completion.Task;
+    }
+
+    private void ImportFormatSelectionPrimaryButton_Click(object sender, RoutedEventArgs e)
+    {
+        var completion = _importFormatSelectionCompletion;
+        if (completion is null) return;
+        _importFormatSelectionCompletion = null;
+
+        var result = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (filePath, toggle) in _importFormatSelectionRows)
+            result[filePath] = toggle.IsOn ? new[] { "epub", "azw3" } : [];
+        ImportFormatSelectionOverlay.Visibility = Visibility.Collapsed;
+        completion.TrySetResult(result);
+    }
+
+    private void ImportFormatSelectionCancelButton_Click(object sender, RoutedEventArgs e) =>
+        CompleteImportFormatSelection(cancelled: true);
+
+    private void ImportFormatSelectionOverlay_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            e.Handled = true;
+            CompleteImportFormatSelection(cancelled: true);
+        }
+        else if (e.Key == Windows.System.VirtualKey.Enter)
+        {
+            e.Handled = true;
+            ImportFormatSelectionPrimaryButton_Click(sender, e);
+        }
+    }
+
+    private void CompleteImportFormatSelection(bool cancelled)
+    {
+        var completion = _importFormatSelectionCompletion;
+        if (completion is null) return;
+        _importFormatSelectionCompletion = null;
+        ImportFormatSelectionOverlay.Visibility = Visibility.Collapsed;
+        completion.TrySetResult(
+            cancelled
+                ? null
+                : new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private async Task ImportAsync(
+        IEnumerable<string> paths,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>>? requestedFormatsBySourcePath = null)
+    {
+        ShowTaskProgressPopup();
         TaskProgress.Value = 0;
         try
         {
@@ -1211,12 +1377,19 @@ public sealed partial class MainWindow : Window
             });
             var result = await ViewModel.ImportAsync(paths, progress);
             TaskStatusText.Text = ViewModel.StatusText;
+            // Books are already in the library; refresh the presentation before
+            // the automatic EPUB/AZW3 generation starts so the empty state is
+            // hidden and the newly imported books are visible right away.
+            UpdateLibraryPresentationState();
             if (result.FailureCount > 0)
             {
                 var failures = string.Join("\n", result.Items.Where(x => !x.Succeeded).Take(5).Select(x => $"{Path.GetFileName(x.SourcePath)}：{x.Message}"));
                 await ShowMessageAsync("部分文件未导入", failures);
             }
-            var automaticFormats = await AutoGenerateReaderFormatsForImportsAsync(result);
+            var automaticFormats = await AutoGenerateReaderFormatsForImportsAsync(
+                result,
+                cancellationToken: default,
+                requestedFormatsBySourcePath);
             if (automaticFormats.Failures.Count > 0)
             {
                 await ShowMessageAsync(
@@ -1236,7 +1409,7 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
-            TaskProgress.Visibility = Visibility.Collapsed;
+            HideTaskProgressPopup();
         }
     }
 
@@ -1364,7 +1537,7 @@ public sealed partial class MainWindow : Window
 
         _isTransferring = true;
         _transferCancellation = new CancellationTokenSource();
-        TaskProgress.Visibility = Visibility.Visible;
+        ShowTaskProgressPopup();
         try
         {
             var progress = new Progress<TransferProgress>(value =>
@@ -1401,7 +1574,7 @@ public sealed partial class MainWindow : Window
             _isTransferring = false;
             _transferCancellation.Dispose();
             _transferCancellation = null;
-            TaskProgress.Visibility = Visibility.Collapsed;
+            HideTaskProgressPopup();
         }
     }
 
@@ -2290,9 +2463,10 @@ public sealed partial class MainWindow : Window
     //      (styling/viewport, cover/image fit, target position restore,
     //      pagination snap, scroll-edge priming) while the new page is held
     //      behind the pane's opaque background.
-    //   3. Only then does the selected fade or slide animation reveal the
-    //      ready first screen; 无动画 shows it immediately. Slow non-first-screen
-    //      work (annotations,
+    //   3. Only then does the selected fade/slide/wave animation reveal the
+    //      ready first screen; 无动画 shows it immediately. Wave chapter
+    //      transitions replay the captured outgoing page so the same flowing
+    //      effect plays across chapters. Slow non-first-screen work (annotations,
     //      footnote hover, stats/progress) is deferred behind the reveal and
     //      guarded by the navigation sequence so a stale chapter can never
     //      overwrite the current one. The transition never blocks the UI
@@ -2311,7 +2485,7 @@ public sealed partial class MainWindow : Window
         await NavigateReaderSourceAsync(new Uri(_readerChapters[_readerChapterIndex]), direction, animate, intent);
     }
 
-    private Task NavigateReaderSourceAsync(
+    private async Task NavigateReaderSourceAsync(
         Uri target,
         int direction,
         bool animate,
@@ -2320,7 +2494,7 @@ public sealed partial class MainWindow : Window
         if (target is null || ReaderActiveWebView.CoreWebView2 is null)
         {
             if (target is not null) ReaderActiveWebView.Source = target;
-            return Task.CompletedTask;
+            return;
         }
 
         // An explicit user target must win over any automatic breakpoint
@@ -2349,8 +2523,11 @@ public sealed partial class MainWindow : Window
             // chapter's first line, fragment entries to their anchor, and
             // bookmark/annotation/search/AI locations to their own target.
             if (intent != ReaderNavigationIntent.None)
-                return RunSameChapterLocationAsync(intent, target, locationSequence);
-            return Task.CompletedTask;
+            {
+                await RunSameChapterLocationAsync(intent, target, locationSequence);
+                return;
+            }
+            return;
         }
 
         // Animations are decorative: never run them while closing, while the
@@ -2358,14 +2535,14 @@ public sealed partial class MainWindow : Window
         // (TOC/search/bookmark/annotation/AI/progress slider) always use the
         // selected animation style, so every navigation path has predictable
         // behavior without pretending to drag through intermediate chapters.
-        var chapterStyle = _readerPageAnimation == ReaderAnimationWave
-            ? ReaderAnimationFade
-            : _readerPageAnimation;
+        // Chapter switches use the same animation as in-chapter page turns,
+        // including the wave: the outgoing page is snapshotted below and washed
+        // away once the new chapter's first screen is ready.
+        var chapterStyle = _readerPageAnimation;
         var shouldAnimate = animate
             && chapterStyle > ReaderAnimationNone
             && !_readerCloseRequested
             && ReaderPane.Visibility == Visibility.Visible;
-        var turnInStyle = shouldAnimate ? chapterStyle : ReaderAnimationNone;
 
         _readerChapterTransitionCancellation?.Cancel();
         _readerChapterTransitionCancellation?.Dispose();
@@ -2373,12 +2550,38 @@ public sealed partial class MainWindow : Window
         var token = _readerChapterTransitionCancellation.Token;
         var sequence = ++_readerChapterTransitionSequence;
 
+        // Capture the outgoing page while it is still visible and before the
+        // WebView navigates away; the wave turn-in later replays it on top of
+        // the prepared new chapter. A failed capture simply falls back to the
+        // fade reveal, so a chapter switch is never blocked by the animation.
+        byte[]? waveSnapshot = null;
+        if (shouldAnimate && chapterStyle == ReaderAnimationWave)
+        {
+            try
+            {
+                waveSnapshot = await CaptureReaderPageSnapshotAsync(
+                    ReaderActiveWebView.CoreWebView2,
+                    token);
+            }
+            catch (OperationCanceledException)
+            {
+                // A newer navigation or a reader close superseded this one;
+                // that flow owns the reader state now.
+                return;
+            }
+            catch
+            {
+                waveSnapshot = null;
+            }
+            if (token.IsCancellationRequested) return;
+        }
+
         // The current page is kept on screen while the document loads; the
         // reader surface is hidden only after the new chapter commits and its
         // first screen is prepared (see ReaderWebView_NavigationCompleted).
         _readerTransitionActive = true;
         _readerPendingTurnInAnimation = shouldAnimate
-            ? new ReaderTurnInAnimation(direction, turnInStyle)
+            ? new ReaderTurnInAnimation(direction, chapterStyle, waveSnapshot)
             : null;
         _readerPendingNavigationTarget = target;
         // Hide the surface BEFORE the WebView starts navigating: the new
@@ -2399,7 +2602,7 @@ public sealed partial class MainWindow : Window
             _readerPendingNavigationTarget = null;
             ResetReaderWebViewTransform();
             _readerTransitionActive = false;
-            return Task.CompletedTask;
+            return;
         }
         // Watchdog: NavigationCompleted normally releases the transition guard;
         // if the navigation never reports back (or fails while a still-pending
@@ -2409,7 +2612,6 @@ public sealed partial class MainWindow : Window
         _ = Task.Delay(3000).ContinueWith(
             _ => _readerTransitionActive = false,
             TaskScheduler.Default);
-        return Task.CompletedTask;
     }
 
     private void ReaderTocList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -2822,7 +3024,6 @@ public sealed partial class MainWindow : Window
             ReaderTocPanel.Margin = new Thickness(0, 38, 0, 0);
             ReaderTocCompactPanel.Margin = new Thickness(0, 38, 0, 0);
             ReaderContentPanel.Margin = new Thickness(0, 38, 0, 0);
-            ReaderAssistantPanel.Margin = new Thickness(0, 38, 0, 0);
             ReaderWebViewHost.Margin = new Thickness(0, 12, 0, 10);
             ReaderWebViewBottomCover.Margin = new Thickness(0, 0, 0, 10);
             ReaderHeaderRow.Height = new GridLength(52);
@@ -2858,8 +3059,13 @@ public sealed partial class MainWindow : Window
             : Visibility.Collapsed;
         // The Kreader brand text sits at the top-left and would float over the
         // minimal TOC rail in zen mode, so it stays hidden there even when the
-        // chrome is revealed (only the right-side controls come back).
-        ReaderBrandText.Visibility = !_readerZenMode && visible
+        // chrome is revealed (only the right-side controls come back). It must
+        // also stay hidden once the reader closes: ResetReaderChromeLayout()
+        // re-runs this with visible=true while returning to the bookshelf, and
+        // without the pane check the brand would float over the library title.
+        ReaderBrandText.Visibility = !_readerZenMode
+            && visible
+            && ReaderPane.Visibility == Visibility.Visible
             ? Visibility.Visible
             : Visibility.Collapsed;
         MinimizeWindowButton.Visibility = visible
@@ -2902,7 +3108,6 @@ public sealed partial class MainWindow : Window
         ReaderTocPanel.Margin = new Thickness(0, 38, 0, 0);
         ReaderTocCompactPanel.Margin = new Thickness(0, 38, 0, 0);
         ReaderContentPanel.Margin = new Thickness(0, 38, 0, 0);
-        ReaderAssistantPanel.Margin = new Thickness(0, 38, 0, 0);
         ReaderWebViewHost.Margin = new Thickness(0, 12, 0, 10);
         ReaderWebViewBottomCover.Margin = new Thickness(0, 0, 0, 10);
         ReaderHeaderRow.Height = new GridLength(52);
@@ -2995,8 +3200,9 @@ public sealed partial class MainWindow : Window
             ResetReaderWebViewTransform();
             return;
         }
-        // Chapter transitions never receive the wave style (it is mapped to
-        // the fade there); treat it as fade defensively if it ever arrives.
+        // Chapter wave transitions use their own dedicated reveal
+        // (AnimateReaderChapterWaveInAsync); this host transform only plays
+        // fade/slide. Keep the defensive mapping in case wave ever arrives.
         if (style == ReaderAnimationWave)
             style = ReaderAnimationFade;
         if (_readerCloseRequested)
@@ -3138,16 +3344,18 @@ public sealed partial class MainWindow : Window
     }
 
     // ------------------------------------------------------------------
-    // Kindle-style wave ("水波流动") page-turn animation. Only runs for
-    // pagination turns inside a chapter, where the target page is the
-    // neighbouring column of the same document: the outgoing page is
-    // snapshotted, the WebView is scrolled to the target while hidden behind
-    // that snapshot, then the snapshot washes away from the incoming side in a
-    // flowing wave (vertical strips with sine-modulated slide, inner flow and
-    // ripple), revealing the real next page underneath. The effect lives
-    // entirely inside the WebView (ReaderWaveScripts), so no XAML overlay or
-    // host transform is needed; if the snapshot or injection cannot run, the
-    // page still turns instantly instead of dropping the input.
+    // Kindle-style wave ("水波流动") page-turn animation. For in-chapter turns
+    // the target is the neighbouring column of the same document: the outgoing
+    // page is snapshotted, the WebView is scrolled to the target while hidden
+    // behind that snapshot, then the snapshot washes away from the incoming
+    // side in a flowing wave (vertical strips with sine-modulated slide, inner
+    // flow and ripple), revealing the real next page underneath. Chapter
+    // switches replay the same overlay on the prepared new document
+    // (AnimateReaderChapterWaveInAsync), so jumping chapters uses the exact
+    // same effect. The overlay lives entirely inside the WebView
+    // (ReaderWaveScripts), so no XAML overlay or host transform is needed; if
+    // the snapshot or injection cannot run, the turn still happens instead of
+    // dropping the input.
     // ------------------------------------------------------------------
 
     private async Task<bool> AnimateReaderPageWaveAsync(
@@ -3235,6 +3443,69 @@ public sealed partial class MainWindow : Window
 
         await TryRemoveReaderWaveOverlayAsync();
         return true;
+    }
+
+    // Reveals a prepared new chapter with the same Kindle-style wave: the
+    // captured outgoing page is injected as the overlay on the new document,
+    // the host is shown underneath, and the wave strips wash the old page away
+    // to reveal the new chapter. Falls back to the fade reveal when the
+    // snapshot or injection is unavailable so the chapter is never left hidden.
+    private async Task AnimateReaderChapterWaveInAsync(
+        int direction,
+        byte[]? snapshot,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var core = ReaderActiveWebView.CoreWebView2;
+            if (core is null || _readerCloseRequested || snapshot is null || snapshot.Length == 0)
+            {
+                await AnimateReaderPageTurnAsync(direction, isOut: false, ReaderAnimationFade, cancellationToken);
+                return;
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // The snapshot is embedded as a data URL in the injected script.
+            // Guard the size: an oversized capture would make the injection slow
+            // enough to defeat the animation, so fall back to the fade reveal.
+            var dataUrl = "data:image/png;base64," + Convert.ToBase64String(snapshot);
+            if (dataUrl.Length > 4_500_000)
+            {
+                await AnimateReaderPageTurnAsync(direction, isOut: false, ReaderAnimationFade, cancellationToken);
+                return;
+            }
+
+            var width = Math.Max(1, ReaderWebViewHost.ActualWidth);
+            var height = Math.Max(1, ReaderWebViewHost.ActualHeight);
+            var overlayScript = ReaderWaveScripts.CreateWaveOverlayScript(
+                dataUrl,
+                width,
+                height,
+                forward: direction > 0);
+            if (!await ExecuteReaderBooleanScriptAsync(overlayScript))
+            {
+                await AnimateReaderPageTurnAsync(direction, isOut: false, ReaderAnimationFade, cancellationToken);
+                return;
+            }
+
+            // The prepared new chapter now sits underneath the captured old
+            // page; reveal it and let the wave wash the old page away.
+            ReaderWebViewHost.Opacity = 1;
+            await Task.Delay(ReaderWaveScripts.TotalDurationMs + 100, cancellationToken);
+            if (_readerCloseRequested) throw new OperationCanceledException();
+            await TryRemoveReaderWaveOverlayAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            await TryRemoveReaderWaveOverlayAsync();
+            throw;
+        }
+        catch
+        {
+            // The wave is decorative; never leave the new chapter hidden.
+            await TryRemoveReaderWaveOverlayAsync();
+            await AnimateReaderPageTurnAsync(direction, isOut: false, ReaderAnimationFade, cancellationToken);
+        }
     }
 
     private async Task TryRemoveReaderWaveOverlayAsync()
@@ -3878,7 +4149,10 @@ public sealed partial class MainWindow : Window
             _readerInitialRevealPending = false;
             if (turnIn is { } pending)
             {
-                await AnimateReaderPageTurnAsync(pending.Direction, isOut: false, pending.Style, token);
+                if (pending.Style == ReaderAnimationWave)
+                    await AnimateReaderChapterWaveInAsync(pending.Direction, pending.Snapshot, token);
+                else
+                    await AnimateReaderPageTurnAsync(pending.Direction, isOut: false, pending.Style, token);
             }
             else
             {
@@ -3984,16 +4258,39 @@ public sealed partial class MainWindow : Window
         var token = _readerChapterTransitionCancellation.Token;
         var sequence = ++_readerChapterTransitionSequence;
 
-        var chapterStyle = _readerPageAnimation == ReaderAnimationWave
-            ? ReaderAnimationFade
-            : _readerPageAnimation;
+        // Chapter switches use the same animation as in-chapter page turns; the
+        // wave snapshots the outgoing page before the surface swap below.
+        var chapterStyle = _readerPageAnimation;
         var shouldAnimate = animate
             && chapterStyle > ReaderAnimationNone
             && !_readerCloseRequested
             && ReaderPane.Visibility == Visibility.Visible;
+
+        byte[]? waveSnapshot = null;
+        if (shouldAnimate && chapterStyle == ReaderAnimationWave)
+        {
+            try
+            {
+                waveSnapshot = await CaptureReaderPageSnapshotAsync(
+                    ReaderActiveWebView.CoreWebView2,
+                    token);
+            }
+            catch (OperationCanceledException)
+            {
+                // A newer navigation or a reader close superseded this one;
+                // that flow owns the reader state now.
+                return true;
+            }
+            catch
+            {
+                waveSnapshot = null;
+            }
+            if (token.IsCancellationRequested) return true;
+        }
+
         _readerTransitionActive = true;
         _readerPendingTurnInAnimation = shouldAnimate
-            ? new ReaderTurnInAnimation(direction, chapterStyle)
+            ? new ReaderTurnInAnimation(direction, chapterStyle, waveSnapshot)
             : null;
         _readerPendingNavigationTarget = null;
         _readerInitialRevealPending = false;
@@ -4016,7 +4313,12 @@ public sealed partial class MainWindow : Window
         try
         {
             if (_readerPendingTurnInAnimation is { } pending)
-                await AnimateReaderPageTurnAsync(pending.Direction, isOut: false, pending.Style, token);
+            {
+                if (pending.Style == ReaderAnimationWave)
+                    await AnimateReaderChapterWaveInAsync(pending.Direction, pending.Snapshot, token);
+                else
+                    await AnimateReaderPageTurnAsync(pending.Direction, isOut: false, pending.Style, token);
+            }
             else
                 ResetReaderWebViewTransform();
             _readerTransitionActive = false;

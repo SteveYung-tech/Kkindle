@@ -110,6 +110,23 @@ public sealed class BookCardViewModel : ObservableObject
     public Visibility GalleryPresenceVisibility => _galleryTextVisibility == Visibility.Collapsed
         ? Visibility.Collapsed
         : PresenceVisibility;
+    private bool _isMultiSelected;
+
+    // Rubber-band multi selection (right-button drag over the grid): the card
+    // shows a black outline and a check badge while included in the selection.
+    public bool IsMultiSelected
+    {
+        get => _isMultiSelected;
+        set
+        {
+            if (SetProperty(ref _isMultiSelected, value))
+                OnPropertyChanged(nameof(MultiSelectedVisibility));
+        }
+    }
+
+    public Visibility MultiSelectedVisibility => IsMultiSelected
+        ? Visibility.Visible
+        : Visibility.Collapsed;
     private bool _isConversionProgressVisible;
     private double _conversionProgress;
     private string _conversionProgressLabel = "0%";
@@ -308,6 +325,24 @@ public sealed class KindleBookCardViewModel : ObservableObject
         : $"SHA-256 {Book.Sha256[..Math.Min(12, Book.Sha256.Length)]}…";
     public BitmapImage? CoverImage { get; }
 
+    private bool _isMultiSelected;
+
+    // Mouse multi selection (Ctrl/Shift click and the right-button batch menu):
+    // the card shows a black outline and a check badge while selected.
+    public bool IsMultiSelected
+    {
+        get => _isMultiSelected;
+        set
+        {
+            if (SetProperty(ref _isMultiSelected, value))
+                OnPropertyChanged(nameof(MultiSelectedVisibility));
+        }
+    }
+
+    public Visibility MultiSelectedVisibility => IsMultiSelected
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
     public BookLibraryPresence LibraryPresence
     {
         get => _libraryPresence;
@@ -365,8 +400,13 @@ public sealed class KindleBookCardViewModel : ObservableObject
 public sealed class ZLibraryBookCardViewModel : ObservableObject
 {
     private static readonly HttpClient CoverClient = new() { Timeout = TimeSpan.FromSeconds(30) };
+    // The primary cover CDN (covers.1lib.sk) is protected by a browser-only
+    // anti-bot challenge (DiamWall) and returns an HTML verification page to
+    // plain HTTP clients. These mirrors serve the same cover paths directly.
+    private static readonly string[] CoverFallbackHosts = ["https://covers.z-library.sk"];
     private bool _isDownloading;
     private double _downloadProgress;
+    private bool _hasDownloadCompleted;
     private string _statusMessage = string.Empty;
 
     public ZLibraryBookCardViewModel(ZLibraryBook book)
@@ -430,6 +470,11 @@ public sealed class ZLibraryBookCardViewModel : ObservableObject
         {
             if (SetProperty(ref _isDownloading, value))
             {
+                if (value)
+                {
+                    DownloadProgress = 0;
+                    HasDownloadCompleted = false;
+                }
                 OnPropertyChanged(nameof(IsNotDownloading));
                 OnPropertyChanged(nameof(DownloadButtonText));
                 OnPropertyChanged(nameof(DownloadProgressVisibility));
@@ -439,6 +484,11 @@ public sealed class ZLibraryBookCardViewModel : ObservableObject
     }
 
     public bool IsNotDownloading => !IsDownloading;
+    public bool HasDownloadCompleted
+    {
+        get => _hasDownloadCompleted;
+        private set => SetProperty(ref _hasDownloadCompleted, value);
+    }
 
     public double DownloadProgress
     {
@@ -464,6 +514,7 @@ public sealed class ZLibraryBookCardViewModel : ObservableObject
     public void MarkDownloadCompleted()
     {
         DownloadProgress = 100;
+        HasDownloadCompleted = true;
     }
 
     public void SetStatus(string message)
@@ -474,22 +525,48 @@ public sealed class ZLibraryBookCardViewModel : ObservableObject
     public async Task LoadCoverAsync(CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(Book.CoverUrl)) return;
-        try
+
+        var attempts = new List<string> { Book.CoverUrl };
+        if (Uri.TryCreate(Book.CoverUrl, UriKind.Absolute, out var coverUri))
         {
-            using var response = await CoverClient.GetAsync(Book.CoverUrl, cancellationToken);
-            if (!response.IsSuccessStatusCode) return;
-            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-            if (bytes.Length == 0) return;
-            using var stream = new MemoryStream(bytes);
-            var image = new BitmapImage();
-            await image.SetSourceAsync(stream.AsRandomAccessStream());
-            CoverImage = image;
-            OnPropertyChanged(nameof(CoverImage));
+            foreach (var fallbackHost in CoverFallbackHosts)
+            {
+                var fallback = fallbackHost + coverUri.PathAndQuery;
+                if (!string.Equals(fallback, Book.CoverUrl, StringComparison.OrdinalIgnoreCase))
+                    attempts.Add(fallback);
+            }
         }
-        catch
+
+        foreach (var url in attempts)
         {
-            // Cover loading is decorative; never fail the search result.
+            try
+            {
+                using var response = await CoverClient.GetAsync(url, cancellationToken);
+                if (!response.IsSuccessStatusCode) continue;
+                var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                if (bytes.Length == 0 || !LooksLikeCoverImage(bytes)) continue;
+                using var stream = new MemoryStream(bytes);
+                var image = new BitmapImage();
+                await image.SetSourceAsync(stream.AsRandomAccessStream());
+                CoverImage = image;
+                OnPropertyChanged(nameof(CoverImage));
+                return;
+            }
+            catch
+            {
+                // Cover loading is decorative; never fail the search result.
+            }
         }
+    }
+
+    private static bool LooksLikeCoverImage(byte[] bytes)
+    {
+        if (bytes.Length < 4) return false;
+        return (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) // JPEG
+            || (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) // PNG
+            || (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) // GIF
+            || (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46) // WEBP/RIFF
+            || (bytes[0] == 0x42 && bytes[1] == 0x4D); // BMP
     }
 }
 

@@ -537,7 +537,7 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <ComboBox x:Name="AuthorFilterBox"
@@ -575,11 +575,12 @@
                               CornerRadius="0"
                               HorizontalAlignment="Stretch"
                               SelectionChanged="FilterComboBox_SelectionChanged" />
-                    <CheckBox x:Name="FavoritesOnlyCheck"
+                    <ComboBox x:Name="FavoritesOnlyFilterBox"
                               Grid.Column="6"
-                              Margin="0,22,0,0"
-                              Content="仅收藏"
-                              Click="FavoritesOnlyCheck_Click" />
+                              Header="收藏"
+                              CornerRadius="0"
+                              HorizontalAlignment="Stretch"
+                              SelectionChanged="FilterComboBox_SelectionChanged" />
                     <Button Grid.Column="7"
                             Margin="0,22,0,0"
                             Content="清除筛选"
@@ -623,6 +624,11 @@
                           IsItemClickEnabled="True"
                           ItemClick="BookGrid_ItemClick"
                           DoubleTapped="BookGrid_DoubleTapped"
+                          PointerPressed="BookGrid_PointerPressed"
+                          PointerMoved="BookGrid_PointerMoved"
+                          PointerReleased="BookGrid_PointerReleased"
+                          PointerCaptureLost="BookGrid_PointerCaptureLost"
+                          KeyDown="BookGrid_KeyDown"
                           SelectionMode="None"
                           ItemContainerStyle="{StaticResource BookCardItemStyle}">
                     <GridView.ItemsPanel>
@@ -632,7 +638,7 @@
                     </GridView.ItemsPanel>
                     <GridView.ItemTemplate>
                         <DataTemplate x:DataType="local:BookCardViewModel">
-                            <Grid Width="154">
+                            <Grid Width="154" RightTapped="BookCard_RightTapped">
                                 <Grid.ContextFlyout>
                                     <MenuFlyout Opening="BookContextFlyout_Opening"
                                                 MenuFlyoutPresenterStyle="{StaticResource MonochromeMenuFlyoutPresenterStyle}">
@@ -775,6 +781,27 @@
                                                    VerticalAlignment="Center" />
                                     </Grid>
                                 </Border>
+                                <Border Grid.Row="0"
+                                        Grid.RowSpan="2"
+                                        Background="Transparent"
+                                        BorderBrush="#000000"
+                                        BorderThickness="3"
+                                        Canvas.ZIndex="8"
+                                        Visibility="{x:Bind MultiSelectedVisibility, Mode=OneWay}"
+                                        IsHitTestVisible="False">
+                                    <Border Width="22"
+                                            Height="22"
+                                            Margin="6,6,0,0"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Top"
+                                            Background="#000000">
+                                        <FontIcon Glyph="&#xE73E;"
+                                                  FontSize="13"
+                                                  Foreground="#FFFFFF"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                                    </Border>
+                                </Border>
                             </Grid>
                         </DataTemplate>
                     </GridView.ItemTemplate>
@@ -784,8 +811,11 @@
                           Grid.Row="1"
                           Visibility="Collapsed"
                           ItemsSource="{x:Bind ViewModel.Books}"
-                          DoubleTapped="BookList_DoubleTapped"
-                          SelectionChanged="BookList_SelectionChanged">
+                          SelectionMode="None"
+                          IsItemClickEnabled="True"
+                          ItemClick="BookList_ItemClick"
+                          PointerPressed="BookList_PointerPressed"
+                          DoubleTapped="BookList_DoubleTapped">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem"
                                BasedOn="{StaticResource OutlinedListItemStyle}">
@@ -796,7 +826,7 @@
                     </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:BookCardViewModel">
-                            <Grid Padding="8,10" MinHeight="84">
+                            <Grid Padding="8,10" MinHeight="84" RightTapped="BookCard_RightTapped">
                                 <Grid.ContextFlyout>
                                     <MenuFlyout Opening="BookContextFlyout_Opening"
                                                 MenuFlyoutPresenterStyle="{StaticResource MonochromeMenuFlyoutPresenterStyle}">
@@ -986,6 +1016,12 @@
                           IsItemClickEnabled="True"
                           ItemClick="CollectionFolderGrid_ItemClick"
                           SelectionMode="None">
+                    <GridView.ContextFlyout>
+                        <MenuFlyout MenuFlyoutPresenterStyle="{StaticResource MonochromeMenuFlyoutPresenterStyle}">
+                            <MenuFlyoutItem Text="创建收藏夹"
+                                            Click="CreateBookCollectionMenuItem_Click" />
+                        </MenuFlyout>
+                    </GridView.ContextFlyout>
                     <GridView.ItemsPanel>
                         <ItemsPanelTemplate>
                             <ItemsWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="0" />
@@ -1131,6 +1167,49 @@
                                TextAlignment="Center"
                                TextWrapping="Wrap" />
                 </StackPanel>
+
+                <Rectangle x:Name="RubberBandRectangle"
+                           Grid.Row="1"
+                           Canvas.ZIndex="30"
+                           HorizontalAlignment="Left"
+                           VerticalAlignment="Top"
+                           Fill="#33000000"
+                           Stroke="#000000"
+                           StrokeThickness="1"
+                           Visibility="Collapsed"
+                           IsHitTestVisible="False" />
+
+                <Border x:Name="BookMultiSelectBar"
+                        Grid.Row="1"
+                        Canvas.ZIndex="40"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Bottom"
+                        Margin="0,0,0,18"
+                        Padding="16,8"
+                        Background="#FFFFFF"
+                        BorderBrush="#000000"
+                        BorderThickness="2"
+                        CornerRadius="0"
+                        Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal" Spacing="14">
+                        <TextBlock x:Name="BookMultiSelectCountText"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <Button x:Name="SendSelectedBooksToKindleButton"
+                                Content="发送到 Kindle 设备"
+                                Click="SendSelectedBooksToKindleButton_Click" />
+                        <Button x:Name="SendSelectedBooksToKindleEmailButton"
+                                Content="发送到 Kindle 邮箱"
+                                Click="SendSelectedBooksToKindleEmailButton_Click" />
+                        <Button x:Name="DeleteSelectedBooksButton"
+                                Content="删除所选"
+                                Click="DeleteSelectedBooksButton_Click" />
+                        <Button Content="取消选择"
+                                Style="{StaticResource QuietButtonStyle}"
+                                Click="ClearMultiSelectionButton_Click" />
+                    </StackPanel>
+                </Border>
             </Grid>
 
             <Border x:Name="DropImportOverlay"
@@ -1177,6 +1256,10 @@
                                Foreground="{StaticResource InkBrush}"
                                FontSize="28"
                                FontWeight="Bold" />
+                    <TextBlock Text="让全球的知识和文献对所有人触手可及"
+                               Foreground="{StaticResource MutedInkBrush}"
+                               FontSize="13"
+                               VerticalAlignment="Center" />
                 </StackPanel>
                 <TextBlock x:Name="ZLibraryStatusText"
                            Margin="0,3,0,0"
@@ -1199,6 +1282,7 @@
                 <ComboBox x:Name="ZLibraryExtensionBox"
                           Grid.Column="1"
                           Width="110"
+                          Height="38"
                           CornerRadius="0"
                           SelectedIndex="0">
                     <ComboBoxItem Content="全部格式" Tag="" />
@@ -1213,6 +1297,7 @@
                 <ComboBox x:Name="ZLibraryLanguageBox"
                           Grid.Column="2"
                           Width="110"
+                          Height="38"
                           CornerRadius="0"
                           SelectedIndex="0">
                     <ComboBoxItem Content="全部语言" Tag="" />
@@ -1227,12 +1312,19 @@
                 </ComboBox>
                 <Button x:Name="ZLibrarySearchButton"
                         Grid.Column="3"
+                        Width="38"
                         Height="38"
-                        Content="搜索"
-                        Click="ZLibrarySearchButton_Click" />
+                        Padding="0"
+                        AutomationProperties.Name="搜索"
+                        ToolTipService.ToolTip="搜索"
+                        Click="ZLibrarySearchButton_Click">
+                    <FontIcon Glyph="&#xE721;"
+                              FontFamily="Segoe MDL2 Assets"
+                              FontSize="14" />
+                </Button>
             </Grid>
 
-            <Grid Grid.Row="2" ColumnSpacing="16">
+            <Grid Grid.Row="2">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -1250,7 +1342,7 @@
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="local:ZLibraryBookCardViewModel">
-                        <Grid Padding="10,10" MinHeight="112" ColumnSpacing="14" Background="Transparent">
+                        <Grid Padding="10,10,22,10" MinHeight="112" ColumnSpacing="14" Background="Transparent">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="66" />
                                 <ColumnDefinition Width="*" />
@@ -1297,24 +1389,39 @@
                                            FontSize="10"
                                            TextTrimming="CharacterEllipsis" />
                             </StackPanel>
-                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="5">
-                                <Button Content="{x:Bind DownloadButtonText, Mode=OneWay}"
-                                        Width="110"
+                            <Grid Grid.Column="2" VerticalAlignment="Center">
+                                <Button Width="110"
+                                        Height="38"
+                                        Padding="0"
+                                        VerticalAlignment="Center"
+                                        HorizontalAlignment="Center"
+                                        AutomationProperties.Name="下载"
+                                        ToolTipService.ToolTip="下载"
                                         Tag="{x:Bind}"
                                         IsEnabled="{x:Bind IsNotDownloading, Mode=OneWay}"
-                                        Click="ZLibraryDownloadButton_Click" />
-                                <ProgressBar Width="110"
-                                             Height="4"
-                                             Maximum="100"
-                                             Value="{x:Bind DownloadProgress, Mode=OneWay}"
-                                             Visibility="{x:Bind DownloadProgressVisibility, Mode=OneWay}" />
+                                        Click="ZLibraryDownloadButton_Click">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="Transparent">
+                                                <ContentPresenter Content="{TemplateBinding Content}" />
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                    <local:TetrisDownloadVisual IsDownloading="{x:Bind IsDownloading, Mode=OneWay}"
+                                                                IsCompleted="{x:Bind HasDownloadCompleted, Mode=OneWay}"
+                                                                Value="{x:Bind DownloadProgress, Mode=OneWay}" />
+                                </Button>
                                 <TextBlock Text="{x:Bind StatusMessage, Mode=OneWay}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Bottom"
                                            MaxWidth="180"
+                                           MaxLines="2"
+                                           Margin="0,0,0,2"
                                            FontSize="10"
                                            Foreground="#777777"
                                            TextWrapping="Wrap"
                                            TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
+                            </Grid>
                         </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
@@ -1323,6 +1430,7 @@
                 <Border x:Name="ZLibraryDetailPanel"
                         Grid.Column="1"
                         Width="350"
+                        Margin="16,0,0,0"
                         Background="{StaticResource CardBrush}"
                         BorderBrush="{StaticResource BorderBrush}"
                         BorderThickness="1"
@@ -1694,6 +1802,22 @@
                                               OffContent="关"
                                               VerticalAlignment="Center" />
                             </Grid>
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="收藏夹互斥"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           ToolTipService.ToolTip="开启后一本书只能属于一个收藏夹：加入新收藏夹时会自动从其他收藏夹移出；关闭后一本书可同时属于多个收藏夹。" />
+                                <ToggleSwitch x:Name="CollectionsMutuallyExclusiveCheck"
+                                              Grid.Column="1"
+                                              OnContent="开"
+                                              OffContent="关"
+                                              VerticalAlignment="Center" />
+                            </Grid>
                         </StackPanel>
                     </Border>
 
@@ -1730,7 +1854,7 @@
                                            FontSize="13"
                                            VerticalAlignment="Center"
                                            TextWrapping="Wrap"
-                                           ToolTipService.ToolTip="开启后按书籍现有格式补齐 EPUB 与 AZW3；导入 MOBI 时生成这两种格式，原始文件仍会保留。" />
+                                           ToolTipService.ToolTip="开启后导入完成时按书籍现有格式补齐 EPUB 与 AZW3（默认关闭）；导入文件夹时会先弹出列表，可逐本选择是否补齐，默认全部补齐。" />
                                 <ToggleSwitch x:Name="AutoGenerateReaderFormatsCheck"
                                               Grid.Column="1"
                                               OnContent="开"
@@ -2436,6 +2560,9 @@
                       Margin="0,24,0,0"
                       ItemsSource="{x:Bind DeviceBooks}"
                       SelectionMode="None"
+                      IsItemClickEnabled="True"
+                      ItemClick="DeviceBookGrid_ItemClick"
+                      PointerPressed="DeviceBookGrid_PointerPressed"
                       ItemContainerStyle="{StaticResource BookCardItemStyle}">
                 <GridView.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -2516,6 +2643,27 @@
                                                 VerticalContentAlignment="Center"
                                                 ContentTemplate="{StaticResource LibraryPresenceGlyphTemplate}" />
                             </Border>
+                            <Border Grid.Row="0"
+                                    Grid.RowSpan="2"
+                                    Background="Transparent"
+                                    BorderBrush="#000000"
+                                    BorderThickness="3"
+                                    Canvas.ZIndex="9"
+                                    Visibility="{x:Bind MultiSelectedVisibility, Mode=OneWay}"
+                                    IsHitTestVisible="False">
+                                <Border Width="22"
+                                        Height="22"
+                                        Margin="6,6,0,0"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Top"
+                                        Background="#000000">
+                                    <FontIcon Glyph="&#xE73E;"
+                                              FontSize="13"
+                                              Foreground="#FFFFFF"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                                </Border>
+                            </Border>
                         </Grid>
                     </DataTemplate>
                 </GridView.ItemTemplate>
@@ -2527,6 +2675,9 @@
                       Visibility="Collapsed"
                       ItemsSource="{x:Bind DeviceBooks}"
                       SelectionMode="None"
+                      IsItemClickEnabled="True"
+                      ItemClick="DeviceBookList_ItemClick"
+                      PointerPressed="DeviceBookList_PointerPressed"
                       ScrollViewer.HorizontalScrollMode="Disabled"
                       ScrollViewer.HorizontalScrollBarVisibility="Hidden">
                 <ListView.ItemContainerStyle>
@@ -2622,10 +2773,58 @@
                                            HorizontalAlignment="Right"
                                            ToolTipService.ToolTip="{x:Bind Book.Sha256}" />
                             </StackPanel>
+                            <Border Grid.ColumnSpan="4"
+                                    Background="Transparent"
+                                    BorderBrush="#000000"
+                                    BorderThickness="3"
+                                    Visibility="{x:Bind MultiSelectedVisibility, Mode=OneWay}"
+                                    IsHitTestVisible="False">
+                                <Border Width="22"
+                                        Height="22"
+                                        Margin="6,6,0,0"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Top"
+                                        Background="#000000">
+                                    <FontIcon Glyph="&#xE73E;"
+                                              FontSize="13"
+                                              Foreground="#FFFFFF"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                                </Border>
+                            </Border>
                         </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
+
+            <Border x:Name="DeviceBookMultiSelectBar"
+                    Grid.Row="1"
+                    Canvas.ZIndex="40"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,0,18"
+                    Padding="16,8"
+                    Background="#FFFFFF"
+                    BorderBrush="#000000"
+                    BorderThickness="2"
+                    CornerRadius="0"
+                    Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal" Spacing="14">
+                    <TextBlock x:Name="DeviceBookMultiSelectCountText"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <Button x:Name="ExportSelectedDeviceBooksButton"
+                            Content="导出到电脑书库"
+                            Click="ExportSelectedDeviceBooksButton_Click" />
+                    <Button x:Name="DeleteSelectedDeviceBooksButton"
+                            Content="从 Kindle 删除"
+                            Click="DeleteSelectedDeviceBooksButton_Click" />
+                    <Button Content="取消选择"
+                            Style="{StaticResource QuietButtonStyle}"
+                            Click="ClearDeviceMultiSelectionButton_Click" />
+                </StackPanel>
+            </Border>
         </Grid>
 
         <!-- Kindle fonts and dictionaries. Operations are restricted to fonts or documents\dictionaries. -->
@@ -3774,7 +3973,7 @@
                                     ToolTipService.ToolTip="阅读设置"
                                     AutomationProperties.Name="阅读设置">
                                 <Button.Flyout>
-                                    <MenuFlyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedLeft">
                                         <ToggleMenuFlyoutItem x:Name="ReaderZenMenuItem"
                                                               Text="禅模式"
                                                               ToolTipService.ToolTip="隐藏目录与阅读助手，最大化正文区域"
@@ -5076,6 +5275,146 @@
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Center"
                                 Click="DeviceModelInputCancelButton_Click" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Custom monochrome collection name input; consistent with the other
+             overlays (white card, black borders, square corners). -->
+        <Grid x:Name="CreateCollectionOverlay"
+              Grid.ColumnSpan="3"
+              Canvas.ZIndex="105"
+              Background="#66000000"
+              Visibility="Collapsed"
+              IsTabStop="True"
+              KeyDown="CreateCollectionOverlay_KeyDown">
+            <Border Width="560"
+                    MaxWidth="560"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="#FFFFFF"
+                    BorderBrush="#000000"
+                    BorderThickness="2"
+                    CornerRadius="0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Padding="28,24,28,22" Spacing="13">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Rectangle Width="10"
+                                       Height="24"
+                                       Margin="0,-2,0,0"
+                                       Fill="#000000"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="新建收藏夹"
+                                       FontSize="24"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock x:Name="CreateCollectionMessageText"
+                                   FontSize="15"
+                                   LineHeight="23"
+                                   TextWrapping="Wrap" />
+                        <TextBox x:Name="CreateCollectionNameBox"
+                                 FontSize="15"
+                                 Padding="10,7"
+                                 MaxLength="60"
+                                 PlaceholderText="例如：待读、技术、小说"
+                                 BorderBrush="#000000"
+                                 BorderThickness="1" />
+                    </StackPanel>
+                    <Grid Grid.Row="1"
+                          Padding="28,18,28,22"
+                          Background="#FFFFFF">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="CreateCollectionOkButton"
+                                Content="创建"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Click="CreateCollectionOkButton_Click" />
+                        <Button Grid.Column="2"
+                                Content="取消"
+                                Style="{StaticResource QuietButtonStyle}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Click="CreateCollectionCancelButton_Click" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Custom monochrome folder-import format selection; consistent with
+             the other overlays (white card, black borders, square corners). -->
+        <Grid x:Name="ImportFormatSelectionOverlay"
+              Grid.ColumnSpan="3"
+              Canvas.ZIndex="105"
+              Background="#66000000"
+              Visibility="Collapsed"
+              IsTabStop="True"
+              KeyDown="ImportFormatSelectionOverlay_KeyDown">
+            <Border Width="620"
+                    MaxWidth="620"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="#FFFFFF"
+                    BorderBrush="#000000"
+                    BorderThickness="2"
+                    CornerRadius="0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Padding="28,24,28,22" Spacing="13">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Rectangle Width="10"
+                                       Height="24"
+                                       Margin="0,-2,0,0"
+                                       Fill="#000000"
+                                       VerticalAlignment="Center" />
+                            <TextBlock x:Name="ImportFormatSelectionTitleText"
+                                       Text="导入文件夹 · 选择格式补齐"
+                                       FontSize="24"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock x:Name="ImportFormatSelectionSummaryText"
+                                   FontSize="15"
+                                   LineHeight="23"
+                                   TextWrapping="Wrap" />
+                        <ScrollViewer x:Name="ImportFormatSelectionScroll"
+                                      MaxHeight="360"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel x:Name="ImportFormatSelectionList" Spacing="10" />
+                        </ScrollViewer>
+                    </StackPanel>
+                    <Grid Grid.Row="1"
+                          Padding="28,18,28,22"
+                          Background="#FFFFFF">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="ImportFormatSelectionPrimaryButton"
+                                Content="导入"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Click="ImportFormatSelectionPrimaryButton_Click" />
+                        <Button Grid.Column="2"
+                                Content="取消"
+                                Style="{StaticResource QuietButtonStyle}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Click="ImportFormatSelectionCancelButton_Click" />
                     </Grid>
                 </Grid>
             </Border>

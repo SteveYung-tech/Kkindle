@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -1032,28 +1033,54 @@ public sealed partial class MainWindow
         // Read from the result model instead of the bound Text property. During
         // ListView realization/recycling the DataContext can be ready before the
         // Text binding has propagated, which previously skipped all ranges.
-        var text = string.Equals(textBlock.Tag as string, "Title", StringComparison.Ordinal)
-            ? item.Title
-            : item.Snippet;
+        var isTitle = string.Equals(textBlock.Tag as string, "Title", StringComparison.Ordinal);
+        var text = isTitle ? item.Title : item.Snippet;
         textBlock.Text = text;
         textBlock.TextHighlighters.Clear();
-        foreach (var term in item.Query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                     .Distinct(StringComparer.CurrentCultureIgnoreCase))
+        if (text.Length == 0) return;
+
+        var highlighter = new TextHighlighter
         {
-            var highlighter = new TextHighlighter
+            Background = new SolidColorBrush(Colors.Black),
+            Foreground = new SolidColorBrush(Colors.White)
+        };
+        if (isTitle)
+        {
+            // Titles are short; locate terms directly with the same whitespace
+            // normalization the search index uses.
+            var normalizedQuery = Regex.Replace(item.Query.Trim(), @"\s+", " ").Trim();
+            foreach (var term in normalizedQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                         .Distinct(StringComparer.CurrentCultureIgnoreCase))
             {
-                Background = new SolidColorBrush(Colors.Black),
-                Foreground = new SolidColorBrush(Colors.White)
-            };
-            var start = 0;
-            while (start < text.Length)
-            {
-                var index = text.IndexOf(term, start, StringComparison.CurrentCultureIgnoreCase);
-                if (index < 0) break;
-                highlighter.Ranges.Add(new TextRange { StartIndex = index, Length = term.Length });
-                start = index + Math.Max(1, term.Length);
+                AddSearchHighlightRanges(highlighter.Ranges, text, term);
             }
-            if (highlighter.Ranges.Count > 0) textBlock.TextHighlighters.Add(highlighter);
+        }
+        else
+        {
+            // The snippet ranges were computed with the snippet itself, so they
+            // stay correct for multi-line and longer-than-window queries.
+            foreach (var range in item.HighlightRanges)
+            {
+                if (range.Start >= 0 && range.Start + range.Length <= text.Length)
+                    highlighter.Ranges.Add(new TextRange { StartIndex = range.Start, Length = range.Length });
+            }
+        }
+
+        if (highlighter.Ranges.Count > 0) textBlock.TextHighlighters.Add(highlighter);
+    }
+
+    private static void AddSearchHighlightRanges(
+        IList<TextRange> ranges,
+        string text,
+        string term)
+    {
+        var start = 0;
+        while (start < text.Length)
+        {
+            var index = text.IndexOf(term, start, StringComparison.CurrentCultureIgnoreCase);
+            if (index < 0) break;
+            ranges.Add(new TextRange { StartIndex = index, Length = term.Length });
+            start = index + Math.Max(1, term.Length);
         }
     }
 
@@ -1096,15 +1123,7 @@ public sealed partial class MainWindow
             return;
         }
         _readerChapterIndex = Math.Clamp(source.ChapterIndex, 0, _readerChapters.Count - 1);
-        var matchOffset = source.Content.IndexOf(query, StringComparison.CurrentCultureIgnoreCase);
-        if (matchOffset < 0)
-        {
-            matchOffset = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(term => source.Content.IndexOf(term, StringComparison.CurrentCultureIgnoreCase))
-                .Where(index => index >= 0)
-                .DefaultIfEmpty(0)
-                .Min();
-        }
+        var matchOffset = FindReaderSearchMatchOffset(source.Content, query);
         _pendingReaderChunkOffset = source.StartOffset + Math.Max(0, matchOffset);
         _pendingReaderSearchQuery = query;
         _pendingReaderSearchContext = CreateReaderSearchContext(source.Content, matchOffset, query.Length);
@@ -1113,6 +1132,29 @@ public sealed partial class MainWindow
         var target = new Uri(targetPath);
         await NavigateReaderSourceAsync(target, 1, animate: true, ReaderNavigationIntent.Search);
         ReaderSearchStatusText.Text = $"已跳转到《{source.ChapterTitle}》相关位置。";
+    }
+
+    // Mirrors the search index's whitespace handling when re-locating a result:
+    // a selection-popup query can carry newlines between blocks even though the
+    // indexed content and snippets normalize them to single spaces. The exact
+    // raw query is tried first (same offset as the index when it matches);
+    // otherwise fall back to the earliest whitespace-separated run so a
+    // multi-line selection still lands on the real hit instead of the chapter
+    // opening.
+    private static int FindReaderSearchMatchOffset(string content, string query)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return -1;
+        var exact = content.IndexOf(query.Trim(), StringComparison.CurrentCultureIgnoreCase);
+        if (exact >= 0) return exact;
+
+        var normalizedQuery = Regex.Replace(query.Trim(), @"\s+", " ").Trim();
+        var earliest = -1;
+        foreach (var run in normalizedQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var index = content.IndexOf(run, StringComparison.CurrentCultureIgnoreCase);
+            if (index >= 0 && (earliest < 0 || index < earliest)) earliest = index;
+        }
+        return earliest;
     }
 
     private static string CreateReaderSearchContext(string content, int matchOffset, int matchLength)

@@ -14,7 +14,7 @@ public sealed class ProductivityFeatureTests
     [Fact]
     public async Task SettingsRoundTripAndNormalizeInvalidValues()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -51,17 +51,18 @@ public sealed class ProductivityFeatureTests
             await File.WriteAllTextAsync(paths.Settings, "{ invalid json");
             var defaults = await store.LoadAsync();
             Assert.Equal("epub", defaults.PreferredOpenFormat);
-            Assert.True(defaults.AutoGenerateEpubAndAzw3OnImport);
+            Assert.False(defaults.AutoGenerateEpubAndAzw3OnImport);
+            Assert.True(defaults.CollectionsMutuallyExclusive);
             Assert.True(defaults.AutoConnectDevice);
             Assert.True(defaults.CompareKindleLibraryEnabled);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task DictionaryImportsLooksUpAndRemovesEntries()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var source = Path.Combine(root, "dictionary.txt");
@@ -79,13 +80,13 @@ public sealed class ProductivityFeatureTests
             Assert.Empty(await service.ListAsync());
             Assert.Empty(await service.LookupAsync("book"));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task FontLibraryCopiesListsAndRemovesManagedFont()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var source = Path.Combine(root, "Reading Font.ttf");
@@ -102,7 +103,7 @@ public sealed class ProductivityFeatureTests
             Assert.False(File.Exists(service.GetAbsolutePath(imported)));
             await Assert.ThrowsAsync<InvalidDataException>(() => service.ImportAsync(Path.ChangeExtension(source, ".exe")));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
@@ -125,7 +126,7 @@ public sealed class ProductivityFeatureTests
     [Fact]
     public async Task PdfTextServiceExtractsRealPdfPages()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var path = Path.Combine(root, "sample.pdf");
@@ -140,13 +141,13 @@ public sealed class ProductivityFeatureTests
             Assert.Contains("First searchable page", pages[0].Text);
             Assert.Equal(1, Assert.Single(PdfTextService.Search(pages, "searchable")).PageNumber);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public void RootConfigurationPersistsAndFallsBackOnCorruption()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var app = Path.Combine(root, "app");
@@ -158,13 +159,13 @@ public sealed class ProductivityFeatureTests
             File.WriteAllText(Path.Combine(app, "app-root.json"), "broken");
             Assert.Equal(Path.GetFullPath(app), AppRootConfiguration.ResolveRoot(app));
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task LibraryPersistsProductivityAndDoubanMetadata()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var source = Path.Combine(root, "sample.pdf");
@@ -198,13 +199,13 @@ public sealed class ProductivityFeatureTests
             Assert.Equal(8.3, restored.DoubanRating);
             Assert.Equal(81342, restored.DoubanRatingCount);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task ExistingLibrarySchemaIsMigratedWithoutLosingBooks()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -238,13 +239,13 @@ public sealed class ProductivityFeatureTests
             Assert.False(book.IsFavorite);
             Assert.Equal(LibraryReadingStatus.Unread, book.ReadingStatus);
         }
-        finally { TryDelete(root); }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]
     public async Task DashboardAggregatesReadingAndProductivityData()
     {
-        var root = CreateTempDirectory();
+        var root = TestHelpers.CreateTempDirectory();
         try
         {
             var service = new ReaderDataService(new AppPaths(Path.Combine(root, "app")));
@@ -273,18 +274,6 @@ public sealed class ProductivityFeatureTests
             Assert.Equal(120, dashboard.DailyReading.Sum(day => day.ActiveSeconds));
             Assert.Equal(14, dashboard.DailyReading.Count);
         }
-        finally { TryDelete(root); }
-    }
-
-    private static string CreateTempDirectory()
-    {
-        var path = Path.Combine(Path.GetTempPath(), "KkindleProductivityTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
-        return path;
-    }
-
-    private static void TryDelete(string path)
-    {
-        try { Directory.Delete(path, true); } catch { }
+        finally { TestHelpers.TryDelete(root); }
     }
 }
