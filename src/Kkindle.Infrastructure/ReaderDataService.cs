@@ -869,11 +869,16 @@ public sealed partial class ReaderDataService
     {
         var terms = BuildSearchTerms(query);
         if (terms.Count == 0) return [];
-        var requestedLimit = Math.Clamp(limit, 1, 100);
+        // int.MaxValue is the explicit "whole book" mode used by the reader
+        // search UI. Small bounded callers (for example AI context retrieval)
+        // keep their existing limits.
+        var requestedLimit = limit == int.MaxValue ? int.MaxValue : Math.Clamp(limit, 1, 100);
         // Adjacent index chunks overlap so a phrase crossing a chunk boundary
         // remains searchable. Fetch extra candidates, then collapse candidates
         // whose first matching character resolves to the same chapter offset.
-        var candidateLimit = Math.Clamp(requestedLimit * 3, requestedLimit, 100);
+        var candidateLimit = requestedLimit == int.MaxValue
+            ? int.MaxValue
+            : Math.Clamp(requestedLimit * 3, requestedLimit, 100);
 
         if (_ftsAvailable && terms.Any(term => term.Length >= 3))
         {
@@ -967,7 +972,7 @@ public sealed partial class ReaderDataService
         command.Parameters.AddWithValue("$contentQuery", contentMatch);
         command.Parameters.AddWithValue("$titleQuery", titleMatch);
         command.Parameters.AddWithValue("$bookId", bookId.ToString());
-        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
+        command.Parameters.AddWithValue("$limit", limit == int.MaxValue ? -1 : Math.Clamp(limit, 1, 100));
         var result = new List<BookContentChunk>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken)) result.Add(ReadChunk(reader, includeRank: true));
@@ -1005,7 +1010,7 @@ public sealed partial class ReaderDataService
             LIMIT $limit;
             """;
         command.Parameters.AddWithValue("$bookId", bookId.ToString());
-        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
+        command.Parameters.AddWithValue("$limit", limit == int.MaxValue ? -1 : Math.Clamp(limit, 1, 100));
         var result = new List<BookContentChunk>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken)) result.Add(ReadChunk(reader));
@@ -1021,6 +1026,7 @@ public sealed partial class ReaderDataService
         var results = new List<BookContentChunk>();
         var seenLocations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var seenContexts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenParagraphRanges = new Dictionary<string, List<(int Start, int End)>>(StringComparer.OrdinalIgnoreCase);
         foreach (var candidate in candidates)
         {
             var localOffset = FindPrimarySearchMatch(candidate.Content, query, terms);
@@ -1029,6 +1035,18 @@ public sealed partial class ReaderDataService
                 : candidate.StartOffset;
             var key = $"{candidate.BookFileId:N}\u001f{candidate.ChapterPath}\u001f{location}";
             if (seenLocations.Contains(key)) continue;
+            // One indexed chunk can end halfway through a paragraph and the
+            // next overlapping chunk can report a later occurrence from that
+            // same paragraph as a separate result. Both clicks then land on
+            // the same rendered page. Merge overlapping paragraph spans while
+            // retaining all hit highlighting inside the surviving result.
+            var paragraphRange = GetSearchParagraphRange(candidate, localOffset);
+            var paragraphKey = $"{candidate.BookFileId:N}\u001f{candidate.ChapterPath}";
+            if (seenParagraphRanges.TryGetValue(paragraphKey, out var ranges)
+                && ranges.Any(range => paragraphRange.Start < range.End && range.Start < paragraphRange.End))
+            {
+                continue;
+            }
             // Older indexes can contain overlapping chunks whose recorded
             // offsets were produced before whitespace normalization. Their
             // numeric locations differ even though the result shown to the
@@ -1041,10 +1059,32 @@ public sealed partial class ReaderDataService
             if (context.Length > 0 && seenContexts.Contains(contextKey)) continue;
             seenLocations.Add(key);
             if (context.Length > 0) seenContexts.Add(contextKey);
+            if (!seenParagraphRanges.TryGetValue(paragraphKey, out ranges))
+            {
+                ranges = [];
+                seenParagraphRanges[paragraphKey] = ranges;
+            }
+            ranges.Add(paragraphRange);
             results.Add(candidate);
-            if (results.Count >= Math.Clamp(limit, 1, 100)) break;
+            if (results.Count >= (limit == int.MaxValue ? int.MaxValue : Math.Clamp(limit, 1, 100))) break;
         }
         return results;
+    }
+
+    private static (int Start, int End) GetSearchParagraphRange(
+        BookContentChunk candidate,
+        int localOffset)
+    {
+        var content = candidate.Content ?? string.Empty;
+        if (content.Length == 0) return (candidate.StartOffset, candidate.StartOffset + 1);
+        var match = Math.Clamp(localOffset, 0, content.Length - 1);
+        var paragraphStart = content.LastIndexOf('\n', match);
+        paragraphStart = paragraphStart < 0 ? 0 : paragraphStart + 1;
+        var paragraphEnd = content.IndexOf('\n', match);
+        if (paragraphEnd < 0) paragraphEnd = content.Length;
+        return (
+            candidate.StartOffset + paragraphStart,
+            candidate.StartOffset + Math.Max(paragraphStart + 1, paragraphEnd));
     }
 
     private static int FindPrimarySearchMatch(

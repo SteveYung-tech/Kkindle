@@ -6,6 +6,69 @@ namespace Kkindle;
 internal static class ReaderPaginationScripts
 {
     public const string ViewportWidthVariable = "--kkindle-reader-page-viewport-width";
+    // Pagination CSS and every navigation path must use the exact same page
+    // width. visualViewport/clientWidth can briefly describe the unclipped
+    // WebView while WinUI side panes are being laid out, which makes a
+    // fragment jump land one body inset before the real column boundary.
+    public const string PageStepExpression =
+        "parseFloat(getComputedStyle(document.documentElement).getPropertyValue('"
+        + ViewportWidthVariable
+        + "')) || window.visualViewport?.width || window.innerWidth"
+        + " || document.documentElement.clientWidth"
+        + " || document.scrollingElement?.clientWidth || 0";
+
+    // Chromium can preserve an anchor-produced fractional column offset even
+    // after the nominal scroll boundary is restored. Align against the actual
+    // rendered block fragment, whose centre is invariant across publisher
+    // margins, paragraph indents and DPI scaling.
+    public static string PageAlignmentHelperDefinition =>
+        """
+        window.__kkindleAlignPaginatedPage = () => {
+          const el = document.scrollingElement || document.documentElement;
+          const body = document.body;
+          if (!el || !body || el.scrollLeft <= 0.5) return 0;
+          const viewWidth = el.clientWidth || window.innerWidth || 0;
+          if (viewWidth <= 0) return 0;
+          const bodyStyle = getComputedStyle(body);
+          if (window.__kkindleReaderTwoPage
+              || (bodyStyle.writingMode || '').startsWith('vertical')) return 0;
+          const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
+          const padRight = parseFloat(bodyStyle.paddingRight) || 0;
+          const contentLeft = padLeft;
+          const contentRight = viewWidth - padRight;
+          const contentWidth = contentRight - contentLeft;
+          if (contentWidth <= 0) return 0;
+
+          let best = null;
+          let bestWidthError = Number.POSITIVE_INFINITY;
+          const blocks = body.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,table');
+          for (const block of blocks) {
+            const rects = block.getClientRects ? Array.from(block.getClientRects()) : [];
+            for (const rect of rects) {
+              if (rect.width <= 8 || rect.height <= 0
+                  || rect.right <= 0 || rect.left >= viewWidth
+                  || rect.bottom <= 0 || rect.top >= window.innerHeight) continue;
+              const widthError = Math.abs(rect.width - contentWidth);
+              if (widthError < bestWidthError) {
+                best = rect;
+                bestWidthError = widthError;
+              }
+            }
+          }
+          if (!best) return 0;
+
+          const expectedCenter = (contentLeft + contentRight) / 2;
+          const actualCenter = (best.left + best.right) / 2;
+          const error = actualCenter - expectedCenter;
+          if (!Number.isFinite(error) || Math.abs(error) <= 0.5
+              || Math.abs(error) >= viewWidth * 0.4) return 0;
+          const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
+          const target = Math.max(0, Math.min(rawMax, el.scrollLeft + error));
+          el.scrollLeft = target;
+          el.scrollTop = 0;
+          return error;
+        };
+        """;
 
     public static string CreateFlowCss(
         bool pagination,
@@ -64,10 +127,9 @@ internal static class ReaderPaginationScripts
             + $" column-gap: var(--kkindle-page-column-gap) !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
     }
 
-    // visualViewport is the source of truth for page geometry: unlike the
-    // multicolumn document bounds it always describes the visible WebView and
-    // retains fractional CSS pixels under DPI scaling. Page boundaries start
-    // at scroll origin 0; body padding stays inside each viewport.
+    // Page boundaries start at scroll origin 0; body padding stays inside
+    // each viewport. The step comes from the same CSS variable that sizes the
+    // multicolumn layout so side panes and DPI changes cannot desynchronise it.
     public static string Snap => CreateSnapScript();
 
     private static string CreateSnapScript()
@@ -77,8 +139,7 @@ internal static class ReaderPaginationScripts
             (() => {
               const el = document.scrollingElement || document.documentElement;
               if (!el) return;
-              const step = window.visualViewport?.width || window.innerWidth
-                || document.documentElement.clientWidth || el.clientWidth || 0;
+              const step = {{PageStepExpression}};
               if (step <= 0) return;
               const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
               const trailingInset = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
@@ -88,6 +149,7 @@ internal static class ReaderPaginationScripts
                 ? max
                 : Math.max(0, Math.min(max, nearest));
               window.scrollTo({ left: target, top: 0, behavior: 'instant' });
+              try { window.__kkindleAlignPaginatedPage?.(); } catch (_) {}
             })();
             """;
     }
@@ -101,8 +163,7 @@ internal static class ReaderPaginationScripts
             (() => {
               const el = document.scrollingElement || document.documentElement;
               if (!el) return false;
-              const step = window.visualViewport?.width || window.innerWidth
-                || document.documentElement.clientWidth || el.clientWidth || 0;
+              const step = {{PageStepExpression}};
               if (step <= 0) return false;
               const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
               const trailingInset = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
@@ -117,6 +178,7 @@ internal static class ReaderPaginationScripts
                 0,
                 Math.min(max, current + ({{safeDirection}} < 0 ? -step : step)));
               window.scrollTo({ left: target, top: 0, behavior: '{{behavior}}' });
+              try { window.__kkindleAlignPaginatedPage?.(); } catch (_) {}
               return true;
             })();
             """;
@@ -130,8 +192,7 @@ internal static class ReaderPaginationScripts
             (() => {
               const el = document.scrollingElement || document.documentElement;
               if (!el) return false;
-              const step = window.visualViewport?.width || window.innerWidth
-                || document.documentElement.clientWidth || el.clientWidth || 0;
+              const step = {{PageStepExpression}};
               if (step <= 0) return false;
               const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
               const trailingInset = parseFloat(getComputedStyle(document.body).paddingRight) || 0;

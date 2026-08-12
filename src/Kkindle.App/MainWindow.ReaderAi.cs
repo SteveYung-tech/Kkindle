@@ -744,7 +744,10 @@ public sealed partial class MainWindow
         _pendingReaderChunkOffset = null;
         var searchQuery = _pendingReaderSearchQuery;
         _pendingReaderSearchQuery = null;
+        var searchContext = _pendingReaderSearchContext;
+        _pendingReaderSearchContext = null;
         var serializedQuery = System.Text.Json.JsonSerializer.Serialize(searchQuery ?? string.Empty);
+        var serializedContext = System.Text.Json.JsonSerializer.Serialize(searchContext ?? string.Empty);
         var pagination = _readerFlowMode == 1 ? "true" : "false";
         var script = $$"""
             (() => {
@@ -760,6 +763,8 @@ public sealed partial class MainWindow
               });
               const query = ({{serializedQuery}} || '').trim();
               const foldedQuery = query.toLocaleLowerCase();
+              const normalizeContext = value => (value || '').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+              const targetContext = normalizeContext({{serializedContext}});
               const terms = [...new Set(query
                 .split(/\s+/)
                 .map(term => term.trim())
@@ -776,19 +781,62 @@ public sealed partial class MainWindow
               let fallback = null;
               let bestExact = null;
               let bestExactDistance = Number.POSITIVE_INFINITY;
+              let bestExactContextScore = -1;
               const exactMatches = [];
+              const termMatches = [];
               let bestTerm = null;
               let bestTermDistance = Number.POSITIVE_INFINITY;
+              let bestTermContextScore = -1;
+
+              const contextScores = new WeakMap();
+              const contextScore = block => {
+                if (!block || !targetContext) return 0;
+                if (contextScores.has(block)) return contextScores.get(block);
+                const blockText = normalizeContext(block.textContent || '');
+                let score = 0;
+                if (blockText === targetContext) score = 100000 + blockText.length;
+                else if (blockText.includes(targetContext)) score = 90000 + targetContext.length;
+                else if (targetContext.includes(blockText)) score = 80000 + blockText.length;
+                else if (foldedQuery) {
+                  const targetIndex = targetContext.indexOf(foldedQuery);
+                  let blockIndex = blockText.indexOf(foldedQuery);
+                  while (targetIndex >= 0 && blockIndex >= 0) {
+                    let before = 0;
+                    while (before < 160
+                        && targetIndex - before - 1 >= 0
+                        && blockIndex - before - 1 >= 0
+                        && targetContext[targetIndex - before - 1] === blockText[blockIndex - before - 1]) before++;
+                    let after = 0;
+                    const targetAfter = targetIndex + foldedQuery.length;
+                    const blockAfter = blockIndex + foldedQuery.length;
+                    while (after < 220
+                        && targetAfter + after < targetContext.length
+                        && blockAfter + after < blockText.length
+                        && targetContext[targetAfter + after] === blockText[blockAfter + after]) after++;
+                    score = Math.max(score, before + after);
+                    blockIndex = blockText.indexOf(foldedQuery, blockIndex + Math.max(1, foldedQuery.length));
+                  }
+                }
+                contextScores.set(block, score);
+                return score;
+              };
 
               const consider = (current, distance, kind) => {
+                const score = contextScore(current.block || current.node.parentElement);
                 if (kind === 'exact') {
-                  if (distance < bestExactDistance) {
+                  if (score > bestExactContextScore
+                      || (score === bestExactContextScore && distance < bestExactDistance)) {
+                    bestExactContextScore = score;
                     bestExactDistance = distance;
                     bestExact = current;
                   }
-                } else if (distance < bestTermDistance) {
-                  bestTermDistance = distance;
-                  bestTerm = current;
+                } else {
+                  if (score > bestTermContextScore
+                      || (score === bestTermContextScore && distance < bestTermDistance)) {
+                    bestTermContextScore = score;
+                    bestTermDistance = distance;
+                    bestTerm = current;
+                  }
                 }
               };
 
@@ -822,8 +870,14 @@ public sealed partial class MainWindow
                 for (const term of foldedTerms) {
                   let localIndex = foldedText.indexOf(term.folded);
                   while (localIndex >= 0) {
-                    consider({ node, start: localIndex, length: term.original.length },
-                      Math.abs(cursor + localIndex - {{offset}}), 'term');
+                    const current = {
+                      node,
+                      start: localIndex,
+                      length: term.original.length,
+                      block: parent.closest?.('p,li,blockquote,dd,dt,h1,h2,h3,h4,h5,h6,div') || parent
+                    };
+                    termMatches.push(current);
+                    consider(current, Math.abs(cursor + localIndex - {{offset}}), 'term');
                     localIndex = foldedText.indexOf(
                       term.folded,
                       localIndex + Math.max(1, term.folded.length));
@@ -853,24 +907,41 @@ public sealed partial class MainWindow
               };
 
               let mark = null;
-              if (bestExact) {
-                // Mark every exact occurrence in the selected paragraph. Walk
-                // backward so wrapping a later occurrence cannot invalidate
-                // offsets for an earlier occurrence in the same text node.
-                for (let index = exactMatches.length - 1; index >= 0; index--) {
-                  const current = exactMatches[index];
-                  if (current.block !== bestExact.block) continue;
+              const matches = bestExact ? exactMatches : termMatches;
+              const scroller = document.scrollingElement || document.documentElement;
+              const step = {{ReaderPaginationScripts.PageStepExpression}};
+              const matchPage = current => {
+                if (!{{pagination}} || step <= 0) return -1;
+                const range = document.createRange();
+                range.setStart(current.node, current.start);
+                range.setEnd(current.node, current.start + current.length);
+                const rects = range.getClientRects ? Array.from(range.getClientRects()) : [];
+                const rect = rects.find(item => item.width > 0 || item.height > 0)
+                  || range.getBoundingClientRect();
+                if (!rect || !Number.isFinite(rect.left)) return -1;
+                const absoluteLeft = rect.left + scroller.scrollLeft + Math.max(0, rect.width) / 2;
+                return Math.floor(Math.max(0, absoluteLeft) / step);
+              };
+              const targetPage = matchPage(target);
+              const visibleMatches = matches.filter(current => {{pagination}} && targetPage >= 0
+                ? matchPage(current) === targetPage
+                : current.block === target.block);
+              if (visibleMatches.length > 0) {
+                // A search result represents the rendered page (or paragraph
+                // in continuous mode), so highlight every occurrence in that
+                // visible unit. Walk backward so wrapping a later occurrence
+                // cannot invalidate offsets for an earlier one in the same
+                // text node.
+                for (let index = visibleMatches.length - 1; index >= 0; index--) {
+                  const current = visibleMatches[index];
                   const hit = createMark(current);
-                  if (current.node === bestExact.node && current.start === bestExact.start)
+                  if (current === target)
                     mark = hit;
                 }
               }
               if (!mark) mark = createMark(target);
 
               if ({{pagination}}) {
-                const scroller = document.scrollingElement || document.documentElement;
-                const step = window.visualViewport?.width || window.innerWidth
-                  || document.documentElement.clientWidth || scroller.clientWidth || 0;
                 const rects = mark.getClientRects ? Array.from(mark.getClientRects()) : [];
                 const rect = rects.find(item => item.width > 0 || item.height > 0)
                   || mark.getBoundingClientRect();

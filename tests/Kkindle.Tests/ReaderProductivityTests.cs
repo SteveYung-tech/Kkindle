@@ -270,6 +270,70 @@ public sealed class ReaderProductivityTests
     }
 
     [Fact]
+    public async Task WholeBookSearchIsNotTruncatedAtTheInteractiveResultLimit()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var service = new ReaderDataService(new AppPaths(Path.Combine(root, "app")));
+            await service.InitializeAsync();
+            var bookId = Guid.NewGuid();
+            var fileId = Guid.NewGuid();
+            var hash = new string('a', 64);
+            var chunks = Enumerable.Range(0, 140)
+                .Select(index => new BookContentChunkDraft(
+                    index,
+                    0,
+                    $"第 {index + 1} 章",
+                    $"text/{index:D3}.xhtml",
+                    0,
+                    40,
+                    $"第 {index + 1} 个全书命中拥有不同的上下文。"))
+                .ToArray();
+            await service.ReplaceBookChunksAsync(bookId, fileId, hash, chunks);
+
+            var bounded = await service.SearchBookAsync(bookId, "命中", 40);
+            var wholeBook = await service.SearchBookAsync(bookId, "命中", int.MaxValue);
+
+            Assert.Equal(40, bounded.Count);
+            Assert.Equal(140, wholeBook.Count);
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task SearchBookMergesDifferentHitsFromOverlappingPartsOfOneParagraph()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var service = new ReaderDataService(new AppPaths(Path.Combine(root, "app")));
+            await service.InitializeAsync();
+            var bookId = Guid.NewGuid();
+            var fileId = Guid.NewGuid();
+            var hash = new string('b', 64);
+            var paragraph = new string('甲', 700) + "保罗" + new string('乙', 250) + "保罗" + new string('丙', 250);
+
+            await service.ReplaceBookChunksAsync(bookId, fileId, hash,
+            [
+                new BookContentChunkDraft(0, 0, "第一章", "text/one.xhtml", 0, 900,
+                    paragraph[..900]),
+                new BookContentChunkDraft(0, 1, "第一章", "text/one.xhtml", 740, paragraph.Length,
+                    paragraph[740..]),
+                new BookContentChunkDraft(1, 0, "第二章", "text/two.xhtml", 0, 40,
+                    "另一个段落也提到了保罗，但应当保留为独立结果。")
+            ]);
+
+            var results = await service.SearchBookAsync(bookId, "保罗", int.MaxValue);
+
+            Assert.Equal(2, results.Count);
+            Assert.Single(results, result => result.ChapterPath == "text/one.xhtml");
+            Assert.Single(results, result => result.ChapterPath == "text/two.xhtml");
+        }
+        finally { TryDelete(root); }
+    }
+
+    [Fact]
     public async Task AccumulatesReadingTimeWithoutLosingExistingStats()
     {
         var root = CreateTempDirectory();

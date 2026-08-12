@@ -794,11 +794,7 @@ public sealed partial class MainWindow
                 const scroller = document.scrollingElement || document.documentElement;
                 if (!scroller) return false;
                 if (pagination) {
-                  const step = window.visualViewport?.width
-                    || window.innerWidth
-                    || document.documentElement.clientWidth
-                    || scroller.clientWidth
-                    || 0;
+                  const step = {{ReaderPaginationScripts.PageStepExpression}};
                   if (step <= 0) return false;
                   const absoluteX = rect.left + (scroller.scrollLeft || 0) + Math.max(0, rect.width) / 2;
                   const max = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
@@ -1127,6 +1123,9 @@ public sealed partial class MainWindow
     private static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
+
+    [DllImport("user32.dll")]
     private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
@@ -1262,7 +1261,25 @@ public sealed partial class MainWindow
             && _readerHookEnabled
             && IsReaderWindowForeground()
             && !_readerTextInputFocused
-            && !_readerSearchVisible
+            && (uint)wParam.ToInt64() is WmKeyDown or WmSysKeyDown)
+        {
+            var acceleratorData = Marshal.PtrToStructure<KbdLlHookStruct>(lParam);
+            if ((Windows.System.VirtualKey)acceleratorData.vkCode == Windows.System.VirtualKey.F
+                && (GetAsyncKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0)
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (IsPdfReader) ShowReaderSearchPanel();
+                    else ShowReaderInPageSearch();
+                });
+                return new IntPtr(1);
+            }
+        }
+
+        if (nCode >= 0
+            && _readerHookEnabled
+            && IsReaderWindowForeground()
+            && !_readerTextInputFocused
             && !IsReaderPointerBlocked()
             && (uint)wParam.ToInt64() is WmKeyDown or WmSysKeyDown)
         {
@@ -1291,6 +1308,7 @@ public sealed partial class MainWindow
 
     private bool IsReaderPointerBlocked() =>
         _readerSelectionPopupOpen
+        || _readerInPageSearchVisible
         || _readerMenuFlyoutOpen
         || _readerLayoutPopupOpen
         || _readerAiSettingsPopupOpen

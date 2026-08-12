@@ -23,6 +23,7 @@ public sealed class PdfTextService
     {
         var term = query.Trim();
         if (term.Length == 0) return [];
+        var requestedLimit = limit == int.MaxValue ? int.MaxValue : Math.Clamp(limit, 1, 500);
         var result = new List<PdfSearchResult>();
         foreach (var page in pages)
         {
@@ -34,7 +35,7 @@ public sealed class PdfTextService
                 var start = Math.Max(0, index - 45);
                 var length = Math.Min(page.Text.Length - start, term.Length + 90);
                 result.Add(new PdfSearchResult(page.PageNumber, page.Text.Substring(start, length).ReplaceLineEndings(" "), index));
-                if (result.Count >= Math.Clamp(limit, 1, 500)) return result;
+                if (result.Count >= requestedLimit) return result;
                 offset = index + Math.Max(1, term.Length);
             }
         }

@@ -1,6 +1,7 @@
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 
 namespace Kkindle;
 
@@ -70,7 +71,8 @@ public sealed partial class MainWindow
         _readerChapterIndex = _pdfCurrentPage - 1;
         var source = new Uri(_readerAllowedFile).AbsoluteUri + $"#page={_pdfCurrentPage}";
         ReaderWebView.Source = new Uri(source);
-        ReaderChapterText.Text = $"第 {_pdfCurrentPage} 页";
+        ReaderChapterText.Text = $"{_pdfCurrentPage} / {pageCount} · 第 {_pdfCurrentPage} 页";
+        ToolTipService.SetToolTip(ReaderChapterText, $"PDF 第 {_pdfCurrentPage} 页");
         ReaderReadingProgressText.Text = $"已读 {_pdfCurrentPage} / {pageCount} 页";
         var percent = _pdfCurrentPage * 100d / pageCount;
         ReaderProgressPercentText.Text = ReaderFormatting.FormatPercent(percent);
@@ -82,6 +84,7 @@ public sealed partial class MainWindow
         ReaderPreviousButton.IsEnabled = _pdfCurrentPage > 1;
         ReaderNextButton.IsEnabled = _pdfCurrentPage < pageCount;
         ReaderStatusText.Text = _pdfPages.Count == 0 ? "PDF 查看模式" : "PDF · 本地文本索引可用";
+        await UpdateReaderBookmarkIndicatorAsync();
         if (saveProgress) await SavePdfProgressAsync();
     }
 
@@ -106,7 +109,7 @@ public sealed partial class MainWindow
 
     private IReadOnlyList<BookContentChunk> SearchPdf(string query)
     {
-        return PdfTextService.Search(_pdfPages, query, 40)
+        return PdfTextService.Search(_pdfPages, query, int.MaxValue)
             .Select((result, index) => new BookContentChunk(
                 index + 1,
                 _readerBook?.Id ?? Guid.Empty,

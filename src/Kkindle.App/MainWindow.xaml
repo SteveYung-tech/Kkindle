@@ -3215,19 +3215,23 @@
                                                 </ControlTemplate>
                                             </Button.Template>
                                             <StackPanel Padding="14,9,14,9" Spacing="3">
-                                                <TextBlock Tag="{x:Bind Title}"
+                                                <TextBlock Text="{x:Bind Title, Mode=OneWay}"
+                                                           Tag="Title"
                                                            FontSize="12"
                                                            FontWeight="SemiBold"
                                                            TextWrapping="Wrap"
                                                            MaxLines="2"
                                                            TextTrimming="CharacterEllipsis"
+                                                           DataContextChanged="ReaderSearchHighlightedText_DataContextChanged"
                                                            Loaded="ReaderSearchHighlightedText_Loaded" />
-                                                <TextBlock Tag="{x:Bind Snippet}"
+                                                <TextBlock Text="{x:Bind Snippet, Mode=OneWay}"
+                                                           Tag="Snippet"
                                                            FontSize="10"
                                                            Foreground="#707070"
                                                            TextWrapping="Wrap"
                                                            MaxLines="4"
                                                            TextTrimming="CharacterEllipsis"
+                                                           DataContextChanged="ReaderSearchHighlightedText_DataContextChanged"
                                                            Loaded="ReaderSearchHighlightedText_Loaded" />
                                             </StackPanel>
                                         </Button>
@@ -3598,6 +3602,7 @@
                     <Grid x:Name="ReaderWebViewHost"
                           Margin="0,12,0,10"
                           Background="#FFFFFF"
+                          SizeChanged="ReaderWebViewHost_SizeChanged"
                           RenderTransformOrigin="0.5,0.5">
                         <Grid.RenderTransform>
                             <CompositeTransform x:Name="ReaderWebViewTransform" />
@@ -3606,6 +3611,84 @@
                                   NavigationStarting="ReaderWebView_NavigationStarting"
                                   NavigationCompleted="ReaderWebView_NavigationCompleted" />
                     </Grid>
+
+                    <!-- Current-page bookmark marker. Its straight edges sit
+                         flush against the reading rectangle's top/right edge. -->
+                    <Path x:Name="ReaderBookmarkCornerMarker"
+                          Width="26"
+                          Height="26"
+                          Margin="0"
+                          HorizontalAlignment="Right"
+                          VerticalAlignment="Top"
+                          Canvas.ZIndex="25"
+                          Data="M 0,0 L 26,0 L 26,26 Z"
+                          Fill="#777774"
+                          Stretch="None"
+                          IsHitTestVisible="False"
+                          Visibility="Collapsed" />
+
+                    <Border x:Name="ReaderInPageSearchBar"
+                            Width="430"
+                            Margin="0,16,24,0"
+                            Padding="10,8"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Canvas.ZIndex="45"
+                            Background="#FFFFFF"
+                            BorderBrush="#000000"
+                            BorderThickness="1"
+                            Visibility="Collapsed">
+                        <Grid ColumnSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="ReaderInPageSearchBox"
+                                     Height="32"
+                                     Padding="8,4"
+                                     CornerRadius="0"
+                                     BorderBrush="#000000"
+                                     PlaceholderText="查找当前正文…"
+                                     TextChanged="ReaderInPageSearchBox_TextChanged"
+                                     KeyDown="ReaderInPageSearchBox_KeyDown" />
+                            <TextBlock x:Name="ReaderInPageSearchCountText"
+                                       Grid.Column="1"
+                                       MinWidth="48"
+                                       Text="0/0"
+                                       FontSize="11"
+                                       Foreground="#5E5E5E"
+                                       TextAlignment="Center"
+                                       VerticalAlignment="Center" />
+                            <Button Grid.Column="2"
+                                    Content="↑"
+                                    Width="32"
+                                    Height="32"
+                                    Padding="0"
+                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    AutomationProperties.Name="上一个正文命中"
+                                    Click="ReaderInPageSearchPreviousButton_Click" />
+                            <Button Grid.Column="3"
+                                    Content="↓"
+                                    Width="32"
+                                    Height="32"
+                                    Padding="0"
+                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    AutomationProperties.Name="下一个正文命中"
+                                    Click="ReaderInPageSearchNextButton_Click" />
+                            <Button Grid.Column="4"
+                                    Content="×"
+                                    Width="32"
+                                    Height="32"
+                                    Padding="0"
+                                    FontSize="15"
+                                    Style="{StaticResource ReaderToolbarButtonStyle}"
+                                    AutomationProperties.Name="关闭正文查找"
+                                    Click="ReaderInPageSearchCloseButton_Click" />
+                        </Grid>
+                    </Border>
 
                     <!-- Slim floating bar shown only in zen mode; keeps the exit/close entries
                          while the normal header and footer bars are collapsed. -->
@@ -3699,6 +3782,7 @@
                         <TextBlock x:Name="ReaderChapterText"
                                    Grid.Column="3"
                                    Margin="0,0,10,0"
+                                   MaxWidth="320"
                                    FontSize="11"
                                    Foreground="#5E5E5E"
                                    TextTrimming="CharacterEllipsis"

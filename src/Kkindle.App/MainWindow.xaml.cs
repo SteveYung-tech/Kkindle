@@ -224,6 +224,8 @@ public sealed partial class MainWindow : Window
         RootGrid.GotFocus += (_, _) => _readerTextInputFocused = IsReaderTextInputFocused();
         RootGrid.LostFocus += (_, _) => DispatcherQueue.TryEnqueue(
             () => _readerTextInputFocused = IsReaderTextInputFocused());
+        ReaderProgressSlider.ThumbToolTipValueConverter =
+            new ReaderProgressToolTipValueConverter(GetReaderProgressSliderLabel);
     }
 
     public LibraryViewModel ViewModel { get; }
@@ -1681,6 +1683,10 @@ public sealed partial class MainWindow : Window
         settings.AreDevToolsEnabled = false;
         settings.IsStatusBarEnabled = false;
         settings.AreDefaultScriptDialogsEnabled = false;
+        // The Chromium context menu is an implementation detail of WebView2
+        // and appears in English independently of Kreader's UI language. Text
+        // actions are provided by the native selection toolbar instead.
+        settings.AreDefaultContextMenusEnabled = false;
     }
 
     private void ResetReaderAssistant()
@@ -1785,6 +1791,17 @@ public sealed partial class MainWindow : Window
     private void ReaderContentPanel_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         ReaderContentClip.Rect = new Windows.Foundation.Rect(0, 0, e.NewSize.Width, e.NewSize.Height);
+        ScheduleReaderRelayout();
+        try { GetReaderWebViewScreenRect(); } catch { }
+    }
+
+    private void ReaderWebViewHost_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // WebView2 is a composition island and can trail its XAML Grid during
+        // assistant/TOC width changes. Give the controller explicit bounds so
+        // Chromium never keeps laying out a page at the previous wider size.
+        if (e.NewSize.Width > 0) ReaderWebView.Width = e.NewSize.Width;
+        if (e.NewSize.Height > 0) ReaderWebView.Height = e.NewSize.Height;
         ScheduleReaderRelayout();
         try { GetReaderWebViewScreenRect(); } catch { }
     }
@@ -2079,9 +2096,16 @@ public sealed partial class MainWindow : Window
 
     private void UpdateReaderChapterControls()
     {
-        ReaderChapterText.Text = _readerChapterIndex < 0
-            ? string.Empty
-            : $"{_readerChapterIndex + 1} / {_readerChapters.Count} 章";
+        if (_readerChapterIndex < 0)
+        {
+            ReaderChapterText.Text = string.Empty;
+        }
+        else
+        {
+            var chapterName = GetReaderChapterDisplayName(_readerChapterIndex);
+            ReaderChapterText.Text = $"{_readerChapterIndex + 1} / {_readerChapters.Count} · {chapterName}";
+            ToolTipService.SetToolTip(ReaderChapterText, chapterName);
+        }
         ReaderPreviousButton.IsEnabled = _readerChapterIndex > 0;
         ReaderNextButton.IsEnabled = _readerChapterIndex + 1 < _readerChapters.Count;
         QueueReaderCompactScrollIndicatorUpdate();
@@ -2121,6 +2145,31 @@ public sealed partial class MainWindow : Window
         _readerChapterIndex = chapterIndex;
         _readerNavigateToEnd = false;
         _ = ShowReaderChapterAsync(previousIndex < chapterIndex ? 1 : -1, intent: ReaderNavigationIntent.Progress);
+    }
+
+    private string GetReaderChapterDisplayName(int chapterIndex)
+    {
+        var selected = ReaderTocList.SelectedItem as EpubReaderNavigationItem;
+        var item = selected?.ChapterIndex == chapterIndex
+            ? selected
+            : _readerNavigation.FirstOrDefault(candidate => candidate.ChapterIndex == chapterIndex);
+        if (!string.IsNullOrWhiteSpace(item?.Title)) return item.Title.Trim();
+        if (chapterIndex >= 0 && chapterIndex < _readerChapters.Count)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(_readerChapters[chapterIndex]);
+            if (!string.IsNullOrWhiteSpace(fileName)) return fileName;
+        }
+        return $"第 {chapterIndex + 1} 章";
+    }
+
+    private string GetReaderProgressSliderLabel(int current)
+    {
+        var total = Math.Max(1, (int)ReaderProgressSlider.Maximum);
+        current = Math.Clamp(current, 1, total);
+        var label = IsPdfReader
+            ? $"第 {current} 页"
+            : GetReaderChapterDisplayName(current - 1);
+        return $"{current} / {total} · {label}";
     }
 
     private async void ReaderPreviousButton_Click(object sender, RoutedEventArgs e)
@@ -2375,7 +2424,11 @@ public sealed partial class MainWindow : Window
         // Turn within the current chapter when content remains (pagination
         // columns or scroll direction). Crossing a chapter funnels through
         // ShowReaderChapterAsync so the selected transition plays there too.
-        if (await TryTurnWithinChapterAsync(direction)) return true;
+        if (await TryTurnWithinChapterAsync(direction))
+        {
+            await UpdateReaderBookmarkIndicatorAsync();
+            return true;
+        }
 
         var targetIndex = _readerChapterIndex + direction;
         if (targetIndex < 0 || targetIndex >= _readerChapters.Count)
@@ -2586,7 +2639,8 @@ public sealed partial class MainWindow : Window
             if (e.Key == Windows.System.VirtualKey.F)
             {
                 e.Handled = true;
-                ShowReaderSearchPanel();
+                if (IsPdfReader) ShowReaderSearchPanel();
+                else ShowReaderInPageSearch();
                 return;
             }
             if (e.Key == Windows.System.VirtualKey.B && !IsReaderTextInputFocused())
@@ -2922,6 +2976,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        ResetReaderInPageSearchForNavigation();
         ClearReaderFootnotePage();
         if (_readerAllowedRoot is not null)
         {
@@ -3011,6 +3066,8 @@ public sealed partial class MainWindow : Window
             // started, so a TOC jump can never inherit the old chapter's offset.
             var intent = _readerNavigationIntent;
             await ApplyReaderNavigationLocationAsync(intent, pendingTarget);
+            if (IsStaleReaderNavigation(sequence, token)) return;
+            await UpdateReaderBookmarkIndicatorAsync();
             if (IsStaleReaderNavigation(sequence, token)) return;
             if (_readerNavigateToEnd)
             {
@@ -3128,6 +3185,9 @@ public sealed partial class MainWindow : Window
         const string foreground = "#111111";
         const string link = "#222222";
         var fontPercent = (int)Math.Round(_readerLayout.FontScale * 100);
+        var hostViewportWidth = ReaderWebViewHost.ActualWidth.ToString(
+            "0.###",
+            System.Globalization.CultureInfo.InvariantCulture);
         // Vertical writing is supported in both continuous and paginated flow.
         // The pagination CSS keeps the viewport horizontal while Chromium lays
         // out vertical-rl columns from right to left.
@@ -3239,14 +3299,19 @@ public sealed partial class MainWindow : Window
               // multicolumn reflow, documentElement.getBoundingClientRect()
               // can transiently describe the laid-out content width and make
               // the right column extend underneath the assistant panel.
-              const viewportWidth = window.visualViewport?.width
+              const hostViewportWidth = {{hostViewportWidth}};
+              const viewportWidth = hostViewportWidth > 0
+                ? hostViewportWidth
+                : (window.visualViewport?.width
                 || window.innerWidth
                 || root?.clientWidth
                 || kkScroller?.clientWidth
-                || 0;
+                || 0);
               if (root && viewportWidth > 0) {
                 root.style.setProperty('{{ReaderPaginationScripts.ViewportWidthVariable}}', viewportWidth + 'px');
               }
+              window.__kkindleReaderTwoPage = {{(_readerLayout.TwoPageMode ? "true" : "false")}};
+              {{ReaderPaginationScripts.PageAlignmentHelperDefinition}}
               // Expose the real body content box (WebView viewport minus the
               // body's top/bottom padding) so image max-heights target the
               // actual page box instead of guessing from the window size.
@@ -3413,7 +3478,11 @@ public sealed partial class MainWindow : Window
     private void PruneReaderPendingLocations(ReaderNavigationIntent intent)
     {
         if (!ReaderNavigationLocationPolicy.KeepsChunkOffset(intent)) _pendingReaderChunkOffset = null;
-        if (intent != ReaderNavigationIntent.Search) _pendingReaderSearchQuery = null;
+        if (intent != ReaderNavigationIntent.Search)
+        {
+            _pendingReaderSearchQuery = null;
+            _pendingReaderSearchContext = null;
+        }
         if (!ReaderNavigationLocationPolicy.KeepsBookmarkQuote(intent))
         {
             _pendingReaderBookmarkQuote = null;
