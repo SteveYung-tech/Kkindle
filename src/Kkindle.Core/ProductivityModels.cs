@@ -26,6 +26,7 @@ public sealed record AppSettings
     public bool NetworkEnabled { get; init; } = true;
     public bool AutoConnectDevice { get; init; } = true;
     public bool CompareKindleLibraryEnabled { get; init; } = true;
+    public bool GridGalleryDisplay { get; init; }
     public ReaderLayoutSettings DefaultReaderLayout { get; init; } = new();
 
     public static AppSettings Normalize(AppSettings? settings)

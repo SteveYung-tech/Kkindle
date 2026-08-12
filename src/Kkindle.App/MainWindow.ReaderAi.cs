@@ -35,11 +35,13 @@ public sealed partial class MainWindow
 
     private static void SetReaderAssistantTabState(Button button, bool selected)
     {
-        button.Background = new SolidColorBrush(selected ? Colors.Black : Colors.Transparent);
-        button.Foreground = new SolidColorBrush(selected ? Colors.White : ColorHelper.FromArgb(255, 36, 36, 36));
+        // Hollow tabs: transparent fill for both states; the selected tab is
+        // outlined with a black border instead of a filled rectangle.
+        button.Background = new SolidColorBrush(Colors.Transparent);
+        button.Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 36, 36, 36));
         button.BorderBrush = new SolidColorBrush(selected
             ? Colors.Black
-            : Colors.Black);
+            : ColorHelper.FromArgb(255, 213, 213, 209));
     }
 
     private void UpdateReaderAiHeader()
@@ -213,8 +215,15 @@ public sealed partial class MainWindow
         }
     }
 
-    private void ReaderAiSettingsButton_Click(object sender, RoutedEventArgs e)
+    private async void ReaderAiSettingsButton_Click(object sender, RoutedEventArgs e)
     {
+        SetActiveNavigation(ReaderAiSettingsNavigationButton);
+        await ShowReaderAiSettingsAsync();
+    }
+
+    private async Task ShowReaderAiSettingsAsync()
+    {
+        _readerAiSettings = await _aiSettingsStore.LoadAsync();
         _suppressAiProviderChange = true;
         var provider = _readerAiSettings.Provider.Trim().ToLowerInvariant();
         ReaderAiProviderBox.SelectedItem = ReaderAiProviderBox.Items
@@ -226,7 +235,7 @@ public sealed partial class MainWindow
         ReaderAiApiKeyBox.Password = _readerAiSettings.ApiKey;
         ReaderAiSettingsStatusText.Text = string.Empty;
         _suppressAiProviderChange = false;
-        SetReaderAiSettingsVisible(true);
+        ShowSettingsPanel(ReaderAiSettingsPane);
     }
 
     private void ReaderAiProviderBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -243,7 +252,7 @@ public sealed partial class MainWindow
 
     private void ReaderAiSettingsCancelButton_Click(object sender, RoutedEventArgs e)
     {
-        SetReaderAiSettingsVisible(false);
+        HideSettingsPanel();
         ReaderAiSettingsStatusText.Text = string.Empty;
     }
 
@@ -277,7 +286,7 @@ public sealed partial class MainWindow
             await _aiSettingsStore.SaveAsync(settings);
             _readerAiSettings = settings;
             UpdateReaderAiHeader();
-            SetReaderAiSettingsVisible(false);
+            HideSettingsPanel();
             ReaderAiStatusText.Text = settings.IsConfigured
                 ? $"已连接配置：{settings.ProviderDisplayName} · {settings.Model}"
                 : "设置已保存；发送问题前还需要填写 API Key。";
@@ -359,8 +368,7 @@ public sealed partial class MainWindow
         }
         if (!_readerAiSettings.IsConfigured)
         {
-            ReaderAiStatusText.Text = "请先点击右上角设置，配置 DeepSeek、OpenAI 或自定义 API。";
-            ReaderAiSettingsButton_Click(ReaderAiSettingsButton, new RoutedEventArgs());
+            ReaderAiStatusText.Text = "请关闭阅读器，在左侧“AI 助手设置”中配置 DeepSeek、OpenAI 或自定义 API。";
             return;
         }
         if (_readerFeatureCancellation is null) return;
@@ -740,7 +748,7 @@ public sealed partial class MainWindow
 
     private async Task ScrollToPendingReaderChunkAsync()
     {
-        if (_pendingReaderChunkOffset is not int offset || ReaderWebView.CoreWebView2 is null) return;
+        if (_pendingReaderChunkOffset is not int offset || ReaderActiveWebView.CoreWebView2 is null) return;
         _pendingReaderChunkOffset = null;
         var searchQuery = _pendingReaderSearchQuery;
         _pendingReaderSearchQuery = null;
@@ -968,7 +976,7 @@ public sealed partial class MainWindow
             var attempts = string.IsNullOrWhiteSpace(searchQuery) ? 1 : 3;
             for (var attempt = 0; attempt < attempts; attempt++)
             {
-                var result = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script);
+                var result = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(script);
                 var diagnostic = result.Trim().Trim('"');
                 if (int.TryParse(
                         diagnostic,

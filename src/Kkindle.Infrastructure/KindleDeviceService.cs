@@ -119,20 +119,35 @@ public sealed class KindleDeviceService : IKindleDeviceService
             cancellationToken.ThrowIfCancellationRequested();
             var isDictionary = false;
             var cacheable = true;
-            try
+            using var enrichmentTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            enrichmentTimeout.CancelAfter(TimeSpan.FromSeconds(45));
+            var enrichment = Task.Run(async () =>
             {
                 if (device.Transport == KindleTransport.Wpd)
-                    isDictionary = await EnrichWpdBookAsync(device, book, cancellationToken);
+                {
+                    isDictionary = await EnrichWpdBookAsync(device, book, enrichmentTimeout.Token);
+                }
                 else
                 {
                     var path = Path.GetFullPath(Path.Combine(device.RootPath, book.RelativePath));
-                    isDictionary = await KindleBookClassifier.IsDictionaryAsync(path, cancellationToken);
+                    isDictionary = await KindleBookClassifier.IsDictionaryAsync(path, enrichmentTimeout.Token);
                     if (!isDictionary)
                     {
-                        book.Sha256 = await Hashing.Sha256Async(path, cancellationToken);
-                        await EnrichBookAsync(device, book, path, cancellationToken);
+                        book.Sha256 = await Hashing.Sha256Async(path, enrichmentTimeout.Token);
+                        await EnrichBookAsync(device, book, path, enrichmentTimeout.Token);
                     }
                 }
+            }, cancellationToken);
+            try
+            {
+                await enrichment;
+            }
+            catch (OperationCanceledException) when (
+                enrichmentTimeout.IsCancellationRequested
+                && !cancellationToken.IsCancellationRequested)
+            {
+                // A single book's enrichment timed out; keep the fallback card.
+                cacheable = false;
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or TimeoutException)
             {
@@ -172,7 +187,17 @@ public sealed class KindleDeviceService : IKindleDeviceService
         }
 
         if (_scanCache is not null)
-            await _scanCache.ReplaceDeviceEntriesAsync(device.Identity, currentEntries, cancellationToken);
+        {
+            try
+            {
+                await _scanCache.ReplaceDeviceEntriesAsync(device.Identity, currentEntries, cancellationToken)
+                    .WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+            }
+            catch (TimeoutException)
+            {
+                // The cache write must never block the scan result.
+            }
+        }
         return visibleBooks;
     }
 

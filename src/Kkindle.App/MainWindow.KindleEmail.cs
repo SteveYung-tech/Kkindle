@@ -25,7 +25,7 @@ public sealed partial class MainWindow
         KindleEmailPasswordBox.Password = _kindleEmailSettings.SmtpPassword;
         KindleEmailSslCheck.IsChecked = _kindleEmailSettings.EnableSsl;
         KindleEmailSettingsStatusText.Text = status ?? string.Empty;
-        KindleEmailSettingsOverlay.Visibility = Visibility.Visible;
+        ShowSettingsPanel(KindleEmailSettingsPane);
     }
 
     private async void KindleEmailSettingsButton_Click(object sender, RoutedEventArgs e)
@@ -36,7 +36,7 @@ public sealed partial class MainWindow
 
     private void KindleEmailSettingsCancelButton_Click(object sender, RoutedEventArgs e)
     {
-        KindleEmailSettingsOverlay.Visibility = Visibility.Collapsed;
+        HideSettingsPanel();
         KindleEmailSettingsStatusText.Text = string.Empty;
     }
 
@@ -55,7 +55,7 @@ public sealed partial class MainWindow
         {
             await _kindleEmailSettingsStore.SaveAsync(settings);
             _kindleEmailSettings = KindleEmailSettings.Normalize(settings);
-            KindleEmailSettingsOverlay.Visibility = Visibility.Collapsed;
+            HideSettingsPanel();
             TaskStatusText.Text = "Kindle 邮箱设置已保存";
         }
         catch (Exception exception)

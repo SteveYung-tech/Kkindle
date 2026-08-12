@@ -1509,3 +1509,53 @@ body { height: 100%; overflow: visible !important; padding: 48px 24px 64px !impo
 - 本地验证版本 `0.1.0-local.5`：便携版约 107.2 MiB，安装版约 78.9 MiB；Inno Setup 6.7.3 编译成功，隔离静默安装验证 533 个文件，卸载返回 0 且测试目录完整清理。
 - Debug/Release x64 共 136 项测试全部通过；发布脚本 PowerShell 语法、项目 XML、版本注入、ZIP 内容排除和两份产物 SHA-256 均已验证。
 - 当前安装包未配置代码签名证书，公开下载时 Windows SmartScreen 可能提示未知发布者；如需消除提示，应在后续版本中增加证书机密与签名步骤。
+
+## 65. 纸质书翻页动画（书页翻动）（2026-08-12，工作区未提交）
+
+- 阅读设置“翻页动画”菜单新增“书页翻动”选项，仅作用于 EPUB 分页模式章节内翻页：把当前页截图作为“翻起的纸页”，WebView 在截图遮挡下瞬间滚到下一页，再让截图绕书脊边做 3D 旋转，露出底下真实下一页。
+- 截图走宿主侧 DevTools 协议 `Page.captureScreenshot`（`fromSurface:true`，1.5s 超时），在 `IsScriptEnabled=false` 下同样可用；截图失败时回退为无动画即时翻页，绝不吞掉翻页输入。
+- 动画用 `PlaneProjection`：向前翻绕左缘 `RotationY 0→105`，向后翻绕右缘 `0→-105`，时长 520ms 缓入缓出；覆盖层按阅读区裁剪（`Clip`），纸页转过 90° 后不会甩到目录/助手侧栏上，配合纸页折痕渐变与底层阴影渐变。
+- 翻页期间沿用 `_readerTransitionActive` 守卫与关闭取消令牌：关闭/打断立即停止动画并隐藏覆盖层，阅读器打开/关闭时都会清理残留覆盖层。
+- 范围说明：跨章切换映射为淡入淡出（翻页动画不适用于文档切换）；滚动模式、PDF 路径不受影响；双页显示模式下按整个视口跨页翻转；旋转方向常量与渐变方向均按“书脊在左/右”对称处理，如需微调只改 `AnimateReaderPageFlipAsync` 中的符号。
+- 顺带修复工作区既有未提交改动中的编译错误：`ApplyReaderAppearanceAsync` 签名改为 `Task<string?>` 后空分支仍是 `return;`，改为 `return null;`。
+- Debug x64 构建 0 警告、0 错误；测试 180 项全部通过；应用启动存活检查通过。动画观感（旋转方向、时长、阴影浓淡）建议在交互桌面真机翻几页确认，本环境无法读取像素；未重新发布便携版、未创建提交，既有未提交改动原样保留。
+
+## 66. 纸质翻页动画升级为 CSS 3D 卷曲（2026-08-12，工作区未提交）
+
+- 调研 GitHub 上主流纸质翻页实现：`Nodlik/StPageFlip`（canvas/HTML，直线折痕 + 丰富内外阴影，实际不弯曲）、`oguzhanT/turngl`（WebGL 网格逐顶点圆柱变形，`curl()` 中每个顶点旋转角随到折线距离线性增长、自由边领先，是真正“卷曲”的数学）、`@vysmo/transitions`/`webgl-page-curl`（WebGL2 网格卷曲 shader）、`turn.js`（刚性 3D，无卷曲）、`harism/android_page_curl`（Android OpenGL 角卷）。结论：真实卷曲 = 逐列圆柱变形；StPageFlip 的“纸感”主要来自阴影与光照。
+- “书页翻动”主路径改为 WebView 内 CSS 3D 卷曲：把当前页截图切成 32 条竖带，每条带用 `@property` 注册角度 + `cos/sin()` 三角函数变换绕书脊旋转，容器共享 `perspective`，形成圆柱形弯曲纸面；卷曲波从自由边扫向书脊（前 60% 时长折线推进，每条带用 40% 时长完成旋转、按条带延迟）。
+- 纸感细节：正面乘法着色（书脊/自由边略暗、页腹亮）、折线跟随的页下阴影与白色高光条带、纸色背面；覆盖层透明（不遮挡下一页露出）、正面带纸色底（截图未解码前不透出滚动瞬间）。
+- 动画完全由 CSS 驱动（`IsScriptEnabled=false` 下照常运行），仅一次性 DOM 注入是脚本；宿主流程不变：截图 → 注入覆盖层 → 遮挡下滚到下一页 → 等 660ms → 清理覆盖层；截图失败/超大（base64 > 4.5MB）/注入失败时回退到原 XAML 刚性翻页，绝不吞翻页输入。双 WebView 架构下统一操作 `ReaderActiveWebView`。
+- 用无头 Edge 对真实注入脚本做了逐帧像素/ASCII 渲染验证：翻页揭示节奏随进度线性推进、卷曲条带正文可见、向前/向后方向对称正确（向后从左侧卷起往右翻）；透视 1.4×页宽、条带 32、总时长 600ms，参数集中在 `ReaderFlipCurlScripts` 常量，真机观感如需调整只改常量。
+- Debug x64 构建 0 警告、0 错误；测试 180 项全部通过；应用启动存活检查通过。真机视觉效果（卷曲弧度、时长、阴影浓淡）仍建议人工确认；未重新发布便携版、未创建提交，既有未提交改动原样保留。
+
+## 67. 移除纸质翻页动画，改为 Kindle 新机型“水波流动”翻页（2026-08-12，工作区未提交）
+
+- 按用户要求彻底移除纸质翻页动画：删除第 65/66 节的 XAML `PlaneProjection` 刚性纸页回退（`ReaderFlipOverlay` 整块覆盖层）与 WebView 内 CSS 3D 卷曲（`ReaderFlipCurlScripts.cs` 已删除），翻页动画菜单项“书页翻动”更名为“水波流动”。
+- 新实现 `ReaderWaveScripts.cs`：沿用同一管线（宿主侧 `Page.captureScreenshot` 截图 → 注入 WebView 覆盖层 → 遮挡下滚到下一页 → 等 660ms → 清理），但效果换成 Kindle 新机型那种从右往左（向前）/ 从左往右（向后）的水波流动：把当前页截图切成 32 条竖带，每条带按右→左错峰开始“冲刷”，条带带正弦调制的滑动量、带内背景流动与垂直涟漪（`@property` 注册进度 + `sin()` 变换），波前呈波浪曲线而非直窗帘；另配一道随波前扫过的柔和高光，模拟新 Kindle 墨水屏刷新光泽。
+- 简化与一致性：水波全部在 WebView 内完成，不再需要 XAML 覆盖层/宿主变换，删除 `AnimateReaderPageFlipAsync`、`CreateReaderFlipOpacityAnimation`、`ResetReaderFlipVisuals`、`HideReaderFlipOverlay` 与 `_readerFlipStoryboard`；截图失败/超大（base64 > 4.5MB）/注入失败时直接即时翻页，绝不吞翻页输入；常量重命名 `ReaderAnimationFlip → ReaderAnimationWave`（XAML 项 `ReaderAnimationWaveItem`）。
+- 跨章切换仍映射为淡入淡出；滚动模式、PDF 路径不受影响；双页模式按整个视口流动。参数集中在 `ReaderWaveScripts` 常量（总时长 560ms、条带 32、单条冲刷 170ms、正弦调制 1.5 个波），真机观感微调只改这里。
+- 用无头 Edge 对真实注入脚本做逐帧像素验证（seek+pause 冻结法）：t=0 完整显示旧页，向前翻 t≈260ms 时右侧已揭示下一页、过渡带柔和成波浪状，t≈560ms 后完全显示下一页；向后翻镜像正确。
+- Debug x64 构建 0 警告、0 错误；测试 180 项全部通过；应用启动存活检查通过。真机观感（波速、涟漪幅度、高光浓淡）建议在交互桌面翻几页确认；未重新发布便携版、未创建提交，既有未提交改动原样保留。
+
+## 68. 翻页动画改为二级菜单（2026-08-12，工作区未提交）
+
+- “更多 → 阅读设置”菜单里的“翻页动画”由禁用的占位项改为 `MenuFlyoutSubItem` 二级菜单，四个模式（无动画 / 淡入淡出 / 左右滑动 / 水波流动）收进子菜单，仍共用 `GroupName="ReaderPageAnimation"` 单选互斥。
+- 代码侧无改动：`ReaderAnimationItem_Click`、`SyncReaderPageAnimationMenu` 与各 `x:Name` 引用不变，默认选中“淡入淡出”不变。
+- Debug x64 构建 0 警告、0 错误；测试 180 项全部通过；应用启动存活检查通过。未创建提交，既有未提交改动原样保留。
+
+## 69. 主界面视觉对齐与黄金分割布局（2026-08-12，工作区未提交）
+
+- 主界面左右侧改用黄金分割比例：左侧导航栏宽度 = 窗口宽度 × 0.382（较小黄金分割段），并夹在 200–360 之间防止超宽窗口下导航过宽；右侧详情栏打开时取剩余内容区 × 0.382（300–400），左右两侧互为镜像比例。窗口尺寸变化时两侧宽度实时跟随（`ApplyGoldenSidebarWidth` / `ComputeGoldenDetailWidth`，常量集中在 `MainWindow.xaml.cs` 顶部），详情栏原固定 320 已替换。
+- 图标、控件与文字视觉对齐修正：书库列表行与 Z-Library 列表行里的封面（固定尺寸）改为相对行内容垂直居中（原来默认 Stretch 会顶对齐，与居中的文字列错位）；侧栏设备卡“已用/剩余”色块与 9px 文字垂直居中；收藏夹“返回收藏夹”按钮的返回图标与文字垂直居中。
+- Debug x64 构建 0 警告、0 错误；测试 180 项全部通过；应用启动存活检查通过。黄金分割系数/上下限如需调整只改顶部常量；未创建提交，既有未提交改动原样保留。
+
+## 70. 设备字段型号选择与串码映射（2026-08-12，工作区未提交）
+
+- 设备页头部设备名称字段改为可点击按钮（`DeviceNameButton`，无边框文字样式 + 下拉箭头），未连接时禁用；点击弹出 `MenuFlyout` 型号选择列表。
+- 列表第一项为“默认名称（设备自带）”，随后按厂家提供二级子菜单：Kindle、汉王、掌阅、Kobo，每个子菜单内置常见型号（如 Kindle Paperwhite 11/12 代、Oasis、Scribe；汉王 N10/Clear；掌阅 Ocean/Smart/Light/Neo；Kobo Clara/Libra/Sage/Elipsa 等），末尾提供“自定义型号…”输入。
+- 自定义型号使用与既有确认框一致的黑白无边框覆盖层（`DeviceModelInputOverlay`）输入，支持 Enter 确定、Esc 取消，空值会提示且不关闭。
+- 新增 `DeviceModelStore`（Infrastructure）：在 `kkindle.db` 中创建 `DeviceModels(Serial, Model, UpdatedAt)` 表，按设备身份（USB 串码/卷序列号，WPD 用 shell 路径）保存用户型号；串码统一转大写，与设备身份比较的大小写不敏感行为一致；`SetModelAsync` 用 UPSERT 实现“同串码更新型号即自动覆盖映射”，另有 `DeleteModelAsync` 用于恢复默认名称。
+- 连接设备时（`RefreshDevicesAsync`）先按 `device.Identity` 查映射：有则显示用户型号，无则显示设备默认名称；连接确认弹窗、侧栏设备状态、设备页与字体/字典资源页头部均使用解析后的显示名称；扫描进度文案同样跟随显示名称。
+- 新增 `DeviceModelCatalog`（Core）集中管理厂家/型号目录；`DeviceModelStoreTests` 覆盖保存/重开恢复、同串码覆盖、多串码独立、删除回退默认及目录完整性，共 5 项新测试。
+- Debug x64 构建 0 警告、0 错误；测试 185 项全部通过。未创建提交，既有未提交改动原样保留。

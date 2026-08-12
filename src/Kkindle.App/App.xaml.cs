@@ -23,8 +23,10 @@ public partial class App : Application
             var formatConverter = new BookFormatConversionService();
             var kindle = new KindleDeviceService(paths, metadata);
             var readerData = new ReaderDataService(paths);
+            var deviceModels = new DeviceModelStore(paths);
             await library.InitializeAsync();
             await readerData.InitializeAsync();
+            await deviceModels.InitializeAsync();
             var migrationBackup = AppRootConfiguration.MigrationBackupPath(paths.Root);
             if (File.Exists(migrationBackup))
             {
@@ -36,6 +38,7 @@ public partial class App : Application
                 library,
                 formatConverter,
                 kindle,
+                deviceModels,
                 readerData,
                 new EpubBookContentService(readerData),
                 new EpubFootnoteResolver(),

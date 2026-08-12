@@ -31,6 +31,7 @@ public sealed partial class MainWindow
         ZLibraryPage.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
+        HideSettingsPanel();
         DeviceResourcePage.Visibility = Visibility.Visible;
         DeviceResourcePageTitle.Text = kind == KindleResourceKind.Font ? "Kindle 字体" : "Kindle 字典";
         DeviceResourcePathText.Text = kind == KindleResourceKind.Font ? @"Kindle\fonts" : @"Kindle\documents\dictionaries";
@@ -66,7 +67,7 @@ public sealed partial class MainWindow
         _deviceResourceScanCancellation = cancellation;
         var device = _devices[0];
         ImportDeviceResourceButton.IsEnabled = !_deviceResourceOperationInProgress;
-        DeviceResourceDeviceText.Text = $"{device.Name} · {device.ConnectionLabel}";
+        DeviceResourceDeviceText.Text = $"{_deviceDisplayName ?? device.Name} · {device.ConnectionLabel}";
         DeviceResourceStatusText.Text = "正在读取设备目录…";
         try
         {

@@ -91,6 +91,25 @@ public sealed class BookCardViewModel : ObservableObject
     public string UpdatedLabel => $"更新于 {Book.UpdatedAt.ToLocalTime():yyyy-MM-dd HH:mm}";
     public string DescriptionLabel => string.IsNullOrWhiteSpace(Book.Description) ? "暂无简介" : Book.Description;
     public BitmapImage? CoverImage { get; private set; }
+    private Visibility _galleryTextVisibility = Visibility.Visible;
+
+    // Gallery mode hides the title/author/format text under the cover so the
+    // grid shows only the book image; every other interaction stays normal.
+    public Visibility GalleryTextVisibility
+    {
+        get => _galleryTextVisibility;
+        set
+        {
+            if (SetProperty(ref _galleryTextVisibility, value))
+                OnPropertyChanged(nameof(GalleryPresenceVisibility));
+        }
+    }
+
+    // The PC-library presence icons are also hidden in gallery mode: the grid
+    // then shows only the cover image.
+    public Visibility GalleryPresenceVisibility => _galleryTextVisibility == Visibility.Collapsed
+        ? Visibility.Collapsed
+        : PresenceVisibility;
     private bool _isConversionProgressVisible;
     private double _conversionProgress;
     private string _conversionProgressLabel = "0%";
@@ -245,6 +264,23 @@ public sealed class KindleBookCardViewModel : ObservableObject
 {
     private BookLibraryPresence _libraryPresence = BookLibraryPresence.KindleOnly;
     private bool _isLibraryPresenceVisible = true;
+    private Visibility _galleryTextVisibility = Visibility.Visible;
+
+    // Gallery mode (shared with the PC library grid): hide the title/author/
+    // info text and the presence icons so only the cover image remains.
+    public Visibility GalleryTextVisibility
+    {
+        get => _galleryTextVisibility;
+        set
+        {
+            if (SetProperty(ref _galleryTextVisibility, value))
+                OnPropertyChanged(nameof(GalleryPresenceVisibility));
+        }
+    }
+
+    public Visibility GalleryPresenceVisibility => _galleryTextVisibility == Visibility.Collapsed
+        ? Visibility.Collapsed
+        : PresenceVisibility;
 
     public KindleBookCardViewModel(KindleBook book)
     {

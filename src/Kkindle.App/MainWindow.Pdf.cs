@@ -70,7 +70,7 @@ public sealed partial class MainWindow
         _pdfCurrentPage = Math.Clamp(page, 1, pageCount);
         _readerChapterIndex = _pdfCurrentPage - 1;
         var source = new Uri(_readerAllowedFile).AbsoluteUri + $"#page={_pdfCurrentPage}";
-        ReaderWebView.Source = new Uri(source);
+        ReaderActiveWebView.Source = new Uri(source);
         ReaderChapterText.Text = $"{_pdfCurrentPage} / {pageCount} · 第 {_pdfCurrentPage} 页";
         ToolTipService.SetToolTip(ReaderChapterText, $"PDF 第 {_pdfCurrentPage} 页");
         ReaderReadingProgressText.Text = $"已读 {_pdfCurrentPage} / {pageCount} 页";

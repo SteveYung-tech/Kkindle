@@ -31,6 +31,7 @@ public sealed partial class MainWindow
         ReadingDashboardPage.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
+        HideSettingsPanel();
         ZLibraryPage.Visibility = Visibility.Visible;
         UpdateZLibraryAccountStatus();
     }
@@ -380,12 +381,12 @@ public sealed partial class MainWindow
         ZLibraryPasswordBox.Password = _zLibrarySettings.Password;
         ZLibraryBaseUrlBox.Text = _zLibrarySettings.BaseUrl;
         ZLibraryAccountStatusText.Text = status ?? string.Empty;
-        ZLibraryAccountOverlay.Visibility = Visibility.Visible;
+        ShowSettingsPanel(ZLibraryAccountPane);
     }
 
     private void ZLibraryAccountCancelButton_Click(object sender, RoutedEventArgs e)
     {
-        ZLibraryAccountOverlay.Visibility = Visibility.Collapsed;
+        HideSettingsPanel();
         ZLibraryAccountStatusText.Text = string.Empty;
     }
 
@@ -415,7 +416,7 @@ public sealed partial class MainWindow
             normalized.BaseUrl = _zLibraryService.ActiveBaseUrl;
             await _zLibrarySettingsStore.SaveAsync(normalized);
             _zLibrarySettings = normalized;
-            ZLibraryAccountOverlay.Visibility = Visibility.Collapsed;
+            HideSettingsPanel();
             ZLibraryAccountStatusText.Text = string.Empty;
             TaskStatusText.Text = "Z-Library 账号已保存并验证";
             UpdateZLibraryAccountStatus();

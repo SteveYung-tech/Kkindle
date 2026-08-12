@@ -2,8 +2,10 @@ using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 
@@ -13,7 +15,7 @@ public sealed record ReaderTocMarker(EpubReaderNavigationItem Item, bool IsCurre
 {
     private static readonly SolidColorBrush CurrentBrush = new(ColorHelper.FromArgb(255, 91, 98, 104));
     private static readonly SolidColorBrush InactiveBrush = new(ColorHelper.FromArgb(255, 211, 213, 209));
-    public static readonly SolidColorBrush HoverBrush = new(Colors.Black);
+    public static readonly SolidColorBrush HoverBrush = new(ColorHelper.FromArgb(255, 96, 96, 96));
 
     public string Title => Item.Title;
     public SolidColorBrush Fill => GetFill(IsCurrent);
@@ -39,6 +41,108 @@ public sealed partial class MainWindow
     private bool _readerCompactPointerActive;
     private double _readerCompactPointerY;
     private bool _readerCompactPointerPressedHandlerRegistered;
+
+    // Main TOC list scrollbar: the XAML resources keep its colors soft, and
+    // this fades it away while idle so the side panel stays out of the reading
+    // flow. It reappears on scroll or hover.
+    private const double ReaderTocScrollbarIdleDelayMs = 900d;
+    private ScrollViewer? _readerTocListScrollViewer;
+    private ScrollBar? _readerTocListScrollBar;
+    private DispatcherQueueTimer? _readerTocScrollbarHideTimer;
+    private Storyboard? _readerTocScrollbarFadeStoryboard;
+
+    private void ReaderTocList_Loaded(object sender, RoutedEventArgs e) =>
+        AttachReaderTocScrollbarAutoHide();
+
+    private void AttachReaderTocScrollbarAutoHide()
+    {
+        if (_readerTocListScrollViewer is not null && _readerTocListScrollBar is not null) return;
+
+        _readerTocListScrollViewer ??= FindDescendants<ScrollViewer>(ReaderTocList).FirstOrDefault();
+        _readerTocListScrollBar ??= FindDescendants<ScrollBar>(ReaderTocList)
+            .FirstOrDefault(bar => bar.Orientation == Orientation.Vertical);
+
+        if (_readerTocListScrollViewer is null || _readerTocListScrollBar is null)
+        {
+            // Template parts may not be realized yet on the very first layout;
+            // retry once after the next layout pass.
+            ReaderTocList.LayoutUpdated += ReaderTocList_RetryAttachLayoutUpdated;
+            return;
+        }
+
+        _readerTocListScrollViewer.ViewChanged += ReaderTocListScrollViewer_ViewChanged;
+        _readerTocListScrollViewer.PointerEntered += ReaderTocListScrollViewer_PointerEntered;
+        _readerTocListScrollViewer.PointerExited += ReaderTocListScrollViewer_PointerExited;
+
+        _readerTocScrollbarHideTimer = DispatcherQueue.CreateTimer();
+        _readerTocScrollbarHideTimer.Interval = TimeSpan.FromMilliseconds(ReaderTocScrollbarIdleDelayMs);
+        _readerTocScrollbarHideTimer.IsRepeating = false;
+        _readerTocScrollbarHideTimer.Tick += ReaderTocScrollbarHideTimer_Tick;
+
+        // Briefly reveal the scrollbar when the panel opens (only when the list
+        // actually overflows), then the idle timer folds it away. Scrolling or
+        // hovering brings it back.
+        SetReaderTocListScrollBarVisible(visible: true, animate: false);
+        _readerTocScrollbarHideTimer.Stop();
+        _readerTocScrollbarHideTimer.Start();
+    }
+
+    private void ReaderTocList_RetryAttachLayoutUpdated(object? sender, object e)
+    {
+        ReaderTocList.LayoutUpdated -= ReaderTocList_RetryAttachLayoutUpdated;
+        AttachReaderTocScrollbarAutoHide();
+    }
+
+    private void ReaderTocListScrollViewer_ViewChanged(
+        object? sender,
+        ScrollViewerViewChangedEventArgs e)
+    {
+        SetReaderTocListScrollBarVisible(visible: true, animate: true);
+        if (e.IsIntermediate) return;
+
+        _readerTocScrollbarHideTimer?.Stop();
+        _readerTocScrollbarHideTimer?.Start();
+    }
+
+    private void ReaderTocListScrollViewer_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        SetReaderTocListScrollBarVisible(visible: true, animate: true);
+        _readerTocScrollbarHideTimer?.Stop();
+    }
+
+    private void ReaderTocListScrollViewer_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        _readerTocScrollbarHideTimer?.Stop();
+        _readerTocScrollbarHideTimer?.Start();
+    }
+
+    private void ReaderTocScrollbarHideTimer_Tick(DispatcherQueueTimer sender, object args) =>
+        SetReaderTocListScrollBarVisible(visible: false, animate: true);
+
+    private void SetReaderTocListScrollBarVisible(bool visible, bool animate)
+    {
+        if (_readerTocListScrollBar is null) return;
+
+        _readerTocListScrollBar.IsHitTestVisible = visible;
+        if (!animate)
+        {
+            _readerTocScrollbarFadeStoryboard?.Stop();
+            _readerTocListScrollBar.Opacity = visible ? 1d : 0d;
+            return;
+        }
+
+        _readerTocScrollbarFadeStoryboard?.Stop();
+        var animation = new DoubleAnimation
+        {
+            To = visible ? 1d : 0d,
+            Duration = TimeSpan.FromMilliseconds(180),
+        };
+        Storyboard.SetTarget(animation, _readerTocListScrollBar);
+        Storyboard.SetTargetProperty(animation, "Opacity");
+        _readerTocScrollbarFadeStoryboard = new Storyboard();
+        _readerTocScrollbarFadeStoryboard.Children.Add(animation);
+        _readerTocScrollbarFadeStoryboard.Begin();
+    }
 
     private void ReaderTocMinimalToggleButton_Click(object sender, RoutedEventArgs e)
     {

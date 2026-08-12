@@ -20,6 +20,13 @@ public sealed class BookFormatConversionService : IBookFormatConverter
         @"(?<!\d)(?<percent>\d{1,3}(?:\.\d+)?)\s*%",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    // Calibre's bundled Python cannot open paths longer than MAX_PATH (260).
+    // Books with very long filenames (e.g. Z-Library exports) stored in the
+    // nested data\library tree routinely exceed that, so those sources are
+    // converted from a short temporary copy. 240 leaves headroom for the
+    // temp-copy path itself.
+    private const int MaxCalibreSourcePathLength = 240;
+
     private static readonly string[] BundledCalibreRelativePaths =
     [
         Path.Combine("Calibre", "ebook-convert.exe"),
@@ -65,90 +72,146 @@ public sealed class BookFormatConversionService : IBookFormatConverter
         if (isKfx)
             await EnsureKfxInputPluginAsync(executable, progress, cancellationToken);
 
-        var directory = Path.GetDirectoryName(destination);
-        if (string.IsNullOrWhiteSpace(directory))
-            throw new InvalidOperationException("转换目标路径无效。 ");
-        Directory.CreateDirectory(directory);
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = executable,
-            WorkingDirectory = Path.GetDirectoryName(executable)!,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = CalibreOutputEncoding,
-            StandardErrorEncoding = CalibreOutputEncoding
-        };
-
-        ConfigureCalibreEnvironment(startInfo, executable, isKfx);
-
-        startInfo.ArgumentList.Add(source);
-        startInfo.ArgumentList.Add(destination);
-        if (targetFormat == "azw3")
-        {
-            // Rebuild KF8/AZW3 for the connected Kindle generation instead of
-            // carrying forward legacy MOBI headers and screen-profile quirks.
-            startInfo.ArgumentList.Add("--output-profile");
-            startInfo.ArgumentList.Add("kindle_scribe");
-        }
-        if (targetFormat == "azw3"
-            || (targetFormat == "epub" && sourceFormat is "azw3" or "mobi"))
-        {
-            // Let the Kindle choose its built-in CJK font and foreground color.
-            // Legacy AZW3 files often hard-code desktop Chinese font families or
-            // colors that render as blank text on newer e-ink firmware. The same
-            // cleanup also protects the built-in WebView reader's EPUB cache.
-            startInfo.ArgumentList.Add("--filter-css");
-            startInfo.ArgumentList.Add("font-family,color,background-color");
-        }
-
-        using var process = new Process { StartInfo = startInfo };
-        Task<string>? standardOutput = null;
-        Task<string>? standardError = null;
+        string? shortSourceCopy = null;
         try
         {
-            if (!process.Start())
-                throw new InvalidOperationException("无法启动 Calibre 转换器。 ");
-
-            progress?.Report(new FormatConversionProgress(0, "转换器已启动…"));
-            standardOutput = ReadStandardOutputAsync(process.StandardOutput, progress, cancellationToken);
-            standardError = ReadStreamAsync(process.StandardError, cancellationToken);
-            await process.WaitForExitAsync(cancellationToken);
-            var outputText = await standardOutput;
-            var errorText = await standardError;
-
-            if (process.ExitCode != 0)
+            if (source.Length > MaxCalibreSourcePathLength)
             {
-                var detail = errorText.Trim();
-                if (detail.Length == 0) detail = outputText.Trim();
-                if (detail.Length > 1200) detail = detail[^1200..];
-                if (isKfx && detail.Contains("DRM", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("这本 KFX 受 DRM 保护，Calibre KFX Input 无法转换。Kkindle 不会绕过 DRM。");
-                throw new InvalidOperationException(
-                    string.IsNullOrWhiteSpace(detail)
-                        ? $"Calibre 转换失败（退出码 {process.ExitCode}）。"
-                        : $"Calibre 转换失败：{detail}");
+                shortSourceCopy = CreateShortSourceCopy(source);
+                source = shortSourceCopy;
             }
 
-            var output = new FileInfo(destination);
-            if (!output.Exists || output.Length == 0)
-                throw new InvalidDataException("转换器未生成有效的目标文件。 ");
-            progress?.Report(new FormatConversionProgress(100, "转换完成。"));
+            var directory = Path.GetDirectoryName(destination);
+            if (string.IsNullOrWhiteSpace(directory))
+                throw new InvalidOperationException("转换目标路径无效。 ");
+            Directory.CreateDirectory(directory);
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = executable,
+                WorkingDirectory = Path.GetDirectoryName(executable)!,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardOutputEncoding = CalibreOutputEncoding,
+                StandardErrorEncoding = CalibreOutputEncoding
+            };
+
+            ConfigureCalibreEnvironment(startInfo, executable, isKfx);
+
+            startInfo.ArgumentList.Add(source);
+            startInfo.ArgumentList.Add(destination);
+            if (targetFormat == "azw3")
+            {
+                // Rebuild KF8/AZW3 for the connected Kindle generation instead of
+                // carrying forward legacy MOBI headers and screen-profile quirks.
+                startInfo.ArgumentList.Add("--output-profile");
+                startInfo.ArgumentList.Add("kindle_scribe");
+            }
+            if (targetFormat == "azw3"
+                || (targetFormat == "epub" && sourceFormat is "azw3" or "mobi"))
+            {
+                // Let the Kindle choose its built-in CJK font and foreground color.
+                // Legacy AZW3 files often hard-code desktop Chinese font families or
+                // colors that render as blank text on newer e-ink firmware. The same
+                // cleanup also protects the built-in WebView reader's EPUB cache.
+                startInfo.ArgumentList.Add("--filter-css");
+                startInfo.ArgumentList.Add("font-family,color,background-color");
+            }
+
+            using var process = new Process { StartInfo = startInfo };
+            Task<string>? standardOutput = null;
+            Task<string>? standardError = null;
+            try
+            {
+                if (!process.Start())
+                    throw new InvalidOperationException("无法启动 Calibre 转换器。 ");
+
+                progress?.Report(new FormatConversionProgress(0, "转换器已启动…"));
+                standardOutput = ReadStandardOutputAsync(process.StandardOutput, progress, cancellationToken);
+                standardError = ReadStreamAsync(process.StandardError, cancellationToken);
+                await process.WaitForExitAsync(cancellationToken);
+                var outputText = await standardOutput;
+                var errorText = await standardError;
+
+                if (process.ExitCode != 0)
+                {
+                    var detail = errorText.Trim();
+                    if (detail.Length == 0) detail = outputText.Trim();
+                    if (detail.Length > 1200) detail = detail[^1200..];
+                    if (isKfx && detail.Contains("DRM", StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException("这本 KFX 受 DRM 保护，Calibre KFX Input 无法转换。Kkindle 不会绕过 DRM。");
+                    throw new InvalidOperationException(
+                        string.IsNullOrWhiteSpace(detail)
+                            ? $"Calibre 转换失败（退出码 {process.ExitCode}）。"
+                            : $"Calibre 转换失败：{detail}");
+                }
+
+                var output = new FileInfo(destination);
+                if (!output.Exists || output.Length == 0)
+                    throw new InvalidDataException("转换器未生成有效的目标文件。 ");
+                progress?.Report(new FormatConversionProgress(100, "转换完成。"));
+            }
+            catch (OperationCanceledException)
+            {
+                TryKill(process);
+                try { if (standardOutput is not null) await standardOutput; } catch { }
+                try { if (standardError is not null) await standardError; } catch { }
+                TryDelete(destination);
+                throw;
+            }
+            catch (Exception exception) when (shortSourceCopy is not null)
+            {
+                TryDelete(destination);
+                if (exception.Message.Contains("源文件名过长", StringComparison.OrdinalIgnoreCase))
+                    throw;
+                throw new InvalidOperationException(
+                    $"{exception.Message}（源文件名过长，已改用短路径转换仍失败，请重命名书籍文件后重试）",
+                    exception);
+            }
+            catch
+            {
+                TryDelete(destination);
+                throw;
+            }
         }
-        catch (OperationCanceledException)
+        finally
         {
-            TryKill(process);
-            try { if (standardOutput is not null) await standardOutput; } catch { }
-            try { if (standardError is not null) await standardError; } catch { }
-            TryDelete(destination);
-            throw;
+            if (shortSourceCopy is not null)
+                TryDeleteShortSourceCopy(shortSourceCopy);
+        }
+    }
+
+    private static string CreateShortSourceCopy(string sourcePath)
+    {
+        var extension = Path.GetExtension(sourcePath);
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            "KkindleConversions",
+            "sources",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var copyPath = Path.Combine(directory, "source" + extension);
+        File.Copy(sourcePath, copyPath, overwrite: true);
+        return copyPath;
+    }
+
+    private static void TryDeleteShortSourceCopy(string copyPath)
+    {
+        TryDelete(copyPath);
+        try
+        {
+            var directory = Path.GetDirectoryName(copyPath);
+            if (!string.IsNullOrWhiteSpace(directory)
+                && Directory.Exists(directory)
+                && !Directory.EnumerateFileSystemEntries(directory).Any())
+            {
+                Directory.Delete(directory);
+            }
         }
         catch
         {
-            TryDelete(destination);
-            throw;
         }
     }
 

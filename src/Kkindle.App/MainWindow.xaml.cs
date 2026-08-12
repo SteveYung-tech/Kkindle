@@ -36,6 +36,7 @@ public sealed partial class MainWindow : Window
     private readonly IBookFormatConverter _formatConverter;
     private readonly ReaderFormatCacheService _readerFormatCache;
     private readonly IKindleDeviceService _kindle;
+    private readonly DeviceModelStore _deviceModelStore;
     private readonly EpubReaderPreparationService _epubReader;
     private readonly DispatcherQueueTimer _deviceTimer;
     private readonly DispatcherQueueTimer _deviceConnectedToastTimer;
@@ -43,11 +44,13 @@ public sealed partial class MainWindow : Window
     private bool _detailFavorite;
     private LibraryReadingStatus _detailReadingStatus;
     private IReadOnlyList<KindleDevice> _devices = [];
+    private string? _deviceDisplayName;
     private bool _isRefreshingDevices;
     private bool _isTransferring;
     private readonly object _deviceOperationSync = new();
     private readonly HashSet<Task> _activeDeviceOperations = [];
     private bool _deviceEjectInProgress;
+    private double _deviceUsedRatio;
     private EventHandler<object>? _deviceStatusLayoutUpdatedHandler;
     private CancellationTokenSource? _transferCancellation;
     private CancellationTokenSource? _deviceScanCancellation;
@@ -55,7 +58,6 @@ public sealed partial class MainWindow : Window
     private bool _isUpdatingFilters;
     private CancellationTokenSource? _librarySearchDebounceCancellation;
     private string? _scannedDeviceId;
-    private double _deviceUsedRatio;
     private string? _acceptedDeviceId;
     private string? _ignoredDeviceId;
     private string? _manuallyDisconnectedDeviceId;
@@ -67,6 +69,9 @@ public sealed partial class MainWindow : Window
     // the foreground window without touching WinUI objects.
     private IntPtr _readerWindowHandle;
     private TaskCompletionSource<bool>? _devicePromptCompletion;
+    private sealed record MessageDialogRequest(string Title, string Message, TaskCompletionSource<bool> Completion);
+    private readonly Queue<MessageDialogRequest> _messageDialogQueue = new();
+    private MessageDialogRequest? _activeMessageDialog;
     private bool _nativeChromeConfigured;
     private AppWindow? _appWindow;
     private OverlappedPresenter? _windowPresenter;
@@ -82,15 +87,27 @@ public sealed partial class MainWindow : Window
     private bool _readerNavigateToEnd;
     private bool _readerTocExpanded = true;
     private bool _readerTocMinimal;
-    private bool _readerAssistantExpanded = true;
+    private bool _readerAssistantExpanded;
     private bool _readerHasToc;
     private bool _readerZenMode;
+    // Zen mode + maximized window → the app switches to the FullScreen
+    // presenter, which hides the Windows taskbar so the reader fills the whole
+    // screen. This tracks whether that presenter switch is active.
+    private bool _zenFullScreenActive;
+    private bool _zenWasMaximizedBeforeFullScreen;
+    // Zen auto-hide chrome: the top Kreader text, zen buttons and window
+    // caption buttons hide after inactivity and reappear on mouse movement.
+    // The minimal TOC rail on the left stays untouched while open.
+    private bool _readerZenChromeVisible = true;
+    private long _readerZenLastMouseMoveTick;
+    private DispatcherQueueTimer? _readerZenChromeHideTimer;
     private bool _readerPreZenTocExpanded = true;
     private bool _readerPreZenTocMinimal;
-    private bool _readerPreZenAssistantExpanded = true;
+    private bool _readerPreZenAssistantExpanded;
     private const int ReaderAnimationNone = 0;
     private const int ReaderAnimationFade = 1;
     private const int ReaderAnimationSlide = 2;
+    private const int ReaderAnimationWave = 3;
     private int _readerPageAnimation = ReaderAnimationFade;
     private bool _readerContinuousLocked;
     private int _readerContinuousDirection = 1;
@@ -150,6 +167,17 @@ public sealed partial class MainWindow : Window
     // this guard the EPUB font paints for one frame before the reader font.
     private bool _readerInitialRevealPending;
     private Task? _readerWebViewInitializationTask;
+    // Dual WebView preload: the visible surface shows the current chapter while
+    // the hidden surface prepares the next one. ReaderActiveWebView resolves to
+    // whichever surface is currently on screen, so every existing reader path
+    // keeps operating against the visible document.
+    private bool _readerShowingPreload;
+    private int _readerPreloadChapterIndex = -1;
+    private Uri? _readerPreloadTarget;
+    private WebView2? _readerPreloadControl;
+    private bool _readerPreloadReady;
+    private bool _readerPreloadInProgress;
+    private Task? _readerPreloadWebViewInitializationTask;
 
     // Direction + animation style for the incoming chapter transition. Style is
     // 1 = fade (淡入淡出), 2 = slide (左右滑动). Recorded when the navigation starts
@@ -161,6 +189,7 @@ public sealed partial class MainWindow : Window
         IBookLibraryService library,
         IBookFormatConverter formatConverter,
         IKindleDeviceService kindle,
+        DeviceModelStore deviceModels,
         ReaderDataService readerData,
         EpubBookContentService bookContent,
         EpubFootnoteResolver footnotes,
@@ -179,6 +208,7 @@ public sealed partial class MainWindow : Window
         _formatConverter = formatConverter;
         _readerFormatCache = new ReaderFormatCacheService(paths, formatConverter);
         _kindle = kindle;
+        _deviceModelStore = deviceModels;
         _kindleEmailSettingsStore = new KindleEmailSettingsStore(paths);
         _kindleEmailSender = new KindleEmailSender();
         _readerData = readerData;
@@ -211,12 +241,12 @@ public sealed partial class MainWindow : Window
         };
         _deviceTimer.Start();
         _deviceConnectedToastTimer = DispatcherQueue.CreateTimer();
-        _deviceConnectedToastTimer.Interval = TimeSpan.FromSeconds(3);
-        _deviceConnectedToastTimer.Tick += (_, _) =>
+        _deviceConnectedToastTimer.Interval = TimeSpan.FromSeconds(2);
+        _deviceConnectedToastTimer.Tick += async (_, _) =>
         {
             _deviceConnectedToastTimer.Stop();
             ClearPendingDeviceStatusPositionUpdate();
-            DeviceStatusPopup.IsOpen = false;
+            await FadeOutDeviceStatusToastAsync();
         };
         RootGrid.Loaded += MainWindow_Loaded;
         RootGrid.Loaded += (_, _) => EnsureInteractiveControlToolTips(RootGrid);
@@ -304,20 +334,72 @@ public sealed partial class MainWindow : Window
 
     private void MaximizeWindowButton_Click(object sender, RoutedEventArgs e)
     {
+        // In zen fullscreen the taskbar is hidden; the caption button then
+        // acts as "restore" back to a normal maximized window.
+        if (_zenFullScreenActive)
+        {
+            _zenFullScreenActive = false;
+            _appWindow?.SetPresenter(AppWindowPresenterKind.Overlapped);
+            SetWindowsTaskbarVisible(true);
+            if (_appWindow?.Presenter is OverlappedPresenter restored)
+            {
+                if (_zenWasMaximizedBeforeFullScreen)
+                    restored.Maximize();
+            }
+            UpdateMaximizeGlyph();
+            DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
+            return;
+        }
+
         if (_windowPresenter is null) return;
         if (_windowPresenter.State == OverlappedPresenterState.Maximized)
             _windowPresenter.Restore();
         else
+        {
             _windowPresenter.Maximize();
+            if (_readerZenMode) ApplyReaderZenFullScreen();
+        }
         UpdateMaximizeGlyph();
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
     }
 
     private void CloseWindowButton_Click(object sender, RoutedEventArgs e) => Close();
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    private static IntPtr _taskbarWindowHandle;
+    private static bool _taskbarHiddenByZen;
+
+    // Windows 11's auto-hide taskbar can leave a thin line at the bottom even
+    // while an app is in the FullScreen presenter. Hide the real taskbar window
+    // while zen fullscreen is active and restore it afterwards.
+    private static void SetWindowsTaskbarVisible(bool visible)
+    {
+        try
+        {
+            if (!visible && _taskbarHiddenByZen) return;
+            if (visible && !_taskbarHiddenByZen) return;
+            if (_taskbarWindowHandle == IntPtr.Zero)
+                _taskbarWindowHandle = FindWindow("Shell_TrayWnd", null);
+            if (_taskbarWindowHandle != IntPtr.Zero)
+            {
+                _ = ShowWindow(_taskbarWindowHandle, visible ? 5 : 0);
+                _taskbarHiddenByZen = !visible;
+            }
+        }
+        catch
+        {
+        }
+    }
+
     private void UpdateMaximizeGlyph()
     {
-        var isMaximized = _windowPresenter?.State == OverlappedPresenterState.Maximized;
+        var isMaximized = _zenFullScreenActive
+            || _windowPresenter?.State == OverlappedPresenterState.Maximized;
         MaximizeWindowGlyph.Glyph = isMaximized ? "\uE923" : "\uE922";
         MaximizeWindowButton.SetValue(
             Microsoft.UI.Xaml.Automation.AutomationProperties.NameProperty,
@@ -341,7 +423,10 @@ public sealed partial class MainWindow : Window
         var cornerPreference = 1; // DWMWCP_DONOTROUND
         _ = DwmSetWindowAttribute(windowHandle, 33, ref cornerPreference, sizeof(int));
 
-        var borderColor = 0x000000;
+        // In fullscreen there is no window frame to color; the black border
+        // attribute can render as a thin line along the window edges. Paint it
+        // white (the reader background) so no line shows at the bottom.
+        var borderColor = _zenFullScreenActive ? 0xFFFFFF : 0x000000;
         _ = DwmSetWindowAttribute(windowHandle, 34, ref borderColor, sizeof(int));
     }
 
@@ -365,6 +450,9 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
+        // Never leave the Windows taskbar hidden if the app exits while zen
+        // fullscreen is active.
+        SetWindowsTaskbarVisible(true);
         // Reader teardown must never block the UI thread. The previous
         // implementation synchronously waited on FlushReaderSessionAsync()
         // (GetAwaiter().GetResult()); a WebView ExecuteScriptAsync that never
@@ -433,7 +521,7 @@ public sealed partial class MainWindow : Window
         SettingsDataPathText.Text = _paths.Data;
         DispatcherQueue.TryEnqueue(
             DispatcherQueuePriority.Low,
-            () => _ = WarmReaderWebViewAsync());
+            () => _ = WarmReaderActiveWebViewAsync());
         await LoadProductivityStateAsync();
         _zLibrarySettings = await _zLibrarySettingsStore.LoadAsync();
         UpdateZLibraryAccountStatus();
@@ -442,29 +530,79 @@ public sealed partial class MainWindow : Window
         await RefreshDevicesAsync();
     }
 
-    private async Task WarmReaderWebViewAsync()
+    private async Task WarmReaderActiveWebViewAsync()
     {
-        try { await EnsureReaderWebViewReadyAsync(); }
+        try { await EnsureReaderActiveWebViewReadyAsync(); }
         catch { }
     }
 
-    private Task EnsureReaderWebViewReadyAsync()
+    // The reader document that is currently on screen. All reader code paths
+    // operate against this instance; the preload surface is only ever shown by
+    // flipping this flag during a chapter swap.
+    private WebView2 ReaderActiveWebView =>
+        _readerShowingPreload ? ReaderPreloadWebView : ReaderWebView;
+
+    private void SetReaderWebViewLayer(WebView2 webView, bool visible)
     {
-        if (ReaderWebView.CoreWebView2 is not null)
+        Canvas.SetZIndex(webView, visible ? 2 : 1);
+        webView.Opacity = visible ? 1 : 0;
+        webView.IsHitTestVisible = visible;
+    }
+
+    private void ResetReaderPreloadState()
+    {
+        _readerShowingPreload = false;
+        _readerPreloadChapterIndex = -1;
+        _readerPreloadTarget = null;
+        _readerPreloadControl = null;
+        _readerPreloadReady = false;
+        _readerPreloadInProgress = false;
+        SetReaderWebViewLayer(ReaderWebView, visible: true);
+        SetReaderWebViewLayer(ReaderPreloadWebView, visible: false);
+    }
+
+    private Task EnsureReaderPreloadWebViewReadyAsync()
+    {
+        if (ReaderPreloadWebView.CoreWebView2 is not null)
         {
-            ConfigureReaderWebView();
+            ConfigureReaderWebViewSettings(ReaderPreloadWebView);
             return Task.CompletedTask;
         }
 
-        return _readerWebViewInitializationTask ??= InitializeReaderWebViewAsync();
+        return _readerPreloadWebViewInitializationTask ??= InitializeReaderPreloadWebViewAsync();
     }
 
-    private async Task InitializeReaderWebViewAsync()
+    private async Task InitializeReaderPreloadWebViewAsync()
     {
         try
         {
-            await ReaderWebView.EnsureCoreWebView2Async();
-            ConfigureReaderWebView();
+            await ReaderPreloadWebView.EnsureCoreWebView2Async();
+            ConfigureReaderWebViewSettings(ReaderPreloadWebView);
+        }
+        catch
+        {
+            _readerPreloadWebViewInitializationTask = null;
+            throw;
+        }
+    }
+
+    private Task EnsureReaderActiveWebViewReadyAsync()
+    {
+        if (ReaderActiveWebView.CoreWebView2 is not null)
+        {
+            ConfigureReaderActiveWebView();
+            return Task.CompletedTask;
+        }
+
+        return _readerWebViewInitializationTask ??= InitializeReaderActiveWebViewAsync();
+    }
+
+    private async Task InitializeReaderActiveWebViewAsync()
+    {
+        try
+        {
+            await ReaderActiveWebView.EnsureCoreWebView2Async();
+            ConfigureReaderActiveWebView();
         }
         catch
         {
@@ -494,6 +632,7 @@ public sealed partial class MainWindow : Window
         UpdateEmptyLibraryState();
         ApplyBookConversionCardState();
         ReconcileLibraryPresence();
+        ApplyLibraryGalleryDisplay();
     }
 
     private async Task RefreshDevicesAsync()
@@ -518,6 +657,7 @@ public sealed partial class MainWindow : Window
             }
 
             var device = detectedDevices[0];
+            var displayName = await _deviceModelStore.GetModelAsync(device.Identity) ?? device.Name;
             var wasConnectedToSameDevice = _devices.Count > 0
                 && string.Equals(_devices[0].Identity, device.Identity, StringComparison.OrdinalIgnoreCase);
             if (_isTransferring
@@ -535,18 +675,18 @@ public sealed partial class MainWindow : Window
                 {
                     if (string.Equals(_ignoredDeviceId, device.Identity, StringComparison.OrdinalIgnoreCase))
                     {
-                        SetDisconnectedDeviceState($"已忽略 {device.Name}");
+                        SetDisconnectedDeviceState($"已忽略 {displayName}");
                         return;
                     }
 
                     if (!await ShowDevicePromptAsync(
                             "发现 Kindle 设备",
-                            $"发现 {device.Name}（{device.ConnectionLabel}）。是否连接到 Kkindle？",
+                            $"发现 {displayName}（{device.ConnectionLabel}）。是否连接到 Kkindle？",
                             "连接",
                             "暂不连接"))
                     {
                         _ignoredDeviceId = device.Identity;
-                        SetDisconnectedDeviceState($"已忽略 {device.Name}");
+                        SetDisconnectedDeviceState($"已忽略 {displayName}");
                         return;
                     }
                     _acceptedDeviceId = device.Identity;
@@ -555,7 +695,8 @@ public sealed partial class MainWindow : Window
             }
 
             _devices = [device];
-            KindleStatusText.Text = device.Name;
+            _deviceDisplayName = displayName;
+            KindleStatusText.Text = _deviceDisplayName;
             KindleConnectionText.Text = $"{device.ConnectionLabel} · 已连接";
             EjectDeviceButton.Visibility = Visibility.Visible;
             EjectDeviceButton.IsEnabled = true;
@@ -572,7 +713,8 @@ public sealed partial class MainWindow : Window
                 ? 0
                 : Math.Clamp((device.TotalBytes - device.FreeBytes) / (double)device.TotalBytes, 0, 1);
             UpdateDeviceStorageBar();
-            DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
+            DeviceNameButton.IsEnabled = true;
+            DeviceNameText.Text = $"{_deviceDisplayName} · {device.ConnectionLabel}";
             KindleConnectionText.Visibility = Visibility.Visible;
             if (!wasConnectedToSameDevice) ShowDeviceConnectedToast(device);
             if (!string.Equals(_scannedDeviceId, device.Identity, StringComparison.OrdinalIgnoreCase))
@@ -609,11 +751,13 @@ public sealed partial class MainWindow : Window
         _readingMaterialsCancellation?.Cancel();
         _deviceScanCancellation?.Cancel();
         _devices = [];
+        _deviceDisplayName = null;
         if (!preserveDeviceToast)
         {
             _deviceConnectedToastTimer.Stop();
             ClearPendingDeviceStatusPositionUpdate();
             DeviceStatusPopup.IsOpen = false;
+            DeviceStatusToast.Opacity = 1;
         }
         _scannedDeviceId = null;
         _scannedResourceDeviceId = null;
@@ -636,6 +780,7 @@ public sealed partial class MainWindow : Window
         ToolTipService.SetToolTip(DevicePageEjectButton, "未连接设备");
         _deviceUsedRatio = 0;
         UpdateDeviceStorageBar();
+        DeviceNameButton.IsEnabled = false;
         DeviceNameText.Text = "未检测到设备";
         DeviceBookCountText.Text = "0";
         DeviceResources.Clear();
@@ -650,16 +795,46 @@ public sealed partial class MainWindow : Window
     }
 
     private void ShowDeviceConnectedToast(KindleDevice device)
-        => ShowDeviceStatusToast($"{device.Name} 已连接");
+        => ShowDeviceStatusToast($"{_deviceDisplayName ?? device.Name} 已连接");
 
     private void ShowDeviceStatusToast(string message)
     {
         DeviceConnectedToastText.Text = message;
+        DeviceStatusToast.Opacity = 1;
         DeviceStatusPopup.IsOpen = true;
         PositionDeviceStatusToast();
         ScheduleDeviceStatusPositionAfterLayout();
         _deviceConnectedToastTimer.Stop();
         _deviceConnectedToastTimer.Start();
+    }
+
+    // Fades the device status toast out over ~350 ms before closing it, so the
+    // connection/disconnection bubble does not vanish abruptly.
+    private async Task FadeOutDeviceStatusToastAsync()
+    {
+        try
+        {
+            var storyboard = new Storyboard();
+            var fade = new DoubleAnimation
+            {
+                From = 1,
+                To = 0,
+                Duration = new Duration(TimeSpan.FromMilliseconds(350)),
+                EnableDependentAnimation = true,
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+            };
+            Storyboard.SetTarget(fade, DeviceStatusToast);
+            Storyboard.SetTargetProperty(fade, "Opacity");
+            storyboard.Children.Add(fade);
+            storyboard.Begin();
+            await Task.Delay(350);
+            try { storyboard.Stop(); } catch { }
+        }
+        catch
+        {
+        }
+        DeviceStatusToast.Opacity = 1;
+        DeviceStatusPopup.IsOpen = false;
     }
 
     private void ScheduleDeviceStatusPositionAfterLayout()
@@ -716,19 +891,35 @@ public sealed partial class MainWindow : Window
         _deviceScanCancellation?.Dispose();
         var cancellation = new CancellationTokenSource();
         _deviceScanCancellation = cancellation;
-        DeviceNameText.Text = $"{device.Name} · 正在快速读取书籍列表…";
+        DeviceNameText.Text = $"{_deviceDisplayName ?? device.Name} · 正在快速读取书籍列表…";
         var scanProgress = new Progress<KindleScanProgress>(ApplyKindleScanProgress);
         var scanTask = _kindle.ScanBooksProgressivelyAsync(device, scanProgress, cancellation.Token);
         _deviceScanTask = scanTask;
         try
         {
+            // Backstop: per-book enrichment already has a timeout, but a hung
+            // enumeration or cache write must never leave the UI stuck on
+            // "正在完成扫描" forever.
+            var completed = await Task.WhenAny(
+                scanTask,
+                Task.Delay(TimeSpan.FromMinutes(10)));
+            if (completed != scanTask)
+            {
+                cancellation.Cancel();
+                DeviceNameText.Text = $"{_deviceDisplayName ?? device.Name} · 扫描超时，已停止读取";
+                _scannedDeviceId = device.Identity;
+                try { await scanTask; } catch (OperationCanceledException) { } catch { }
+                return;
+            }
+
             var books = await scanTask;
             cancellation.Token.ThrowIfCancellationRequested();
             DeviceBooks.Clear();
             foreach (var book in books) DeviceBooks.Add(new KindleBookCardViewModel(book));
+            ApplyLibraryGalleryDisplay();
             ReconcileLibraryPresence();
             DeviceBookCountText.Text = books.Count.ToString();
-            DeviceNameText.Text = $"{device.Name} · {device.ConnectionLabel}";
+            DeviceNameText.Text = $"{_deviceDisplayName ?? device.Name} · {device.ConnectionLabel}";
             _scannedDeviceId = device.Identity;
         }
         finally
@@ -805,7 +996,7 @@ public sealed partial class MainWindow : Window
         }
 
         DeviceBookCountText.Text = DeviceBooks.Count.ToString();
-        var deviceName = _devices.FirstOrDefault()?.Name ?? "Kindle";
+        var deviceName = _deviceDisplayName ?? _devices.FirstOrDefault()?.Name ?? "Kindle";
         DeviceNameText.Text = progress.Processed >= progress.Total
             ? $"{deviceName} · 正在完成扫描…"
             : $"{deviceName} · 已读取 {progress.Processed} / {progress.Total}";
@@ -1051,6 +1242,7 @@ public sealed partial class MainWindow : Window
 
     private void SelectBook(Book book)
     {
+        HideSettingsPanel();
         _selectedBook = book;
         DetailsTitleBox.Text = book.Title;
         DetailsAuthorsBox.Text = book.Authors;
@@ -1080,7 +1272,8 @@ public sealed partial class MainWindow : Window
                 catch { }
             }
         }
-        DetailColumn.Width = new GridLength(320);
+        DetailColumn.Width = new GridLength(ComputeGoldenDetailWidth());
+        MainContentColumn.Width = new GridLength(1, GridUnitType.Star);
         DetailPane.Visibility = Visibility.Visible;
     }
 
@@ -1229,6 +1422,28 @@ public sealed partial class MainWindow : Window
     private void CloseDetails()
     {
         DetailPane.Visibility = Visibility.Collapsed;
+        MainContentColumn.Width = new GridLength(1, GridUnitType.Star);
+        DetailColumn.Width = new GridLength(0);
+    }
+
+    private void ShowSettingsPanel(FrameworkElement panel)
+    {
+        DetailPane.Visibility = Visibility.Collapsed;
+        KindleEmailSettingsPane.Visibility = Visibility.Collapsed;
+        ZLibraryAccountPane.Visibility = Visibility.Collapsed;
+        ReaderAiSettingsPane.Visibility = Visibility.Collapsed;
+        panel.Visibility = Visibility.Visible;
+        // The settings panel fills the whole right side of the window.
+        MainContentColumn.Width = new GridLength(0);
+        DetailColumn.Width = new GridLength(1, GridUnitType.Star);
+    }
+
+    private void HideSettingsPanel()
+    {
+        KindleEmailSettingsPane.Visibility = Visibility.Collapsed;
+        ZLibraryAccountPane.Visibility = Visibility.Collapsed;
+        ReaderAiSettingsPane.Visibility = Visibility.Collapsed;
+        MainContentColumn.Width = new GridLength(1, GridUnitType.Star);
         DetailColumn.Width = new GridLength(0);
     }
 
@@ -1363,6 +1578,7 @@ public sealed partial class MainWindow : Window
         ReadingDashboardPage.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
+        HideSettingsPanel();
         DevicePage.Visibility = Visibility.Visible;
     }
 
@@ -1375,6 +1591,38 @@ public sealed partial class MainWindow : Window
         _manuallyDisconnectedDeviceId = null;
         _scannedDeviceId = null;
         await RefreshDevicesAsync();
+    }
+
+    // The bottom-left device status box is clickable: with a connected device
+    // it opens the model picker; without one it re-detects and connects the
+    // Kindle. The eject button inside the box keeps its own action.
+    private async void DeviceStatusBox_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject original
+            && IsAncestorOf(EjectDeviceButton, original))
+        {
+            return;
+        }
+        if (_devices.Count > 0)
+        {
+            ShowDeviceModelPicker(DeviceStatusBox);
+            return;
+        }
+        _ignoredDeviceId = null;
+        _manuallyDisconnectedDeviceId = null;
+        _scannedDeviceId = null;
+        await RefreshDevicesAsync();
+    }
+
+    private static bool IsAncestorOf(DependencyObject ancestor, DependencyObject node)
+    {
+        var current = node;
+        while (current is not null)
+        {
+            if (ReferenceEquals(current, ancestor)) return true;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return false;
     }
 
     private bool HasActiveDeviceOperations
@@ -1411,6 +1659,14 @@ public sealed partial class MainWindow : Window
             if (tasks.Length == 0) return;
             await Task.WhenAll(tasks);
         }
+    }
+
+    private void DeviceStorageBar_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateDeviceStorageBar();
+
+    private void UpdateDeviceStorageBar()
+    {
+        var availableWidth = Math.Max(0, DeviceStorageBar.ActualWidth - 2);
+        DeviceStorageUsedBar.Width = availableWidth * _deviceUsedRatio;
     }
 
     private async void EjectDeviceButton_Click(object sender, RoutedEventArgs e)
@@ -1487,6 +1743,7 @@ public sealed partial class MainWindow : Window
         SettingsPane.Visibility = Visibility.Collapsed;
         ZLibraryPage.Visibility = Visibility.Collapsed;
         LibraryPane.Visibility = Visibility.Visible;
+        HideSettingsPanel();
     }
 
     private async void OpenBookMenuItem_Click(object sender, RoutedEventArgs e)
@@ -1539,9 +1796,11 @@ public sealed partial class MainWindow : Window
             _readerChapterTransitionCancellation?.Dispose();
             _readerChapterTransitionCancellation = null;
             ResetReaderWebViewTransform();
+            await TryRemoveReaderWaveOverlayAsync();
+            ResetReaderPreloadState();
             BeginReaderSession(book, file);
             var readerToken = _readerFeatureCancellation!.Token;
-            var webViewTask = EnsureReaderWebViewReadyAsync();
+            var webViewTask = EnsureReaderActiveWebViewReadyAsync();
             var sessionDataTask = LoadReaderSessionDataAsync(readerToken);
             await Task.WhenAll(webViewTask, sessionDataTask);
             ReaderBookInfoText.Text = $"{book.Title} · {file.Format.ToUpperInvariant()}";
@@ -1553,7 +1812,7 @@ public sealed partial class MainWindow : Window
             ReaderPane.UpdateLayout();
             _readerTocExpanded = true;
             _readerTocMinimal = false;
-            _readerAssistantExpanded = true;
+            _readerAssistantExpanded = false;
             _readerFlowMode = _readerLayout.FlowMode;
             _readerZenMode = false;
             _readerContinuousLocked = false;
@@ -1676,9 +1935,11 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
-    private void ConfigureReaderWebView()
+    private void ConfigureReaderActiveWebView() => ConfigureReaderWebViewSettings(ReaderActiveWebView);
+
+    private void ConfigureReaderWebViewSettings(WebView2 webView)
     {
-        var settings = ReaderWebView.CoreWebView2.Settings;
+        var settings = webView.CoreWebView2.Settings;
         settings.IsScriptEnabled = false;
         settings.AreDevToolsEnabled = false;
         settings.IsStatusBarEnabled = false;
@@ -1710,9 +1971,41 @@ public sealed partial class MainWindow : Window
             ? layoutWidth.Value
             : RootGrid.XamlRoot?.Size.Width ?? 0;
         if (viewportWidth <= 0) return;
+        ApplyGoldenSidebarWidth(viewportWidth);
+        if (DetailPane.Visibility == Visibility.Visible)
+        {
+            MainContentColumn.Width = new GridLength(1, GridUnitType.Star);
+            DetailColumn.Width = new GridLength(ComputeGoldenDetailWidth());
+        }
+        else if (KindleEmailSettingsPane.Visibility == Visibility.Visible
+            || ZLibraryAccountPane.Visibility == Visibility.Visible
+            || ReaderAiSettingsPane.Visibility == Visibility.Visible)
+        {
+            MainContentColumn.Width = new GridLength(0);
+            DetailColumn.Width = new GridLength(1, GridUnitType.Star);
+        }
+        else
+        {
+            MainContentColumn.Width = new GridLength(1, GridUnitType.Star);
+            DetailColumn.Width = new GridLength(0);
+        }
         if (double.IsNaN(RootGrid.Width) || Math.Abs(RootGrid.Width - viewportWidth) > 0.5)
             RootGrid.Width = viewportWidth;
         ApplyReaderPanelLayout(viewportWidth);
+    }
+
+    private void ApplyGoldenSidebarWidth(double viewportWidth)
+    {
+        // Fixed narrow sidebar: proportional (golden-ratio) sizing made the
+        // left side too wide on large displays.
+        SidebarColumn.Width = new GridLength(200);
+    }
+
+    private double ComputeGoldenDetailWidth()
+    {
+        // Fixed detail panel width; the right side no longer mirrors a golden
+        // fraction of the remaining width.
+        return 320;
     }
 
     private void ReaderTocToggleButton_Click(object sender, RoutedEventArgs e)
@@ -1785,14 +2078,14 @@ public sealed partial class MainWindow : Window
         // Refresh the cached WebView screen rect used by the low-level mouse
         // hook (the hook thread itself must never touch XAML). Layout changes
         // always re-run this and keep the cache in sync.
-        try { GetReaderWebViewScreenRect(); } catch { }
+        try { GetReaderActiveWebViewScreenRect(); } catch { }
     }
 
     private void ReaderContentPanel_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         ReaderContentClip.Rect = new Windows.Foundation.Rect(0, 0, e.NewSize.Width, e.NewSize.Height);
         ScheduleReaderRelayout();
-        try { GetReaderWebViewScreenRect(); } catch { }
+        try { GetReaderActiveWebViewScreenRect(); } catch { }
     }
 
     private void ReaderWebViewHost_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -1800,10 +2093,19 @@ public sealed partial class MainWindow : Window
         // WebView2 is a composition island and can trail its XAML Grid during
         // assistant/TOC width changes. Give the controller explicit bounds so
         // Chromium never keeps laying out a page at the previous wider size.
-        if (e.NewSize.Width > 0) ReaderWebView.Width = e.NewSize.Width;
-        if (e.NewSize.Height > 0) ReaderWebView.Height = e.NewSize.Height;
+        if (e.NewSize.Width > 0) ReaderActiveWebView.Width = e.NewSize.Width;
+        if (e.NewSize.Height > 0) ReaderActiveWebView.Height = e.NewSize.Height;
+        // Keep BOTH surfaces pinned to the current reading viewport: the
+        // hidden preload surface must not carry a stale explicit width into a
+        // later swap, or the swapped-in document can be laid out for the wrong
+        // width and clip its right boundary.
+        var hiddenWebView = _readerShowingPreload ? ReaderWebView : ReaderPreloadWebView;
+        if (e.NewSize.Width > 0 && hiddenWebView.CoreWebView2 is not null)
+            hiddenWebView.Width = e.NewSize.Width;
+        if (e.NewSize.Height > 0 && hiddenWebView.CoreWebView2 is not null)
+            hiddenWebView.Height = e.NewSize.Height;
         ScheduleReaderRelayout();
-        try { GetReaderWebViewScreenRect(); } catch { }
+        try { GetReaderActiveWebViewScreenRect(); } catch { }
     }
 
     // ------------------------------------------------------------------
@@ -1816,7 +2118,7 @@ public sealed partial class MainWindow : Window
 
     private void ScheduleReaderRelayout()
     {
-        if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
         if (ReaderPane.Visibility != Visibility.Visible) return;
         _readerRelayoutCancellation?.Cancel();
         _readerRelayoutCancellation?.Dispose();
@@ -1831,11 +2133,27 @@ public sealed partial class MainWindow : Window
                 if (token.IsCancellationRequested) return;
                 try
                 {
-                    await WaitForReaderViewportToMatchHostAsync(token);
+                    var converged = await WaitForReaderViewportToMatchHostAsync(token);
                     if (token.IsCancellationRequested) return;
-                    await ApplyReaderAppearanceAsync();
+                    await ApplyReaderAppearanceToVisibleAndPreloadAsync();
                     if (token.IsCancellationRequested) return;
                     await RealignReaderAfterRelayoutAsync();
+                    // Chromium can converge AFTER the bounded wait. Re-apply
+                    // once it does so pagination also fills the final viewport.
+                    // If it never converges the appearance pass is still safe:
+                    // columns are never laid out wider than the visible width.
+                    if (!converged && !token.IsCancellationRequested)
+                    {
+                        await Task.Delay(200, token);
+                        if (token.IsCancellationRequested) return;
+                        if (await WaitForReaderViewportToMatchHostAsync(token)
+                            && !token.IsCancellationRequested)
+                        {
+                            await ApplyReaderAppearanceToVisibleAndPreloadAsync();
+                            if (token.IsCancellationRequested) return;
+                            await RealignReaderAfterRelayoutAsync();
+                        }
+                    }
                 }
                 catch (OperationCanceledException)
                 {
@@ -1852,9 +2170,9 @@ public sealed partial class MainWindow : Window
     // viewport creates columns using the old width and leaves the visible page
     // horizontally offset. Wait until both surfaces agree before the final
     // appearance pass and page snap.
-    private async Task WaitForReaderViewportToMatchHostAsync(CancellationToken token)
+    private async Task<bool> WaitForReaderViewportToMatchHostAsync(CancellationToken token)
     {
-        if (ReaderWebView.CoreWebView2 is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null) return false;
 
         const int maximumAttempts = 10;
         const double tolerance = 2;
@@ -1863,11 +2181,11 @@ public sealed partial class MainWindow : Window
             token.ThrowIfCancellationRequested();
             var expectedWidth = ReaderWebViewHost.ActualWidth;
             var expectedHeight = ReaderWebViewHost.ActualHeight;
-            if (expectedWidth <= 0 || expectedHeight <= 0) return;
+            if (expectedWidth <= 0 || expectedHeight <= 0) return false;
 
             try
             {
-                var json = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                var json = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(
                     "JSON.stringify({width: window.innerWidth, height: window.innerHeight})");
                 var serialized = JsonSerializer.Deserialize<string>(json);
                 if (!string.IsNullOrWhiteSpace(serialized))
@@ -1879,7 +2197,7 @@ public sealed partial class MainWindow : Window
                     if (Math.Abs(viewportWidth - expectedWidth) <= tolerance
                         && Math.Abs(viewportHeight - expectedHeight) <= tolerance)
                     {
-                        return;
+                        return true;
                     }
                 }
             }
@@ -1891,11 +2209,13 @@ public sealed partial class MainWindow : Window
 
             await Task.Delay(40, token);
         }
+
+        return false;
     }
 
     private async Task ClampReaderScrollAsync()
     {
-        if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
         if (_readerFlowMode == 1)
         {
             // Pagination: snap to the nearest column boundary (also clamps the
@@ -1904,7 +2224,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         var script = "(function(){var el=document.scrollingElement;var max=Math.max(0,el.scrollHeight-el.clientHeight);if(el.scrollTop>max)window.scrollTo({top:max});})()";
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
+        try { await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
     }
 
@@ -1959,10 +2279,13 @@ public sealed partial class MainWindow : Window
     // ------------------------------------------------------------------
     // Chapter navigation. Every real chapter-switch path funnels through
     // ShowReaderChapterAsync / NavigateReaderSourceAsync. The transition
-    // timing is deliberate:
-    //   1. The CURRENT chapter stays fully visible while the new document
-    //      loads — we never fade/slide the old page away up front, so the
-    //      navigation never shows a blank/frozen screen for its whole duration.
+    //   timing is deliberate:
+    //   1. The reader surface is hidden BEFORE the WebView starts navigating.
+    //      Chromium swaps to the raw, unstyled new document the moment it
+    //      commits — that paint can beat the NavigationCompleted handler's own
+    //      hide-by-then and flash the chapter's first screen on top of the old
+    //      one. Hiding up front means no raw content is ever visible; the
+    //      pane's opaque background covers the (usually short) local-file load.
     //   2. After NavigationCompleted the essential first-screen work runs
     //      (styling/viewport, cover/image fit, target position restore,
     //      pagination snap, scroll-edge priming) while the new page is held
@@ -1984,6 +2307,7 @@ public sealed partial class MainWindow : Window
         if (_readerChapterIndex < 0 || _readerChapterIndex >= _readerChapters.Count) return;
         UpdateReaderChapterControls();
         SelectReaderTocItem(_readerNavigation.FirstOrDefault(item => item.ChapterIndex == _readerChapterIndex));
+        if (await TrySwapToPreloadedReaderChapterAsync(direction, animate, intent)) return;
         await NavigateReaderSourceAsync(new Uri(_readerChapters[_readerChapterIndex]), direction, animate, intent);
     }
 
@@ -1993,9 +2317,9 @@ public sealed partial class MainWindow : Window
         bool animate,
         ReaderNavigationIntent intent = ReaderNavigationIntent.None)
     {
-        if (target is null || ReaderWebView.CoreWebView2 is null)
+        if (target is null || ReaderActiveWebView.CoreWebView2 is null)
         {
-            if (target is not null) ReaderWebView.Source = target;
+            if (target is not null) ReaderActiveWebView.Source = target;
             return Task.CompletedTask;
         }
 
@@ -2010,7 +2334,7 @@ public sealed partial class MainWindow : Window
 
         var locationSequence = ++_readerLocationSequence;
         var sameDocument = ReaderNavigationLocationPolicy.TargetsSameDocument(
-            ReaderWebView.Source,
+            ReaderActiveWebView.Source,
             target);
         if (sameDocument && _readerPendingNavigationTarget is null && !_readerNavigateToEnd)
         {
@@ -2034,11 +2358,14 @@ public sealed partial class MainWindow : Window
         // (TOC/search/bookmark/annotation/AI/progress slider) always use the
         // selected animation style, so every navigation path has predictable
         // behavior without pretending to drag through intermediate chapters.
+        var chapterStyle = _readerPageAnimation == ReaderAnimationWave
+            ? ReaderAnimationFade
+            : _readerPageAnimation;
         var shouldAnimate = animate
-            && _readerPageAnimation > ReaderAnimationNone
+            && chapterStyle > ReaderAnimationNone
             && !_readerCloseRequested
             && ReaderPane.Visibility == Visibility.Visible;
-        var turnInStyle = shouldAnimate ? _readerPageAnimation : ReaderAnimationNone;
+        var turnInStyle = shouldAnimate ? chapterStyle : ReaderAnimationNone;
 
         _readerChapterTransitionCancellation?.Cancel();
         _readerChapterTransitionCancellation?.Dispose();
@@ -2054,9 +2381,15 @@ public sealed partial class MainWindow : Window
             ? new ReaderTurnInAnimation(direction, turnInStyle)
             : null;
         _readerPendingNavigationTarget = target;
+        // Hide the surface BEFORE the WebView starts navigating: the new
+        // document's raw first paint lands at commit time, which can beat the
+        // NavigationCompleted handler's own hide-by-then and flash an unstyled,
+        // wrongly-positioned chapter on screen. Hiding up front guarantees the
+        // reveal below only ever shows the prepared first screen.
+        ReaderWebViewHost.Opacity = 0;
         try
         {
-            ReaderWebView.Source = target;
+            ReaderActiveWebView.Source = target;
         }
         catch
         {
@@ -2235,7 +2568,7 @@ public sealed partial class MainWindow : Window
     private void UpdateReaderZoom()
     {
         UpdateReaderZoomLabel();
-        _ = ApplyReaderAppearanceAsync();
+        _ = ApplyReaderAppearanceToVisibleAndPreloadAsync();
     }
 
     private async void ReaderFlowModeItem_Click(object sender, RoutedEventArgs e)
@@ -2259,7 +2592,7 @@ public sealed partial class MainWindow : Window
         _readerNavigateToEnd = false;
         _readerContinuousLocked = false;
         UpdateReaderFlowButton();
-        await ApplyReaderAppearanceAsync();
+        await ApplyReaderAppearanceToVisibleAndPreloadAsync();
         await ResetReaderToChapterStartAsync();
         await PrimeReaderScrollEdgesAsync();
         _ = SaveReaderLayoutSettingsAsync();
@@ -2299,13 +2632,134 @@ public sealed partial class MainWindow : Window
 
     private void ToggleReaderZenMode()
     {
-        _readerZenMode = !_readerZenMode;
+        var entering = !_readerZenMode;
+        _readerZenMode = entering;
+        if (!entering)
+        {
+            _ = ExitReaderZenModeSmoothlyAsync();
+            return;
+        }
+
         ApplyReaderZenLayout();
-        ReaderZenMenuItem.IsChecked = _readerZenMode;
-        ReaderZenTitleExitButton.Visibility = _readerZenMode
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        ReaderZenMenuItem.IsChecked = true;
+        ReaderZenTitleExitButton.Visibility = Visibility.Visible;
         UpdateReaderZenTocToggle();
+        ApplyReaderZenFullScreen();
+        UpdateReaderZenChrome(false);
+    }
+
+    // Leaving zen restores the side panels, header/footer bars and the window
+    // size in one go, which makes the paginated body text reflow and jump.
+    // Mask that behind an opaque cover (the reader pane floats above the
+    // library, so fading the pane itself would reveal the bookshelf), restore
+    // everything, let the relayout settle, then fade the cover away.
+    private async Task ExitReaderZenModeSmoothlyAsync()
+    {
+        try
+        {
+            ReaderTransitionCover.Opacity = 1;
+            ApplyReaderZenLayout();
+            ReaderZenMenuItem.IsChecked = false;
+            ReaderZenTitleExitButton.Visibility = Visibility.Collapsed;
+            UpdateReaderZenTocToggle();
+            ApplyReaderZenFullScreen();
+            // The reader relayout pipeline (120 ms debounce + viewport sync +
+            // appearance re-apply + page snap) needs a moment to settle before
+            // the restored body text is revealed.
+            await Task.Delay(320);
+            await FadeReaderTransitionCoverAsync(1, 0, 180);
+        }
+        catch
+        {
+            ReaderTransitionCover.Opacity = 0;
+        }
+    }
+
+    private async Task FadeReaderTransitionCoverAsync(double from, double to, int durationMs)
+    {
+        try
+        {
+            var storyboard = new Storyboard();
+            var fade = new DoubleAnimation
+            {
+                From = from,
+                To = to,
+                Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
+                EnableDependentAnimation = true,
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+            };
+            Storyboard.SetTarget(fade, ReaderTransitionCover);
+            Storyboard.SetTargetProperty(fade, "Opacity");
+            storyboard.Children.Add(fade);
+            storyboard.Begin();
+            await Task.Delay(durationMs);
+            try { storyboard.Stop(); } catch { }
+        }
+        catch
+        {
+        }
+        ReaderTransitionCover.Opacity = to;
+    }
+
+    // Entering zen mode always switches to the FullScreen presenter: the
+    // Windows taskbar is hidden and the reading surface truly fills the whole
+    // screen, regardless of the window's previous size. Leaving zen (or closing
+    // the reader) restores the previous overlapped window state.
+    private void ApplyReaderZenFullScreen()
+    {
+        if (_appWindow is null) return;
+        try
+        {
+            if (_readerZenMode)
+            {
+                if (!_zenFullScreenActive)
+                {
+                    _zenFullScreenActive = true;
+                    _zenWasMaximizedBeforeFullScreen =
+                        _appWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized };
+                    _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+                    SetWindowsTaskbarVisible(false);
+                    ForceReaderFullScreenBounds();
+                    DispatcherQueue.TryEnqueue(
+                        DispatcherQueuePriority.Low,
+                        ForceReaderFullScreenBounds);
+                }
+            }
+            else if (_zenFullScreenActive)
+            {
+                _zenFullScreenActive = false;
+                _appWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
+                SetWindowsTaskbarVisible(true);
+                if (_appWindow.Presenter is OverlappedPresenter restored)
+                {
+                    if (_zenWasMaximizedBeforeFullScreen)
+                        restored.Maximize();
+                }
+            }
+        }
+        catch
+        {
+            // Presenter switches are best-effort; a failure must never break
+            // the reader itself.
+        }
+    }
+
+    // The FullScreen presenter can land the window 1 px short of the display on
+    // some DPI/monitor setups, which shows a thin line at the bottom edge.
+    // Snap the window to the exact display outer bounds so nothing peeks below.
+    private void ForceReaderFullScreenBounds()
+    {
+        try
+        {
+            if (!_zenFullScreenActive || _appWindow is null) return;
+            var displayArea = DisplayArea.GetFromWindowId(
+                _appWindow.Id,
+                DisplayAreaFallback.Nearest);
+            _appWindow.MoveAndResize(displayArea.OuterBounds);
+        }
+        catch
+        {
+        }
     }
 
     private void ReaderZenMinimalTocButton_Click(object sender, RoutedEventArgs e)
@@ -2323,7 +2777,9 @@ public sealed partial class MainWindow : Window
         var label = _readerTocMinimal ? "隐藏极简目录" : "显示极简目录";
         ReaderZenTitleTocButton.Content = label;
         ReaderZenTocButton.Content = label;
-        var visibility = _readerZenMode ? Visibility.Visible : Visibility.Collapsed;
+        var visibility = _readerZenMode && _readerZenChromeVisible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         ReaderZenTitleTocButton.Visibility = visibility;
         ReaderZenTocButton.Visibility = visibility;
     }
@@ -2344,17 +2800,31 @@ public sealed partial class MainWindow : Window
             _readerTocExpanded = false;
             _readerTocMinimal = true;
             _readerAssistantExpanded = false;
+            // The body fills the whole screen in zen mode; the auto-hidden
+            // chrome floats over it when revealed by the mouse.
+            ReaderTocPanel.Margin = new Thickness(0);
+            ReaderTocCompactPanel.Margin = new Thickness(0);
+            ReaderContentPanel.Margin = new Thickness(0);
+            ReaderAssistantPanel.Margin = new Thickness(0);
+            ReaderWebViewHost.Margin = new Thickness(0, 12, 0, 0);
+            ReaderWebViewBottomCover.Margin = new Thickness(0, 0, 0, 0);
             ReaderHeaderRow.Height = new GridLength(0);
             ReaderHeaderBar.Visibility = Visibility.Collapsed;
             ReaderFooterRow.Height = new GridLength(0);
             ReaderFooterBar.Visibility = Visibility.Collapsed;
             ReaderTocToggleButton.Opacity = 1;
             ReaderAssistantToggleButton.Opacity = 1;
-            UpdateReaderZenPopup(true);
+            UpdateReaderZenPopup(_readerZenChromeVisible);
             UpdateReaderZenTocToggle();
         }
         else
         {
+            ReaderTocPanel.Margin = new Thickness(0, 38, 0, 0);
+            ReaderTocCompactPanel.Margin = new Thickness(0, 38, 0, 0);
+            ReaderContentPanel.Margin = new Thickness(0, 38, 0, 0);
+            ReaderAssistantPanel.Margin = new Thickness(0, 38, 0, 0);
+            ReaderWebViewHost.Margin = new Thickness(0, 12, 0, 10);
+            ReaderWebViewBottomCover.Margin = new Thickness(0, 0, 0, 10);
             ReaderHeaderRow.Height = new GridLength(52);
             ReaderHeaderBar.Visibility = Visibility.Visible;
             ReaderFooterRow.Height = new GridLength(50);
@@ -2364,15 +2834,77 @@ public sealed partial class MainWindow : Window
             _readerAssistantExpanded = _readerPreZenAssistantExpanded;
             ReaderTocToggleButton.Opacity = _readerTocExpanded ? 0.58 : 1;
             ReaderAssistantToggleButton.Opacity = _readerAssistantExpanded ? 0.58 : 1;
-            UpdateReaderZenPopup(false);
+            UpdateReaderZenChrome(true);
             UpdateReaderZenTocToggle();
         }
         ApplyReaderPanelLayout();
     }
 
+    // Zen mode auto-hides the top chrome (Kreader text, zen bar buttons and the
+    // window caption buttons) so only the body remains; the minimal TOC rail on
+    // the left is not part of this chrome and stays visible. Mouse movement
+    // reveals it again, and it hides after ~2.5 s of inactivity.
+    private void UpdateReaderZenChrome(bool visible)
+    {
+        _readerZenChromeVisible = visible;
+        ReaderZenTitleTocButton.Visibility = _readerZenMode && visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        ReaderZenTitleExitButton.Visibility = _readerZenMode && visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        ReaderZenTocButton.Visibility = _readerZenMode && visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        // The Kreader brand text sits at the top-left and would float over the
+        // minimal TOC rail in zen mode, so it stays hidden there even when the
+        // chrome is revealed (only the right-side controls come back).
+        ReaderBrandText.Visibility = !_readerZenMode && visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        MinimizeWindowButton.Visibility = visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        MaximizeWindowButton.Visibility = visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        CloseWindowButton.Visibility = visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        UpdateReaderZenPopup(_readerZenMode && visible);
+
+        if (visible)
+            RestartReaderZenChromeHideTimer();
+        else
+            _readerZenChromeHideTimer?.Stop();
+    }
+
+    private void RestartReaderZenChromeHideTimer()
+    {
+        _readerZenChromeHideTimer ??= DispatcherQueue.CreateTimer();
+        _readerZenChromeHideTimer.Interval = TimeSpan.FromMilliseconds(2500);
+        _readerZenChromeHideTimer.IsRepeating = false;
+        _readerZenChromeHideTimer.Tick -= ReaderZenChromeHideTimer_Tick;
+        _readerZenChromeHideTimer.Tick += ReaderZenChromeHideTimer_Tick;
+        _readerZenChromeHideTimer.Start();
+    }
+
+    private void ReaderZenChromeHideTimer_Tick(DispatcherQueueTimer sender, object args)
+    {
+        sender.Stop();
+        if (_readerZenMode) UpdateReaderZenChrome(false);
+    }
+
     private void ResetReaderChromeLayout()
     {
         _readerZenMode = false;
+        ApplyReaderZenFullScreen();
+        ReaderTocPanel.Margin = new Thickness(0, 38, 0, 0);
+        ReaderTocCompactPanel.Margin = new Thickness(0, 38, 0, 0);
+        ReaderContentPanel.Margin = new Thickness(0, 38, 0, 0);
+        ReaderAssistantPanel.Margin = new Thickness(0, 38, 0, 0);
+        ReaderWebViewHost.Margin = new Thickness(0, 12, 0, 10);
+        ReaderWebViewBottomCover.Margin = new Thickness(0, 0, 0, 10);
         ReaderHeaderRow.Height = new GridLength(52);
         ReaderHeaderBar.Visibility = Visibility.Visible;
         ReaderFooterRow.Height = new GridLength(50);
@@ -2383,7 +2915,7 @@ public sealed partial class MainWindow : Window
         ReaderZenTocButton.Visibility = Visibility.Collapsed;
         ReaderTocToggleButton.Opacity = _readerTocExpanded ? 0.58 : 1;
         ReaderAssistantToggleButton.Opacity = _readerAssistantExpanded ? 0.58 : 1;
-        UpdateReaderZenPopup(false);
+        UpdateReaderZenChrome(true);
     }
 
     // ------------------------------------------------------------------
@@ -2397,6 +2929,8 @@ public sealed partial class MainWindow : Window
             _readerPageAnimation = ReaderAnimationFade;
         else if (ReferenceEquals(sender, ReaderAnimationSlideItem))
             _readerPageAnimation = ReaderAnimationSlide;
+        else if (ReferenceEquals(sender, ReaderAnimationWaveItem))
+            _readerPageAnimation = ReaderAnimationWave;
         else
             _readerPageAnimation = ReaderAnimationNone;
     }
@@ -2406,6 +2940,7 @@ public sealed partial class MainWindow : Window
         ReaderAnimationNoneItem.IsChecked = _readerPageAnimation == ReaderAnimationNone;
         ReaderAnimationFadeItem.IsChecked = _readerPageAnimation == ReaderAnimationFade;
         ReaderAnimationSlideItem.IsChecked = _readerPageAnimation == ReaderAnimationSlide;
+        ReaderAnimationWaveItem.IsChecked = _readerPageAnimation == ReaderAnimationWave;
     }
 
     // ------------------------------------------------------------------
@@ -2417,7 +2952,7 @@ public sealed partial class MainWindow : Window
     {
         if (!IsReaderWindowForeground()) return false;
         if (ReaderPane.Visibility != Visibility.Visible) return false;
-        if (ReaderWebView.CoreWebView2 is null) return false;
+        if (ReaderActiveWebView.CoreWebView2 is null) return false;
         if (!_readerHasToc || _readerChapters.Count == 0) return false;
         if (_readerCloseRequested || _readerTransitionActive) return false;
 
@@ -2460,6 +2995,10 @@ public sealed partial class MainWindow : Window
             ResetReaderWebViewTransform();
             return;
         }
+        // Chapter transitions never receive the wave style (it is mapped to
+        // the fade there); treat it as fade defensively if it ever arrives.
+        if (style == ReaderAnimationWave)
+            style = ReaderAnimationFade;
         if (_readerCloseRequested)
         {
             ResetReaderWebViewTransform();
@@ -2599,6 +3138,156 @@ public sealed partial class MainWindow : Window
     }
 
     // ------------------------------------------------------------------
+    // Kindle-style wave ("水波流动") page-turn animation. Only runs for
+    // pagination turns inside a chapter, where the target page is the
+    // neighbouring column of the same document: the outgoing page is
+    // snapshotted, the WebView is scrolled to the target while hidden behind
+    // that snapshot, then the snapshot washes away from the incoming side in a
+    // flowing wave (vertical strips with sine-modulated slide, inner flow and
+    // ripple), revealing the real next page underneath. The effect lives
+    // entirely inside the WebView (ReaderWaveScripts), so no XAML overlay or
+    // host transform is needed; if the snapshot or injection cannot run, the
+    // page still turns instantly instead of dropping the input.
+    // ------------------------------------------------------------------
+
+    private async Task<bool> AnimateReaderPageWaveAsync(
+        int direction,
+        CancellationToken cancellationToken)
+    {
+        var core = ReaderActiveWebView.CoreWebView2;
+        if (core is null || _readerCloseRequested) return false;
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Snapshot the outgoing page; the WebView itself becomes the next page
+        // underneath once it has been scrolled while hidden behind the overlay.
+        byte[]? png;
+        try
+        {
+            png = await CaptureReaderPageSnapshotAsync(core, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            png = null;
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        if (png is null || png.Length == 0)
+        {
+            // The animation is decorative: if the snapshot is unavailable, turn
+            // the page instantly instead of dropping the input.
+            return await ExecuteReaderBooleanScriptAsync(
+                ReaderPaginationScripts.CreateTurnScript(direction, smooth: false));
+        }
+
+        // The snapshot is embedded as a data URL in the injected script. Guard
+        // the size: a capture that huge would make the injection slow enough to
+        // defeat the animation, so turn the page instantly instead.
+        var dataUrl = "data:image/png;base64," + Convert.ToBase64String(png);
+        if (dataUrl.Length > 4_500_000)
+        {
+            return await ExecuteReaderBooleanScriptAsync(
+                ReaderPaginationScripts.CreateTurnScript(direction, smooth: false));
+        }
+
+        var width = Math.Max(1, ReaderWebViewHost.ActualWidth);
+        var height = Math.Max(1, ReaderWebViewHost.ActualHeight);
+        var overlayScript = ReaderWaveScripts.CreateWaveOverlayScript(
+            dataUrl,
+            width,
+            height,
+            forward: direction > 0);
+        if (!await ExecuteReaderBooleanScriptAsync(overlayScript))
+        {
+            return await ExecuteReaderBooleanScriptAsync(
+                ReaderPaginationScripts.CreateTurnScript(direction, smooth: false));
+        }
+
+        // The overlay now covers the viewport with the captured page; the jump
+        // to the next column happens invisibly underneath.
+        var turned = await ExecuteReaderBooleanScriptAsync(
+            ReaderPaginationScripts.CreateTurnScript(direction, smooth: false));
+        if (!turned || _readerCloseRequested)
+        {
+            await TryRemoveReaderWaveOverlayAsync();
+            return false;
+        }
+
+        try
+        {
+            // Slightly longer than the last strip's keyframe so the wave fully
+            // settles before the overlay is torn down.
+            await Task.Delay(ReaderWaveScripts.TotalDurationMs + 100, cancellationToken);
+            if (_readerCloseRequested) throw new OperationCanceledException();
+        }
+        catch (OperationCanceledException)
+        {
+            await TryRemoveReaderWaveOverlayAsync();
+            throw;
+        }
+        catch
+        {
+            await TryRemoveReaderWaveOverlayAsync();
+            throw;
+        }
+
+        await TryRemoveReaderWaveOverlayAsync();
+        return true;
+    }
+
+    private async Task TryRemoveReaderWaveOverlayAsync()
+    {
+        try
+        {
+            await ExecuteReaderBooleanScriptAsync(ReaderWaveScripts.CreateWaveCleanupScript());
+        }
+        catch
+        {
+            // A closing WebView may already be gone; the next navigation clears
+            // any leftover overlay anyway.
+        }
+    }
+
+    private static async Task<byte[]?> CaptureReaderPageSnapshotAsync(
+        CoreWebView2 core,
+        CancellationToken cancellationToken)
+    {
+        // Page.captureScreenshot is the host-side DevTools Protocol API; it
+        // works even with the reader's IsScriptEnabled=false and returns the
+        // exact visible viewport as base64 PNG. A short timeout keeps a slow
+        // capture from blocking a page turn.
+        var capture = core.CallDevToolsProtocolMethodAsync(
+            "Page.captureScreenshot",
+            """{"format":"png","fromSurface":true,"captureBeyondViewport":false}""")
+            .AsTask();
+        var completed = await Task.WhenAny(capture, Task.Delay(1500, cancellationToken));
+        if (completed != capture)
+        {
+            // Observe the abandoned capture so a late failure cannot surface as
+            // an unobserved task exception.
+            _ = capture.ContinueWith(static _ => { }, TaskScheduler.Default);
+            cancellationToken.ThrowIfCancellationRequested();
+            return null;
+        }
+        var json = await capture;
+        var data = ExtractReaderScreenshotData(json);
+        return data is null ? null : Convert.FromBase64String(data);
+    }
+
+    private static string? ExtractReaderScreenshotData(string json)
+    {
+        const string key = "\"data\":\"";
+        var start = json.IndexOf(key, StringComparison.Ordinal);
+        if (start < 0) return null;
+        start += key.Length;
+        var end = json.IndexOf('"', start);
+        if (end < 0) return null;
+        return json.Substring(start, end - start);
+    }
+
+    // ------------------------------------------------------------------
     // Keyboard reading navigation. Paginated single/double-page modes use
     // left/right for pages. Continuous scroll mode uses left/right for chapters
     // and up/down only for scrolling, so reaching a scroll edge never changes
@@ -2707,7 +3396,7 @@ public sealed partial class MainWindow : Window
     {
         if (!IsReaderWindowForeground()) return;
         if (_readerCloseRequested || _readerTransitionActive) return;
-        if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
 
         // Up/down are scroll-only in continuous mode. At a chapter edge they
         // simply stop; left/right own chapter navigation explicitly.
@@ -2737,7 +3426,7 @@ public sealed partial class MainWindow : Window
 
     private async Task<bool> TryTurnWithinChapterAsync(int direction)
     {
-        if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return false;
+        if (_readerAllowedRoot is null || ReaderActiveWebView.CoreWebView2 is null) return false;
         var vertical = _readerLayout.VerticalWriting;
         var pagination = _readerFlowMode == 1;
         var canTurnScript = pagination
@@ -2762,6 +3451,13 @@ public sealed partial class MainWindow : Window
         {
             var token = _readerChapterTransitionCancellation?.Token ?? CancellationToken.None;
             ResetReaderWebViewTransform();
+            if (style == ReaderAnimationWave)
+            {
+                // Kindle-style flowing wave rendered inside the WebView. If the
+                // capture or injection fails, the wave method still turns the
+                // page instantly so input is never dropped.
+                return await AnimateReaderPageWaveAsync(direction, token);
+            }
             await AnimateReaderPageTurnAsync(direction, isOut: true, style, token);
             if (!await ExecuteReaderBooleanScriptAsync(turnScript)) return false;
             await AnimateReaderPageTurnAsync(direction, isOut: false, style, token);
@@ -2820,8 +3516,8 @@ public sealed partial class MainWindow : Window
 
     private async Task<bool> ExecuteReaderBooleanScriptAsync(string script)
     {
-        if (ReaderWebView.CoreWebView2 is null) return false;
-        try { return await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script) == "true"; }
+        if (ReaderActiveWebView.CoreWebView2 is null) return false;
+        try { return await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(script) == "true"; }
         catch { return false; }
     }
 
@@ -2862,10 +3558,10 @@ public sealed partial class MainWindow : Window
 
     private async Task<string> ExecuteReaderStringScriptAsync(string script)
     {
-        if (ReaderWebView.CoreWebView2 is null) return string.Empty;
+        if (ReaderActiveWebView.CoreWebView2 is null) return string.Empty;
         try
         {
-            var json = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script);
+            var json = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(script);
             return JsonSerializer.Deserialize<string>(json) ?? string.Empty;
         }
         catch
@@ -2905,15 +3601,22 @@ public sealed partial class MainWindow : Window
         _readerNavigationIntent = ReaderNavigationIntent.None;
         _readerInitialRevealPending = false;
         _readerRelayoutCancellation?.Cancel();
-        _readerRelayoutCancellation?.Dispose();
-        _readerRelayoutCancellation = null;
-        ResetReaderWebViewTransform();
+            _readerRelayoutCancellation?.Dispose();
+            _readerRelayoutCancellation = null;
+            ResetReaderWebViewTransform();
+            _ = TryRemoveReaderWaveOverlayAsync();
+            ResetReaderPreloadState();
+            try
+            {
+                if (ReaderPreloadWebView.CoreWebView2 is not null)
+                    ReaderPreloadWebView.CoreWebView2.Navigate("about:blank");
+            }
+            catch { }
 
         // 2) Close every reader Popup. WebView2 renders as an HWND composition
         //    island, so popups are the only surfaces that can float above it and
         //    must be closed explicitly.
         UpdateReaderAssistantPopup(false);
-        SetReaderAiSettingsVisible(false);
         if (_readerLayoutPopup is not null) _readerLayoutPopup.IsOpen = false;
         _readerLayoutPopupOpen = false;
         if (_readerSelectionPopup is not null) _readerSelectionPopup.IsOpen = false;
@@ -2950,14 +3653,20 @@ public sealed partial class MainWindow : Window
         ReaderTocSearchBox.Text = string.Empty;
         ReaderBookInfoText.Text = string.Empty;
         ResetReaderAssistant();
-        if (ReaderWebView.CoreWebView2 is not null)
+        if (ReaderActiveWebView.CoreWebView2 is not null)
         {
-            try { ReaderWebView.CoreWebView2.Navigate("about:blank"); }
+            try { ReaderActiveWebView.CoreWebView2.Navigate("about:blank"); }
             catch { }
         }
     }
 
     private void ReaderWebView_NavigationStarting(WebView2 sender, CoreWebView2NavigationStartingEventArgs args)
+        => HandleReaderNavigationStarting(sender, args);
+
+    private void ReaderPreloadWebView_NavigationStarting(WebView2 sender, CoreWebView2NavigationStartingEventArgs args)
+        => HandleReaderNavigationStarting(sender, args);
+
+    private void HandleReaderNavigationStarting(WebView2 sender, CoreWebView2NavigationStartingEventArgs args)
     {
         if (args.Uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase)) return;
         if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var uri) || !uri.IsFile)
@@ -2975,6 +3684,14 @@ public sealed partial class MainWindow : Window
             args.Cancel = true;
             return;
         }
+
+        // A preload navigation prepares the hidden surface only; it must never
+        // change the visible chapter index, TOC selection or search/footnote
+        // state of the surface the user is currently reading. Which control is
+        // the preload surface changes after every swap, so this is decided by
+        // control identity, not by which XAML event handler fired.
+        var isPreload = ReferenceEquals(sender, _readerPreloadControl);
+        if (isPreload) return;
 
         ResetReaderInPageSearchForNavigation();
         ClearReaderFootnotePage();
@@ -2997,6 +3714,12 @@ public sealed partial class MainWindow : Window
     }
 
     private async void ReaderWebView_NavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
+        => await HandleReaderNavigationCompletedAsync(sender, args);
+
+    private async void ReaderPreloadWebView_NavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
+        => await HandleReaderNavigationCompletedAsync(sender, args);
+
+    private async Task HandleReaderNavigationCompletedAsync(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
     {
         if (_readerCloseRequested)
         {
@@ -3005,6 +3728,42 @@ public sealed partial class MainWindow : Window
             _readerTransitionActive = false;
             return;
         }
+        // A completion on the hidden preload surface finishes the background
+        // preparation. The visible reader flow must not run for it, and the
+        // preload document must never touch the visible chapter's state.
+        if (ReferenceEquals(sender, _readerPreloadControl)
+            && _readerPreloadTarget is { } preloadTarget
+            && _readerPendingNavigationTarget is null
+            && sender.Source is { } preloadSource
+            && preloadSource.AbsoluteUri.Equals(preloadTarget.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
+        {
+            _readerPreloadInProgress = false;
+            if (!args.IsSuccess)
+            {
+                _readerPreloadReady = false;
+                return;
+            }
+
+            try
+            {
+                // Prepare the hidden document exactly like the visible first
+                // screen (reader styling + plain chapter start), so the swap
+                // below is instant. Edge metrics are intentionally NOT applied
+                // to the visible reader.
+                await ApplyReaderAppearanceAsync(includeChapterStart: true, webView: sender);
+                if (ReferenceEquals(sender, _readerPreloadControl)
+                    && ReaderPreloadTargetsEqual(_readerPreloadTarget, preloadTarget))
+                {
+                    _readerPreloadReady = true;
+                }
+            }
+            catch
+            {
+                _readerPreloadReady = false;
+            }
+            return;
+        }
+
         try
         {
             // Only the most recently requested navigation may complete the flow.
@@ -3014,7 +3773,7 @@ public sealed partial class MainWindow : Window
             // newest one.
             var pendingTarget = _readerPendingNavigationTarget;
             if (pendingTarget is null
-                || ReaderWebView.Source is not { } source
+                || ReaderActiveWebView.Source is not { } source
                 || !source.AbsoluteUri.Equals(pendingTarget.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
             {
                 return;
@@ -3030,9 +3789,20 @@ public sealed partial class MainWindow : Window
                 // completion never tears down state for a still-pending newer
                 // navigation: the successful NavigationCompleted of the newest
                 // chapter (or the 3s watchdog for a genuinely-failed chapter)
-                // is what releases the transition guard. The host is only ever
-                // parked for the reveal, so a failure leaves it at the identity
-                // transform automatically.
+                // is what releases the transition guard. The surface is now
+                // hidden up front (see NavigateReaderSourceAsync), so a
+                // genuinely-failed load must restore visibility itself — but
+                // only if no newer navigation was requested in the meantime
+                // (then that navigation's own completion owns the reveal).
+                var failedTarget = pendingTarget;
+                _ = Task.Delay(1200).ContinueWith(
+                    _ => DispatcherQueue.TryEnqueue(() =>
+                    {
+                        if (_readerCloseRequested) return;
+                        if (ReferenceEquals(_readerPendingNavigationTarget, failedTarget))
+                            ResetReaderWebViewTransform();
+                    }),
+                    TaskScheduler.Default);
                 return;
             }
 
@@ -3049,26 +3819,52 @@ public sealed partial class MainWindow : Window
             // Slow, non-first-screen work (annotations, footnotes, stats,
             // progress) is deferred to RunReaderPostNavigationWorkAsync.
             var initialReveal = _readerInitialRevealPending;
+            // A plain chapter start (TOC entry without an explicit anchor,
+            // progress-slider jump, or open/prev/next with no breakpoint
+            // restore) can be fully prepared in the SAME script pass as the
+            // appearance styling: normalize the opening, inject the reader
+            // CSS, scroll to the first line and snap the pagination columns in
+            // one IPC round trip, and read back the scroll-edge metrics so the
+            // post-reveal poll is primed without another DOM read.
+            var intent = _readerNavigationIntent;
+            var plainChapterStart = ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(
+                intent,
+                pendingTarget,
+                _pendingReaderRestorePosition is not null);
             if (turnIn is not null || initialReveal) ReaderWebViewHost.Opacity = 0;
-            await ApplyReaderAppearanceAsync();
+            var appearanceMetrics = await ApplyReaderAppearanceAsync(
+                includeChapterStart: plainChapterStart,
+                webView: ReaderActiveWebView);
             if (IsStaleReaderNavigation(sequence, token)) return;
             if (initialReveal)
             {
                 await WaitForReaderFontsAsync(token);
                 if (IsStaleReaderNavigation(sequence, token)) return;
             }
-            // The first screen is positioned according to WHY this navigation
-            // was requested. An explicit user target (TOC chapter first line,
-            // fragment anchor, search/bookmark/annotation/AI location, progress
-            // slider) always wins; automatic breakpoint restore only runs for
-            // the open-book flow (intent None). Stale pending locations from a
-            // superseded navigation were already pruned when this navigation
-            // started, so a TOC jump can never inherit the old chapter's offset.
-            var intent = _readerNavigationIntent;
-            await ApplyReaderNavigationLocationAsync(intent, pendingTarget);
-            if (IsStaleReaderNavigation(sequence, token)) return;
-            await UpdateReaderBookmarkIndicatorAsync();
-            if (IsStaleReaderNavigation(sequence, token)) return;
+            if (plainChapterStart)
+            {
+                // The chapter start was already applied inside the appearance
+                // pass; only the edge metrics still need to land. If the script
+                // could not report them (fixed-layout page), fall back to the
+                // dedicated read so the scroll poll never misfires.
+                if (!ApplyReaderEdgeMetrics(appearanceMetrics))
+                    await PrimeReaderScrollEdgesAsync();
+                if (IsStaleReaderNavigation(sequence, token)) return;
+            }
+            else
+            {
+                // The first screen is positioned according to WHY this
+                // navigation was requested. An explicit user target (fragment
+                // anchor, search/bookmark/annotation/AI location) always wins;
+                // automatic breakpoint restore only runs for the open-book
+                // flow (intent None). Stale pending locations from a superseded
+                // navigation were already pruned when this navigation started,
+                // so a TOC jump can never inherit the old chapter's offset.
+                await ApplyReaderNavigationLocationAsync(intent, pendingTarget);
+                if (IsStaleReaderNavigation(sequence, token)) return;
+                await PrimeReaderScrollEdgesAsync();
+                if (IsStaleReaderNavigation(sequence, token)) return;
+            }
             if (_readerNavigateToEnd)
             {
                 await MoveReaderToEndAsync();
@@ -3077,12 +3873,6 @@ public sealed partial class MainWindow : Window
                 if (!IsStaleReaderNavigation(sequence, token))
                     _readerNavigateToEnd = false;
             }
-            // Edge state is aligned only after the new chapter is styled and
-            // positioned; release the transition guard right after so the poll
-            // can never misfire on a not-yet-primed page.
-            await PrimeReaderScrollEdgesAsync();
-            if (IsStaleReaderNavigation(sequence, token)) return;
-
             // The new first screen is ready: short fade/slide reveal (or show
             // immediately in 无动画 mode), then let the deferred work run.
             _readerInitialRevealPending = false;
@@ -3098,6 +3888,7 @@ public sealed partial class MainWindow : Window
             _readerPendingNavigationTarget = null;
 
             _ = RunReaderPostNavigationWorkAsync(sequence, token);
+            ScheduleReaderPreloadAsync();
         }
         catch
         {
@@ -3110,6 +3901,143 @@ public sealed partial class MainWindow : Window
             _readerTransitionActive = false;
         }
     }
+
+    // Arms the hidden surface to load and style the next chapter in the
+    // background. Called after every successful reveal (and after a preload
+    // swap), so forward navigation almost always finds the target ready.
+    private void ScheduleReaderPreloadAsync()
+    {
+        if (IsPdfReader || _readerCloseRequested) return;
+        if (_readerChapters.Count == 0 || _readerChapterIndex < 0) return;
+        var nextIndex = _readerChapterIndex + 1;
+        if (nextIndex >= _readerChapters.Count)
+        {
+            _readerPreloadChapterIndex = -1;
+            _readerPreloadTarget = null;
+            _readerPreloadControl = null;
+            _readerPreloadReady = false;
+            return;
+        }
+
+        var target = new Uri(_readerChapters[nextIndex]);
+        if (ReaderPreloadTargetsEqual(_readerPreloadTarget, target)
+            && (_readerPreloadReady || _readerPreloadInProgress)) return;
+
+        _readerPreloadChapterIndex = nextIndex;
+        _readerPreloadTarget = target;
+        _readerPreloadControl = _readerShowingPreload ? ReaderWebView : ReaderPreloadWebView;
+        _readerPreloadReady = false;
+        _ = PreloadReaderChapterAsync(target);
+    }
+
+    private async Task PreloadReaderChapterAsync(Uri target)
+    {
+        if (_readerPreloadInProgress) return;
+        _readerPreloadInProgress = true;
+        try
+        {
+            await EnsureReaderPreloadWebViewReadyAsync();
+            if (_readerCloseRequested) return;
+            var control = _readerPreloadControl;
+            if (control is null || control.CoreWebView2 is null) return;
+            if (control.Source is { } current
+                && current.AbsoluteUri.Equals(target.AbsoluteUri, StringComparison.OrdinalIgnoreCase)
+                && _readerPreloadReady)
+            {
+                return;
+            }
+            control.CoreWebView2.Navigate(target.AbsoluteUri);
+        }
+        catch
+        {
+            _readerPreloadReady = false;
+            _readerPreloadInProgress = false;
+        }
+    }
+
+    // A forward chapter switch can skip the WebView navigation entirely when
+    // the hidden surface already finished loading and styling the target: flip
+    // which surface is visible, reveal the prepared document and immediately
+    // start preloading the next-next chapter on the surface that just went
+    // hidden. Falls back to the normal navigation path when the preload is not
+    // ready (first chapter, rapid double-next, settings changed mid-flight).
+    private async Task<bool> TrySwapToPreloadedReaderChapterAsync(
+        int direction,
+        bool animate,
+        ReaderNavigationIntent intent)
+    {
+        if (IsPdfReader || _readerCloseRequested || ReaderPane.Visibility != Visibility.Visible) return false;
+        if (_readerNavigateToEnd) return false;
+        if (_readerChapterIndex != _readerPreloadChapterIndex || !_readerPreloadReady) return false;
+        var target = new Uri(_readerChapters[_readerChapterIndex]);
+        if (!ReaderPreloadTargetsEqual(_readerPreloadTarget, target)) return false;
+        var preloadControl = _readerPreloadControl;
+        if (preloadControl is null || preloadControl.CoreWebView2 is null) return false;
+
+        PruneReaderPendingLocations(intent);
+        _readerNavigationIntent = intent;
+        _readerActiveLocationTarget = target;
+
+        _readerChapterTransitionCancellation?.Cancel();
+        _readerChapterTransitionCancellation?.Dispose();
+        _readerChapterTransitionCancellation = new CancellationTokenSource();
+        var token = _readerChapterTransitionCancellation.Token;
+        var sequence = ++_readerChapterTransitionSequence;
+
+        var chapterStyle = _readerPageAnimation == ReaderAnimationWave
+            ? ReaderAnimationFade
+            : _readerPageAnimation;
+        var shouldAnimate = animate
+            && chapterStyle > ReaderAnimationNone
+            && !_readerCloseRequested
+            && ReaderPane.Visibility == Visibility.Visible;
+        _readerTransitionActive = true;
+        _readerPendingTurnInAnimation = shouldAnimate
+            ? new ReaderTurnInAnimation(direction, chapterStyle)
+            : null;
+        _readerPendingNavigationTarget = null;
+        _readerInitialRevealPending = false;
+        // The visible document changed without a WebView navigation on the
+        // active surface, so clear per-chapter transient state explicitly.
+        ResetReaderInPageSearchForNavigation();
+        ClearReaderFootnotePage();
+
+        var previousVisible = ReaderActiveWebView;
+        _readerShowingPreload = !_readerShowingPreload;
+        var nextVisible = ReaderActiveWebView;
+        SetReaderWebViewLayer(nextVisible, visible: true);
+        SetReaderWebViewLayer(previousVisible, visible: false);
+        _readerPreloadReady = false;
+        _readerPreloadChapterIndex = -1;
+        _readerPreloadTarget = null;
+        _readerPreloadControl = null;
+
+        ReaderWebViewHost.Opacity = 0;
+        try
+        {
+            if (_readerPendingTurnInAnimation is { } pending)
+                await AnimateReaderPageTurnAsync(pending.Direction, isOut: false, pending.Style, token);
+            else
+                ResetReaderWebViewTransform();
+            _readerTransitionActive = false;
+        }
+        catch
+        {
+            ResetReaderWebViewTransform();
+            _readerTransitionActive = false;
+            throw;
+        }
+
+        await PrimeReaderScrollEdgesAsync();
+        _ = RunReaderPostNavigationWorkAsync(sequence, token);
+        ScheduleReaderPreloadAsync();
+        return true;
+    }
+
+    private static bool ReaderPreloadTargetsEqual(Uri? left, Uri? right) =>
+        left is not null
+        && right is not null
+        && left.AbsoluteUri.Equals(right.AbsoluteUri, StringComparison.OrdinalIgnoreCase);
 
     // True when a newer navigation started, the transition was cancelled (new
     // navigation or reader close), or the reader is closing. Deferred work
@@ -3138,6 +4066,11 @@ public sealed partial class MainWindow : Window
                 await ScrollToPendingReaderAnnotationAsync();
             if (IsStaleReaderNavigation(sequence, token)) return;
             await ConfigureReaderFootnoteHoverAsync();
+            if (IsStaleReaderNavigation(sequence, token)) return;
+            // The corner bookmark marker is a UI indicator, not part of the
+            // first screen: update it after the reveal so the pre-reveal path
+            // does not pay an extra DOM read.
+            await UpdateReaderBookmarkIndicatorAsync();
             if (IsStaleReaderNavigation(sequence, token)) return;
             await RefreshReaderProgressAsync();
             _ = SaveReaderProgressThrottledAsync();
@@ -3178,9 +4111,12 @@ public sealed partial class MainWindow : Window
         return css.ToString();
     }
 
-    private async Task ApplyReaderAppearanceAsync()
+    private async Task<string?> ApplyReaderAppearanceAsync(
+        bool includeChapterStart = false,
+        WebView2? webView = null)
     {
-        if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return;
+        var view = webView ?? ReaderActiveWebView;
+        if (_readerAllowedRoot is null || view.CoreWebView2 is null) return null;
         const string background = "#FFFFFF";
         const string foreground = "#111111";
         const string link = "#222222";
@@ -3240,7 +4176,7 @@ public sealed partial class MainWindow : Window
             : "img { display: block; height: auto !important; max-width: 100% !important; margin: 1.8em auto !important; }"
               + " svg { display: block; height: auto !important; max-width: 100% !important; margin: 1.8em auto !important; }"
               + " svg image { max-width: 100% !important; }";
-        ReaderWebView.DefaultBackgroundColor = Colors.White;
+        view.DefaultBackgroundColor = Colors.White;
         var script = $$"""
             (() => {
               const root = document.documentElement;
@@ -3300,13 +4236,19 @@ public sealed partial class MainWindow : Window
               // can transiently describe the laid-out content width and make
               // the right column extend underneath the assistant panel.
               const hostViewportWidth = {{hostViewportWidth}};
-              const viewportWidth = hostViewportWidth > 0
-                ? hostViewportWidth
-                : (window.visualViewport?.width
-                || window.innerWidth
-                || root?.clientWidth
-                || kkScroller?.clientWidth
-                || 0);
+              // Chromium lays the multicolumns out in CSS pixels
+              // (100vw = window.innerWidth), which at non-100% DPI scaling is
+              // WIDER than the DIP-based XAML host width. The page step and
+              // the actual column pitch must use the SAME unit or every page
+              // drifts and the right boundary gets clipped. The WebView's own
+              // viewport is therefore the source of truth; the DIP host width
+              // is only a fallback while the document is not measurable.
+              const inPageWidth = window.visualViewport?.width || window.innerWidth || 0;
+              const viewportWidth = inPageWidth > 0
+                ? inPageWidth
+                : (hostViewportWidth > 0
+                  ? hostViewportWidth
+                  : (root?.clientWidth || kkScroller?.clientWidth || 0));
               if (root && viewportWidth > 0) {
                 root.style.setProperty('{{ReaderPaginationScripts.ViewportWidthVariable}}', viewportWidth + 'px');
               }
@@ -3333,24 +4275,61 @@ public sealed partial class MainWindow : Window
               }
             })();
             """;
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
-        catch { /* Some fixed-layout EPUB pages don't expose a normal document head. */ }
+        // One combined first-screen pass: for a plain chapter start the
+        // opening normalization runs BEFORE the style injection (the raw DOM
+        // is cheap to mutate, and the multicolumn reflow then happens exactly
+        // once against the already-normalized document), then the cover fit +
+        // pagination snap finish the layout. The script reports the scroll-edge
+        // metrics so the host does not need another DOM read before reveal.
+        var combinedScript = new System.Text.StringBuilder();
+        if (includeChapterStart)
+            combinedScript.Append(ReaderNavigationScripts.NormalizeChapterStart).Append('\n');
+        combinedScript.Append(script);
+        if (includeChapterStart)
+            combinedScript.Append("\nwindow.scrollTo({ left: 0, top: 0, behavior: 'instant' });\n");
         if (_readerFlowMode == 1)
         {
-            // Pagination mode: mark the first large image in the chapter as the
-            // cover so it gets a tighter page fit (size-based detection, never
-            // file/book names), then snap the reading area onto the nearest
-            // column boundary (top pinned to 0) so each viewport shows exactly
-            // one full page instead of a vertically offset strip or two partial
-            // columns split by the column gap.
-            await FitReaderImagesAsync();
-            await SnapReaderPaginationAsync();
+            combinedScript.Append(GetReaderCoverFitScript()).Append('\n');
+            combinedScript.Append(ReaderPaginationScripts.Snap).Append('\n');
+        }
+        if (includeChapterStart)
+        {
+            combinedScript.Append(
+                "JSON.stringify((function(){var el=document.scrollingElement||document.documentElement;")
+                .Append("return {st:el.scrollTop||0,sl:el.scrollLeft||0,sh:el.scrollHeight||0,sw:el.scrollWidth||0,")
+                .Append("ch:el.clientHeight||window.innerHeight||0,cw:el.clientWidth||window.innerWidth||0};})());");
+        }
+
+        try
+        {
+            var result = await view.CoreWebView2.ExecuteScriptAsync(combinedScript.ToString());
+            return includeChapterStart ? result : null;
+        }
+        catch
+        {
+            // Some fixed-layout EPUB pages don't expose a normal document head.
+            return null;
+        }
+    }
+
+    // Settings/layout changes must restyle the visible document immediately and
+    // keep the hidden preload document in sync so a later chapter swap never
+    // reveals stale typography or pagination.
+    private async Task ApplyReaderAppearanceToVisibleAndPreloadAsync()
+    {
+        await ApplyReaderAppearanceAsync(webView: ReaderActiveWebView);
+        var hidden = _readerShowingPreload ? ReaderWebView : ReaderPreloadWebView;
+        if (hidden.CoreWebView2 is not null
+            && hidden.Source is { IsFile: true }
+            && !ReferenceEquals(hidden, ReaderActiveWebView))
+        {
+            await ApplyReaderAppearanceAsync(webView: hidden);
         }
     }
 
     private async Task WaitForReaderFontsAsync(CancellationToken cancellationToken)
     {
-        if (ReaderWebView.CoreWebView2 is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null) return;
         // ExecuteScriptAsync does not await promises when page scripts are
         // disabled, so poll the synchronous FontFaceSet status with a short,
         // bounded wait. The body measurement in ApplyReaderAppearanceAsync has
@@ -3360,7 +4339,7 @@ public sealed partial class MainWindow : Window
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var status = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                var status = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(
                     "document.fonts ? document.fonts.status : 'loaded';");
                 if (status.Trim().Trim('"').Equals("loaded", StringComparison.OrdinalIgnoreCase))
                     return;
@@ -3406,9 +4385,9 @@ public sealed partial class MainWindow : Window
 
     private async Task FitReaderImagesAsync()
     {
-        if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return;
+        if (_readerAllowedRoot is null || ReaderActiveWebView.CoreWebView2 is null) return;
         if (_readerFlowMode != 1) return;
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(GetReaderCoverFitScript()); }
+        try { await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(GetReaderCoverFitScript()); }
         catch { }
     }
 
@@ -3420,18 +4399,18 @@ public sealed partial class MainWindow : Window
     // (or the reader closed), the delayed calls bail out before touching the DOM.
     private async Task RetryReaderImageFitAsync(int sequence)
     {
-        if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return;
+        if (_readerAllowedRoot is null || ReaderActiveWebView.CoreWebView2 is null) return;
         try
         {
             await Task.Delay(250);
             if (sequence != _readerChapterTransitionSequence || _readerCloseRequested) return;
-            if (ReaderWebView.CoreWebView2 is null || ReaderWebView.Source is not { IsFile: true }) return;
+            if (ReaderActiveWebView.CoreWebView2 is null || ReaderActiveWebView.Source is not { IsFile: true }) return;
             await FitReaderImagesAsync();
             if (sequence != _readerChapterTransitionSequence || _readerCloseRequested) return;
             if (_readerFlowMode == 1) await RealignReaderAfterRelayoutAsync();
             await Task.Delay(700);
             if (sequence != _readerChapterTransitionSequence || _readerCloseRequested) return;
-            if (ReaderWebView.CoreWebView2 is null || ReaderWebView.Source is not { IsFile: true }) return;
+            if (ReaderActiveWebView.CoreWebView2 is null || ReaderActiveWebView.Source is not { IsFile: true }) return;
             await FitReaderImagesAsync();
             if (sequence != _readerChapterTransitionSequence || _readerCloseRequested) return;
             if (_readerFlowMode == 1) await RealignReaderAfterRelayoutAsync();
@@ -3443,11 +4422,11 @@ public sealed partial class MainWindow : Window
 
     private async Task SnapReaderPaginationAsync()
     {
-        if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
         if (_readerFlowMode != 1) return;
         try
         {
-            await ReaderWebView.CoreWebView2.ExecuteScriptAsync(ReaderPaginationScripts.Snap);
+            await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(ReaderPaginationScripts.Snap);
         }
         catch { }
     }
@@ -3564,23 +4543,15 @@ public sealed partial class MainWindow : Window
     // untouched).
     private async Task ResetReaderToChapterStartAsync()
     {
-        if (ReaderWebView.CoreWebView2 is null) return;
-        await NormalizeReaderChapterStartAsync();
+        if (ReaderActiveWebView.CoreWebView2 is null) return;
         try
         {
-            await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
-                "window.scrollTo({ left: 0, top: 0, behavior: 'instant' });");
-        }
-        catch { }
-        if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
-    }
-
-    private async Task NormalizeReaderChapterStartAsync()
-    {
-        if (ReaderWebView.CoreWebView2 is null) return;
-        try
-        {
-            await ReaderWebView.CoreWebView2.ExecuteScriptAsync(ReaderNavigationScripts.NormalizeChapterStart);
+            var script = ReaderNavigationScripts.NormalizeChapterStart
+                + "\nwindow.scrollTo({ left: 0, top: 0, behavior: 'instant' });";
+            if (_readerFlowMode == 1)
+                script += "\n" + ReaderPaginationScripts.Snap;
+            await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(
+                script);
         }
         catch { }
     }
@@ -3617,14 +4588,14 @@ public sealed partial class MainWindow : Window
     //          content box's right edge, inline-start (top) to its top.
     private async Task ScrollToReaderFragmentAsync(string fragment)
     {
-        if (ReaderWebView.CoreWebView2 is null || string.IsNullOrWhiteSpace(fragment)) return;
+        if (ReaderActiveWebView.CoreWebView2 is null || string.IsNullOrWhiteSpace(fragment)) return;
         var needle = Uri.UnescapeDataString(fragment).Replace("\\", "\\\\").Replace("'", "\\'");
         var flowMode = _readerFlowMode;
         var vertical = _readerLayout.VerticalWriting;
         string result;
         try
         {
-            result = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+            result = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(
                 ReaderNavigationScripts.CreateFragmentScroll(
                     needle,
                     flowMode,
@@ -3665,7 +4636,7 @@ public sealed partial class MainWindow : Window
 
     private async Task MoveReaderToEndAsync()
     {
-        if (ReaderWebView.CoreWebView2 is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null) return;
         var script = _readerFlowMode switch
         {
             0 when _readerLayout.VerticalWriting =>
@@ -3673,7 +4644,7 @@ public sealed partial class MainWindow : Window
             0 => "window.scrollTo({ top: document.scrollingElement.scrollHeight, behavior: 'instant' });",
             _ => "window.scrollTo({ left: document.scrollingElement.scrollWidth, top: 0, behavior: 'instant' });"
         };
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
+        try { await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
         if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
     }
@@ -3705,7 +4676,7 @@ public sealed partial class MainWindow : Window
         }
 
         if (ReferenceEquals(sender, SystemSectionButton))
-            ToggleSidebarSection(SystemSectionButton, SystemChildren, SystemChevron, "系统");
+            ToggleSidebarSection(SystemSectionButton, SystemChildren, SystemChevron, "系统设置");
     }
 
     private void ToggleSidebarSection(Button sectionButton, StackPanel children, FontIcon chevron, string title)
@@ -3872,10 +4843,10 @@ public sealed partial class MainWindow : Window
             ExpandSidebarSection(ReadingSectionButton, ReadingChildren, ReadingChevron, "阅读资料");
         }
         else if (activeButton == SettingsNavigationButton || activeButton == KindleEmailSettingsNavigationButton
-            || activeButton == ZLibraryAccountNavigationButton)
+            || activeButton == ZLibraryAccountNavigationButton || activeButton == ReaderAiSettingsNavigationButton)
         {
             _activeNavigationSectionButton = SystemSectionButton;
-            ExpandSidebarSection(SystemSectionButton, SystemChildren, SystemChevron, "系统");
+            ExpandSidebarSection(SystemSectionButton, SystemChildren, SystemChevron, "系统设置");
         }
         else
         {
@@ -3926,14 +4897,6 @@ public sealed partial class MainWindow : Window
         QueueInteractiveControlToolTipRefresh();
     }
 
-    private void DeviceStorageBar_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateDeviceStorageBar();
-
-    private void UpdateDeviceStorageBar()
-    {
-        var availableWidth = Math.Max(0, DeviceStorageBar.ActualWidth - 2);
-        DeviceStorageUsedBar.Width = availableWidth * _deviceUsedRatio;
-    }
-
     private async void NavigationButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button button && button == AllBooksButton)
@@ -3943,6 +4906,119 @@ public sealed partial class MainWindow : Window
         }
         if (sender is Button)
             await ShowMessageAsync("Kkindle", "首版当前聚焦书架与 Kindle 同步。");
+    }
+
+    private void DeviceNameButton_Click(object sender, RoutedEventArgs e)
+        => ShowDeviceModelPicker(DeviceNameButton);
+
+    private void ShowDeviceModelPicker(FrameworkElement anchor)
+    {
+        var device = _devices.FirstOrDefault();
+        if (device is null) return;
+
+        // Dismiss any hover tooltip on the anchor before the picker opens so it
+        // does not linger underneath the flyout; restore it once the picker
+        // closes so hovering still shows the hint again.
+        var anchorToolTip = ToolTipService.GetToolTip(anchor);
+        ToolTipService.SetToolTip(anchor, null);
+
+        var flyout = new MenuFlyout();
+        var defaultItem = new MenuFlyoutItem
+        {
+            Text = "默认名称（设备自带）"
+        };
+        defaultItem.Click += (_, _) => _ = ApplyDeviceModelAsync(null);
+        flyout.Items.Add(defaultItem);
+        flyout.Items.Add(new MenuFlyoutSeparator());
+
+        foreach (var vendor in DeviceModelCatalog.Vendors)
+        {
+            var submenu = new MenuFlyoutSubItem { Text = vendor.Name };
+            foreach (var model in vendor.Models)
+            {
+                var item = new MenuFlyoutItem { Text = model };
+                item.Click += (_, _) => _ = ApplyDeviceModelAsync(model);
+                submenu.Items.Add(item);
+            }
+            flyout.Items.Add(submenu);
+        }
+
+        flyout.Items.Add(new MenuFlyoutSeparator());
+        var customItem = new MenuFlyoutItem { Text = "自定义型号…" };
+        customItem.Click += (_, _) => ShowDeviceModelInput();
+        flyout.Items.Add(customItem);
+
+        flyout.Closed += (_, _) =>
+        {
+            if (anchorToolTip is not null)
+                ToolTipService.SetToolTip(anchor, anchorToolTip);
+        };
+        flyout.ShowAt(anchor, new FlyoutShowOptions
+        {
+            Placement = FlyoutPlacementMode.TopEdgeAlignedLeft
+        });
+    }
+
+    private async Task ApplyDeviceModelAsync(string? model)
+    {
+        var device = _devices.FirstOrDefault();
+        if (device is null) return;
+        var normalized = string.IsNullOrWhiteSpace(model) ? null : model.Trim();
+        try
+        {
+            if (normalized is null)
+                await _deviceModelStore.DeleteModelAsync(device.Identity);
+            else
+                await _deviceModelStore.SetModelAsync(device.Identity, normalized);
+        }
+        catch (Exception exception)
+        {
+            await ShowMessageAsync("无法保存设备型号", exception.Message);
+            return;
+        }
+
+        _deviceDisplayName = normalized ?? device.Name;
+        DeviceNameText.Text = $"{_deviceDisplayName} · {device.ConnectionLabel}";
+        KindleStatusText.Text = _deviceDisplayName;
+        DeviceResourceDeviceText.Text = $"{_deviceDisplayName} · {device.ConnectionLabel}";
+    }
+
+    private void ShowDeviceModelInput()
+    {
+        DeviceModelInputTextBox.Text = _deviceDisplayName ?? string.Empty;
+        DeviceModelInputOverlay.Visibility = Visibility.Visible;
+        DeviceModelInputOverlay.Focus(FocusState.Programmatic);
+        DeviceModelInputTextBox.Focus(FocusState.Programmatic);
+        DeviceModelInputTextBox.SelectAll();
+    }
+
+    private async void DeviceModelInputOkButton_Click(object sender, RoutedEventArgs e)
+    {
+        var model = DeviceModelInputTextBox.Text?.Trim() ?? string.Empty;
+        if (model.Length == 0)
+        {
+            await ShowMessageAsync("型号不能为空", "请输入设备型号，或选择“默认名称”。");
+            return;
+        }
+        DeviceModelInputOverlay.Visibility = Visibility.Collapsed;
+        await ApplyDeviceModelAsync(model);
+    }
+
+    private void DeviceModelInputCancelButton_Click(object sender, RoutedEventArgs e)
+        => DeviceModelInputOverlay.Visibility = Visibility.Collapsed;
+
+    private void DeviceModelInputOverlay_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            e.Handled = true;
+            DeviceModelInputOverlay.Visibility = Visibility.Collapsed;
+        }
+        else if (e.Key == Windows.System.VirtualKey.Enter)
+        {
+            e.Handled = true;
+            DeviceModelInputOkButton_Click(sender, e);
+        }
     }
 
     private Task<bool> ShowDevicePromptAsync(string title, string message, string primaryText, string cancelText)
@@ -3987,16 +5063,47 @@ public sealed partial class MainWindow : Window
         completion.TrySetResult(result);
     }
 
-    private async Task ShowMessageAsync(string title, string message)
+    private Task ShowMessageAsync(string title, string message)
     {
-        var dialog = new ContentDialog
+        // Fully custom monochrome dialog: avoids the WinUI ContentDialog
+        // chrome (accent buttons, rounded corners, system theming).
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _messageDialogQueue.Enqueue(new MessageDialogRequest(title, message, completion));
+        TryShowNextMessageDialog();
+        return completion.Task;
+    }
+
+    private void TryShowNextMessageDialog()
+    {
+        if (_activeMessageDialog is not null || _messageDialogQueue.Count == 0) return;
+
+        var next = _messageDialogQueue.Dequeue();
+        _activeMessageDialog = next;
+        MessageTitleText.Text = next.Title;
+        MessageBodyText.Text = next.Message;
+        MessageOverlay.Visibility = Visibility.Visible;
+        MessageOverlay.Focus(FocusState.Programmatic);
+    }
+
+    private void MessageOkButton_Click(object sender, RoutedEventArgs e) => CompleteMessageDialog();
+
+    private void MessageOverlay_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key is Windows.System.VirtualKey.Escape or Windows.System.VirtualKey.Enter)
         {
-            XamlRoot = ((FrameworkElement)Content).XamlRoot,
-            Title = title,
-            Content = message,
-            CloseButtonText = "知道了",
-            DefaultButton = ContentDialogButton.Close
-        };
-        await dialog.ShowAsync();
+            e.Handled = true;
+            CompleteMessageDialog();
+        }
+    }
+
+    private void CompleteMessageDialog()
+    {
+        var active = _activeMessageDialog;
+        if (active is null) return;
+
+        _activeMessageDialog = null;
+        MessageOverlay.Visibility = Visibility.Collapsed;
+        active.Completion.TrySetResult(true);
+        TryShowNextMessageDialog();
     }
 }

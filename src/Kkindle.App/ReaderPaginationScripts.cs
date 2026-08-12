@@ -124,7 +124,14 @@ internal static class ReaderPaginationScripts
         return $"html {{ height: 100%; overflow: hidden !important; writing-mode: horizontal-tb !important; }}"
             + $" body {{ --kkindle-page-column-gap: {columnGap}; width: 100% !important; min-width: 0 !important; height: 100% !important; margin: 0 !important; overflow: visible !important; padding: {topPadding}px calc(var(--kkindle-page-column-gap) / 2) {bottomPadding}px !important; box-sizing: border-box !important;"
             + $" writing-mode: horizontal-tb !important; column-width: {columnWidth} !important;"
-            + $" column-gap: var(--kkindle-page-column-gap) !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
+            + $" column-gap: var(--kkindle-page-column-gap) !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}"
+            // Chromium's scrollWidth for the overflowing multicolumns does not
+            // include the body's right padding, so the maximum scroll position
+            // lands with the LAST column's text flush against the viewport's
+            // right edge. This invisible trailing block overflows its column by
+            // exactly the half-gap, extending scrollWidth by that inset so the
+            // final page can center its column like every other page.
+            + $" body::after {{ content: \"\"; display: block; height: 0.1px; width: calc(100% + var(--kkindle-page-column-gap) / 2); }}";
     }
 
     // Page boundaries start at scroll origin 0; body padding stays inside

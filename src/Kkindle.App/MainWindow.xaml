@@ -99,8 +99,8 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="200" />
-            <ColumnDefinition Width="*" />
+            <ColumnDefinition x:Name="SidebarColumn" Width="200" />
+            <ColumnDefinition x:Name="MainContentColumn" Width="*" />
             <ColumnDefinition x:Name="DetailColumn" Width="0" />
         </Grid.ColumnDefinitions>
 
@@ -308,24 +308,32 @@
                                     PointerEntered="SidebarSectionButton_PointerEntered"
                                     PointerMoved="SidebarSectionButton_PointerEntered"
                                     PointerExited="SidebarSectionButton_PointerExited"
-                                    AutomationProperties.Name="系统，已收起">
+                                    AutomationProperties.Name="系统设置，已收起">
                                 <Grid>
-                                    <TextBlock Text="系统" VerticalAlignment="Center" />
+                                    <TextBlock Text="系统设置" VerticalAlignment="Center" />
                                     <FontIcon x:Name="SystemChevron" Glyph="&#xE76C;" FontFamily="Segoe MDL2 Assets" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="10" />
                                 </Grid>
                             </Button>
                             <StackPanel x:Name="SystemChildren" Spacing="3" Visibility="Collapsed">
-                                <Button x:Name="SettingsNavigationButton" Content="设置" Style="{StaticResource SidebarButtonStyle}" Click="SettingsButton_Click" />
+                                <Button x:Name="SettingsNavigationButton" Content="基础设置" Style="{StaticResource SidebarButtonStyle}" Click="SettingsButton_Click" />
                                 <Button x:Name="KindleEmailSettingsNavigationButton" Content="Kindle 邮箱设置" Style="{StaticResource SidebarButtonStyle}" Click="KindleEmailSettingsButton_Click" />
                                 <Button x:Name="ZLibraryAccountNavigationButton" Content="Z-Library 账号设置" Style="{StaticResource SidebarButtonStyle}" Click="ZLibraryAccountButton_Click" />
+                                <Button x:Name="ReaderAiSettingsNavigationButton" Content="AI 助手设置" Style="{StaticResource SidebarButtonStyle}" Click="ReaderAiSettingsButton_Click" />
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
 
-                <Border Grid.Row="2" Padding="10" Background="#FFFFFF" BorderBrush="#000000" BorderThickness="1" CornerRadius="0">
+                <Border x:Name="DeviceStatusBox"
+                        Grid.Row="2"
+                        Padding="10"
+                        Background="#FFFFFF"
+                        BorderBrush="#000000"
+                        BorderThickness="1"
+                        CornerRadius="0"
+                        Tapped="DeviceStatusBox_Tapped"
+                        ToolTipService.ToolTip="点击选择或自定义设备型号（按串码记忆）；未连接时点击可重新检测 Kindle">
                     <StackPanel Spacing="5">
-                        <TextBlock Text="连接设备" FontSize="10" Foreground="#5A5A5A" />
                         <Grid ColumnSpacing="6">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -357,11 +365,11 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                <Rectangle Width="7" Height="7" Fill="#000000" />
+                                <Rectangle Width="7" Height="7" Fill="#000000" VerticalAlignment="Center" />
                                 <TextBlock Text="已用" FontSize="9" Foreground="#5A5A5A" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                                <Rectangle Width="7" Height="7" Fill="#FFFFFF" Stroke="#000000" StrokeThickness="1" />
+                                <Rectangle Width="7" Height="7" Fill="#FFFFFF" Stroke="#000000" StrokeThickness="1" VerticalAlignment="Center" />
                                 <TextBlock Text="剩余" FontSize="9" Foreground="#5A5A5A" />
                             </StackPanel>
                         </Grid>
@@ -598,7 +606,7 @@
                                 Click="BackToCollectionsButton_Click"
                                 AutomationProperties.Name="返回收藏夹">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <SymbolIcon Symbol="Back" />
+                                <SymbolIcon Symbol="Back" VerticalAlignment="Center" />
                                 <TextBlock Text="返回收藏夹" />
                             </StackPanel>
                         </Button>
@@ -700,7 +708,10 @@
                                         <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
                                     </Grid>
                                 </Border>
-                                <StackPanel Grid.Row="1" Margin="2,9,2,0" Spacing="2">
+                                <StackPanel Grid.Row="1"
+                                            Margin="2,9,2,0"
+                                            Spacing="2"
+                                            Visibility="{x:Bind GalleryTextVisibility, Mode=OneWay}">
                                     <TextBlock Text="{x:Bind Title}"
                                                Foreground="{StaticResource InkBrush}"
                                                FontSize="15"
@@ -726,7 +737,7 @@
                                         BorderBrush="#000000"
                                         BorderThickness="1"
                                         Canvas.ZIndex="4"
-                                        Visibility="{x:Bind PresenceVisibility, Mode=OneWay}"
+                                        Visibility="{x:Bind GalleryPresenceVisibility, Mode=OneWay}"
                                         ToolTipService.ToolTip="{x:Bind PresenceLabel, Mode=OneWay}"
                                         AutomationProperties.Name="{x:Bind PresenceLabel, Mode=OneWay}">
                                     <ContentControl Content="{Binding}"
@@ -850,7 +861,7 @@
                                     <ColumnDefinition Width="1.2*" />
                                     <ColumnDefinition Width="140" />
                                 </Grid.ColumnDefinitions>
-                                <Grid Width="40" Height="56">
+                                <Grid Width="40" Height="56" VerticalAlignment="Center">
                                     <Border Background="#D9D9D9" BorderBrush="#000000" BorderThickness="1" CornerRadius="0">
                                         <Image Source="{x:Bind CoverImage}" Stretch="UniformToFill" />
                                     </Border>
@@ -1247,6 +1258,7 @@
                             </Grid.ColumnDefinitions>
                             <Border Width="66"
                                     Height="92"
+                                    VerticalAlignment="Center"
                                     Background="#D9D9D9"
                                     BorderBrush="{StaticResource BorderBrush}"
                                     BorderThickness="1"
@@ -1505,7 +1517,7 @@
             </Grid.Resources>
 
             <StackPanel Spacing="3">
-                <TextBlock Text="设置"
+                <TextBlock Text="基础设置"
                            Foreground="{StaticResource InkBrush}"
                            FontSize="28"
                            FontWeight="Bold" />
@@ -1558,22 +1570,6 @@
                             Tag="About"
                             Style="{StaticResource SettingsCategoryButtonStyle}"
                             Click="SettingsCategoryButton_Click" />
-                    <Border Margin="0,12,0,0"
-                            Padding="0,12,0,0"
-                            BorderBrush="#E2E2DE"
-                            BorderThickness="0,1,0,0">
-                        <StackPanel Spacing="6">
-                            <Button Content="保存应用设置"
-                                    HorizontalAlignment="Stretch"
-                                    Click="SaveApplicationSettingsButton_Click"
-                                    ToolTipService.ToolTip="保存所有设置页中的选项和默认阅读排版设置。"
-                                    AutomationProperties.HelpText="保存所有设置页中的选项和默认阅读排版设置。" />
-                            <TextBlock x:Name="ApplicationSettingsStatusText"
-                                       FontSize="11"
-                                       Foreground="{StaticResource MutedInkBrush}"
-                                       TextWrapping="Wrap" />
-                        </StackPanel>
-                    </Border>
                 </StackPanel>
 
                 <ScrollViewer x:Name="SettingsScrollViewer"
@@ -1602,19 +1598,22 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="6">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="启动时自动备份（每日）"
+                                               FontSize="13"
+                                               VerticalAlignment="Center"
+                                               TextWrapping="Wrap"
+                                               ToolTipService.ToolTip="开启后，应用启动时每天自动创建一次备份，并按保留数量清理旧备份。" />
                                     <ToggleSwitch x:Name="AutoBackupCheck"
-                                                  Header="启动时自动备份（每日）"
+                                                  Grid.Column="1"
                                                   OnContent="开"
                                                   OffContent="关"
-                                                  HorizontalAlignment="Left"
-                                                  ToolTipService.ToolTip="开启后，应用启动时每天自动创建一次备份，并按保留数量清理旧备份。"
-                                                  AutomationProperties.HelpText="开启后，应用启动时每天自动创建一次备份，并按保留数量清理旧备份。" />
-                                    <TextBlock Text="开启后，应用启动时每天自动创建一次备份，并按保留数量清理旧备份。"
-                                               FontSize="10"
-                                               Foreground="{StaticResource MutedInkBrush}"
-                                               TextWrapping="Wrap" />
-                                </StackPanel>
+                                                  VerticalAlignment="Center" />
+                                </Grid>
                                 <StackPanel Grid.Column="1" Spacing="5">
                                     <TextBlock Text="自动备份保留数量" FontSize="11" />
                                     <NumberBox x:Name="AutoBackupRetentionBox"
@@ -1663,32 +1662,38 @@
                                     <ComboBoxItem Content="MOBI（转换为 EPUB）" Tag="mobi" />
                                 </ComboBox>
                             </StackPanel>
-                            <StackPanel Spacing="6">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="启用 AI 阅读助手"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           ToolTipService.ToolTip="允许在阅读器中使用已配置的 AI 服务进行问答和辅助阅读。" />
                                 <ToggleSwitch x:Name="AiEnabledCheck"
-                                              Header="启用 AI 阅读助手"
+                                              Grid.Column="1"
                                               OnContent="开"
                                               OffContent="关"
-                                              HorizontalAlignment="Left"
-                                              ToolTipService.ToolTip="允许在阅读器中使用已配置的 AI 服务进行问答和辅助阅读。"
-                                              AutomationProperties.HelpText="允许在阅读器中使用已配置的 AI 服务进行问答和辅助阅读。" />
-                                <TextBlock Text="允许在阅读器中使用已配置的 AI 服务进行问答和辅助阅读。"
-                                           FontSize="10"
-                                           Foreground="{StaticResource MutedInkBrush}"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
-                            <StackPanel Spacing="6">
+                                              VerticalAlignment="Center" />
+                            </Grid>
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="允许网络功能"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           ToolTipService.ToolTip="允许 AI、在线书库、联网元数据和邮件发送等功能访问网络。" />
                                 <ToggleSwitch x:Name="NetworkEnabledCheck"
-                                              Header="允许网络功能"
+                                              Grid.Column="1"
                                               OnContent="开"
                                               OffContent="关"
-                                              HorizontalAlignment="Left"
-                                              ToolTipService.ToolTip="允许 AI、在线书库、联网元数据和邮件发送等功能访问网络。"
-                                              AutomationProperties.HelpText="允许 AI、在线书库、联网元数据和邮件发送等功能访问网络。" />
-                                <TextBlock Text="允许 AI、在线书库、联网元数据和邮件发送等功能访问网络。"
-                                           FontSize="10"
-                                           Foreground="{StaticResource MutedInkBrush}"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
+                                              VerticalAlignment="Center" />
+                            </Grid>
                         </StackPanel>
                     </Border>
 
@@ -1715,38 +1720,56 @@
                                             ToolTipService.ToolTip="选择 Calibre 的 ebook-convert.exe。"
                                             AutomationProperties.HelpText="选择 Calibre 的 ebook-convert.exe。" />
                                 </Grid>
-                                <TextBlock Text="指定 Calibre 的 ebook-convert.exe；留空时由 Kkindle 自动查找。"
-                                           FontSize="10"
-                                           Foreground="{StaticResource MutedInkBrush}"
-                                           TextWrapping="Wrap" />
                             </StackPanel>
-                            <StackPanel Spacing="6">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="导入后补齐 EPUB 与 AZW3"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           ToolTipService.ToolTip="开启后按书籍现有格式补齐 EPUB 与 AZW3；导入 MOBI 时生成这两种格式，原始文件仍会保留。" />
                                 <ToggleSwitch x:Name="AutoGenerateReaderFormatsCheck"
-                                              Header="导入后补齐 EPUB 与 AZW3"
+                                              Grid.Column="1"
                                               OnContent="开"
                                               OffContent="关"
-                                              HorizontalAlignment="Left"
-                                              ToolTipService.ToolTip="开启后按书籍现有格式补齐 EPUB 与 AZW3；导入 MOBI 时生成这两种格式，原始文件仍会保留。"
-                                              AutomationProperties.HelpText="开启后按书籍现有格式补齐 EPUB 与 AZW3；导入 MOBI 时生成这两种格式，原始文件仍会保留。" />
-                                <TextBlock Text="开启后按书籍现有格式补齐 EPUB 与 AZW3；导入 MOBI 时生成这两种格式，原始文件仍会保留。"
-                                           FontSize="10"
-                                           Foreground="{StaticResource MutedInkBrush}"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
-                            <StackPanel Spacing="6">
+                                              VerticalAlignment="Center" />
+                            </Grid>
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="比较 Kindle 与电脑书库"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           ToolTipService.ToolTip="开启后比较两个书库，并在书籍封面上显示存在位置图标；关闭后隐藏图标。" />
                                 <ToggleSwitch x:Name="CompareKindleLibraryCheck"
-                                              Header="比较 Kindle 与电脑书库"
+                                              Grid.Column="1"
                                               OnContent="开"
                                               OffContent="关"
                                               IsOn="True"
-                                              HorizontalAlignment="Left"
-                                              ToolTipService.ToolTip="开启后比较两个书库，并在书籍封面上显示存在位置图标。"
-                                              AutomationProperties.HelpText="开启后比较两个书库，并在书籍封面上显示存在位置图标；关闭后隐藏图标。" />
-                                <TextBlock Text="开启后比较两个书库，并在书籍封面上显示存在位置图标；关闭后隐藏图标。"
-                                           FontSize="10"
-                                           Foreground="{StaticResource MutedInkBrush}"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
+                                              VerticalAlignment="Center" />
+                            </Grid>
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="网格画廊显示"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           ToolTipService.ToolTip="开启后网格视图中的书籍只显示封面图片，不显示书名与作者等文字；其余功能保持一致。" />
+                                <ToggleSwitch x:Name="GridGalleryDisplayCheck"
+                                              Grid.Column="1"
+                                              OnContent="开"
+                                              OffContent="关"
+                                              VerticalAlignment="Center" />
+                            </Grid>
                         </StackPanel>
                     </Border>
 
@@ -1758,20 +1781,23 @@
                             BorderThickness="1">
                         <StackPanel Spacing="14">
                             <TextBlock Text="Kindle" FontSize="18" FontWeight="SemiBold" />
-                            <StackPanel Spacing="6">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="发现 Kindle 后自动连接"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           ToolTipService.ToolTip="检测到 Kindle 后直接连接并读取设备内容，不再显示连接确认。" />
                                 <ToggleSwitch x:Name="AutoConnectDeviceCheck"
-                                              Header="发现 Kindle 后自动连接"
+                                              Grid.Column="1"
                                               OnContent="开"
                                               OffContent="关"
                                               IsOn="True"
-                                              HorizontalAlignment="Left"
-                                              ToolTipService.ToolTip="检测到 Kindle 后直接连接并读取设备内容，不再显示连接确认。"
-                                              AutomationProperties.HelpText="检测到 Kindle 后直接连接并读取设备内容，不再显示连接确认。" />
-                                <TextBlock Text="检测到 Kindle 后直接连接并读取设备内容，不再显示连接确认。"
-                                           FontSize="10"
-                                           Foreground="{StaticResource MutedInkBrush}"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
+                                              VerticalAlignment="Center" />
+                            </Grid>
                             <Rectangle Height="1" Fill="#E2E2DE" />
                             <StackPanel Spacing="8">
                                 <TextBlock Text="邮件与账号" FontSize="13" FontWeight="SemiBold" />
@@ -1783,6 +1809,10 @@
                                         Style="{StaticResource QuietButtonStyle}"
                                         HorizontalAlignment="Left"
                                         Click="ZLibraryAccountButton_Click" />
+                                <Button Content="AI 助手设置"
+                                        Style="{StaticResource QuietButtonStyle}"
+                                        HorizontalAlignment="Left"
+                                        Click="ReaderAiSettingsButton_Click" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -1824,19 +1854,22 @@
                                     <ComboBoxItem Content="等线 DengXian" Tag="DengXian" />
                                     <ComboBoxItem Content="思源宋体 / Noto Serif CJK" Tag="Source Han Serif SC, Noto Serif CJK SC" />
                                 </ComboBox>
-                                <StackPanel Spacing="6">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="新书默认使用竖排"
+                                               FontSize="13"
+                                               VerticalAlignment="Center"
+                                               TextWrapping="Wrap"
+                                               ToolTipService.ToolTip="开启后，新打开的书籍默认使用从右向左的竖排版式。" />
                                     <ToggleSwitch x:Name="DefaultVerticalWritingCheck"
-                                                  Header="新书默认使用竖排"
+                                                  Grid.Column="1"
                                                   OnContent="开"
                                                   OffContent="关"
-                                                  HorizontalAlignment="Left"
-                                                  ToolTipService.ToolTip="开启后，新打开的书籍默认使用从右向左的竖排版式。"
-                                                  AutomationProperties.HelpText="开启后，新打开的书籍默认使用从右向左的竖排版式。" />
-                                    <TextBlock Text="开启后，新打开的书籍默认使用从右向左的竖排版式。"
-                                               FontSize="10"
-                                               Foreground="{StaticResource MutedInkBrush}"
-                                               TextWrapping="Wrap" />
-                                </StackPanel>
+                                                  VerticalAlignment="Center" />
+                                </Grid>
                             </StackPanel>
                         </Border>
 
@@ -1988,171 +2021,330 @@
                         </Border>
                     </StackPanel>
                 </StackPanel>
-            </ScrollViewer>
+                </ScrollViewer>
+
+                <Grid Grid.Row="1"
+                      Grid.Column="1"
+                      Margin="0,14,0,0"
+                      ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ApplicationSettingsStatusText"
+                               FontSize="11"
+                               Foreground="{StaticResource MutedInkBrush}"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap" />
+                    <Button Grid.Column="1"
+                            Content="保存应用设置"
+                            Click="SaveApplicationSettingsButton_Click"
+                            ToolTipService.ToolTip="保存所有设置页中的选项和默认阅读排版设置。"
+                            AutomationProperties.HelpText="保存所有设置页中的选项和默认阅读排版设置。" />
+                </Grid>
             </Grid>
         </Grid>
 
-        <!-- Kindle email settings. The password is encrypted by the local settings store. -->
-        <Grid x:Name="KindleEmailSettingsOverlay"
-              Grid.ColumnSpan="3"
-              Margin="0,38,0,0"
-              Canvas.ZIndex="100"
-              Background="#66000000"
-              Visibility="Collapsed">
-            <Border Width="560"
-                    MaxHeight="720"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Background="#FFFFFF"
-                    BorderBrush="#000000"
-                    BorderThickness="2"
-                    CornerRadius="0">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <ScrollViewer Grid.Row="0" MaxHeight="600" VerticalScrollBarVisibility="Auto">
-                        <StackPanel Padding="22,20,22,16" Spacing="12">
-                            <TextBlock Text="Kindle 邮箱设置" FontSize="20" FontWeight="SemiBold" />
-                            <TextBlock Text="通过 SMTP 将 EPUB 或 PDF 发送到你的 Kindle 个人文档邮箱。请把 Kindle 收件地址加入发件邮箱的信任列表；密码建议使用应用专用密码。"
-                                       FontSize="11"
-                                       Foreground="#666666"
-                                       TextWrapping="Wrap" />
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="Kindle 收件邮箱" FontSize="11" />
-                                <TextBox x:Name="KindleEmailRecipientBox"
-                                         PlaceholderText="例如 name@kindle.com" />
-                            </StackPanel>
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="发件邮箱" FontSize="11" />
-                                <TextBox x:Name="KindleEmailSenderBox"
-                                         PlaceholderText="例如 you@example.com" />
-                            </StackPanel>
-                            <Grid ColumnSpacing="8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="110" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="5">
-                                    <TextBlock Text="SMTP 服务器" FontSize="11" />
-                                    <TextBox x:Name="KindleEmailSmtpHostBox"
-                                             PlaceholderText="smtp.example.com" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Spacing="5">
-                                    <TextBlock Text="端口" FontSize="11" />
-                                    <TextBox x:Name="KindleEmailSmtpPortBox"
-                                             Text="587"
-                                             PlaceholderText="587" />
-                                </StackPanel>
-                            </Grid>
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="SMTP 用户名" FontSize="11" />
-                                <TextBox x:Name="KindleEmailUsernameBox" />
-                            </StackPanel>
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="SMTP 密码 / 应用专用密码" FontSize="11" />
-                                <PasswordBox x:Name="KindleEmailPasswordBox"
-                                             PlaceholderText="输入密码或应用专用密码" />
-                            </StackPanel>
-                            <CheckBox x:Name="KindleEmailSslCheck"
-                                      Content="使用 SSL/TLS"
-                                      IsChecked="True" />
-                        </StackPanel>
-                    </ScrollViewer>
-                    <Grid Grid.Row="1" Padding="22,12,22,20" ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="KindleEmailSettingsStatusText"
-                                   FontSize="10"
-                                   Foreground="#777777"
-                                   VerticalAlignment="Center"
-                                   TextWrapping="Wrap" />
-                        <Button Grid.Column="1"
-                                Content="取消"
-                                Style="{StaticResource QuietButtonStyle}"
-                                Click="KindleEmailSettingsCancelButton_Click" />
-                        <Button Grid.Column="2"
-                                Content="保存"
-                                Click="KindleEmailSettingsSaveButton_Click" />
-                    </Grid>
+        <!-- Kindle email settings as a right-side panel (inline, not a pop-up). The password is encrypted by the local settings store. -->
+        <Border x:Name="KindleEmailSettingsPane"
+                Grid.Row="0"
+                Grid.Column="2"
+                HorizontalAlignment="Stretch"
+                Background="#FFFFFF"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1,0,0,0"
+                Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid Margin="0,38,0,0"
+                      Padding="20,12,10,12"
+                      BorderBrush="#EEEEEA"
+                      BorderThickness="0,0,0,1">
+                    <TextBlock Text="Kindle 邮箱设置"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <Button HorizontalAlignment="Right"
+                            Width="32"
+                            Height="32"
+                            Padding="0"
+                            Style="{StaticResource QuietButtonStyle}"
+                            AutomationProperties.Name="关闭 Kindle 邮箱设置"
+                            Click="KindleEmailSettingsCancelButton_Click">
+                        <FontIcon Glyph="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11" />
+                    </Button>
                 </Grid>
-            </Border>
-        </Grid>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Padding="20,16,20,14"
+                                Spacing="12"
+                                MaxWidth="640"
+                                HorizontalAlignment="Left">
+                        <TextBlock Text="通过 SMTP 将 EPUB 或 PDF 发送到你的 Kindle 个人文档邮箱。请把 Kindle 收件地址加入发件邮箱的信任列表；密码建议使用应用专用密码。"
+                                   FontSize="11"
+                                   Foreground="#666666"
+                                   TextWrapping="Wrap" />
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Kindle 收件邮箱" FontSize="11" />
+                            <TextBox x:Name="KindleEmailRecipientBox"
+                                     PlaceholderText="例如 name@kindle.com" />
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="发件邮箱" FontSize="11" />
+                            <TextBox x:Name="KindleEmailSenderBox"
+                                     PlaceholderText="例如 you@example.com" />
+                        </StackPanel>
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="110" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="SMTP 服务器" FontSize="11" />
+                                <TextBox x:Name="KindleEmailSmtpHostBox"
+                                         PlaceholderText="smtp.example.com" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="5">
+                                <TextBlock Text="端口" FontSize="11" />
+                                <TextBox x:Name="KindleEmailSmtpPortBox"
+                                         Text="587"
+                                         PlaceholderText="587" />
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="SMTP 用户名" FontSize="11" />
+                            <TextBox x:Name="KindleEmailUsernameBox" />
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="SMTP 密码 / 应用专用密码" FontSize="11" />
+                            <PasswordBox x:Name="KindleEmailPasswordBox"
+                                         PlaceholderText="输入密码或应用专用密码" />
+                        </StackPanel>
+                        <CheckBox x:Name="KindleEmailSslCheck"
+                                  Content="使用 SSL/TLS"
+                                  IsChecked="True" />
+                    </StackPanel>
+                </ScrollViewer>
+                <Grid Grid.Row="2"
+                      Padding="20,12,20,20"
+                      BorderBrush="#EEEEEA"
+                      BorderThickness="0,1,0,0"
+                      ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="KindleEmailSettingsStatusText"
+                               FontSize="10"
+                               Foreground="#777777"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap" />
+                    <Button Grid.Column="1"
+                            Content="取消"
+                            Style="{StaticResource QuietButtonStyle}"
+                            Click="KindleEmailSettingsCancelButton_Click" />
+                    <Button Grid.Column="2"
+                            Content="保存"
+                            Click="KindleEmailSettingsSaveButton_Click" />
+                </Grid>
+            </Grid>
+        </Border>
 
-        <!-- Z-Library account settings. The password is encrypted by the local settings store. -->
-        <Grid x:Name="ZLibraryAccountOverlay"
-              Grid.ColumnSpan="3"
-              Margin="0,38,0,0"
-              Canvas.ZIndex="100"
-              Background="#66000000"
-              Visibility="Collapsed">
-            <Border Width="560"
-                    MaxHeight="680"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Background="#FFFFFF"
-                    BorderBrush="#000000"
-                    BorderThickness="2"
-                    CornerRadius="0">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <ScrollViewer Grid.Row="0" MaxHeight="560" VerticalScrollBarVisibility="Auto">
-                        <StackPanel Padding="22,20,22,16" Spacing="12">
-                            <TextBlock Text="Z-Library 账号设置" FontSize="20" FontWeight="SemiBold" />
-                            <TextBlock Text="使用 Z-Library 账号登录后即可搜索和下载书籍。下载受账号每日额度限制；密码仅加密保存在本机，不会写入备份包。"
-                                       FontSize="11"
-                                       Foreground="#666666"
-                                       TextWrapping="Wrap" />
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="Z-Library 账号邮箱" FontSize="11" />
-                                <TextBox x:Name="ZLibraryEmailBox"
-                                         PlaceholderText="例如 name@example.com" />
-                            </StackPanel>
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="密码" FontSize="11" />
-                                <PasswordBox x:Name="ZLibraryPasswordBox"
-                                             PlaceholderText="输入 Z-Library 账号密码" />
-                            </StackPanel>
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="API 服务地址" FontSize="11" />
-                                <TextBox x:Name="ZLibraryBaseUrlBox"
-                                         PlaceholderText="https://api.z-lib.org" />
-                                <TextBlock Text="默认使用官方 API；域名变更或访问受限时可在此修改为可用的镜像地址。"
-                                           FontSize="10"
-                                           Foreground="#777777"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
+        <!-- Z-Library account settings as a right-side panel (inline, not a pop-up). The password is encrypted by the local settings store. -->
+        <Border x:Name="ZLibraryAccountPane"
+                Grid.Row="0"
+                Grid.Column="2"
+                HorizontalAlignment="Stretch"
+                Background="#FFFFFF"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1,0,0,0"
+                Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid Margin="0,38,0,0"
+                      Padding="20,12,10,12"
+                      BorderBrush="#EEEEEA"
+                      BorderThickness="0,0,0,1">
+                    <TextBlock Text="Z-Library 账号设置"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <Button HorizontalAlignment="Right"
+                            Width="32"
+                            Height="32"
+                            Padding="0"
+                            Style="{StaticResource QuietButtonStyle}"
+                            AutomationProperties.Name="关闭 Z-Library 账号设置"
+                            Click="ZLibraryAccountCancelButton_Click">
+                        <FontIcon Glyph="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11" />
+                    </Button>
+                </Grid>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Padding="20,16,20,14"
+                                Spacing="12"
+                                MaxWidth="640"
+                                HorizontalAlignment="Left">
+                        <TextBlock Text="使用 Z-Library 账号登录后即可搜索和下载书籍。下载受账号每日额度限制；密码仅加密保存在本机，不会写入备份包。"
+                                   FontSize="11"
+                                   Foreground="#666666"
+                                   TextWrapping="Wrap" />
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Z-Library 账号邮箱" FontSize="11" />
+                            <TextBox x:Name="ZLibraryEmailBox"
+                                     PlaceholderText="例如 name@example.com" />
                         </StackPanel>
-                    </ScrollViewer>
-                    <Grid Grid.Row="1" Padding="22,12,22,20" ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="ZLibraryAccountStatusText"
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="密码" FontSize="11" />
+                            <PasswordBox x:Name="ZLibraryPasswordBox"
+                                         PlaceholderText="输入 Z-Library 账号密码" />
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="API 服务地址" FontSize="11" />
+                            <TextBox x:Name="ZLibraryBaseUrlBox"
+                                     PlaceholderText="https://api.z-lib.org" />
+                            <TextBlock Text="默认使用官方 API；域名变更或访问受限时可在此修改为可用的镜像地址。"
+                                       FontSize="10"
+                                       Foreground="#777777"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+                <Grid Grid.Row="2"
+                      Padding="20,12,20,20"
+                      BorderBrush="#EEEEEA"
+                      BorderThickness="0,1,0,0"
+                      ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ZLibraryAccountStatusText"
+                               FontSize="10"
+                               Foreground="#777777"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap" />
+                    <Button Grid.Column="1"
+                            Content="取消"
+                            Style="{StaticResource QuietButtonStyle}"
+                            Click="ZLibraryAccountCancelButton_Click" />
+                    <Button Grid.Column="2"
+                            Content="保存并验证"
+                            Click="ZLibraryAccountSaveButton_Click" />
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- AI assistant settings as a right-side panel (inline, not a pop-up). The API key is encrypted by the local settings store. -->
+        <Border x:Name="ReaderAiSettingsPane"
+                Grid.Row="0"
+                Grid.Column="2"
+                HorizontalAlignment="Stretch"
+                Background="#FFFFFF"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1,0,0,0"
+                Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid Margin="0,38,0,0"
+                      Padding="20,12,10,12"
+                      BorderBrush="#EEEEEA"
+                      BorderThickness="0,0,0,1">
+                    <TextBlock Text="AI 助手设置"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <Button HorizontalAlignment="Right"
+                            Width="32"
+                            Height="32"
+                            Padding="0"
+                            Style="{StaticResource QuietButtonStyle}"
+                            AutomationProperties.Name="关闭 AI 助手设置"
+                            Click="ReaderAiSettingsCancelButton_Click">
+                        <FontIcon Glyph="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11" />
+                    </Button>
+                </Grid>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Padding="20,16,20,14"
+                                Spacing="12"
+                                MaxWidth="640"
+                                HorizontalAlignment="Left">
+                        <TextBlock Text="API Key 使用 Windows 当前用户加密后保存在本机。DeepSeek 使用 Chat Completions；OpenAI 使用 Responses API。"
+                                   FontSize="11"
+                                   Foreground="#666666"
+                                   TextWrapping="Wrap" />
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="服务" FontSize="11" />
+                            <ComboBox x:Name="ReaderAiProviderBox"
+                                      HorizontalAlignment="Stretch"
+                                      CornerRadius="0"
+                                      BorderBrush="#000000"
+                                      BorderThickness="1"
+                                      SelectionChanged="ReaderAiProviderBox_SelectionChanged">
+                                <ComboBoxItem Content="DeepSeek" Tag="deepseek" />
+                                <ComboBoxItem Content="OpenAI" Tag="openai" />
+                                <ComboBoxItem Content="自定义 OpenAI-compatible" Tag="custom" />
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Base URL" FontSize="11" />
+                            <TextBox x:Name="ReaderAiBaseUrlBox" PlaceholderText="https://api.deepseek.com" />
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="模型" FontSize="11" />
+                            <TextBox x:Name="ReaderAiModelBox" PlaceholderText="deepseek-v4-flash" />
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="API Key" FontSize="11" />
+                            <PasswordBox x:Name="ReaderAiApiKeyBox"
+                                         CornerRadius="0"
+                                         BorderBrush="#000000"
+                                         BorderThickness="1"
+                                         PlaceholderText="输入 API Key" />
+                        </StackPanel>
+                        <TextBlock Text="自定义服务可填写本地模型或其他兼容接口；Base URL 应填写到 /v1 或服务根地址。"
                                    FontSize="10"
                                    Foreground="#777777"
-                                   VerticalAlignment="Center"
                                    TextWrapping="Wrap" />
-                        <Button Grid.Column="1"
-                                Content="取消"
-                                Style="{StaticResource QuietButtonStyle}"
-                                Click="ZLibraryAccountCancelButton_Click" />
-                        <Button Grid.Column="2"
-                                Content="保存并验证"
-                                Click="ZLibraryAccountSaveButton_Click" />
-                    </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+                <Grid Grid.Row="2"
+                      Padding="20,12,20,20"
+                      BorderBrush="#EEEEEA"
+                      BorderThickness="0,1,0,0"
+                      ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ReaderAiSettingsStatusText"
+                               FontSize="10"
+                               Foreground="#777777"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap" />
+                    <Button Grid.Column="1"
+                            Content="取消"
+                            Style="{StaticResource QuietButtonStyle}"
+                            Click="ReaderAiSettingsCancelButton_Click" />
+                    <Button Grid.Column="2"
+                            Content="保存"
+                            Click="ReaderAiSettingsSaveButton_Click" />
                 </Grid>
-            </Border>
-        </Grid>
+            </Grid>
+        </Border>
 
         <!-- Kindle device -->
         <Grid x:Name="DevicePage" Grid.Row="0" Grid.Column="1" Visibility="Collapsed" Padding="30,24,30,18">
@@ -2172,7 +2364,24 @@
                         </Border>
                         <TextBlock x:Name="DevicePageTitleText" Text="Kindle书库" FontSize="28" FontWeight="Bold" />
                     </StackPanel>
-                    <TextBlock x:Name="DeviceNameText" Text="未检测到设备" Foreground="{StaticResource MutedInkBrush}" />
+                    <Button x:Name="DeviceNameButton"
+                            Style="{StaticResource DeviceNameFieldButtonStyle}"
+                            IsEnabled="False"
+                            Click="DeviceNameButton_Click"
+                            AutomationProperties.Name="设备型号"
+                            ToolTipService.ToolTip="点击选择设备型号">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock x:Name="DeviceNameText"
+                                       Text="未检测到设备"
+                                       Foreground="{StaticResource MutedInkBrush}"
+                                       VerticalAlignment="Center" />
+                            <FontIcon x:Name="DeviceNameChevronIcon"
+                                      Glyph="&#xE70D;"
+                                      FontSize="10"
+                                      Foreground="{StaticResource MutedInkBrush}"
+                                      VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
                 <StackPanel Grid.Column="1"
                             Orientation="Horizontal"
@@ -2268,7 +2477,10 @@
                                             IsHitTestVisible="False" />
                                 </Grid>
                             </Border>
-                            <StackPanel Grid.Row="1" Margin="2,9,2,0" Spacing="2">
+                            <StackPanel Grid.Row="1"
+                                        Margin="2,9,2,0"
+                                        Spacing="2"
+                                        Visibility="{x:Bind GalleryTextVisibility, Mode=OneWay}">
                                 <TextBlock Text="{x:Bind Title}"
                                            FontSize="15"
                                            FontWeight="SemiBold"
@@ -2293,7 +2505,7 @@
                                     BorderBrush="#000000"
                                     BorderThickness="1"
                                     Canvas.ZIndex="4"
-                                    Visibility="{x:Bind PresenceVisibility, Mode=OneWay}"
+                                    Visibility="{x:Bind GalleryPresenceVisibility, Mode=OneWay}"
                                     ToolTipService.ToolTip="{x:Bind PresenceLabel, Mode=OneWay}"
                                     AutomationProperties.Name="{x:Bind PresenceLabel, Mode=OneWay}">
                                 <ContentControl Content="{Binding}"
@@ -2759,9 +2971,10 @@
                                       DisplayMemberPath="Display" />
                         </StackPanel>
                     </Border>
-                </StackPanel>
-            </ScrollViewer>
-        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+
+            </Grid>
 
         <!-- Book details -->
         <Border x:Name="DetailPane"
@@ -3001,6 +3214,17 @@
                 <ColumnDefinition x:Name="ReaderAssistantColumn" Width="360" />
             </Grid.ColumnDefinitions>
 
+            <!-- Opaque transition cover used when leaving zen mode: the reader
+                 pane sits above the library, so fading the pane itself would
+                 reveal the bookshelf behind it. This cover hides the layout
+                 restore/window resize instead and is faded away afterwards. -->
+            <Grid x:Name="ReaderTransitionCover"
+                  Grid.ColumnSpan="3"
+                  Background="#FFFFFF"
+                  Opacity="0"
+                  IsHitTestVisible="False"
+                  Canvas.ZIndex="200" />
+
             <!-- Table of contents and reading progress. -->
             <Border x:Name="ReaderTocPanel"
                     Grid.Column="0"
@@ -3022,11 +3246,11 @@
                                Grid.RowSpan="5"
                                Width="1"
                                HorizontalAlignment="Right"
-                               Fill="#E2E2DE"
+                               Fill="#EEEEEA"
                                IsHitTestVisible="False"
                                Canvas.ZIndex="100" />
 
-                    <Grid Padding="14,8" BorderBrush="#E2E2DE" BorderThickness="0,0,0,1">
+                    <Grid Padding="14,8" BorderBrush="#EEEEEA" BorderThickness="0,0,0,1">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
@@ -3092,8 +3316,21 @@
                                   SelectionMode="Single"
                                   ItemContainerStyle="{StaticResource ReaderTocItemStyle}"
                                   SelectionChanged="ReaderTocList_SelectionChanged"
+                                  Loaded="ReaderTocList_Loaded"
                                   ScrollViewer.HorizontalScrollMode="Disabled"
                                   ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListView.Resources>
+                                <!-- Softer, quieter scrollbar for the TOC so the
+                                     side panel stays out of the reading flow. -->
+                                <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#C9C9C5" />
+                                <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#B4B4B0" />
+                                <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#A4A4A0" />
+                                <SolidColorBrush x:Key="ScrollBarThumbBorderBrush" Color="#C9C9C5" />
+                                <SolidColorBrush x:Key="ScrollBarThumbBackground" Color="#C9C9C5" />
+                                <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#C9C9C5" />
+                                <SolidColorBrush x:Key="ScrollBarTrackFill" Color="#FFFFFF" />
+                                <SolidColorBrush x:Key="ScrollBarTrackStroke" Color="#FFFFFF" />
+                            </ListView.Resources>
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="infra:EpubReaderNavigationItem">
                                     <TextBlock Text="{x:Bind Title}"
@@ -3299,7 +3536,7 @@
                     Grid.Column="0"
                     Margin="0,38,0,0"
                     Background="#FFFFFF"
-                    BorderBrush="#000000"
+                    BorderBrush="#D8D8D4"
                     BorderThickness="0,0,1,0"
                     Visibility="Collapsed">
                 <Grid>
@@ -3546,20 +3783,25 @@
                                                         ToolTipService.ToolTip="字号、行距、正文宽度、字体与竖排"
                                                         Click="ReaderLayoutSettingsMenuItem_Click" />
                                         <MenuFlyoutSeparator />
-                                        <MenuFlyoutItem Text="翻页动画" IsEnabled="False" />
-                                        <RadioMenuFlyoutItem x:Name="ReaderAnimationNoneItem"
-                                                             Text="无动画"
-                                                             GroupName="ReaderPageAnimation"
-                                                             Click="ReaderAnimationItem_Click" />
-                                        <RadioMenuFlyoutItem x:Name="ReaderAnimationFadeItem"
-                                                             Text="淡入淡出"
-                                                             GroupName="ReaderPageAnimation"
-                                                             IsChecked="True"
-                                                             Click="ReaderAnimationItem_Click" />
-                                        <RadioMenuFlyoutItem x:Name="ReaderAnimationSlideItem"
-                                                             Text="左右滑动"
-                                                             GroupName="ReaderPageAnimation"
-                                                             Click="ReaderAnimationItem_Click" />
+                                        <MenuFlyoutSubItem Text="翻页动画">
+                                            <RadioMenuFlyoutItem x:Name="ReaderAnimationNoneItem"
+                                                                 Text="无动画"
+                                                                 GroupName="ReaderPageAnimation"
+                                                                 Click="ReaderAnimationItem_Click" />
+                                            <RadioMenuFlyoutItem x:Name="ReaderAnimationFadeItem"
+                                                                 Text="淡入淡出"
+                                                                 GroupName="ReaderPageAnimation"
+                                                                 IsChecked="True"
+                                                                 Click="ReaderAnimationItem_Click" />
+                                            <RadioMenuFlyoutItem x:Name="ReaderAnimationSlideItem"
+                                                                 Text="左右滑动"
+                                                                 GroupName="ReaderPageAnimation"
+                                                                 Click="ReaderAnimationItem_Click" />
+                                            <RadioMenuFlyoutItem x:Name="ReaderAnimationWaveItem"
+                                                                 Text="水波流动"
+                                                                 GroupName="ReaderPageAnimation"
+                                                                 Click="ReaderAnimationItem_Click" />
+                                        </MenuFlyoutSubItem>
                                     </MenuFlyout>
                                 </Button.Flyout>
                             </Button>
@@ -3607,10 +3849,37 @@
                         <Grid.RenderTransform>
                             <CompositeTransform x:Name="ReaderWebViewTransform" />
                         </Grid.RenderTransform>
+                        <!-- Hidden preload surface: the next EPUB chapter is
+                             loaded and styled here while the current chapter is
+                             being read, so a forward chapter switch can swap to
+                             an already-prepared document instead of waiting for
+                             a fresh WebView navigation. Kept sized and laid out
+                             (opacity 0, not collapsed) so its pagination math
+                             sees the real viewport. -->
+                        <WebView2 x:Name="ReaderPreloadWebView"
+                                  Opacity="0"
+                                  IsHitTestVisible="False"
+                                  Canvas.ZIndex="1"
+                                  NavigationStarting="ReaderPreloadWebView_NavigationStarting"
+                                  NavigationCompleted="ReaderPreloadWebView_NavigationCompleted" />
                         <WebView2 x:Name="ReaderWebView"
+                                  Canvas.ZIndex="2"
                                   NavigationStarting="ReaderWebView_NavigationStarting"
                                   NavigationCompleted="ReaderWebView_NavigationCompleted" />
+
                     </Grid>
+
+                    <!-- WebView2's composition island can render a hairline
+                         along its bottom edge (fractional DPI scaling). It
+                         paints over child XAML, so this cover must be a LATER
+                         SIBLING of the WebView host to render above it. -->
+                    <Rectangle x:Name="ReaderWebViewBottomCover"
+                               Height="2"
+                               Margin="0,0,0,10"
+                               VerticalAlignment="Bottom"
+                               Fill="#FFFFFF"
+                               IsHitTestVisible="False"
+                               Canvas.ZIndex="30" />
 
                     <!-- Current-page bookmark marker. Its straight edges sit
                          flush against the reading rectangle's top/right edge. -->
@@ -3771,12 +4040,12 @@
                                 VerticalAlignment="Center"
                                 ValueChanged="ReaderProgressSlider_ValueChanged">
                             <Slider.Resources>
-                                <SolidColorBrush x:Key="SliderTrackValueFill" Color="#30302E" />
-                                <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#111111" />
-                                <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#111111" />
-                                <SolidColorBrush x:Key="SliderThumbBackground" Color="#30302E" />
-                                <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#111111" />
-                                <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#000000" />
+                                <SolidColorBrush x:Key="SliderTrackValueFill" Color="#C7C7C3" />
+                                <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#B7B7B3" />
+                                <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#A7A7A3" />
+                                <SolidColorBrush x:Key="SliderThumbBackground" Color="#B4B4B0" />
+                                <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#A4A4A0" />
+                                <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#949490" />
                             </Slider.Resources>
                         </Slider>
                         <TextBlock x:Name="ReaderChapterText"
@@ -3821,11 +4090,11 @@
                                Grid.RowSpan="3"
                                Width="1"
                                HorizontalAlignment="Left"
-                               Fill="#E2E2DE"
+                               Fill="#EEEEEA"
                                IsHitTestVisible="False" />
 
                     <Border Background="#FFFFFF"
-                            BorderBrush="#E2E2DE"
+                            BorderBrush="#EEEEEA"
                             BorderThickness="0,0,0,1">
                         <Grid Padding="14,8">
                             <Grid.ColumnDefinitions>
@@ -3846,17 +4115,6 @@
                                         Orientation="Horizontal"
                                         Spacing="6"
                                         VerticalAlignment="Center">
-                                <Button x:Name="ReaderAiSettingsButton"
-                                        VerticalAlignment="Center"
-                                        Style="{StaticResource ReaderHeaderIconButtonStyle}"
-                                        AutomationProperties.Name="配置 AI API"
-                                        ToolTipService.ToolTip="配置 AI API"
-                                        Click="ReaderAiSettingsButton_Click">
-                                    <FontIcon Glyph="&#xE713;"
-                                              FontFamily="Segoe MDL2 Assets"
-                                              FontSize="13"
-                                              VerticalAlignment="Center" />
-                                </Button>
                                 <Button VerticalAlignment="Center"
                                         Style="{StaticResource ReaderHeaderIconButtonStyle}"
                                         AutomationProperties.Name="收起阅读助手"
@@ -4186,87 +4444,6 @@
                     </Grid>
                 </Grid>
             </Border>
-
-            <Grid x:Name="ReaderAiSettingsOverlay"
-                  Grid.ColumnSpan="3"
-                  Margin="0,38,0,0"
-                  Canvas.ZIndex="80"
-                  Background="#66000000"
-                  Visibility="Collapsed">
-                <Border Width="520"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Background="#FFFFFF"
-                        BorderBrush="#000000"
-                        BorderThickness="2"
-                        CornerRadius="0">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <StackPanel Padding="22,20" Spacing="12">
-                            <TextBlock Text="AI API 设置" FontSize="20" FontWeight="SemiBold" />
-                            <TextBlock Text="API Key 使用 Windows 当前用户加密后保存在本机。DeepSeek 使用 Chat Completions；OpenAI 使用 Responses API。"
-                                       FontSize="11"
-                                       Foreground="#666666"
-                                       TextWrapping="Wrap" />
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="服务" FontSize="11" />
-                                <ComboBox x:Name="ReaderAiProviderBox"
-                                          HorizontalAlignment="Stretch"
-                                          CornerRadius="0"
-                                          BorderBrush="#000000"
-                                          BorderThickness="1"
-                                          SelectionChanged="ReaderAiProviderBox_SelectionChanged">
-                                    <ComboBoxItem Content="DeepSeek" Tag="deepseek" />
-                                    <ComboBoxItem Content="OpenAI" Tag="openai" />
-                                    <ComboBoxItem Content="自定义 OpenAI-compatible" Tag="custom" />
-                                </ComboBox>
-                            </StackPanel>
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="Base URL" FontSize="11" />
-                                <TextBox x:Name="ReaderAiBaseUrlBox" PlaceholderText="https://api.deepseek.com" />
-                            </StackPanel>
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="模型" FontSize="11" />
-                                <TextBox x:Name="ReaderAiModelBox" PlaceholderText="deepseek-v4-flash" />
-                            </StackPanel>
-                            <StackPanel Spacing="5">
-                                <TextBlock Text="API Key" FontSize="11" />
-                                <PasswordBox x:Name="ReaderAiApiKeyBox"
-                                             CornerRadius="0"
-                                             BorderBrush="#000000"
-                                             BorderThickness="1"
-                                             PlaceholderText="输入 API Key" />
-                            </StackPanel>
-                            <TextBlock Text="自定义服务可填写本地模型或其他兼容接口；Base URL 应填写到 /v1 或服务根地址。"
-                                       FontSize="10"
-                                       Foreground="#777777"
-                                       TextWrapping="Wrap" />
-                        </StackPanel>
-                        <Grid Grid.Row="1" Padding="22,14,22,20" ColumnSpacing="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock x:Name="ReaderAiSettingsStatusText"
-                                       FontSize="10"
-                                       Foreground="#777777"
-                                       VerticalAlignment="Center"
-                                       TextWrapping="Wrap" />
-                            <Button Grid.Column="1"
-                                    Content="取消"
-                                    Style="{StaticResource QuietButtonStyle}"
-                                    Click="ReaderAiSettingsCancelButton_Click" />
-                            <Button Grid.Column="2"
-                                    Content="保存"
-                                    Click="ReaderAiSettingsSaveButton_Click" />
-                        </Grid>
-                    </Grid>
-                </Border>
-            </Grid>
 
             <!-- Reading layout settings (per book). Hosted in a Popup because the
                  WebView2 HWND island would otherwise cover the panel. -->
@@ -4833,6 +5010,77 @@
             </Border>
         </Grid>
 
+        <!-- Custom device model input; keeps the monochrome overlay style. -->
+        <Grid x:Name="DeviceModelInputOverlay"
+              Grid.ColumnSpan="3"
+              Canvas.ZIndex="100"
+              Background="#66000000"
+              Visibility="Collapsed"
+              IsTabStop="True"
+              KeyDown="DeviceModelInputOverlay_KeyDown">
+            <Border Width="560"
+                    MaxWidth="560"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="#FFFFFF"
+                    BorderBrush="#000000"
+                    BorderThickness="2"
+                    CornerRadius="0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Padding="28,24,28,22" Spacing="13">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Rectangle Width="10"
+                                       Height="24"
+                                       Margin="0,-2,0,0"
+                                       Fill="#000000"
+                                       VerticalAlignment="Center" />
+                            <TextBlock x:Name="DeviceModelInputTitleText"
+                                       Text="自定义设备型号"
+                                       FontSize="24"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock x:Name="DeviceModelInputMessageText"
+                                   Text="输入该设备的型号名称，下次连接时会按 USB 串码自动匹配。"
+                                   FontSize="15"
+                                   LineHeight="23"
+                                   TextWrapping="Wrap" />
+                        <TextBox x:Name="DeviceModelInputTextBox"
+                                 FontSize="15"
+                                 Padding="10,7"
+                                 MaxLength="80"
+                                 PlaceholderText="例如 Kindle Paperwhite 11 代"
+                                 BorderBrush="#000000"
+                                 BorderThickness="1" />
+                    </StackPanel>
+                    <Grid Grid.Row="1"
+                          Padding="28,18,28,22"
+                          Background="#FFFFFF">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="DeviceModelInputOkButton"
+                                Content="确定"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Click="DeviceModelInputOkButton_Click" />
+                        <Button Grid.Column="2"
+                                Content="取消"
+                                Style="{StaticResource QuietButtonStyle}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Click="DeviceModelInputCancelButton_Click" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
         <Border x:Name="TaskProgressPopup"
                 Grid.ColumnSpan="3"
                 Width="360"
@@ -4996,6 +5244,58 @@
                              Visibility="Collapsed" />
             </StackPanel>
         </Border>
+
+        <!-- Fully custom monochrome message dialog; replaces WinUI ContentDialog. -->
+        <Grid x:Name="MessageOverlay"
+              Grid.ColumnSpan="3"
+              Canvas.ZIndex="110"
+              Background="#66000000"
+              Visibility="Collapsed"
+              IsTabStop="True"
+              KeyDown="MessageOverlay_KeyDown">
+            <Border Width="560"
+                    MaxWidth="560"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Background="#FFFFFF"
+                    BorderBrush="#000000"
+                    BorderThickness="2"
+                    CornerRadius="0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Padding="28,24,28,22" Spacing="13">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Rectangle Width="10"
+                                       Height="24"
+                                       Margin="0,-2,0,0"
+                                       Fill="#000000"
+                                       VerticalAlignment="Center" />
+                            <TextBlock x:Name="MessageTitleText"
+                                       FontSize="24"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock x:Name="MessageBodyText"
+                                   FontSize="15"
+                                   LineHeight="23"
+                                   TextWrapping="Wrap"
+                                   IsTextSelectionEnabled="True" />
+                    </StackPanel>
+                    <Grid Grid.Row="1"
+                          Padding="28,18,28,22"
+                          Background="#FFFFFF">
+                        <Button x:Name="MessageOkButton"
+                                Content="知道了"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Click="MessageOkButton_Click" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
 
     </Grid>
 </Window>

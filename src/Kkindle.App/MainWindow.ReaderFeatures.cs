@@ -41,7 +41,6 @@ public sealed partial class MainWindow
     private bool _suppressAiReasoningDepthChange;
     private Guid? _readerAnnotationNavigationInFlight;
     private Popup? _readerAssistantPopup;
-    private Popup? _readerSettingsPopup;
     private Popup? _readerZenPopup;
 
     private void ConfigureReaderFeatureHosts()
@@ -53,16 +52,6 @@ public sealed partial class MainWindow
         _readerAssistantPopup = new Popup
         {
             Child = ReaderAssistantPanel,
-            IsLightDismissEnabled = false,
-            IsOpen = false
-        };
-
-        ReaderPane.Children.Remove(ReaderAiSettingsOverlay);
-        ReaderAiSettingsOverlay.Margin = new Thickness(0);
-        ReaderAiSettingsOverlay.Visibility = Visibility.Visible;
-        _readerSettingsPopup = new Popup
-        {
-            Child = ReaderAiSettingsOverlay,
             IsLightDismissEnabled = false,
             IsOpen = false
         };
@@ -116,22 +105,6 @@ public sealed partial class MainWindow
         ReaderAssistantPanel.Width = Math.Min(360, viewport.Width);
         ReaderAssistantPanel.Height = Math.Max(0, viewport.Height - 38);
         _readerAssistantPopup.IsOpen = visible;
-    }
-
-    private void SetReaderAiSettingsVisible(bool visible)
-    {
-        if (_readerSettingsPopup is null) return;
-        if (visible && RootGrid.XamlRoot is not null)
-        {
-            var viewport = RootGrid.XamlRoot.Size;
-            _readerSettingsPopup.XamlRoot = RootGrid.XamlRoot;
-            _readerSettingsPopup.HorizontalOffset = 0;
-            _readerSettingsPopup.VerticalOffset = 38;
-            ReaderAiSettingsOverlay.Width = viewport.Width;
-            ReaderAiSettingsOverlay.Height = Math.Max(0, viewport.Height - 38);
-        }
-        _readerSettingsPopup.IsOpen = visible;
-        _readerAiSettingsPopupOpen = visible;
     }
 
     private void BeginReaderSession(Book book, BookFile file)
@@ -269,7 +242,6 @@ public sealed partial class MainWindow
         ReaderAiModelSelectorBox.IsEnabled = true;
         ReaderAiReasoningDepthBox.IsEnabled = true;
         _readerAiReasoningDepth = "auto";
-        SetReaderAiSettingsVisible(false);
         ReaderAiStatusText.Text = "本地索引将在打开 EPUB 后自动准备";
         ResetReaderAiSources();
         ShowReaderAiTab();
@@ -329,7 +301,7 @@ public sealed partial class MainWindow
         var selection = await CaptureReaderSelectionAsync();
         if (selection is null)
         {
-            ReaderStatusText.Text = "请先在正文中选择一段文字";
+            ShowReaderTransientStatus("请先在正文中选择一段文字");
             return;
         }
 
@@ -388,7 +360,7 @@ public sealed partial class MainWindow
         var chapterPath = GetCurrentReaderChapterPath();
         if (chapterPath is null)
         {
-            ReaderStatusText.Text = "当前页面无法保存批注";
+            ShowReaderTransientStatus("当前页面无法保存批注");
             return;
         }
 
@@ -403,7 +375,7 @@ public sealed partial class MainWindow
             && selection.EndOffset > annotation.StartOffset);
         if (overlaps)
         {
-            ReaderStatusText.Text = "这段文字与已有划线重叠，请缩小选择范围";
+            ShowReaderTransientStatus("这段文字与已有划线重叠，请缩小选择范围");
             return;
         }
 
@@ -416,7 +388,7 @@ public sealed partial class MainWindow
             CreatedAt = now
         };
         annotation.ChapterPath = chapterPath;
-        annotation.Fragment = ReaderWebView.Source?.Fragment.TrimStart('#');
+        annotation.Fragment = ReaderActiveWebView.Source?.Fragment.TrimStart('#');
         annotation.StartOffset = selection.StartOffset;
         annotation.EndOffset = selection.EndOffset;
         annotation.SelectedText = selection.Text;
@@ -439,9 +411,9 @@ public sealed partial class MainWindow
             ReplaceReaderAnnotations(annotations);
             await ApplyReaderAnnotationsToPageAsync();
             await ClearReaderSelectionAsync();
-            ReaderStatusText.Text = string.IsNullOrWhiteSpace(annotation.Note)
+            ShowReaderTransientStatus(string.IsNullOrWhiteSpace(annotation.Note)
                 ? "划线已保存"
-                : "批注已保存";
+                : "批注已保存");
         }
         catch (OperationCanceledException) when (_readerFeatureCancellation.IsCancellationRequested)
         {
@@ -477,7 +449,7 @@ public sealed partial class MainWindow
 
     private async Task<ReaderSelectionAnchor?> CaptureReaderSelectionAsync()
     {
-        if (_readerAllowedRoot is null || ReaderWebView.CoreWebView2 is null) return null;
+        if (_readerAllowedRoot is null || ReaderActiveWebView.CoreWebView2 is null) return null;
         return await ExecuteReaderJsonScriptAsync<ReaderSelectionAnchor>(GetReaderSelectionScript());
     }
 
@@ -519,10 +491,10 @@ public sealed partial class MainWindow
 
     private async Task<T?> ExecuteReaderJsonScriptAsync<T>(string script)
     {
-        if (ReaderWebView.CoreWebView2 is null) return default;
+        if (ReaderActiveWebView.CoreWebView2 is null) return default;
         try
         {
-            var json = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script);
+            var json = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(script);
             return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         }
         catch
@@ -534,7 +506,7 @@ public sealed partial class MainWindow
     private string? GetCurrentReaderChapterPath()
     {
         if (IsPdfReader) return $"pdf:{_pdfCurrentPage}";
-        if (_readerAllowedRoot is null || ReaderWebView.Source is not { IsFile: true } source) return null;
+        if (_readerAllowedRoot is null || ReaderActiveWebView.Source is not { IsFile: true } source) return null;
         var fullPath = Path.GetFullPath(source.LocalPath);
         if (!IsPathInside(_readerAllowedRoot, fullPath)) return null;
         return Path.GetRelativePath(_readerAllowedRoot, fullPath).Replace('\\', '/');
@@ -543,7 +515,7 @@ public sealed partial class MainWindow
     private async Task<int> ApplyReaderAnnotationsToPageAsync()
     {
         var chapterPath = GetCurrentReaderChapterPath();
-        if (chapterPath is null || ReaderWebView.CoreWebView2 is null) return 0;
+        if (chapterPath is null || ReaderActiveWebView.CoreWebView2 is null) return 0;
         var scrollPosition = await ExecuteReaderJsonScriptAsync<ReaderPageScrollPosition>(
             "(() => { const el = document.scrollingElement || document.documentElement; return { left: el?.scrollLeft || 0, top: el?.scrollTop || 0 }; })()");
         var payload = _readerAnnotations
@@ -649,7 +621,7 @@ public sealed partial class MainWindow
             var diagnostic = string.Empty;
             for (var attempt = 0; attempt < 6; attempt++)
             {
-                appliedJson = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script);
+                appliedJson = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(script);
                 diagnostic = appliedJson.Trim().Trim('"');
                 var loopParts = diagnostic.Split('|');
                 var nodeCount = loopParts.ElementAtOrDefault(2);
@@ -661,10 +633,10 @@ public sealed partial class MainWindow
             var parts = diagnostic.Split('|');
             _ = int.TryParse(parts.ElementAtOrDefault(0), out var appliedCount);
             _ = int.TryParse(parts.ElementAtOrDefault(1), out var matchedCount);
-            if (scrollPosition is not null && ReaderWebView.CoreWebView2 is not null)
+            if (scrollPosition is not null && ReaderActiveWebView.CoreWebView2 is not null)
             {
                 var savedPosition = JsonSerializer.Serialize(scrollPosition);
-                await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(
                     $$"""
                     (() => {
                       const el = document.scrollingElement || document.documentElement;
@@ -677,8 +649,6 @@ public sealed partial class MainWindow
                     })();
                     """);
             }
-            if (payload.Length > 0)
-                ReaderStatusText.Text = $"本页已恢复 {Math.Max(0, matchedCount)} 条划线";
             return Math.Max(0, appliedCount);
         }
         catch { return 0; }
@@ -686,8 +656,8 @@ public sealed partial class MainWindow
 
     private async Task ClearReaderSelectionAsync()
     {
-        if (ReaderWebView.CoreWebView2 is null) return;
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync("window.getSelection && window.getSelection().removeAllRanges();"); }
+        if (ReaderActiveWebView.CoreWebView2 is null) return;
+        try { await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync("window.getSelection && window.getSelection().removeAllRanges();"); }
         catch { }
     }
 
@@ -766,7 +736,7 @@ public sealed partial class MainWindow
         var target = new Uri(targetPath).AbsoluteUri;
         if (!string.IsNullOrWhiteSpace(annotation.Fragment)) target += $"#{annotation.Fragment}";
         var targetUri = new Uri(target);
-        if (ReaderNavigationLocationPolicy.TargetsSameDocument(ReaderWebView.Source, targetUri))
+        if (ReaderNavigationLocationPolicy.TargetsSameDocument(ReaderActiveWebView.Source, targetUri))
         {
             await ApplyReaderAnnotationsToPageAsync();
             await ScrollToPendingReaderAnnotationAsync();
@@ -779,7 +749,7 @@ public sealed partial class MainWindow
 
     private async Task ScrollToPendingReaderAnnotationAsync()
     {
-        if (_pendingReaderAnnotationScroll is not Guid annotationId || ReaderWebView.CoreWebView2 is null) return;
+        if (_pendingReaderAnnotationScroll is not Guid annotationId || ReaderActiveWebView.CoreWebView2 is null) return;
         var annotation = _readerAnnotations.FirstOrDefault(item => item.Id == annotationId);
         if (annotation is null) return;
         var id = annotationId.ToString("N");
@@ -873,7 +843,7 @@ public sealed partial class MainWindow
                     await ApplyReaderAnnotationsToPageAsync();
                 }
 
-                var result = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script);
+                var result = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(script);
                 if (string.Equals(result.Trim(), "true", StringComparison.OrdinalIgnoreCase))
                 {
                     located = true;
@@ -937,13 +907,13 @@ public sealed partial class MainWindow
         if (ReaderPane.Visibility != Visibility.Visible) return;
         if (_readerCloseRequested || _readerTransitionActive) return;
         if (_readerFlowMode != 0 || !_readerHasToc || _readerChapters.Count <= 1) return;
-        if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
         if (_readerChapterIndex < 0 || _readerChapterIndex >= _readerChapters.Count) return;
 
         _readerPollRunning = true;
         try
         {
-            var json = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+            var json = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(
                 "(function(){var el=document.scrollingElement||document.documentElement;return {st:el.scrollTop||0,sl:el.scrollLeft||0,sh:el.scrollHeight||0,sw:el.scrollWidth||0,ch:el.clientHeight||window.innerHeight||0,cw:el.clientWidth||window.innerWidth||0};})()");
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
@@ -1034,11 +1004,25 @@ public sealed partial class MainWindow
 
     private async Task PrimeReaderScrollEdgesAsync()
     {
-        if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
         try
         {
-            var json = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+            var json = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(
                 "(function(){var el=document.scrollingElement||document.documentElement;return {st:el.scrollTop||0,sl:el.scrollLeft||0,sh:el.scrollHeight||0,sw:el.scrollWidth||0,ch:el.clientHeight||window.innerHeight||0,cw:el.clientWidth||window.innerWidth||0};})()");
+            ApplyReaderEdgeMetrics(json);
+        }
+        catch
+        {
+        }
+    }
+
+    // Reads the same scroll-edge metrics the poll uses and returns false when
+    // the payload is unusable, so callers can fall back to a fresh DOM read.
+    private bool ApplyReaderEdgeMetrics(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return false;
+        try
+        {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
             var scrollTop = root.TryGetProperty("st", out var st) ? st.GetDouble() : 0;
@@ -1055,9 +1039,11 @@ public sealed partial class MainWindow
             _readerLastNearBottom = scrollSize > 0
                 && clientSize > 0
                 && scrollPosition + clientSize >= scrollSize - 48;
+            return true;
         }
         catch
         {
+            return false;
         }
     }
 
@@ -1078,6 +1064,7 @@ public sealed partial class MainWindow
     private const uint WmLButtonDown = 0x0201;
     private const uint WmLButtonUp = 0x0202;
     private const uint WmMouseWheel = 0x020A;
+    private const uint WmMouseMove = 0x0200;
     private const uint WmKeyDown = 0x0100;
     private const uint WmSysKeyDown = 0x0104;
     private const int MouseWheelDelta = 120;
@@ -1189,10 +1176,31 @@ public sealed partial class MainWindow
             var data = Marshal.PtrToStructure<MsLlHookStruct>(lParam);
             switch ((uint)wParam.ToInt64())
             {
+                case WmMouseMove:
+                    // Zen mode auto-hides the top chrome; any mouse movement
+                    // brings it back (and keeps it open while moving).
+                    if (_readerZenMode
+                        && IsReaderWindowForeground()
+                        && !_readerCloseRequested)
+                    {
+                        var moveNow = Environment.TickCount64;
+                        if (moveNow - _readerZenLastMouseMoveTick > 80)
+                        {
+                            _readerZenLastMouseMoveTick = moveNow;
+                            DispatcherQueue.TryEnqueue(() =>
+                            {
+                                if (_readerZenMode && !_readerZenChromeVisible)
+                                    UpdateReaderZenChrome(true);
+                                else if (_readerZenMode)
+                                    RestartReaderZenChromeHideTimer();
+                            });
+                        }
+                    }
+                    break;
                 case WmLButtonDown:
                     if (IsReaderWindowForeground()
                         && !IsReaderPointerBlocked()
-                        && IsInsideCachedReaderWebViewScreenRect(data.pt))
+                        && IsInsideCachedReaderActiveWebViewScreenRect(data.pt))
                     {
                         _readerMouseDownInside = true;
                         _readerMouseDownPoint = data.pt;
@@ -1206,7 +1214,7 @@ public sealed partial class MainWindow
                     if (_readerMouseDownInside
                         && IsReaderWindowForeground()
                         && !IsReaderPointerBlocked()
-                        && IsInsideCachedReaderWebViewScreenRect(data.pt))
+                        && IsInsideCachedReaderActiveWebViewScreenRect(data.pt))
                     {
                         var moved = Math.Abs(data.pt.X - _readerMouseDownPoint.X)
                             + Math.Abs(data.pt.Y - _readerMouseDownPoint.Y);
@@ -1227,7 +1235,7 @@ public sealed partial class MainWindow
                     if (_readerFlowMode == 1
                         && IsReaderWindowForeground()
                         && !IsReaderPointerBlocked()
-                        && IsInsideCachedReaderWebViewScreenRect(data.pt))
+                        && IsInsideCachedReaderActiveWebViewScreenRect(data.pt))
                     {
                         var delta = unchecked((short)(data.mouseData >> 16));
                         if (delta != 0)
@@ -1264,7 +1272,29 @@ public sealed partial class MainWindow
             && (uint)wParam.ToInt64() is WmKeyDown or WmSysKeyDown)
         {
             var acceleratorData = Marshal.PtrToStructure<KbdLlHookStruct>(lParam);
-            if ((Windows.System.VirtualKey)acceleratorData.vkCode == Windows.System.VirtualKey.F
+            var key = (Windows.System.VirtualKey)acceleratorData.vkCode;
+            // F11 toggles zen mode (enter/exit), matching the common
+            // fullscreen/immersive convention used by browsers and readers.
+            if (key == Windows.System.VirtualKey.F11)
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (ReaderPane.Visibility == Visibility.Visible && !_readerCloseRequested)
+                        ToggleReaderZenMode();
+                });
+                return new IntPtr(1);
+            }
+            // ESC is an additional way to leave zen mode.
+            if (key == Windows.System.VirtualKey.Escape && _readerZenMode)
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (_readerZenMode && !_readerCloseRequested)
+                        ToggleReaderZenMode();
+                });
+                return new IntPtr(1);
+            }
+            if (key == Windows.System.VirtualKey.F
                 && (GetAsyncKeyState((int)Windows.System.VirtualKey.Control) & 0x8000) != 0)
             {
                 DispatcherQueue.TryEnqueue(() =>
@@ -1298,7 +1328,7 @@ public sealed partial class MainWindow
         return CallNextHookEx(_readerKeyboardHook, nCode, wParam, lParam);
     }
 
-    private bool IsInsideCachedReaderWebViewScreenRect(POINT point)
+    private bool IsInsideCachedReaderActiveWebViewScreenRect(POINT point)
     {
         var rect = _readerWebViewScreenRect;
         return rect.Width > 0
@@ -1311,10 +1341,9 @@ public sealed partial class MainWindow
         || _readerInPageSearchVisible
         || _readerMenuFlyoutOpen
         || _readerLayoutPopupOpen
-        || _readerAiSettingsPopupOpen
         || _readerFootnotePopupOpen;
 
-    private Windows.Foundation.Rect GetReaderWebViewScreenRect()
+    private Windows.Foundation.Rect GetReaderActiveWebViewScreenRect()
     {
         var hwnd = WindowNative.GetWindowHandle(this);
         var clientOrigin = new POINT { X = 0, Y = 0 };
@@ -1331,9 +1360,9 @@ public sealed partial class MainWindow
         return rect;
     }
 
-    private bool IsInsideReaderWebViewScreenRect(POINT point)
+    private bool IsInsideReaderActiveWebViewScreenRect(POINT point)
     {
-        var rect = GetReaderWebViewScreenRect();
+        var rect = GetReaderActiveWebViewScreenRect();
         return point.X >= rect.Left && point.X <= rect.Right
             && point.Y >= rect.Top && point.Y <= rect.Bottom;
     }
@@ -1342,9 +1371,9 @@ public sealed partial class MainWindow
     {
         if (!IsReaderWindowForeground()) return;
         if (_readerCloseRequested || _readerTransitionActive) return;
-        if (_readerFlowMode != 1 || ReaderWebView.CoreWebView2 is null) return;
+        if (_readerFlowMode != 1 || ReaderActiveWebView.CoreWebView2 is null) return;
         if (IsReaderPointerBlocked()) return;
-        var rect = GetReaderWebViewScreenRect();
+        var rect = GetReaderActiveWebViewScreenRect();
         if (rect.Width <= 0 || rect.Height <= 0) return;
         var relativeX = screenPoint.X - rect.Left;
         var relativeY = screenPoint.Y - rect.Top;
@@ -1354,7 +1383,7 @@ public sealed partial class MainWindow
         // form controls and clicks that produced a text selection.
         try
         {
-            var viewport = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+            var viewport = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(
                 "({w:document.documentElement.clientWidth||document.body.clientWidth||0,h:window.innerHeight||0})");
             using var document = JsonDocument.Parse(viewport);
             var root = document.RootElement;
@@ -1364,7 +1393,7 @@ public sealed partial class MainWindow
             {
                 var cssX = (int)(relativeX * cssWidth / rect.Width);
                 var cssY = (int)(relativeY * cssHeight / rect.Height);
-                var guard = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+                var guard = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(
                     $$"""
                     (function(){
                       const el = document.elementFromPoint({{cssX}}, {{cssY}});
@@ -1390,15 +1419,15 @@ public sealed partial class MainWindow
 
     private async Task SkipShortChapterIfNeededAsync()
     {
-        if (!_readerContinuousLocked || ReaderWebView.CoreWebView2 is null) return;
+        if (!_readerContinuousLocked || ReaderActiveWebView.CoreWebView2 is null) return;
         if (_readerCloseRequested) return;
         await Task.Delay(60);
-        if (!_readerContinuousLocked || ReaderWebView.CoreWebView2 is null) return;
+        if (!_readerContinuousLocked || ReaderActiveWebView.CoreWebView2 is null) return;
         if (_readerCloseRequested) return;
         string result;
         try
         {
-            result = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+            result = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(
                 "(document.scrollingElement && document.scrollingElement.scrollHeight > document.scrollingElement.clientHeight + 16) ? 'yes' : 'no';");
         }
         catch { return; }

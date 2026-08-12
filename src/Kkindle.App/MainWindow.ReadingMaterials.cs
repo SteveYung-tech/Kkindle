@@ -28,6 +28,7 @@ public sealed partial class MainWindow
         ReadingDashboardPage.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
+        HideSettingsPanel();
         ReadingMaterialsPage.Visibility = Visibility.Visible;
         ReadingMaterialsNotesActions.Visibility = exportMode ? Visibility.Collapsed : Visibility.Visible;
         ReadingMaterialsExportActions.Visibility = exportMode ? Visibility.Visible : Visibility.Collapsed;

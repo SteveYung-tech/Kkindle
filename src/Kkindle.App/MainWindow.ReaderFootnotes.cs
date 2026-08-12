@@ -43,7 +43,7 @@ public sealed partial class MainWindow
     private async Task ConfigureReaderFootnoteHoverAsync()
     {
         if (_readerAllowedRoot is not { } root
-            || ReaderWebView.CoreWebView2 is null
+            || ReaderActiveWebView.CoreWebView2 is null
             || _readerFeatureCancellation is not { } cancellation)
         {
             ClearReaderFootnotePage();
@@ -124,7 +124,7 @@ public sealed partial class MainWindow
         if (ReaderPane.Visibility != Visibility.Visible
             || _readerCloseRequested
             || _readerTransitionActive
-            || ReaderWebView.CoreWebView2 is null
+            || ReaderActiveWebView.CoreWebView2 is null
             || _readerAllowedRoot is null)
         {
             HideReaderFootnotePopup();
@@ -132,7 +132,6 @@ public sealed partial class MainWindow
         }
 
         if (_readerLayoutPopup?.IsOpen == true
-            || _readerSettingsPopup?.IsOpen == true
             || _readerSearchVisible)
         {
             HideReaderFootnotePopup();
@@ -148,7 +147,7 @@ public sealed partial class MainWindow
         Windows.Foundation.Rect hostRect;
         try
         {
-            hostRect = GetReaderWebViewScreenRect();
+            hostRect = GetReaderActiveWebViewScreenRect();
         }
         catch
         {

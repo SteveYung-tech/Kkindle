@@ -107,6 +107,7 @@ public sealed partial class MainWindow
         catch (Exception exception)
         {
             TaskStatusText.Text = "格式转换失败。 ";
+            AppendConversionLog($"《{book.Title}》{sourceFile.Format}→{target}：{exception.Message}");
             ApplyBookConversionProgress(new FormatConversionProgress(
                 _bookFormatConversionLastProgress.Percentage,
                 "格式转换失败。"));
@@ -200,6 +201,7 @@ public sealed partial class MainWindow
                     }
                     catch (Exception exception)
                     {
+                        AppendConversionLog($"《{book.Title}》自动生成 {targetFormat.ToUpperInvariant()}：{exception.Message}");
                         failures.Add($"《{book.Title}》生成 {targetFormat.ToUpperInvariant()}：{exception.Message}");
                     }
                     finally
@@ -317,5 +319,21 @@ public sealed partial class MainWindow
             || _bookFormatConversionBookId != card.Book.Id) return;
         _bookFormatConversionCard = card;
         RestoreBookConversionPopup();
+    }
+
+    private void AppendConversionLog(string message)
+    {
+        try
+        {
+            Directory.CreateDirectory(_paths.Logs);
+            File.AppendAllText(
+                Path.Combine(_paths.Logs, "conversion.log"),
+                $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}",
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        }
+        catch
+        {
+            // Logging must never break a conversion or import flow.
+        }
     }
 }

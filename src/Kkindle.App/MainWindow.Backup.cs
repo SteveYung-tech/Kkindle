@@ -23,7 +23,7 @@ public sealed partial class MainWindow
         ZLibraryPage.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
-        KindleEmailSettingsOverlay.Visibility = Visibility.Collapsed;
+        HideSettingsPanel();
         SettingsDataPathText.Text = _paths.Data;
         ShowSettingsSection("General");
     }
@@ -121,6 +121,7 @@ public sealed partial class MainWindow
             _selectedBook = null;
             DetailPane.Visibility = Visibility.Collapsed;
             DetailColumn.Width = new GridLength(0);
+            HideSettingsPanel();
             await RefreshLibraryAsync();
             SetBackupStatus($"已导入 {result.BookCount} 本书、{result.FileCount} 个文件：{sourcePath}");
         }

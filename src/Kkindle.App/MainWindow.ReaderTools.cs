@@ -37,11 +37,15 @@ public sealed partial class MainWindow
     private bool _readerBookmarkTabActive;
     private readonly ObservableCollection<ReaderBookmark> _readerBookmarks = [];
     private string? _readerSelectionText;
+    // The selection text the user already acted on (copy/search/annotate/AI/
+    // highlight/dictionary). The DOM selection survives those actions, so the
+    // 300 ms selection poll must not resurrect the toolbar for the SAME text.
+    private string? _readerSelectionDismissedText;
+    private int _readerTransientStatusSequence;
     private bool _readerPollingSelection;
     private volatile bool _readerSelectionPopupOpen;
     private volatile bool _readerMenuFlyoutOpen;
     private volatile bool _readerLayoutPopupOpen;
-    private volatile bool _readerAiSettingsPopupOpen;
     private volatile bool _readerFootnotePopupOpen;
     private int? _pendingReaderRestorePosition;
     private string? _pendingReaderBookmarkQuote;
@@ -210,6 +214,7 @@ public sealed partial class MainWindow
         _readerLayout = new ReaderLayoutSettings();
         _readerBookmarks.Clear();
         _readerSelectionText = null;
+        _readerSelectionDismissedText = null;
         _pendingReaderRestorePosition = null;
         _pendingReaderBookmarkQuote = null;
         _pendingReaderBookmarkPosition = null;
@@ -224,7 +229,6 @@ public sealed partial class MainWindow
         _readerSearchVisible = false;
         _readerMenuFlyoutOpen = false;
         _readerLayoutPopupOpen = false;
-        _readerAiSettingsPopupOpen = false;
         _readerFootnotePopupOpen = false;
         _readerSearchLayoutCaptured = false;
         _readerSearchQuery = string.Empty;
@@ -395,7 +399,7 @@ public sealed partial class MainWindow
                 try
                 {
                     UpdateReaderZoomLabel();
-                    await ApplyReaderAppearanceAsync();
+                    await ApplyReaderAppearanceToVisibleAndPreloadAsync();
                     await ClampReaderScrollAsync();
                     await SaveReaderLayoutSettingsAsync();
                 }
@@ -429,7 +433,7 @@ public sealed partial class MainWindow
         UpdateReaderFlowButton();
         UpdateReaderZoomLabel();
         await SaveReaderLayoutSettingsAsync();
-        await ApplyReaderAppearanceAsync();
+        await ApplyReaderAppearanceToVisibleAndPreloadAsync();
         await ClampReaderScrollAsync();
         ReaderLayoutSettingsStatusText.Text = "已恢复默认排版。";
     }
@@ -442,7 +446,7 @@ public sealed partial class MainWindow
     {
         book ??= _readerBook;
         bookFile ??= _readerBookFile;
-        if (book is null || bookFile is null || ReaderWebView.CoreWebView2 is null) return null;
+        if (book is null || bookFile is null || ReaderActiveWebView.CoreWebView2 is null) return null;
         if (IsPdfReader)
         {
             var pageCount = Math.Max(1, _pdfPages.Count);
@@ -457,7 +461,7 @@ public sealed partial class MainWindow
         double ratio = 0;
         try
         {
-            var json = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+            var json = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(
                 "(function(){var el=document.scrollingElement||document.documentElement;return {st:el.scrollTop||0,sl:el.scrollLeft||0,sh:el.scrollHeight||0,sw:el.scrollWidth||0,ch:el.clientHeight||0,cw:el.clientWidth||0};})()");
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
@@ -483,7 +487,7 @@ public sealed partial class MainWindow
             book.Id,
             bookFile.Id,
             chapterPath,
-            ReaderWebView.Source?.Fragment.TrimStart('#'),
+            ReaderActiveWebView.Source?.Fragment.TrimStart('#'),
             _readerChapterIndex,
             (int)Math.Round(position),
             percent,
@@ -528,7 +532,7 @@ public sealed partial class MainWindow
 
     private async Task ApplyReaderRestorePositionAsync()
     {
-        if (ReaderWebView.CoreWebView2 is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null) return;
         var position = _pendingReaderRestorePosition;
         _pendingReaderRestorePosition = null;
         if (position is not int restore) return;
@@ -536,7 +540,7 @@ public sealed partial class MainWindow
         var script = horizontal
             ? $"window.scrollTo({{ left: {restore}, top: 0 }});"
             : $"window.scrollTo({{ top: {restore} }});";
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
+        try { await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
         // A breakpoint saved from an older layout can land mid-column; snap it
         // onto the nearest full page so pagination never opens on a split view.
@@ -561,7 +565,7 @@ public sealed partial class MainWindow
             ReaderStatusText.Text = "当前页面无法保存书签";
             return;
         }
-        var fragment = ReaderWebView.Source?.Fragment.TrimStart('#');
+        var fragment = ReaderActiveWebView.Source?.Fragment.TrimStart('#');
         var quote = IsPdfReader
             ? $"PDF 第 {_pdfCurrentPage} 页"
             : await CaptureReaderSelectionTextAsync() ?? await CaptureCurrentSectionQuoteAsync();
@@ -581,7 +585,7 @@ public sealed partial class MainWindow
             {
                 await _readerData.DeleteBookmarkAsync(existing.Id, token);
                 _readerBookmarks.Remove(existing);
-                ReaderStatusText.Text = "已取消书签";
+                ShowReaderTransientStatus("已取消书签");
                 ShowReaderBookmarkFeedback("已取消书签");
             }
             else
@@ -601,7 +605,7 @@ public sealed partial class MainWindow
                 };
                 await _readerData.SaveBookmarkAsync(bookmark, token);
                 _readerBookmarks.Add(bookmark);
-                ReaderStatusText.Text = "已添加书签";
+                ShowReaderTransientStatus("已添加书签");
                 ShowReaderBookmarkFeedback("已添加书签");
             }
         }
@@ -689,7 +693,7 @@ public sealed partial class MainWindow
         var target = new Uri(targetPath).AbsoluteUri;
         if (!string.IsNullOrWhiteSpace(bookmark.Fragment)) target += $"#{bookmark.Fragment}";
         var targetUri = new Uri(target);
-        if (ReaderNavigationLocationPolicy.TargetsSameDocument(ReaderWebView.Source, targetUri))
+        if (ReaderNavigationLocationPolicy.TargetsSameDocument(ReaderActiveWebView.Source, targetUri))
         {
             await ScrollToPendingReaderBookmarkAsync();
             await UpdateReaderBookmarkIndicatorAsync();
@@ -708,7 +712,7 @@ public sealed partial class MainWindow
             _readerBookmarks.Remove(bookmark);
             RefreshReaderBookmarkList();
             await UpdateReaderBookmarkIndicatorAsync();
-            ReaderStatusText.Text = "书签已删除";
+            ShowReaderTransientStatus("书签已删除");
         }
         catch (Exception exception)
         {
@@ -718,7 +722,7 @@ public sealed partial class MainWindow
 
     private async Task ScrollToPendingReaderBookmarkAsync()
     {
-        if (ReaderWebView.CoreWebView2 is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null) return;
         var position = _pendingReaderBookmarkPosition;
         var savedFlowMode = _pendingReaderBookmarkFlowMode;
         _pendingReaderBookmarkPosition = null;
@@ -729,7 +733,7 @@ public sealed partial class MainWindow
             var positionScript = horizontal
                 ? $"window.scrollTo({{ left: {exactPosition}, top: 0, behavior: 'instant' }});"
                 : $"window.scrollTo({{ top: {exactPosition}, behavior: 'instant' }});";
-            try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(positionScript); }
+            try { await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(positionScript); }
             catch { }
             _pendingReaderBookmarkQuote = null;
             if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
@@ -765,7 +769,7 @@ public sealed partial class MainWindow
               }
             })();
             """;
-        try { await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script); }
+        try { await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(script); }
         catch { }
         if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
     }
@@ -795,10 +799,18 @@ public sealed partial class MainWindow
     private void SetReaderTocTab(bool bookmarkTab)
     {
         _readerBookmarkTabActive = bookmarkTab;
-        ReaderTocTabButton.Background = new SolidColorBrush(bookmarkTab ? Colors.Transparent : Colors.Black);
-        ReaderTocTabButton.Foreground = new SolidColorBrush(bookmarkTab ? ColorHelper.FromArgb(255, 36, 36, 36) : Colors.White);
-        ReaderBookmarkTabButton.Background = new SolidColorBrush(bookmarkTab ? Colors.Black : Colors.Transparent);
-        ReaderBookmarkTabButton.Foreground = new SolidColorBrush(bookmarkTab ? Colors.White : ColorHelper.FromArgb(255, 36, 36, 36));
+        // Hollow tabs: transparent fill for both states; the selected tab is
+        // outlined with a black border instead of a filled rectangle.
+        ReaderTocTabButton.Background = new SolidColorBrush(Colors.Transparent);
+        ReaderTocTabButton.Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 36, 36, 36));
+        ReaderTocTabButton.BorderBrush = new SolidColorBrush(bookmarkTab
+            ? ColorHelper.FromArgb(255, 213, 213, 209)
+            : Colors.Black);
+        ReaderBookmarkTabButton.Background = new SolidColorBrush(Colors.Transparent);
+        ReaderBookmarkTabButton.Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 36, 36, 36));
+        ReaderBookmarkTabButton.BorderBrush = new SolidColorBrush(bookmarkTab
+            ? Colors.Black
+            : ColorHelper.FromArgb(255, 213, 213, 209));
         // The input is reserved for whole-book search; the normal TOC no
         // longer has a separate title-filter box.
         ReaderTocSearchBox.Visibility = _readerSearchVisible ? Visibility.Visible : Visibility.Collapsed;
@@ -969,7 +981,7 @@ public sealed partial class MainWindow
                     StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
             ReaderSearchResultList.ItemsSource = resultItems;
-            ReaderSearchCountText.Text = $"全书 {resultItems.Length} 段结果 · 同段多处命中会同时高亮 · 仅本地检索";
+            ReaderSearchCountText.Text = $"全书 {resultItems.Length} 段结果";
             ShowReaderSearchStatus(resultItems.Length == 0 ? "没有找到匹配的片段。" : null);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -1173,15 +1185,25 @@ public sealed partial class MainWindow
     {
         if (_readerPollingSelection) return;
         if (ReaderPane.Visibility != Visibility.Visible) return;
-        if (_readerLayoutPopup?.IsOpen == true || _readerSettingsPopup?.IsOpen == true) return;
-        if (ReaderWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
+        if (_readerLayoutPopup?.IsOpen == true) return;
+        if (ReaderActiveWebView.CoreWebView2 is null || _readerAllowedRoot is null) return;
         _readerPollingSelection = true;
         try
         {
             var info = await ExecuteReaderJsonScriptAsync<SelectionInfo>(GetReaderSelectionStateScript());
             if (info is null || string.IsNullOrWhiteSpace(info.Text))
             {
+                _readerSelectionDismissedText = null;
                 HideReaderSelectionPopup();
+                return;
+            }
+            // The toolbar must not resurrect for a selection the user already
+            // acted on: without this guard the still-live DOM selection would
+            // reopen the popup on the very next poll tick (copy → popup stays,
+            // search → popup covers the freshly opened search panel).
+            if (_readerSelectionDismissedText is not null
+                && string.Equals(info.Text, _readerSelectionDismissedText, StringComparison.Ordinal))
+            {
                 return;
             }
             _readerSelectionText = info.Text;
@@ -1197,7 +1219,7 @@ public sealed partial class MainWindow
     {
         if (_readerSelectionPopup is null || RootGrid.XamlRoot is null) return;
         if (info.Vw <= 0 || info.Vh <= 0) return;
-        var hostRect = GetReaderWebViewScreenRect();
+        var hostRect = GetReaderActiveWebViewScreenRect();
         if (hostRect.Width <= 0 || hostRect.Height <= 0) return;
         var scale = ReaderWebViewHost.XamlRoot?.RasterizationScale ?? 1.0;
         var hwnd = WindowNative.GetWindowHandle(this);
@@ -1233,29 +1255,60 @@ public sealed partial class MainWindow
         _readerSelectionText = null;
     }
 
+    // Hides the toolbar AND remembers the selection text it was showing, so a
+    // user action on that exact selection is not immediately undone by the
+    // selection poll. A different selection still shows the toolbar again.
+    private void DismissReaderSelectionPopup()
+    {
+        _readerSelectionDismissedText = _readerSelectionText;
+        HideReaderSelectionPopup();
+    }
+
+    // Transient reader-header status: auto-clears after a short moment instead
+    // of lingering forever. A sequence guard plus an exact-text check ensure an
+    // older timer never wipes a newer or longer-lived message.
+    private void ShowReaderTransientStatus(string message)
+    {
+        ReaderStatusText.Text = message;
+        var sequence = ++_readerTransientStatusSequence;
+        _ = Task.Delay(2500).ContinueWith(
+            _ => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (sequence == _readerTransientStatusSequence
+                    && string.Equals(ReaderStatusText.Text, message, StringComparison.Ordinal))
+                {
+                    ReaderStatusText.Text = string.Empty;
+                }
+            }),
+            TaskScheduler.Default);
+    }
+
     private async void ReaderSelectionCopyButton_Click(object sender, RoutedEventArgs e)
     {
         var text = _readerSelectionText ?? await CaptureReaderSelectionTextAsync();
-        HideReaderSelectionPopup();
+        DismissReaderSelectionPopup();
         if (string.IsNullOrWhiteSpace(text))
         {
-            ReaderStatusText.Text = "没有可复制的文字";
+            ShowReaderTransientStatus("没有可复制的文字");
             return;
         }
         var dataPackage = new DataPackage();
         dataPackage.SetText(text);
         Clipboard.SetContent(dataPackage);
-        ReaderStatusText.Text = "已复制选中文字";
+        // Clear the live DOM selection so the highlighted text returns to the
+        // normal body rendering after the copy action.
+        await ClearReaderSelectionAsync();
+        ShowReaderTransientStatus("已复制选中文字");
     }
 
     private async void ReaderSelectionHighlightStyle_Click(object sender, RoutedEventArgs e)
     {
         var style = (sender as MenuFlyoutItem)?.Tag?.ToString() ?? "solid";
         var selection = await CaptureReaderSelectionAsync();
-        HideReaderSelectionPopup();
+        DismissReaderSelectionPopup();
         if (selection is null)
         {
-            ReaderStatusText.Text = "请先在正文中选择一段文字";
+            ShowReaderTransientStatus("请先在正文中选择一段文字");
             return;
         }
 
@@ -1275,7 +1328,7 @@ public sealed partial class MainWindow
 
     private async void ReaderSelectionAnnotateButton_Click(object sender, RoutedEventArgs e)
     {
-        HideReaderSelectionPopup();
+        DismissReaderSelectionPopup();
         ShowReaderNotesTab();
         var selection = await CaptureReaderSelectionAsync();
         if (selection is null)
@@ -1291,14 +1344,14 @@ public sealed partial class MainWindow
 
     private void ReaderSelectionAiExplainButton_Click(object sender, RoutedEventArgs e)
     {
-        HideReaderSelectionPopup();
+        DismissReaderSelectionPopup();
         ReaderAiExplainSelectionButton_Click(this, new RoutedEventArgs());
     }
 
     private async void ReaderSelectionSearchButton_Click(object sender, RoutedEventArgs e)
     {
         var text = _readerSelectionText ?? await CaptureReaderSelectionTextAsync();
-        HideReaderSelectionPopup();
+        DismissReaderSelectionPopup();
         ShowReaderSearchPanel();
         ReaderTocSearchBox.Text = text ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(ReaderTocSearchBox.Text))
@@ -1307,7 +1360,7 @@ public sealed partial class MainWindow
 
     private async Task<string?> CaptureReaderSelectionTextAsync()
     {
-        if (ReaderWebView.CoreWebView2 is null) return null;
+        if (ReaderActiveWebView.CoreWebView2 is null) return null;
         var text = await ExecuteReaderStringScriptAsync("window.getSelection ? window.getSelection().toString() : ''");
         return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
     }

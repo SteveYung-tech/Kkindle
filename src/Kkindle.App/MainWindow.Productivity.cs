@@ -17,6 +17,9 @@ public sealed partial class MainWindow
     private readonly FontLibraryService _fontLibrary;
     private readonly PdfTextService _pdfTextService;
     private AppSettings _appSettings = new();
+    private bool _suppressAppSettingsAutoSave;
+    private CancellationTokenSource? _appSettingsAutoSaveCancellation;
+    private int _settingsSavedStatusSequence;
     private readonly ObservableCollection<ManagedFont> _managedFonts = [];
     private readonly ObservableCollection<DictionaryDefinition> _managedDictionaries = [];
     private readonly ObservableCollection<ReadingDashboardDisplayItem> _readingDashboardItems = [];
@@ -26,6 +29,7 @@ public sealed partial class MainWindow
         _appSettings = await _appSettingsStore.LoadAsync();
         ApplyAppSettingsToRuntime();
         PopulateApplicationSettingsControls();
+        ConfigureAppSettingsAutoSave();
         await RefreshManagedFontsAsync();
         await RefreshManagedDictionariesAsync();
         await RefreshReadingDashboardAsync();
@@ -40,31 +44,83 @@ public sealed partial class MainWindow
 
     private void PopulateApplicationSettingsControls()
     {
-        PreferredOpenFormatBox.SelectedItem = PreferredOpenFormatBox.Items.OfType<ComboBoxItem>()
-            .FirstOrDefault(item => string.Equals(item.Tag as string, _appSettings.PreferredOpenFormat, StringComparison.OrdinalIgnoreCase))
-            ?? PreferredOpenFormatBox.Items[0];
-        CalibrePathBox.Text = _appSettings.CalibrePath;
-        AutoBackupCheck.IsOn = _appSettings.AutoBackupEnabled;
-        AutoGenerateReaderFormatsCheck.IsOn = _appSettings.AutoGenerateEpubAndAzw3OnImport;
-        AutoBackupRetentionBox.Value = _appSettings.AutoBackupRetention;
-        AiEnabledCheck.IsOn = _appSettings.AiEnabled;
-        NetworkEnabledCheck.IsOn = _appSettings.NetworkEnabled;
-        AutoConnectDeviceCheck.IsOn = _appSettings.AutoConnectDevice;
-        CompareKindleLibraryCheck.IsOn = _appSettings.CompareKindleLibraryEnabled;
-        var version = typeof(MainWindow).Assembly.GetName().Version;
-        AboutVersionText.Text = version is null ? "版本未知" : $"版本 {version.ToString(3)}";
-        DefaultFontScaleBox.Value = _appSettings.DefaultReaderLayout.FontScale;
-        DefaultLineHeightBox.Value = _appSettings.DefaultReaderLayout.LineHeight;
-        DefaultMaxWidthBox.Value = _appSettings.DefaultReaderLayout.MaxWidth;
-        DefaultBodyPaddingBox.Value = _appSettings.DefaultReaderLayout.BodyPadding;
-        SelectFontFamily(DefaultFontFamilyBox, _appSettings.DefaultReaderLayout.FontFamily);
-        DefaultVerticalWritingCheck.IsOn = _appSettings.DefaultReaderLayout.VerticalWriting;
+        _suppressAppSettingsAutoSave = true;
+        try
+        {
+            PreferredOpenFormatBox.SelectedItem = PreferredOpenFormatBox.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(item => string.Equals(item.Tag as string, _appSettings.PreferredOpenFormat, StringComparison.OrdinalIgnoreCase))
+                ?? PreferredOpenFormatBox.Items[0];
+            CalibrePathBox.Text = _appSettings.CalibrePath;
+            AutoBackupCheck.IsOn = _appSettings.AutoBackupEnabled;
+            AutoGenerateReaderFormatsCheck.IsOn = _appSettings.AutoGenerateEpubAndAzw3OnImport;
+            AutoBackupRetentionBox.Value = _appSettings.AutoBackupRetention;
+            AiEnabledCheck.IsOn = _appSettings.AiEnabled;
+            NetworkEnabledCheck.IsOn = _appSettings.NetworkEnabled;
+            AutoConnectDeviceCheck.IsOn = _appSettings.AutoConnectDevice;
+            CompareKindleLibraryCheck.IsOn = _appSettings.CompareKindleLibraryEnabled;
+            GridGalleryDisplayCheck.IsOn = _appSettings.GridGalleryDisplay;
+            var version = typeof(MainWindow).Assembly.GetName().Version;
+            AboutVersionText.Text = version is null ? "版本未知" : $"版本 {version.ToString(3)}";
+            DefaultFontScaleBox.Value = _appSettings.DefaultReaderLayout.FontScale;
+            DefaultLineHeightBox.Value = _appSettings.DefaultReaderLayout.LineHeight;
+            DefaultMaxWidthBox.Value = _appSettings.DefaultReaderLayout.MaxWidth;
+            DefaultBodyPaddingBox.Value = _appSettings.DefaultReaderLayout.BodyPadding;
+            SelectFontFamily(DefaultFontFamilyBox, _appSettings.DefaultReaderLayout.FontFamily);
+            DefaultVerticalWritingCheck.IsOn = _appSettings.DefaultReaderLayout.VerticalWriting;
+        }
+        finally
+        {
+            _suppressAppSettingsAutoSave = false;
+        }
+    }
+
+    // Basic settings auto-save: any toggle/combo/number/text change schedules a
+    // short debounced save, so the user does not need the save button for the
+    // basic options. The button still saves everything (and shows the status).
+    private void ConfigureAppSettingsAutoSave()
+    {
+        AutoBackupCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
+        AiEnabledCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
+        NetworkEnabledCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
+        AutoGenerateReaderFormatsCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
+        CompareKindleLibraryCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
+        GridGalleryDisplayCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
+        AutoConnectDeviceCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
+        DefaultVerticalWritingCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
+        PreferredOpenFormatBox.SelectionChanged += (_, _) => ScheduleAppSettingsAutoSave();
+        AutoBackupRetentionBox.ValueChanged += (_, _) => ScheduleAppSettingsAutoSave();
+        DefaultFontScaleBox.ValueChanged += (_, _) => ScheduleAppSettingsAutoSave();
+        DefaultLineHeightBox.ValueChanged += (_, _) => ScheduleAppSettingsAutoSave();
+        DefaultMaxWidthBox.ValueChanged += (_, _) => ScheduleAppSettingsAutoSave();
+        DefaultBodyPaddingBox.ValueChanged += (_, _) => ScheduleAppSettingsAutoSave();
+        DefaultFontFamilyBox.SelectionChanged += (_, _) => ScheduleAppSettingsAutoSave();
+        CalibrePathBox.TextChanged += (_, _) => ScheduleAppSettingsAutoSave();
+    }
+
+    private void ScheduleAppSettingsAutoSave()
+    {
+        if (_suppressAppSettingsAutoSave) return;
+        _appSettingsAutoSaveCancellation?.Cancel();
+        _appSettingsAutoSaveCancellation?.Dispose();
+        _appSettingsAutoSaveCancellation = new CancellationTokenSource();
+        var token = _appSettingsAutoSaveCancellation.Token;
+        _ = Task.Delay(600, token).ContinueWith(
+            _ => DispatcherQueue.TryEnqueue(async () =>
+            {
+                if (token.IsCancellationRequested) return;
+                await SaveAppSettingsCoreAsync();
+            }),
+            TaskScheduler.Default);
     }
 
     private async void SaveApplicationSettingsButton_Click(object sender, RoutedEventArgs e)
+        => await SaveAppSettingsCoreAsync();
+
+    private async Task SaveAppSettingsCoreAsync()
     {
         try
         {
+            var autoConnectChanged = _appSettings.AutoConnectDevice != AutoConnectDeviceCheck.IsOn;
             _appSettings = AppSettings.Normalize(_appSettings with
             {
                 PreferredOpenFormat = (PreferredOpenFormatBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "epub",
@@ -76,6 +132,7 @@ public sealed partial class MainWindow
                 NetworkEnabled = NetworkEnabledCheck.IsOn,
                 AutoConnectDevice = AutoConnectDeviceCheck.IsOn,
                 CompareKindleLibraryEnabled = CompareKindleLibraryCheck.IsOn,
+                GridGalleryDisplay = GridGalleryDisplayCheck.IsOn,
                 DefaultReaderLayout = new ReaderLayoutSettings(
                     DefaultFontScaleBox.Value,
                     DefaultLineHeightBox.Value,
@@ -88,15 +145,50 @@ public sealed partial class MainWindow
             });
             await _appSettingsStore.SaveAsync(_appSettings);
             ApplyAppSettingsToRuntime();
+            ApplyLibraryGalleryDisplay();
             ReconcileLibraryPresence();
-            ApplicationSettingsStatusText.Text = "设置已保存";
-            if (_appSettings.AutoConnectDevice)
+            ShowSettingsSavedStatus();
+            if (autoConnectChanged && _appSettings.AutoConnectDevice)
             {
                 _ignoredDeviceId = null;
                 await RefreshDevicesAsync();
             }
         }
         catch (Exception exception) { ApplicationSettingsStatusText.Text = $"保存失败：{exception.Message}"; }
+    }
+
+    // "设置已保存" feedback appears for both the save button and the real-time
+    // auto-save, then auto-clears after a short moment.
+    private void ShowSettingsSavedStatus()
+    {
+        ApplicationSettingsStatusText.Text = "设置已保存";
+        var sequence = ++_settingsSavedStatusSequence;
+        _ = Task.Delay(2000).ContinueWith(
+            _ => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (sequence == _settingsSavedStatusSequence
+                    && string.Equals(
+                        ApplicationSettingsStatusText.Text,
+                        "设置已保存",
+                        StringComparison.Ordinal))
+                {
+                    ApplicationSettingsStatusText.Text = string.Empty;
+                }
+            }),
+            TaskScheduler.Default);
+    }
+
+    // Gallery mode: hide the title/author/format text under each grid cover so
+    // the grid shows only the book images. Applied live after the setting is
+    // saved and again whenever the library presentation refreshes.
+    private void ApplyLibraryGalleryDisplay()
+    {
+        var gallery = _appSettings.GridGalleryDisplay;
+        var visibility = gallery ? Visibility.Collapsed : Visibility.Visible;
+        foreach (var card in ViewModel.Books)
+            card.GalleryTextVisibility = visibility;
+        foreach (var card in DeviceBooks)
+            card.GalleryTextVisibility = visibility;
     }
 
     private async void BrowseCalibreButton_Click(object sender, RoutedEventArgs e)
@@ -163,6 +255,7 @@ public sealed partial class MainWindow
         ZLibraryPage.Visibility = Visibility.Collapsed;
         DetailPane.Visibility = Visibility.Collapsed;
         DetailColumn.Width = new GridLength(0);
+        HideSettingsPanel();
         ReadingDashboardPage.Visibility = Visibility.Visible;
         await RefreshReadingDashboardAsync();
     }
@@ -268,7 +361,7 @@ public sealed partial class MainWindow
     private async void ReaderSelectionDictionaryButton_Click(object sender, RoutedEventArgs e)
     {
         var text = _readerSelectionText ?? await CaptureReaderSelectionTextAsync();
-        HideReaderSelectionPopup();
+        DismissReaderSelectionPopup();
         if (string.IsNullOrWhiteSpace(text)) return;
         var entries = await _dictionaryService.LookupAsync(text);
         await ShowMessageAsync($"词典 · {text.Trim()}", entries.Count == 0

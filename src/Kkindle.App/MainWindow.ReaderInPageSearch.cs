@@ -36,7 +36,7 @@ public sealed partial class MainWindow
 
     private async Task ApplyReaderInPageSearchAsync(string query, int sequence)
     {
-        if (ReaderWebView.CoreWebView2 is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null) return;
         var serializedQuery = JsonSerializer.Serialize(query);
         var script = $$"""
             (() => {
@@ -81,7 +81,7 @@ public sealed partial class MainWindow
             """;
         try
         {
-            var result = await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script);
+            var result = await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(script);
             if (sequence != _readerInPageSearchSequence) return;
             _readerInPageSearchCount = int.TryParse(
                 result.Trim().Trim('"'),
@@ -101,7 +101,7 @@ public sealed partial class MainWindow
 
     private async Task NavigateReaderInPageSearchAsync(int index)
     {
-        if (ReaderWebView.CoreWebView2 is null || _readerInPageSearchCount <= 0)
+        if (ReaderActiveWebView.CoreWebView2 is null || _readerInPageSearchCount <= 0)
         {
             UpdateReaderInPageSearchCount();
             return;
@@ -144,7 +144,7 @@ public sealed partial class MainWindow
             """;
         try
         {
-            await ReaderWebView.CoreWebView2.ExecuteScriptAsync(script);
+            await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(script);
             if (_readerFlowMode == 1) await SnapReaderPaginationAsync();
         }
         catch { }
@@ -183,10 +183,10 @@ public sealed partial class MainWindow
     private async Task HideReaderInPageSearchAsync()
     {
         ResetReaderInPageSearchForNavigation();
-        if (ReaderWebView.CoreWebView2 is null) return;
+        if (ReaderActiveWebView.CoreWebView2 is null) return;
         try
         {
-            await ReaderWebView.CoreWebView2.ExecuteScriptAsync(
+            await ReaderActiveWebView.CoreWebView2.ExecuteScriptAsync(
                 """
                 (() => {
                   const marks = Array.from(document.querySelectorAll('mark.kkindle-page-find-hit'));

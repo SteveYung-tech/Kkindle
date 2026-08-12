@@ -11,6 +11,10 @@ public sealed partial class MainWindow
     private void LibraryPane_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         if (DetailPane.Visibility == Visibility.Visible) CloseDetails();
+        if (KindleEmailSettingsPane.Visibility == Visibility.Visible
+            || ZLibraryAccountPane.Visibility == Visibility.Visible
+            || ReaderAiSettingsPane.Visibility == Visibility.Visible)
+            HideSettingsPanel();
     }
 
     private void BookGrid_ItemClick(object sender, ItemClickEventArgs e)
