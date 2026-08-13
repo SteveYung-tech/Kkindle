@@ -3648,6 +3648,19 @@
                                       ScrollViewer.HorizontalScrollMode="Disabled"
                                       ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                       ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem"
+                                           BasedOn="{StaticResource OutlinedListItemStyle}">
+                                        <Setter Property="Margin" Value="0,0,0,6" />
+                                        <Setter Property="Padding" Value="0" />
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Setter Property="BorderBrush" Value="Transparent" />
+                                        <Setter Property="BorderThickness" Value="0" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                        <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                                        <Setter Property="UseSystemFocusVisuals" Value="False" />
+                                    </Style>
+                                </ListView.ItemContainerStyle>
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="local:ReaderSearchResultItem">
                                         <Button Padding="0"
