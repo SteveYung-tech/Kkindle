@@ -67,10 +67,10 @@
                     BorderThickness="0,0,1,0">
                 <Grid RowDefinitions="Auto,*,Auto" Margin="14,18,14,14">
                     <StackPanel Spacing="3">
-                        <TextBlock Text="书库"
+                        <TextBlock Text="Kkindle"
                                    FontSize="11"
                                    Foreground="#777777" />
-                        <TextBlock Text="Kkindle"
+                        <TextBlock Text="个人阅读工作台"
                                    FontSize="24"
                                    FontWeight="Bold" />
                     </StackPanel>
@@ -85,14 +85,49 @@
                                     HorizontalContentAlignment="Left"
                                     Padding="12,9"
                                     Click="ShowAllBooksButton_Click" />
-                            <Button Content="Kindle 书库"
+                            <Button x:Name="KindleBooksButton"
+                                    Content="Kindle 书库"
                                     HorizontalContentAlignment="Left"
                                     Padding="12,9"
-                                    IsEnabled="False" />
-                            <Button Content="阅读资料"
+                                    Click="KindleBooksButton_Click" />
+                            <Button x:Name="ReadingMaterialsButton"
+                                    Content="阅读资料"
                                     HorizontalContentAlignment="Left"
                                     Padding="12,9"
-                                    IsEnabled="False" />
+                                    Click="ReadingMaterialsButton_Click" />
+                            <Button x:Name="ZLibraryBooksButton"
+                                    Content="Z-Library 在线书库"
+                                    HorizontalContentAlignment="Left"
+                                    Padding="12,9"
+                                    Click="ZLibraryBooksButton_Click" />
+                            <Border BorderBrush="{StaticResource HairlineBrush}"
+                                    BorderThickness="0,1,0,0"
+                                    Margin="0,8,0,3"
+                                    Padding="0,10,0,3">
+                                <TextBlock Text="设备与工具"
+                                           FontSize="11"
+                                           Foreground="#777777" />
+                            </Border>
+                            <Button x:Name="FontManagementButton"
+                                    Content="Kindle 字体"
+                                    HorizontalContentAlignment="Left"
+                                    Padding="12,9"
+                                    Click="FontManagementButton_Click" />
+                            <Button x:Name="DictionaryManagementButton"
+                                    Content="Kindle 字典"
+                                    HorizontalContentAlignment="Left"
+                                    Padding="12,9"
+                                    Click="DictionaryManagementButton_Click" />
+                            <Button x:Name="ReadingDashboardButton"
+                                    Content="阅读数据"
+                                    HorizontalContentAlignment="Left"
+                                    Padding="12,9"
+                                    Click="ReadingDashboardButton_Click" />
+                            <Button x:Name="SettingsNavigationButton"
+                                    Content="设置与备份"
+                                    HorizontalContentAlignment="Left"
+                                    Padding="12,9"
+                                    Click="SettingsButton_Click" />
                         </StackPanel>
                     </ScrollViewer>
 
@@ -107,7 +142,12 @@
                                            FontSize="11" />
                             </StackPanel>
                         </Border>
-                        <TextBlock Text="阶段 2 · 书库迁移"
+                        <TextBlock x:Name="SidebarDeviceStatusText"
+                                   Text="Kindle：未检测"
+                                   FontSize="10"
+                                   Foreground="#777777"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="阶段 3 · 设备与工具迁移"
                                    FontSize="10"
                                    Foreground="#777777" />
                     </StackPanel>
@@ -115,7 +155,8 @@
             </Border>
 
             <!-- Local library -->
-            <Grid Grid.Column="1"
+            <Grid x:Name="LibraryWorkspace"
+                  Grid.Column="1"
                   Margin="26,20,24,14"
                   RowDefinitions="Auto,Auto,Auto,*,Auto">
                 <StackPanel Spacing="3">
@@ -369,7 +410,8 @@
             </Grid>
 
             <!-- Details panel -->
-            <Border Grid.Column="2"
+            <Border x:Name="LibraryDetailPane"
+                    Grid.Column="2"
                     Background="{StaticResource PaperBrush}"
                     BorderBrush="{StaticResource HairlineBrush}"
                     BorderThickness="1,0,0,0">
@@ -433,6 +475,8 @@
                         <Button x:Name="SaveDetailsButton" Content="保存书籍信息" Padding="12,7" Click="SaveDetailsButton_Click" />
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <Button Content="打开" Padding="13,7" Click="OpenSelectedBookButton_Click" />
+                            <Button Content="发送到 Kindle" Padding="13,7" Click="SendSelectedBookToKindleButton_Click" />
+                            <Button Content="邮件发送" Padding="13,7" Click="SendSelectedBookByEmailButton_Click" />
                             <Button Content="删除全部" Padding="13,7" Click="DeleteSelectedBookButton_Click" />
                         </StackPanel>
 
@@ -469,6 +513,310 @@
                     </StackPanel>
                 </ScrollViewer>
             </Border>
+
+            <!-- Stage 3: Kindle book library. The page stays deliberately
+                 simple and monochrome; all device work is performed by the
+                 platform service behind the portable UI. -->
+            <Grid x:Name="DevicePage"
+                  Grid.Column="1"
+                  Margin="26,20,24,14"
+                  IsVisible="False"
+                  RowDefinitions="Auto,Auto,*,Auto">
+                <StackPanel Spacing="3">
+                    <TextBlock Text="Kindle 书库" FontSize="27" FontWeight="Bold" />
+                    <TextBlock x:Name="DevicePageStatusText" Text="正在检查设备…" Foreground="#666666" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,14,0,12">
+                    <TextBlock x:Name="DevicePageDeviceText" Text="未检测到 Kindle" VerticalAlignment="Center" />
+                    <Button Content="刷新设备" Padding="11,6" Click="RefreshDevicesButton_Click" />
+                    <Button Content="扫描书库" Padding="11,6" Click="ScanDeviceBooksButton_Click" />
+                    <Button x:Name="EjectDeviceButton" Content="安全弹出" Padding="11,6" Click="EjectDeviceButton_Click" IsEnabled="False" />
+                </StackPanel>
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding DeviceBooks}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="local:KindleBookCardViewModel">
+                                <Border BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1" Padding="0,10">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Authors}" Foreground="#555555" />
+                                            <TextBlock Text="{Binding InfoLabel}" FontSize="11" Foreground="#777777" />
+                                            <TextBlock Text="{Binding RelativePath}" FontSize="11" Foreground="#777777" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding PresenceLabel}" FontSize="11" Foreground="#777777" />
+                                            <ProgressBar Value="{Binding DownloadProgress}" IsVisible="{Binding IsDownloading}" Height="5" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <Button Content="导出" Tag="{Binding}" Padding="10,5" Click="ExportDeviceBookButton_Click" />
+                                            <Button Content="删除" Tag="{Binding}" Padding="10,5" Click="DeleteDeviceBookButton_Click" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <TextBlock Grid.Row="3" x:Name="DeviceBookEmptyText" Text="连接 Kindle 后扫描书籍。" Foreground="#666666" Margin="0,10,0,0" />
+            </Grid>
+
+            <!-- Stage 3: fonts and dictionaries on the connected Kindle. -->
+            <Grid x:Name="DeviceResourcePage"
+                  Grid.Column="1"
+                  Margin="26,20,24,14"
+                  IsVisible="False"
+                  RowDefinitions="Auto,Auto,*,Auto">
+                <StackPanel Spacing="3">
+                    <TextBlock x:Name="DeviceResourcePageTitle" Text="Kindle 字体" FontSize="27" FontWeight="Bold" />
+                    <TextBlock x:Name="DeviceResourcePathText" Text="Kindle\fonts" Foreground="#666666" />
+                </StackPanel>
+                <StackPanel Grid.Row="1" Spacing="4" Margin="0,12,0,12">
+                    <TextBlock x:Name="DeviceResourceSafetyText" Foreground="#666666" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock x:Name="DeviceResourceStatusText" Text="请连接 Kindle" Foreground="#666666" VerticalAlignment="Center" />
+                        <Button Content="刷新" Padding="10,5" Click="RefreshDeviceResourcesButton_Click" />
+                        <Button x:Name="ImportDeviceResourceButton" Content="导入资源" Padding="10,5" Click="ImportDeviceResourceButton_Click" />
+                    </StackPanel>
+                </StackPanel>
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding DeviceResources}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="core:KindleDeviceResource">
+                                <Border BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1" Padding="0,9">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Display}" FontSize="11" Foreground="#777777" />
+                                            <TextBlock Text="{Binding RelativePath}" FontSize="11" Foreground="#777777" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <Button Content="导出" Tag="{Binding}" Padding="10,5" Click="ExportDeviceResourceButton_Click" />
+                                            <Button Content="删除" Tag="{Binding}" Padding="10,5" Click="DeleteDeviceResourceButton_Click" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <TextBlock Grid.Row="3" x:Name="DeviceResourceEmptyText" Text="当前目录没有匹配文件。" Foreground="#666666" Margin="0,10,0,0" />
+            </Grid>
+
+            <!-- Stage 3: local and Kindle reading materials. -->
+            <Grid x:Name="ReadingMaterialsPage"
+                  Grid.Column="1"
+                  Margin="26,20,24,14"
+                  IsVisible="False"
+                  RowDefinitions="Auto,Auto,*,Auto">
+                <StackPanel Spacing="3">
+                    <TextBlock Text="阅读资料" FontSize="27" FontWeight="Bold" />
+                    <TextBlock x:Name="ReadingMaterialsStatusText" Text="统一浏览本地书籍与 Kindle 的划线、笔记和批注。" Foreground="#666666" TextWrapping="Wrap" />
+                </StackPanel>
+                <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8" Margin="0,14,0,12">
+                    <TextBox x:Name="ReadingMaterialsSearchBox" PlaceholderText="搜索阅读资料" TextChanged="ReadingMaterialsSearchBox_TextChanged" />
+                    <ComboBox x:Name="ReadingMaterialsSourceBox" Grid.Column="1" SelectedIndex="0" SelectionChanged="ReadingMaterialsSourceBox_SelectionChanged" MinWidth="120">
+                        <ComboBoxItem Content="全部来源" Tag="all" />
+                        <ComboBoxItem Content="本地书库" Tag="local" />
+                        <ComboBoxItem Content="Kindle" Tag="kindle" />
+                    </ComboBox>
+                    <Button Grid.Column="2" Content="刷新" Padding="10,5" Click="RefreshReadingMaterialsButton_Click" />
+                    <Button Grid.Column="3" Content="导出 Markdown" Padding="10,5" Click="ExportReadingMaterialsMarkdownButton_Click" />
+                </Grid>
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock x:Name="ReadingMaterialsEmptyText" Text="没有符合条件的阅读资料。" Foreground="#666666" Margin="0,0,0,8" />
+                        <ItemsControl ItemsSource="{Binding ReadingMaterials}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="local:Stage3ReadingMaterialViewModel">
+                                    <Border BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1" Padding="0,10">
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                            <CheckBox IsChecked="{Binding IsSelected}" VerticalAlignment="Top" />
+                                            <StackPanel Grid.Column="1" Spacing="3">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <TextBlock Text="{Binding BookTitle}" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{Binding SourceLabel}" FontSize="11" Foreground="#777777" />
+                                                    <TextBlock Text="{Binding TypeLabel}" FontSize="11" Foreground="#777777" />
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding ChapterLabel}" FontSize="11" Foreground="#555555" />
+                                                <TextBlock Text="{Binding QuoteLabel}" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding NoteLabel}" FontSize="11" Foreground="#555555" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding Location}" FontSize="11" Foreground="#777777" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding DateLabel}" FontSize="11" Foreground="#777777" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+                <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,10,0,0">
+                    <Button Content="删除选中" Padding="11,6" Click="DeleteReadingMaterialsButton_Click" />
+                    <TextBlock Text="勾选本地记录或 Kindle 剪贴后删除；导出不会修改原始数据。" FontSize="11" Foreground="#777777" VerticalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Stage 3: Z-Library search and download. -->
+            <Grid x:Name="ZLibraryPage"
+                  Grid.Column="1"
+                  Margin="26,20,24,14"
+                  IsVisible="False"
+                  RowDefinitions="Auto,Auto,*,Auto">
+                <StackPanel Spacing="3">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock Text="Z-Library 在线书库" FontSize="27" FontWeight="Bold" />
+                        <Button Content="账号设置" Padding="11,6" Click="ZLibraryAccountButton_Click" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock x:Name="ZLibraryStatusText" Text="未配置账号；搜索可用，下载前需要登录。" Foreground="#666666" TextWrapping="Wrap" />
+                </StackPanel>
+                <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8" Margin="0,14,0,12">
+                    <TextBox x:Name="ZLibrarySearchBox" PlaceholderText="搜索书名或作者" KeyDown="ZLibrarySearchBox_KeyDown" />
+                    <ComboBox x:Name="ZLibraryExtensionBox" Grid.Column="1" SelectedIndex="0" MinWidth="115">
+                        <ComboBoxItem Content="全部格式" Tag="" />
+                        <ComboBoxItem Content="EPUB" Tag="epub" />
+                        <ComboBoxItem Content="PDF" Tag="pdf" />
+                        <ComboBoxItem Content="AZW3" Tag="azw3" />
+                    </ComboBox>
+                    <ComboBox x:Name="ZLibraryLanguageBox" Grid.Column="2" SelectedIndex="0" MinWidth="115">
+                        <ComboBoxItem Content="全部语言" Tag="" />
+                        <ComboBoxItem Content="中文" Tag="chinese" />
+                        <ComboBoxItem Content="英文" Tag="english" />
+                    </ComboBox>
+                    <Button x:Name="ZLibrarySearchButton" Grid.Column="3" Content="搜索" Padding="12,6" Click="ZLibrarySearchButton_Click" />
+                </Grid>
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock x:Name="ZLibraryResultText" Text="请输入关键词搜索。" Foreground="#666666" Margin="0,0,0,8" TextWrapping="Wrap" />
+                        <ItemsControl ItemsSource="{Binding ZLibraryBooks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="local:ZLibraryBookCardViewModel">
+                                    <Border BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1" Padding="0,10">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                            <StackPanel Spacing="3">
+                                                <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding Authors}" Foreground="#555555" />
+                                                <TextBlock Text="{Binding InfoLabel}" FontSize="11" Foreground="#777777" />
+                                                <TextBlock Text="{Binding PublicationLabel}" FontSize="11" Foreground="#777777" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding StatusMessage}" FontSize="11" Foreground="#777777" TextWrapping="Wrap" />
+                                                <ProgressBar Value="{Binding DownloadProgress}" IsVisible="{Binding IsDownloading}" Height="5" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                <Button Content="详情" Tag="{Binding}" Padding="10,5" Click="ZLibraryDetailsButton_Click" />
+                                                <Button Content="下载并导入" Tag="{Binding}" Padding="10,5" Click="ZLibraryDownloadButton_Click" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+                <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,10,0,0">
+                    <Button Content="上一页" Padding="10,5" Click="ZLibraryPrevPageButton_Click" />
+                    <Button Content="下一页" Padding="10,5" Click="ZLibraryNextPageButton_Click" />
+                    <TextBlock Text="下载的文件会先进入电脑书库；网络功能可在设置中关闭。" FontSize="11" Foreground="#777777" VerticalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Stage 3: settings, backup, local fonts/dictionaries and account
+                 credentials. Secrets are saved through the platform protector. -->
+            <ScrollViewer x:Name="SettingsPage"
+                          Grid.Column="1"
+                          Margin="26,20,24,14"
+                          IsVisible="False"
+                          VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Text="设置与备份" FontSize="27" FontWeight="Bold" />
+                        <TextBlock x:Name="SettingsStatusText" Text="设置会保存到当前数据目录。" FontSize="12" Foreground="#666666" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Border Padding="14" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1">
+                        <StackPanel Spacing="9">
+                            <TextBlock Text="基础设置" FontSize="17" FontWeight="SemiBold" />
+                            <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                                <TextBlock Text="默认打开格式" VerticalAlignment="Center" />
+                                <ComboBox x:Name="PreferredOpenFormatBox" Grid.Column="1" SelectedIndex="0">
+                                    <ComboBoxItem Content="EPUB" Tag="epub" />
+                                    <ComboBoxItem Content="PDF" Tag="pdf" />
+                                    <ComboBoxItem Content="AZW3" Tag="azw3" />
+                                    <ComboBoxItem Content="MOBI" Tag="mobi" />
+                                </ComboBox>
+                                <TextBlock Grid.Row="1" Text="Calibre 路径" VerticalAlignment="Center" />
+                                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="7">
+                                    <TextBox x:Name="CalibrePathBox" PlaceholderText="留空则自动查找" />
+                                    <Button Grid.Column="1" Content="选择" Padding="10,5" Click="BrowseCalibreButton_Click" />
+                                </Grid>
+                                <CheckBox Grid.Row="2" Grid.ColumnSpan="2" x:Name="AutoBackupCheck" Content="每天自动备份" />
+                                <CheckBox Grid.Row="3" Grid.ColumnSpan="2" x:Name="NetworkEnabledCheck" Content="允许网络功能（Z-Library、豆瓣、AI）" />
+                                <CheckBox Grid.Row="4" Grid.ColumnSpan="2" x:Name="AutoConnectDeviceCheck" Content="启动后自动检测 Kindle" />
+                            </Grid>
+                            <Button Content="保存基础设置" Padding="12,6" HorizontalAlignment="Left" Click="SaveApplicationSettingsButton_Click" />
+                        </StackPanel>
+                    </Border>
+                    <Border Padding="14" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1">
+                        <StackPanel Spacing="9">
+                            <TextBlock Text="备份与数据目录" FontSize="17" FontWeight="SemiBold" />
+                            <TextBlock x:Name="SettingsDataPathText" Text="" FontSize="11" Foreground="#666666" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <Button Content="导出备份" Padding="12,6" Click="ExportBackupButton_Click" />
+                                <Button Content="导入备份" Padding="12,6" Click="ImportBackupButton_Click" />
+                                <Button Content="打开数据目录" Padding="12,6" Click="OpenDataDirectoryButton_Click" />
+                            </StackPanel>
+                            <TextBlock x:Name="SettingsBackupStatusText" Text="" Foreground="#666666" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Border Padding="14" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1">
+                        <StackPanel Spacing="9">
+                            <TextBlock Text="本地字体与字典" FontSize="17" FontWeight="SemiBold" />
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="7">
+                                <TextBlock Text="已导入字体" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="导入字体" Padding="10,5" Click="ImportFontButton_Click" />
+                                <Button Grid.Column="2" Content="刷新" Padding="10,5" Click="RefreshLocalResourcesButton_Click" />
+                            </Grid>
+                            <ItemsControl x:Name="ManagedFontList" ItemsSource="{Binding ManagedFonts}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="core:ManagedFont"><TextBlock Text="{Binding DisplayName}" FontSize="11" /></DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="7">
+                                <TextBlock Text="已导入字典" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="导入字典" Padding="10,5" Click="ImportDictionaryButton_Click" />
+                            </Grid>
+                            <ItemsControl x:Name="ManagedDictionaryList" ItemsSource="{Binding ManagedDictionaries}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="core:DictionaryDefinition"><TextBlock Text="{Binding Name}" FontSize="11" /></DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock x:Name="DictionaryResultText" Text="" FontSize="11" Foreground="#666666" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Border Padding="14" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Z-Library 账号" FontSize="17" FontWeight="SemiBold" />
+                            <TextBox x:Name="ZLibraryEmailBox" PlaceholderText="账号邮箱" />
+                            <TextBox x:Name="ZLibraryPasswordBox" PlaceholderText="密码" />
+                            <TextBox x:Name="ZLibraryBaseUrlBox" PlaceholderText="API 地址" />
+                            <Button Content="保存并验证 Z-Library 账号" Padding="12,6" HorizontalAlignment="Left" Click="ZLibraryAccountSaveButton_Click" />
+                            <TextBlock x:Name="ZLibraryAccountStatusText" Text="" Foreground="#666666" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Border Padding="14" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Kindle 邮箱" FontSize="17" FontWeight="SemiBold" />
+                            <TextBox x:Name="KindleEmailRecipientBox" PlaceholderText="Kindle 收件邮箱" />
+                            <TextBox x:Name="KindleEmailSenderBox" PlaceholderText="发件邮箱" />
+                            <TextBox x:Name="KindleEmailSmtpHostBox" PlaceholderText="SMTP 服务器" />
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="7">
+                                <TextBox x:Name="KindleEmailSmtpPortBox" PlaceholderText="SMTP 端口" />
+                                <TextBox x:Name="KindleEmailUsernameBox" Grid.Column="1" PlaceholderText="SMTP 用户名" />
+                            </Grid>
+                            <TextBox x:Name="KindleEmailPasswordBox" PlaceholderText="SMTP 密码或应用专用密码" />
+                            <CheckBox x:Name="KindleEmailSslCheck" Content="启用 SSL" IsChecked="True" />
+                            <Button Content="保存 Kindle 邮箱设置" Padding="12,6" HorizontalAlignment="Left" Click="KindleEmailSettingsSaveButton_Click" />
+                            <TextBlock x:Name="KindleEmailSettingsStatusText" Text="" Foreground="#666666" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
 
             <!-- Confirmation overlay -->
             <Grid x:Name="ConfirmationOverlay"

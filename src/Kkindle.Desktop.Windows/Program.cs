@@ -1,5 +1,6 @@
 using Avalonia;
 using Kkindle.Core;
+using Kkindle.Infrastructure;
 using Kkindle.Platform.Windows;
 
 namespace Kkindle.Desktop.Windows;
@@ -24,7 +25,12 @@ internal static class Program
             .WithInterFont()
             .LogToTrace();
 
-    private static AppServices BuildServices() => new(
-        SecretProtector: new WindowsSecretProtector(),
-        CreateDeviceChangeNotifier: handle => new WindowsDeviceChangeNotifier(handle));
+    private static AppServices BuildServices()
+    {
+        var paths = new AppPaths(AppRootConfiguration.ResolveRoot(AppContext.BaseDirectory));
+        return new AppServices(
+            SecretProtector: new WindowsSecretProtector(),
+            CreateDeviceChangeNotifier: handle => new WindowsDeviceChangeNotifier(handle),
+            KindleDeviceService: new KindleDeviceService(paths, new BookMetadataService()));
+    }
 }

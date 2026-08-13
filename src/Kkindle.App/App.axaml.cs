@@ -39,7 +39,7 @@ public partial class App : Application
             var applicationDirectory = AppContext.BaseDirectory;
             var paths = new AppPaths(AppRootConfiguration.ResolveRoot(applicationDirectory));
             var library = new SqliteBookLibraryService(paths, new BookMetadataService());
-            var window = new MainWindow(paths, library);
+            var window = new MainWindow(paths, library, services: _services);
             desktop.MainWindow = window;
             _ = window.InitializeLibraryAsync();
         }
@@ -61,4 +61,5 @@ public partial class App : Application
 /// </param>
 public sealed record AppServices(
     ISecretProtector SecretProtector,
-    Func<IntPtr, IDeviceChangeNotifier?> CreateDeviceChangeNotifier);
+    Func<IntPtr, IDeviceChangeNotifier?> CreateDeviceChangeNotifier,
+    IKindleDeviceService? KindleDeviceService = null);

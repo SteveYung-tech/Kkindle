@@ -2,25 +2,25 @@
 
 > 给后续 AI / 开发者使用。继续工作前请先阅读本文档，再查看代码和当前 Git 状态。
 >
-> 更新时间：2026-08-13
+> 更新时间：2026-08-14
 >
 > 项目目录：`C:\Users\kings\Desktop\01_Projects\Kkindle`
 
-> 当前迁移状态（2026-08-13）：Avalonia 阶段 2（本地书库）已完成。WinUI 版本仍保留并可独立构建；后续工作从阶段 3 开始。
+> 当前迁移状态（2026-08-14）：Avalonia 阶段 2（本地书库）已完成，阶段 3（Kindle 设备、阅读资料、Z-Library、设置与备份）正在收尾。WinUI 版本仍保留并可独立构建。
 
 ## 0. 当前状态
 
 - 阶段：P0/P1/P2 全部完成；本地书库、Kreader 阅读器、阅读资料中心、Kindle 设备管理（USB/WPD/MTP）、格式转换、Z-Library、Kindle 邮件、备份/设置、AI 助手、安装包与 GitHub 自动发版均已实现并验证。
 - 分支 `master`；`v0.5.2`（提交 `5daf140`）已推送至 `origin/master` 并自动发版，当前本地包含尚未推送的滚动条修复提交。
 - 最新版本：0.5.2（标签 `v0.5.2`）；在 0.5.1 基础上新增全应用滚动条自动隐藏，滚动或悬停时显示，空闲后淡出；补齐 Popup、折叠面板、ContentDialog 和延迟生成模板的挂载，并隔离嵌套 ScrollViewer 的滚动条归属。
-- 测试：Debug x64 191 项全部通过（0 失败、0 跳过，2026-08-13）。阶段 0 拆分后分布在两个项目：`Kkindle.Tests` 163 项（`net8.0`，可跨平台）+ `Kkindle.Tests.Windows` 28 项（`net8.0-windows`，WPD/MTP 设备测试）。
+- 测试：Debug x64 191 项全部通过（0 失败、0 跳过，2026-08-14）。阶段 0 拆分后分布在两个项目：`Kkindle.Tests` 163 项（`net8.0`，可跨平台）+ `Kkindle.Tests.Windows` 28 项（`net8.0-windows`，WPD/MTP 设备测试）。
 - 本地最近完整测试包（2026-08-12 19:36，版本 `0.5.0-test.1`，由 `685ab20` 发布；内置 Calibre 运行时与 KFX Input 插件，启动/关闭验证通过；如需包含 0.5.2 改动请重新发布）：
   - exe：`artifacts\Kkindle-0.5.0-test.1\Kkindle-0.5.0-test.1-win-x64\Kkindle.exe`
   - 便携包：`artifacts\Kkindle-0.5.0-test.1\Kkindle-0.5.0-test.1-win-x64-portable.zip`
 - 常规发布目录：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\`（其中 exe 仍是 2026-08-10 基线，如需随最新提交刷新请重新发布）。
 - 真机验证：Kindle Scribe（MTP）EPUB 发送/扫描/删除闭环、64 MiB 大文件传输、设备字体/字典读写均已验收，设备端无测试残留。
 - 开发约定：代码修改必须能编译；每次发布 EXE 只创建一个对应 Git 提交；文档随代码一并提交。
-- 已启动 WinUI 3 → Avalonia 迁移（Windows 优先，架构上预留 Linux/Mac），计划与进度见第 10 节；当前处于阶段 2（本地书库），WinUI 版继续保留，阶段 3 从 Kindle 设备/阅读资料等页面迁移开始。
+- 已启动 WinUI 3 → Avalonia 迁移（Windows 优先，架构上预留 Linux/Mac），计划与进度见第 10 节；当前处于阶段 3 收尾，WinUI 版继续保留。
 
 ## 1. 项目目标与技术路线
 
@@ -181,7 +181,7 @@ powershell -ExecutionPolicy Bypass -File scripts\Build-Release.ps1 `
 
 ## 10. 跨平台迁移计划（Avalonia）
 
-> 状态：**阶段 0、1、2 已完成，阶段 3 待开始**。目标是把 UI 层从 WinUI 3 换成 Avalonia，先在 Windows 上达到功能对等，同时把平台相关代码隔离干净，使后续接 Linux/Mac 只需新增平台实现、不改业务代码。
+> 状态：**阶段 0、1、2 已完成，阶段 3 正在收尾**。目标是把 UI 层从 WinUI 3 换成 Avalonia，先在 Windows 上达到功能对等，同时把平台相关代码隔离干净，使后续接 Linux/Mac 只需新增平台实现、不改业务代码。
 >
 > 本阶段**不交付** Linux/Mac 可运行版本，只交付「Windows 上的 Avalonia 版 + 已隔离的扩展点」。
 
@@ -319,9 +319,21 @@ WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost`
 
 阶段 2 已完成（2026-08-13）：Avalonia 本地书库已落地到 `Kkindle.App`。当前实现包含本地 SQLite 初始化、文件/文件夹导入（EPUB/PDF/MOBI/AZW3）、搜索与作者/标签/格式/分类/阅读状态/收藏/排序筛选、书架/列表/收藏夹三视图、详情元数据编辑保存、收藏与阅读状态操作、动态右键菜单、Ctrl 多选与批量删除、格式打开/删除、Calibre 格式转换入口、豆瓣元数据匹配入口、收藏夹创建/删除/归属切换，以及 Avalonia `StorageProvider` 文件选择器。WinUI 版本保持不变；阶段 2 的“打开书籍”暂时使用系统默认程序，内置 Kreader 留给阶段 4。
 
-阶段 2 验收：`dotnet build Kkindle.sln -c Debug -p:Platform=x64 --no-restore` 通过且 0 警告/0 错误；`dotnet test Kkindle.sln -c Debug -p:Platform=x64 --no-build` 通过 191/191；Windows Avalonia 启动检查保持运行 5 秒后正常退出检查进程。下一步进入阶段 3（Kindle 设备/阅读资料/Z-Library/设置/备份等页面迁移）。
+阶段 2 验收：`dotnet build Kkindle.sln -c Debug -p:Platform=x64 --no-restore` 通过且 0 警告/0 错误；`dotnet test Kkindle.sln -c Debug -p:Platform=x64 --no-build` 通过 191/191；Windows Avalonia 启动检查保持运行 5 秒后正常退出检查进程。阶段 3 已在同一 Avalonia 主窗口中继续落地。
 
 **阶段 3：Kindle 设备 / 阅读资料 / Z-Library / 设置 / 备份 — 约 1.5-2 周**
+
+阶段 3 Avalonia 进度（2026-08-14）：
+
+- [x] Windows 启动头注入 `IKindleDeviceService` 与 `ISecretProtector`；关闭时停止设备轮询计时器。
+- [x] Kindle 书库页：设备检测、书库扫描、发送到 Kindle、导出、删除、安全弹出及设备状态栏。
+- [x] Kindle 字体/字典页：目录扫描、导入、导出、删除，并显示路径安全策略。
+- [x] 阅读资料页：本地划线/批注 + Kindle 剪贴汇总、来源筛选、全文搜索、删除和 Markdown 导出；筛选使用独立未过滤集合，重复筛选不会丢数据。
+- [x] Z-Library 页：格式/语言筛选、分页搜索、详情、下载并导入本地书库；设置页接入账号加密保存与验证。
+- [x] 设置与备份页：默认格式、Calibre、网络/自动检测开关、备份导入导出、本地字体/字典、Kindle 邮箱配置；书籍详情提供发送到 Kindle 邮箱入口。
+- [x] 修复 Avalonia XAML 初始化期间 `TextChanged`/`SelectionChanged` 提前触发导致的启动崩溃，并完成启动稳定性验证。
+
+阶段 3 验收（2026-08-14）：`dotnet build Kkindle.sln -c Debug -p:Platform=x64 --no-restore` 通过（0 警告/0 错误）；`dotnet test Kkindle.sln -c Debug -p:Platform=x64 --no-build` 通过 191/191；Windows Avalonia EXE 启动后保持运行 8 秒正常。尚未在本轮连接真实 Kindle、调用真实 Z-Library 或发送真实 SMTP 邮件，需人工验收这些外部依赖闭环。
 
 `MainWindow.KindleTransfer.cs`、`.DeviceResources.cs`、`.DeviceBookExport.cs`、`.ReadingMaterials.cs`、`.ZLibrary.cs`、`.Backup.cs`、`.KindleEmail.cs`、`.Productivity.cs`。自绘控件改用 Avalonia `Control.Render(DrawingContext)`：`MonochromeBarChart`、`RectangularProgressBar`、`TetrisDownloadVisual`；`MarkdownRichTextBlock` 改用 `SelectableTextBlock.Inlines`。
 

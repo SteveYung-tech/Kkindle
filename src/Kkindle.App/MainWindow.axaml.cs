@@ -20,6 +20,20 @@ public partial class MainWindow : Window
     private readonly IBookLibraryService _library;
     private readonly IBookFormatConverter _formatConverter;
     private readonly DoubanMetadataService _douban;
+    private readonly IKindleDeviceService? _kindle;
+    private readonly ISecretProtector _secretProtector;
+    private readonly AppBackupService _backupService;
+    private readonly AppSettingsStore _appSettingsStore;
+    private readonly FontLibraryService _fontLibrary;
+    private readonly DictionaryService _dictionaryService;
+    private readonly ReaderDataService _readerData;
+    private readonly ZLibraryService _zLibraryService;
+    private readonly ZLibrarySettingsStore _zLibrarySettingsStore;
+    private readonly KindleEmailSettingsStore _kindleEmailSettingsStore;
+    private readonly KindleEmailSender _kindleEmailSender;
+    private AppSettings _appSettings = new();
+    private ZLibrarySettings _zLibrarySettings = new();
+    private KindleEmailSettings _kindleEmailSettings = new();
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private bool _filterControlsReady;
     private bool _updatingFilterControls;
@@ -45,12 +59,24 @@ public partial class MainWindow : Window
         AppPaths paths,
         IBookLibraryService library,
         IBookFormatConverter? formatConverter = null,
-        DoubanMetadataService? douban = null)
+        DoubanMetadataService? douban = null,
+        AppServices? services = null)
     {
         _paths = paths;
         _library = library;
         _formatConverter = formatConverter ?? new BookFormatConversionService();
         _douban = douban ?? new DoubanMetadataService();
+        _kindle = services?.KindleDeviceService;
+        _secretProtector = services?.SecretProtector ?? new PlaintextSecretProtector();
+        _backupService = new AppBackupService(paths, _secretProtector);
+        _appSettingsStore = new AppSettingsStore(paths);
+        _fontLibrary = new FontLibraryService(paths);
+        _dictionaryService = new DictionaryService(paths);
+        _readerData = new ReaderDataService(paths);
+        _zLibraryService = new ZLibraryService();
+        _zLibrarySettingsStore = new ZLibrarySettingsStore(paths, _secretProtector);
+        _kindleEmailSettingsStore = new KindleEmailSettingsStore(paths, _secretProtector);
+        _kindleEmailSender = new KindleEmailSender();
         ViewModel = new LibraryViewModel(library, paths.Data);
 
         InitializeComponent();
@@ -59,6 +85,7 @@ public partial class MainWindow : Window
         UpdateMaximizeGlyph();
         SetLibraryViewMode(LibraryViewMode.Grid);
         UpdateLibraryUi();
+        ConfigureStage3Timer();
     }
 
     public LibraryViewModel ViewModel { get; }
@@ -78,6 +105,7 @@ public partial class MainWindow : Window
         {
             SetTaskStatus("正在准备本地书库…");
             await _library.InitializeAsync(_lifetimeCancellation.Token);
+            await InitializeStage3Async(_lifetimeCancellation.Token);
             await ViewModel.RefreshAsync(_lifetimeCancellation.Token);
             SetupFilterControls();
             await RefreshCollectionsAsync();
@@ -118,11 +146,19 @@ public partial class MainWindow : Window
             new DoubanMetadataService());
     }
 
+    private sealed class PlaintextSecretProtector : ISecretProtector
+    {
+        public byte[] Protect(byte[] value) => value.ToArray();
+        public byte[] Unprotect(byte[] value) => value.ToArray();
+    }
+
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
+        _stage3Timer.Stop();
         _lifetimeCancellation.Cancel();
         _lifetimeCancellation.Dispose();
         _douban.Dispose();
+        _zLibraryService.Dispose();
         foreach (var card in ViewModel.Books)
             card.CoverImage?.Dispose();
         foreach (var folder in CollectionFolders)
