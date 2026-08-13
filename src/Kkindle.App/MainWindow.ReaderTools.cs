@@ -864,6 +864,7 @@ public sealed partial class MainWindow
         ReaderTocSearchBox.PlaceholderText = "搜索整本书…";
         ReaderTocSearchBox.Visibility = Visibility.Visible;
         ReaderTocSearchBox.Text = _readerSearchQuery;
+        QueueScrollbarAutoHideRefresh(ReaderSearchPanel);
         ShowReaderSearchStatus(string.IsNullOrWhiteSpace(_readerSearchQuery)
             ? "输入关键词，实时搜索整本书。"
             : "正在本地搜索…");
@@ -1002,6 +1003,7 @@ public sealed partial class MainWindow
         ReaderSearchStatusText.Text = message ?? string.Empty;
         ReaderSearchStatusText.Visibility = message is null ? Visibility.Collapsed : Visibility.Visible;
         ReaderSearchResultList.Visibility = message is null ? Visibility.Visible : Visibility.Collapsed;
+        QueueScrollbarAutoHideRefresh(ReaderSearchPanel);
     }
 
     private void ReaderSearchHighlightedText_Loaded(object sender, RoutedEventArgs e)

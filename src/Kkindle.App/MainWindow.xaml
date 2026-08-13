@@ -3624,10 +3624,12 @@
                                       Grid.Row="2"
                                       SelectionMode="None"
                                       ScrollViewer.HorizontalScrollMode="Disabled"
-                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="local:ReaderSearchResultItem">
                                         <Button Padding="0"
+                                                Margin="0,0,8,0"
                                                 BorderThickness="1"
                                                 BorderBrush="{x:Bind ResultBorderBrush, Mode=OneWay}"
                                                 Background="Transparent"
@@ -3712,12 +3714,14 @@
                     </StackPanel>
 
                     <Border Grid.Row="5"
-                            Margin="10,6"
+                            Margin="0"
                             BorderBrush="#000000"
                             BorderThickness="1"
                             CornerRadius="0">
                         <Button Content="返回书架"
                                 Margin="0"
+                                Height="48"
+                                VerticalAlignment="Stretch"
                                 HorizontalAlignment="Stretch"
                                 BorderThickness="0"
                                 Style="{StaticResource ReaderToolbarButtonStyle}"
