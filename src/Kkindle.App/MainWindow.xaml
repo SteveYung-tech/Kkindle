@@ -3651,7 +3651,7 @@
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="local:ReaderSearchResultItem">
                                         <Button Padding="0"
-                                                Margin="0"
+                                                Margin="0,0,14,0"
                                                 BorderThickness="0.5"
                                                 BorderBrush="{x:Bind ResultBorderBrush, Mode=OneWay}"
                                                 Background="Transparent"
