@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Kkindle.Core;
+using Kkindle.Infrastructure;
 
 namespace Kkindle;
 
@@ -34,7 +35,14 @@ public partial class App : Application
     public override void OnFrameworkInitializationCompleted()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-            desktop.MainWindow = new MainWindow();
+        {
+            var applicationDirectory = AppContext.BaseDirectory;
+            var paths = new AppPaths(AppRootConfiguration.ResolveRoot(applicationDirectory));
+            var library = new SqliteBookLibraryService(paths, new BookMetadataService());
+            var window = new MainWindow(paths, library);
+            desktop.MainWindow = window;
+            _ = window.InitializeLibraryAsync();
+        }
 
         base.OnFrameworkInitializationCompleted();
     }

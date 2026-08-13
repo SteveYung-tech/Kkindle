@@ -2,26 +2,37 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
+        xmlns:local="using:Kkindle"
+        xmlns:core="using:Kkindle.Core"
+        mc:Ignorable="d"
+        d:DesignWidth="1440"
+        d:DesignHeight="900"
         x:Class="Kkindle.MainWindow"
+        x:DataType="local:MainWindow"
         Title="Kkindle"
-        Width="1280" Height="800"
+        Width="1440"
+        Height="900"
+        MinWidth="1000"
+        MinHeight="640"
         Background="{StaticResource PaperBrush}"
         WindowDecorations="None"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="-1">
 
     <Grid RowDefinitions="38,*">
-
-        <!-- Self-drawn title bar. The drag strip fills the leftover width so the
-             window can be moved by grabbing anywhere that is not a button, and
-             double-clicking it toggles maximise, matching the system behaviour
-             the extended client area removed. -->
+        <!-- Self-drawn square title bar. -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Background="{StaticResource PaperBrush}">
-            <Border x:Name="TitleBarDragRegion"
-                    Grid.Column="0"
-                    Background="Transparent"
-                    PointerPressed="TitleBarDragRegion_PointerPressed" />
+            <Grid Grid.Column="0">
+                <Border x:Name="TitleBarDragRegion"
+                        Background="Transparent"
+                        PointerPressed="TitleBarDragRegion_PointerPressed" />
+                <TextBlock Text="Kkindle"
+                           Margin="16,0,0,0"
+                           VerticalAlignment="Center"
+                           FontSize="14"
+                           FontWeight="Bold"
+                           IsHitTestVisible="False" />
+            </Grid>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="0">
                 <Button x:Name="MinimizeWindowButton"
@@ -45,10 +56,467 @@
             </StackPanel>
         </Grid>
 
-        <TextBlock Grid.Row="1"
-                   Text="Kkindle · Avalonia 迁移骨架"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   Foreground="{StaticResource InkBrush}" />
+        <Grid x:Name="LibraryRoot"
+              Grid.Row="1"
+              ColumnDefinitions="190,*,360"
+              Background="{StaticResource PaperBrush}">
+            <!-- Left navigation -->
+            <Border Grid.Column="0"
+                    Background="{StaticResource PaperBrush}"
+                    BorderBrush="{StaticResource HairlineBrush}"
+                    BorderThickness="0,0,1,0">
+                <Grid RowDefinitions="Auto,*,Auto" Margin="14,18,14,14">
+                    <StackPanel Spacing="3">
+                        <TextBlock Text="书库"
+                                   FontSize="11"
+                                   Foreground="#777777" />
+                        <TextBlock Text="Kkindle"
+                                   FontSize="24"
+                                   FontWeight="Bold" />
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="1"
+                                  Margin="0,22,0,14"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Spacing="5">
+                            <Button x:Name="AllBooksButton"
+                                    Content="电脑书库"
+                                    HorizontalContentAlignment="Left"
+                                    Padding="12,9"
+                                    Click="ShowAllBooksButton_Click" />
+                            <Button Content="Kindle 书库"
+                                    HorizontalContentAlignment="Left"
+                                    Padding="12,9"
+                                    IsEnabled="False" />
+                            <Button Content="阅读资料"
+                                    HorizontalContentAlignment="Left"
+                                    Padding="12,9"
+                                    IsEnabled="False" />
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="2" Spacing="8">
+                        <Border BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,1,0,0" Padding="0,12,0,0">
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="本地书库"
+                                           FontSize="11"
+                                           Foreground="#777777" />
+                                <TextBlock Text="{Binding ViewModel.StatusText}"
+                                           TextWrapping="Wrap"
+                                           FontSize="11" />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Text="阶段 2 · 书库迁移"
+                                   FontSize="10"
+                                   Foreground="#777777" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Local library -->
+            <Grid Grid.Column="1"
+                  Margin="26,20,24,14"
+                  RowDefinitions="Auto,Auto,Auto,*,Auto">
+                <StackPanel Spacing="3">
+                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        <Border Background="{StaticResource InkBrush}" Padding="7,3" VerticalAlignment="Center">
+                            <TextBlock Text="本地" Foreground="{StaticResource PaperBrush}" FontSize="11" FontWeight="Bold" />
+                        </Border>
+                        <TextBlock Text="电脑书库" FontSize="27" FontWeight="Bold" />
+                    </StackPanel>
+                    <TextBlock x:Name="LibrarySummaryText"
+                               Text="{Binding ViewModel.StatusText}"
+                               FontSize="12"
+                               Foreground="#666666" />
+                </StackPanel>
+
+                <Grid Grid.Row="1" Margin="0,20,0,12" ColumnDefinitions="*,Auto">
+                    <TextBox x:Name="SearchBox"
+                             Height="38"
+                             Padding="12,7"
+                             PlaceholderText="搜索标题、作者或标签"
+                             Text="{Binding ViewModel.SearchText, Mode=TwoWay}"
+                             TextChanged="SearchBox_TextChanged" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="7" Margin="10,0,0,0">
+                        <Button x:Name="FilterButton" Content="筛选" Padding="13,7" Click="FilterButton_Click" />
+                        <Button x:Name="GridViewButton" Content="网格" Padding="13,7" Click="GridViewButton_Click" />
+                        <Button x:Name="ListViewButton" Content="列表" Padding="13,7" Click="ListViewButton_Click" />
+                        <Button x:Name="CollectionViewButton" Content="收藏夹" Padding="13,7" Click="CollectionViewButton_Click" />
+                        <Button x:Name="ImportButton" Content="导入" Padding="13,7" Click="ImportFilesButton_Click" />
+                        <Button x:Name="ImportFolderButton" Content="导入文件夹" Padding="13,7" Click="ImportFolderButton_Click" />
+                    </StackPanel>
+                </Grid>
+
+                <Border x:Name="FilterPanel"
+                        Grid.Row="2"
+                        Margin="0,0,0,12"
+                        Padding="10"
+                        BorderBrush="{StaticResource InkBrush}"
+                        BorderThickness="1"
+                        IsVisible="False">
+                    <Grid ColumnDefinitions="*,*,*,*,*,Auto,*,Auto" ColumnSpacing="7">
+                        <ComboBox x:Name="AuthorFilterBox" PlaceholderText="作者" SelectionChanged="FilterComboBox_SelectionChanged" />
+                        <ComboBox x:Name="TagFilterBox" Grid.Column="1" PlaceholderText="标签" SelectionChanged="FilterComboBox_SelectionChanged" />
+                        <ComboBox x:Name="FormatFilterBox" Grid.Column="2" PlaceholderText="格式" SelectionChanged="FilterComboBox_SelectionChanged" />
+                        <ComboBox x:Name="CategoryFilterBox" Grid.Column="3" PlaceholderText="分类" SelectionChanged="FilterComboBox_SelectionChanged" />
+                        <ComboBox x:Name="ReadingStatusFilterBox" Grid.Column="4" PlaceholderText="状态" SelectionChanged="FilterComboBox_SelectionChanged" />
+                        <CheckBox x:Name="FavoritesOnlyCheckBox"
+                                  Grid.Column="5"
+                                  Content="仅收藏"
+                                  VerticalAlignment="Bottom"
+                                  Margin="0,0,0,7"
+                                  Click="FavoritesOnlyCheckBox_Click" />
+                        <ComboBox x:Name="LibrarySortBox" Grid.Column="6" PlaceholderText="排序" MinWidth="110" SelectionChanged="FilterComboBox_SelectionChanged" />
+                        <Button Grid.Column="7" VerticalAlignment="Bottom" Content="清除筛选" Click="ClearFiltersButton_Click" />
+                    </Grid>
+                </Border>
+
+                <Grid x:Name="LibraryContentHost" Grid.Row="3" RowDefinitions="Auto,*">
+                    <Border x:Name="CollectionHeader"
+                            Padding="0,0,0,10"
+                            BorderBrush="{StaticResource InkBrush}"
+                            BorderThickness="0,0,0,1"
+                            IsVisible="False">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Content="返回全部书籍" Padding="10,5" Click="ShowAllBooksButton_Click" />
+                            <TextBlock x:Name="ActiveCollectionTitleText" VerticalAlignment="Center" FontSize="18" FontWeight="SemiBold" />
+                            <Button x:Name="CreateCollectionButton" Content="新建收藏夹" Padding="10,5" Click="CreateCollectionButton_Click" />
+                        </StackPanel>
+                    </Border>
+
+                    <Grid Grid.Row="1">
+                        <ListBox x:Name="BookGrid"
+                                 ItemsSource="{Binding ViewModel.Books}"
+                                 SelectionMode="Multiple"
+                                 SelectionChanged="BookList_SelectionChanged"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal" ItemWidth="174" ItemHeight="276" />
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="local:BookCardViewModel">
+                                    <Border Width="164"
+                                            Height="266"
+                                            Margin="5"
+                                            Padding="0"
+                                            Background="{StaticResource PaperBrush}"
+                                            BorderBrush="{StaticResource HairlineBrush}"
+                                            BorderThickness="1"
+                                            ContextRequested="BookCard_ContextRequested"
+                                            DoubleTapped="BookCard_DoubleTapped">
+                                        <Grid RowDefinitions="182,*,Auto">
+                                            <Border Grid.Row="0" Background="#F2F2F2">
+                                                <Grid>
+                                                    <Image Source="{Binding CoverImage}" Stretch="UniformToFill" />
+                                                    <TextBlock Text="无封面"
+                                                               HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center"
+                                                               Foreground="#8A8A8A"
+                                                               IsHitTestVisible="False" />
+                                                    <Border HorizontalAlignment="Left"
+                                                            VerticalAlignment="Top"
+                                                            Background="{StaticResource InkBrush}"
+                                                            Padding="6,3">
+                                                        <TextBlock Text="{Binding ReadingStatusLabel}"
+                                                                   Foreground="{StaticResource PaperBrush}"
+                                                                   FontSize="10" />
+                                                    </Border>
+                                                </Grid>
+                                            </Border>
+                                            <StackPanel Grid.Row="1" Margin="9,8,9,0" Spacing="2">
+                                                <TextBlock Text="{Binding Title}"
+                                                           FontSize="14"
+                                                           FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding Authors}"
+                                                           FontSize="11"
+                                                           Foreground="#666666"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Row="2"
+                                                       Margin="9,4,9,8"
+                                                       Text="{Binding FileSummaryLabel}"
+                                                       FontSize="10"
+                                                       Foreground="#777777"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <ListBox x:Name="BookList"
+                                 ItemsSource="{Binding ViewModel.Books}"
+                                 SelectionMode="Multiple"
+                                 SelectionChanged="BookList_SelectionChanged"
+                                 IsVisible="False"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel />
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="local:BookCardViewModel">
+                                    <Border Margin="0,0,0,7"
+                                            Padding="10"
+                                            Background="{StaticResource PaperBrush}"
+                                            BorderBrush="{StaticResource HairlineBrush}"
+                                            BorderThickness="1"
+                                            ContextRequested="BookCard_ContextRequested"
+                                            DoubleTapped="BookCard_DoubleTapped">
+                                        <Grid ColumnDefinitions="64,*,Auto" ColumnSpacing="12">
+                                            <Border Width="64" Height="78" Background="#F2F2F2">
+                                                <Image Source="{Binding CoverImage}" Stretch="UniformToFill" />
+                                            </Border>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="4">
+                                                <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" />
+                                                <TextBlock Text="{Binding Authors}" Foreground="#666666" />
+                                                <TextBlock Text="{Binding FileSummaryLabel}" FontSize="11" Foreground="#777777" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="4">
+                                                <TextBlock Text="{Binding ReadingStateLabel}" FontSize="11" HorizontalAlignment="Right" />
+                                                <Button Tag="{Binding}" Content="打开" Padding="10,5" Click="OpenCardButton_Click" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <ScrollViewer x:Name="CollectionScroll"
+                                      IsVisible="False"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="CollectionList" ItemsSource="{Binding CollectionFolders}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal" ItemWidth="226" ItemHeight="246" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="local:BookCollectionFolderViewModel">
+                                        <Border Width="216" Height="236" Margin="5" Padding="10" Background="{StaticResource PaperBrush}" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1">
+                                            <Grid RowDefinitions="*,Auto,Auto" RowSpacing="7">
+                                                <Button Grid.Row="0" Tag="{Binding}" Background="Transparent" BorderThickness="0" Padding="0" Click="CollectionFolderButton_Click">
+                                                    <Grid RowDefinitions="*,Auto">
+                                                        <Grid Grid.Row="0" ColumnDefinitions="*,*,*" Background="#F2F2F2">
+                                                            <Image Source="{Binding Cover1}" Stretch="UniformToFill" />
+                                                            <Image Grid.Column="1" Source="{Binding Cover2}" Stretch="UniformToFill" />
+                                                            <Image Grid.Column="2" Source="{Binding Cover3}" Stretch="UniformToFill" />
+                                                        </Grid>
+                                                        <TextBlock Grid.Row="1" Text="暂无封面预览" HorizontalAlignment="Center" Foreground="#8A8A8A" IsVisible="False" />
+                                                    </Grid>
+                                                </Button>
+                                                <TextBlock Grid.Row="1" Text="{Binding Name}" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+                                                    <TextBlock Text="{Binding BookCountLabel}" FontSize="11" Foreground="#777777" VerticalAlignment="Center" />
+                                                    <Button Grid.Column="1" Tag="{Binding}" Content="删除" Padding="8,4" Click="DeleteCollectionButton_Click" />
+                                                </Grid>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <Border x:Name="EmptyLibraryState"
+                                IsVisible="False"
+                                Background="{StaticResource PaperBrush}"
+                                BorderBrush="{StaticResource HairlineBrush}"
+                                BorderThickness="1"
+                                Margin="5"
+                                Padding="28">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="9">
+                                <TextBlock x:Name="EmptyLibraryTitleText" Text="电脑书库还是空的" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" />
+                                <TextBlock x:Name="EmptyLibraryMessageText" Text="导入 EPUB、PDF、MOBI 或 AZW3 文件开始阅读。" Foreground="#666666" HorizontalAlignment="Center" />
+                                <Button Content="导入书籍" Padding="16,8" HorizontalAlignment="Center" Click="ImportFilesButton_Click" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <Border x:Name="MultiSelectionBar"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Bottom"
+                            Margin="0,0,0,16"
+                            Padding="14,8"
+                            Background="{StaticResource PaperBrush}"
+                            BorderBrush="{StaticResource InkBrush}"
+                            BorderThickness="2"
+                            IsVisible="False"
+                            ZIndex="20">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock x:Name="MultiSelectionText" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <Button x:Name="DeleteSelectedBooksButton" Content="删除所选" Padding="12,6" Click="DeleteSelectedBooksButton_Click" />
+                            <Button Content="取消选择" Padding="12,6" Click="ClearMultiSelectionButton_Click" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,10,0,0">
+                    <TextBlock x:Name="TaskStatusText" Text="准备就绪" FontSize="11" Foreground="#666666" VerticalAlignment="Center" />
+                    <ProgressBar x:Name="LibraryBusyProgress" Grid.Column="1" Width="120" Height="5" IsIndeterminate="True" IsVisible="False" />
+                </Grid>
+            </Grid>
+
+            <!-- Details panel -->
+            <Border Grid.Column="2"
+                    Background="{StaticResource PaperBrush}"
+                    BorderBrush="{StaticResource HairlineBrush}"
+                    BorderThickness="1,0,0,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="22,20,22,24" Spacing="10">
+                        <TextBlock Text="书籍详情" FontSize="20" FontWeight="Bold" />
+                        <Border Width="190" Height="240" HorizontalAlignment="Left" Background="#F2F2F2" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1">
+                            <Grid>
+                                <Image x:Name="DetailCoverImage" Stretch="UniformToFill" />
+                                <TextBlock x:Name="DetailCoverPlaceholder" Text="未选择书籍" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#8A8A8A" />
+                            </Grid>
+                        </Border>
+                        <TextBox x:Name="DetailTitleText" Text="请选择一本书" FontSize="22" FontWeight="Bold" TextWrapping="Wrap" PlaceholderText="书名" />
+                        <TextBox x:Name="DetailAuthorsText" Text="" Foreground="#666666" TextWrapping="Wrap" PlaceholderText="作者" />
+                        <TextBlock x:Name="DetailStateText" Text="" FontSize="11" />
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <Button x:Name="DetailDoubanButton" Content="豆瓣匹配" Padding="10,6" Click="DoubanMatchButton_Click" />
+                            <Button x:Name="DetailFavoriteButton" Content="加入收藏" Padding="10,6" Click="DetailFavoriteButton_Click" />
+                            <Button x:Name="DetailReadingStatusButton" Content="标记阅读" Padding="10,6" Click="DetailReadingStatusButton_Click" />
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="标签" FontSize="11" Foreground="#666666" />
+                            <TextBox x:Name="DetailTagsBox" PlaceholderText="多个标签用逗号分隔" />
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="分类" FontSize="11" Foreground="#666666" />
+                            <TextBox x:Name="DetailCategoryBox" PlaceholderText="例如：技术、文学" />
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="简介" FontSize="11" Foreground="#666666" />
+                            <TextBox x:Name="DetailDescriptionBox" MinHeight="90" AcceptsReturn="True" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="系列" FontSize="11" Foreground="#666666" />
+                            <TextBox x:Name="DetailSeriesBox" />
+                        </StackPanel>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="出版社" FontSize="11" Foreground="#666666" />
+                            <TextBox x:Name="DetailPublisherBox" />
+                        </StackPanel>
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="7">
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="出版日期" FontSize="11" Foreground="#666666" />
+                                <TextBox x:Name="DetailPublishDateBox" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="5">
+                                <TextBlock Text="ISBN" FontSize="11" Foreground="#666666" />
+                                <TextBox x:Name="DetailIsbnBox" />
+                            </StackPanel>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="7">
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="页数" FontSize="11" Foreground="#666666" />
+                                <TextBox x:Name="DetailPageCountBox" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="5">
+                                <TextBlock Text="装帧" FontSize="11" Foreground="#666666" />
+                                <TextBox x:Name="DetailBindingBox" />
+                            </StackPanel>
+                        </Grid>
+                        <Button x:Name="SaveDetailsButton" Content="保存书籍信息" Padding="12,7" Click="SaveDetailsButton_Click" />
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <Button Content="打开" Padding="13,7" Click="OpenSelectedBookButton_Click" />
+                            <Button Content="删除全部" Padding="13,7" Click="DeleteSelectedBookButton_Click" />
+                        </StackPanel>
+
+                        <Border BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,1,0,0" Padding="0,12,0,0">
+                            <StackPanel Spacing="7">
+                                <TextBlock Text="文件格式" FontSize="13" FontWeight="SemiBold" />
+                                <ItemsControl x:Name="DetailFiles">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="core:BookFile">
+                                            <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,2" ColumnSpacing="5">
+                                                <TextBlock Text="{Binding Format}" VerticalAlignment="Center" />
+                                                <Button Grid.Column="1" Content="打开" Tag="{Binding}" Padding="8,4" Click="OpenFileButton_Click" />
+                                                <Button Grid.Column="2" Content="删除" Tag="{Binding}" Padding="8,4" Click="DeleteFileButton_Click" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+
+                        <Border BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,1,0,0" Padding="0,12,0,0">
+                            <StackPanel Spacing="7">
+                                <TextBlock Text="收藏夹" FontSize="13" FontWeight="SemiBold" />
+                                <ComboBox x:Name="DetailCollectionBox" PlaceholderText="选择收藏夹" />
+                                <Button x:Name="CollectionMembershipButton" Content="加入收藏夹" Padding="10,6" Click="CollectionMembershipButton_Click" />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock x:Name="DetailOrganizationText" Text="" FontSize="11" Foreground="#666666" TextWrapping="Wrap" />
+                        <TextBlock x:Name="DetailPublicationText" Text="" FontSize="11" Foreground="#666666" TextWrapping="Wrap" />
+                        <TextBlock x:Name="DetailIdentifierText" Text="" FontSize="11" Foreground="#666666" TextWrapping="Wrap" />
+                        <TextBlock Text="简介" FontSize="13" FontWeight="SemiBold" Margin="0,5,0,0" />
+                        <TextBlock x:Name="DetailDescriptionText" Text="暂无简介" FontSize="12" Foreground="#555555" TextWrapping="Wrap" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!-- Confirmation overlay -->
+            <Grid x:Name="ConfirmationOverlay"
+                  Grid.ColumnSpan="3"
+                  Background="#66000000"
+                  IsVisible="False"
+                  ZIndex="100">
+                <Border Width="430"
+                        Padding="22"
+                        Background="{StaticResource PaperBrush}"
+                        BorderBrush="{StaticResource InkBrush}"
+                        BorderThickness="1"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                    <StackPanel Spacing="10">
+                        <TextBlock x:Name="ConfirmationTitleText" FontSize="18" FontWeight="Bold" />
+                        <TextBlock x:Name="ConfirmationMessageText" TextWrapping="Wrap" Foreground="#555555" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="7" Margin="0,8,0,0">
+                            <Button Content="取消" Padding="13,7" Click="ConfirmationCancelButton_Click" />
+                            <Button x:Name="ConfirmationOkButton" Content="确认删除" Padding="13,7" Click="ConfirmationOkButton_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Collection-name overlay -->
+            <Grid x:Name="CollectionNameOverlay"
+                  Grid.ColumnSpan="3"
+                  Background="#66000000"
+                  IsVisible="False"
+                  ZIndex="101">
+                <Border Width="430"
+                        Padding="22"
+                        Background="{StaticResource PaperBrush}"
+                        BorderBrush="{StaticResource InkBrush}"
+                        BorderThickness="1"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="新建收藏夹" FontSize="18" FontWeight="Bold" />
+                        <TextBox x:Name="CollectionNameBox" PlaceholderText="收藏夹名称" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="7" Margin="0,8,0,0">
+                            <Button Content="取消" Padding="13,7" Click="CollectionNameCancelButton_Click" />
+                            <Button Content="创建" Padding="13,7" Click="CollectionNameOkButton_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
     </Grid>
 </Window>

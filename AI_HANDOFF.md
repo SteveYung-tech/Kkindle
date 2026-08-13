@@ -6,6 +6,8 @@
 >
 > 项目目录：`C:\Users\kings\Desktop\01_Projects\Kkindle`
 
+> 当前迁移状态（2026-08-13）：Avalonia 阶段 2（本地书库）已完成。WinUI 版本仍保留并可独立构建；后续工作从阶段 3 开始。
+
 ## 0. 当前状态
 
 - 阶段：P0/P1/P2 全部完成；本地书库、Kreader 阅读器、阅读资料中心、Kindle 设备管理（USB/WPD/MTP）、格式转换、Z-Library、Kindle 邮件、备份/设置、AI 助手、安装包与 GitHub 自动发版均已实现并验证。
@@ -18,7 +20,7 @@
 - 常规发布目录：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\`（其中 exe 仍是 2026-08-10 基线，如需随最新提交刷新请重新发布）。
 - 真机验证：Kindle Scribe（MTP）EPUB 发送/扫描/删除闭环、64 MiB 大文件传输、设备字体/字典读写均已验收，设备端无测试残留。
 - 开发约定：代码修改必须能编译；每次发布 EXE 只创建一个对应 Git 提交；文档随代码一并提交。
-- 已启动 WinUI 3 → Avalonia 迁移（Windows 优先，架构上预留 Linux/Mac），计划与进度见第 10 节；当前处于阶段 0（结构重整），WinUI 版仍是唯一可运行版本，迁移期建议冻结新功能开发。
+- 已启动 WinUI 3 → Avalonia 迁移（Windows 优先，架构上预留 Linux/Mac），计划与进度见第 10 节；当前处于阶段 2（本地书库），WinUI 版继续保留，阶段 3 从 Kindle 设备/阅读资料等页面迁移开始。
 
 ## 1. 项目目标与技术路线
 
@@ -179,7 +181,7 @@ powershell -ExecutionPolicy Bypass -File scripts\Build-Release.ps1 `
 
 ## 10. 跨平台迁移计划（Avalonia）
 
-> 状态：**已规划，未开始**。目标是把 UI 层从 WinUI 3 换成 Avalonia，先在 Windows 上达到功能对等，同时把平台相关代码隔离干净，使后续接 Linux/Mac 只需新增平台实现、不改业务代码。
+> 状态：**阶段 0、1、2 已完成，阶段 3 待开始**。目标是把 UI 层从 WinUI 3 换成 Avalonia，先在 Windows 上达到功能对等，同时把平台相关代码隔离干净，使后续接 Linux/Mac 只需新增平台实现、不改业务代码。
 >
 > 本阶段**不交付** Linux/Mac 可运行版本，只交付「Windows 上的 Avalonia 版 + 已隔离的扩展点」。
 
@@ -314,6 +316,10 @@ WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost`
 **阶段 2：本地书库 — 约 1.5-2 周**
 
 `MainWindow.Library.cs` / `LibraryViewModel.cs` / `.Collections.cs` / `.Douban.cs` / `.BookConversion.cs` / `.BookOpening.cs`。含书架/列表/画廊三视图、右键菜单（约 60 处 `MenuFlyout`）、框选多选、黄金分割布局（`ApplyGoldenSidebarWidth`）。`FileOpenPicker` + `InitializeWithWindow`（`MainWindow.xaml.cs:1223`）→ Avalonia `StorageProvider`。
+
+阶段 2 已完成（2026-08-13）：Avalonia 本地书库已落地到 `Kkindle.App`。当前实现包含本地 SQLite 初始化、文件/文件夹导入（EPUB/PDF/MOBI/AZW3）、搜索与作者/标签/格式/分类/阅读状态/收藏/排序筛选、书架/列表/收藏夹三视图、详情元数据编辑保存、收藏与阅读状态操作、动态右键菜单、Ctrl 多选与批量删除、格式打开/删除、Calibre 格式转换入口、豆瓣元数据匹配入口、收藏夹创建/删除/归属切换，以及 Avalonia `StorageProvider` 文件选择器。WinUI 版本保持不变；阶段 2 的“打开书籍”暂时使用系统默认程序，内置 Kreader 留给阶段 4。
+
+阶段 2 验收：`dotnet build Kkindle.sln -c Debug -p:Platform=x64 --no-restore` 通过且 0 警告/0 错误；`dotnet test Kkindle.sln -c Debug -p:Platform=x64 --no-build` 通过 191/191；Windows Avalonia 启动检查保持运行 5 秒后正常退出检查进程。下一步进入阶段 3（Kindle 设备/阅读资料/Z-Library/设置/备份等页面迁移）。
 
 **阶段 3：Kindle 设备 / 阅读资料 / Z-Library / 设置 / 备份 — 约 1.5-2 周**
 
