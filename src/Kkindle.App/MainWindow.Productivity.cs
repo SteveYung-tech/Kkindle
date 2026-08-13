@@ -60,6 +60,7 @@ public sealed partial class MainWindow
             AutoConnectDeviceCheck.IsOn = _appSettings.AutoConnectDevice;
             CompareKindleLibraryCheck.IsOn = _appSettings.CompareKindleLibraryEnabled;
             GridGalleryDisplayCheck.IsOn = _appSettings.GridGalleryDisplay;
+            ReadingMaterialsCollapsedByDefaultCheck.IsOn = _appSettings.ReadingMaterialsCollapsedByDefault;
             var version = typeof(MainWindow).Assembly.GetName().Version;
             AboutVersionText.Text = version is null ? "版本未知" : $"版本 {version.ToString(3)}";
             DefaultFontScaleBox.Value = _appSettings.DefaultReaderLayout.FontScale;
@@ -87,6 +88,7 @@ public sealed partial class MainWindow
         AutoGenerateReaderFormatsCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
         CompareKindleLibraryCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
         GridGalleryDisplayCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
+        ReadingMaterialsCollapsedByDefaultCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
         AutoConnectDeviceCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
         DefaultVerticalWritingCheck.Toggled += (_, _) => ScheduleAppSettingsAutoSave();
         PreferredOpenFormatBox.SelectionChanged += (_, _) => ScheduleAppSettingsAutoSave();
@@ -136,6 +138,7 @@ public sealed partial class MainWindow
                 AutoConnectDevice = AutoConnectDeviceCheck.IsOn,
                 CompareKindleLibraryEnabled = CompareKindleLibraryCheck.IsOn,
                 GridGalleryDisplay = GridGalleryDisplayCheck.IsOn,
+                ReadingMaterialsCollapsedByDefault = ReadingMaterialsCollapsedByDefaultCheck.IsOn,
                 DefaultReaderLayout = new ReaderLayoutSettings(
                     DefaultFontScaleBox.Value,
                     DefaultLineHeightBox.Value,
@@ -149,6 +152,7 @@ public sealed partial class MainWindow
             await _appSettingsStore.SaveAsync(_appSettings);
             ApplyAppSettingsToRuntime();
             ApplyLibraryGalleryDisplay();
+            ApplyReadingMaterialExpansionPreference();
             ReconcileLibraryPresence();
             ShowSettingsSavedStatus();
             if (autoConnectChanged && _appSettings.AutoConnectDevice)

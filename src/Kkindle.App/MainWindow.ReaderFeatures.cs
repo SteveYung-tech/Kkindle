@@ -533,6 +533,9 @@ public sealed partial class MainWindow
                 id = annotation.Id.ToString("N"),
                 startOffset = annotation.StartOffset,
                 endOffset = annotation.EndOffset,
+                quote = annotation.SelectedText,
+                prefix = annotation.Prefix,
+                suffix = annotation.Suffix,
                 note = annotation.Note,
                 color = annotation.Color,
                 underlineStyle = annotation.UnderlineStyle
@@ -566,26 +569,87 @@ public sealed partial class MainWindow
                 }
                 return nodes;
               };
+              const buildTextIndex = nodes => {
+                const ranges = [];
+                let text = '';
+                for (const node of nodes) {
+                  const start = text.length;
+                  text += node.data;
+                  ranges.push({ node, start, end: text.length });
+                }
+                return { text, ranges };
+              };
+              const commonPrefixLength = (left, right) => {
+                const length = Math.min(left.length, right.length);
+                let index = 0;
+                while (index < length && left[index] === right[index]) index++;
+                return index;
+              };
+              const commonSuffixLength = (left, right) => {
+                const length = Math.min(left.length, right.length);
+                let index = 0;
+                while (index < length
+                  && left[left.length - index - 1] === right[right.length - index - 1]) index++;
+                return index;
+              };
+              const resolveAnnotationOffsets = (item, index) => {
+                const quote = item.quote || '';
+                const prefix = item.prefix || '';
+                const suffix = item.suffix || '';
+                let start = -1;
+                let end = -1;
+                if (quote.length > 0 && (prefix.length > 0 || suffix.length > 0)) {
+                  const context = prefix + quote + suffix;
+                  const contextStart = index.text.indexOf(context);
+                  if (contextStart >= 0) {
+                    start = contextStart + prefix.length;
+                    end = start + quote.length;
+                  } else {
+                    let candidate = index.text.indexOf(quote);
+                    let bestScore = 0;
+                    let bestStart = -1;
+                    while (candidate >= 0) {
+                      const before = index.text.slice(0, candidate);
+                      const after = index.text.slice(candidate + quote.length);
+                      const score = commonSuffixLength(before, prefix)
+                        + commonPrefixLength(after, suffix);
+                      if (score > bestScore) {
+                        bestScore = score;
+                        bestStart = candidate;
+                      }
+                      candidate = index.text.indexOf(
+                        quote,
+                        candidate + Math.max(1, quote.length));
+                    }
+                    if (bestStart >= 0) {
+                      start = bestStart;
+                      end = start + quote.length;
+                    }
+                  }
+                }
+                if (start < 0) {
+                  start = Math.max(0, item.startOffset || 0);
+                  end = Math.max(start, item.endOffset || start);
+                }
+                return end > start ? { start, end } : null;
+              };
 
               for (const item of annotations) {
-                let cursor = 0;
                 const segments = [];
                 const nodes = textNodes();
+                const index = buildTextIndex(nodes);
+                const offsets = resolveAnnotationOffsets(item, index);
                 lastNodeCount = nodes.length;
-                for (const node of nodes) {
-                  const nodeStart = cursor;
-                  const nodeEnd = cursor + node.data.length;
-                  if (item.startOffset < nodeEnd && item.endOffset > nodeStart) {
+                maxTextCursor = Math.max(maxTextCursor, index.text.length);
+                if (offsets) for (const range of index.ranges) {
+                  if (offsets.start < range.end && offsets.end > range.start) {
                     segments.push({
-                      node,
-                      start: Math.max(0, item.startOffset - nodeStart),
-                      end: Math.min(node.data.length, item.endOffset - nodeStart)
+                      node: range.node,
+                      start: Math.max(0, offsets.start - range.start),
+                      end: Math.min(range.node.data.length, offsets.end - range.start)
                     });
                   }
-                  cursor = nodeEnd;
-                  if (cursor >= item.endOffset) break;
                 }
-                maxTextCursor = Math.max(maxTextCursor, cursor);
                 if (segments.length > 0) matchedRanges++;
 
                 for (let index = segments.length - 1; index >= 0; index--) {

@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.Text;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
 
@@ -11,7 +13,8 @@ namespace Kkindle;
 public sealed partial class MainWindow
 {
     private readonly List<ReadingMaterialItemViewModel> _allReadingMaterials = [];
-    private ReadingMaterialItemViewModel? _selectedReadingMaterial;
+    private readonly HashSet<ReadingMaterialItemViewModel> _selectedReadingMaterials = [];
+    private readonly Dictionary<string, string> _readingMaterialCoverPaths = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _readingMaterialsCancellation;
     private string? _readingMaterialsDeviceId;
     private bool _readingMaterialsExportMode;
@@ -50,15 +53,27 @@ public sealed partial class MainWindow
         _readingMaterialsCancellation = new CancellationTokenSource();
         var cancellationToken = _readingMaterialsCancellation.Token;
         _allReadingMaterials.Clear();
-        _selectedReadingMaterial = null;
-        ReadingMaterialsList.SelectedItem = null;
-        LocateReadingMaterialButton.IsEnabled = false;
+        _readingMaterialCoverPaths.Clear();
+        _selectedReadingMaterials.Clear();
         DeleteReadingMaterialButton.IsEnabled = false;
         ReadingMaterialsStatusText.Text = "正在汇总阅读资料…";
         try
         {
             var books = await _library.SearchAsync(cancellationToken: cancellationToken);
             var bookMap = books.ToDictionary(book => book.Id);
+            foreach (var book in books)
+            {
+                if (string.IsNullOrWhiteSpace(book.CoverPath)) continue;
+                var coverPath = Path.GetFullPath(Path.Combine(_paths.Data, book.CoverPath));
+                if (File.Exists(coverPath))
+                    _readingMaterialCoverPaths[BuildReadingMaterialCoverKey(ReadingMaterialSource.Local, book.Title)] = coverPath;
+            }
+            foreach (var card in DeviceBooks)
+            {
+                var coverPath = card.Book.CoverPath;
+                if (!string.IsNullOrWhiteSpace(coverPath) && File.Exists(coverPath))
+                    _readingMaterialCoverPaths[BuildReadingMaterialCoverKey(ReadingMaterialSource.Kindle, card.Title)] = coverPath;
+            }
             foreach (var annotation in await _readerData.GetAllAnnotationsAsync(cancellationToken))
             {
                 var title = bookMap.TryGetValue(annotation.BookId, out var book) ? book.Title : "已删除的本地书籍";
@@ -67,6 +82,7 @@ public sealed partial class MainWindow
                     Source = ReadingMaterialSource.Local,
                     BookTitle = title,
                     TypeLabel = string.IsNullOrWhiteSpace(annotation.Note) ? "划线" : "划线与笔记",
+                    ChapterLabel = BuildLocalChapterLabel(annotation),
                     Location = BuildLocalMaterialLocation(annotation),
                     Quote = annotation.SelectedText,
                     Note = annotation.Note,
@@ -91,9 +107,11 @@ public sealed partial class MainWindow
                         Source = ReadingMaterialSource.Kindle,
                         BookTitle = clipping.BookTitle,
                         TypeLabel = clipping.TypeLabel,
+                        ChapterLabel = BuildKindleChapterLabel(clipping.Metadata),
                         Location = clipping.Metadata.TrimStart('-', ' '),
                         Quote = clipping.Type == KindleClippingType.Note ? string.Empty : clipping.Content,
                         Note = clipping.Type == KindleClippingType.Note ? clipping.Content : string.Empty,
+                        UpdatedAt = ParseKindleDate(clipping.Metadata),
                         KindleClipping = clipping
                     });
                 }
@@ -120,8 +138,60 @@ public sealed partial class MainWindow
         return $"{annotation.ChapterPath} · {annotation.StartOffset}-{annotation.EndOffset}";
     }
 
+    private static string BuildLocalChapterLabel(ReaderAnnotation annotation)
+    {
+        if (annotation.ChapterPath.StartsWith("pdf:", StringComparison.OrdinalIgnoreCase))
+            return $"PDF 第 {annotation.ChapterPath[4..]} 页";
+        return string.IsNullOrWhiteSpace(annotation.ChapterPath) ? "未指定章节" : annotation.ChapterPath;
+    }
+
+    private static string BuildKindleChapterLabel(string metadata)
+    {
+        var label = metadata.TrimStart('-', ' ');
+        var separator = label.IndexOf('|');
+        if (separator >= 0) label = label[..separator].Trim();
+        return string.IsNullOrWhiteSpace(label) ? "Kindle 位置未知" : label;
+    }
+
+    private static DateTimeOffset? ParseKindleDate(string metadata)
+    {
+        var separator = metadata.IndexOf('|');
+        var dateText = separator >= 0 ? metadata[(separator + 1)..] : metadata;
+        dateText = dateText
+            .Replace("Added on", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("添加于", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Trim(' ', '-', '：', ':');
+        if (dateText.Length == 0) return null;
+
+        var cultures = new[]
+        {
+            CultureInfo.CurrentCulture,
+            CultureInfo.GetCultureInfo("en-US"),
+            CultureInfo.GetCultureInfo("zh-CN")
+        };
+        foreach (var culture in cultures.Distinct())
+        {
+            if (DateTimeOffset.TryParse(
+                    dateText,
+                    culture,
+                    DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal,
+                    out var value))
+                return value;
+        }
+        return null;
+    }
+
+    private static string BuildReadingMaterialCoverKey(ReadingMaterialSource source, string bookTitle) =>
+        $"{source}\u001F{bookTitle}";
+
+    private string? GetReadingMaterialCoverPath(ReadingMaterialSource source, string bookTitle) =>
+        _readingMaterialCoverPaths.TryGetValue(BuildReadingMaterialCoverKey(source, bookTitle), out var path)
+            ? path
+            : null;
+
     private void ApplyReadingMaterialsFilter()
     {
+        _selectedReadingMaterials.Clear();
         var source = (ReadingMaterialsSourceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "all";
         var query = ReadingMaterialsSearchBox.Text.Trim();
         var filtered = _allReadingMaterials.Where(item =>
@@ -142,22 +212,27 @@ public sealed partial class MainWindow
                 .Select(bookGroup => new ReadingMaterialGroupViewModel(
                     sourceGroup.Key,
                     bookGroup.Key,
-                    bookGroup)))
+                    bookGroup,
+                    GetReadingMaterialCoverPath(sourceGroup.Key, bookGroup.Key))))
             .OrderByDescending(group => group.Max(item => item.UpdatedAt ?? DateTimeOffset.MinValue))
             .ThenBy(group => group.BookTitle, StringComparer.CurrentCultureIgnoreCase))
         {
+            group.IsExpanded = !_appSettings.ReadingMaterialsCollapsedByDefault;
             ReadingMaterialGroups.Add(group);
         }
-        var localCount = _allReadingMaterials.Count(item => item.Source == ReadingMaterialSource.Local);
-        var kindleCount = _allReadingMaterials.Count(item => item.Source == ReadingMaterialSource.Kindle);
-        ReadingMaterialsSummaryText.Text = _readingMaterialsExportMode
-            ? $"导出预览 · 本地 {localCount} 条 · Kindle {kindleCount} 条 · 当前将导出 {filtered.Length} 条"
-            : $"本地 {localCount} 条 · Kindle {kindleCount} 条 · 当前显示 {filtered.Length} 条";
         ReadingMaterialsExportScopeText.Text = $"当前筛选范围：{GetReadingMaterialsSourceLabel(source)} · 共 {filtered.Length} 条记录";
         ReadingMaterialsEmptyText.Visibility = filtered.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         ReadingMaterialsEmptyText.Text = _readingMaterialsExportMode
             ? "当前筛选范围没有可导出的阅读资料"
             : "没有符合条件的划线、笔记与批注";
+        UpdateReadingMaterialSelectionState();
+    }
+
+    private void ApplyReadingMaterialExpansionPreference()
+    {
+        var isExpanded = !_appSettings.ReadingMaterialsCollapsedByDefault;
+        foreach (var group in ReadingMaterialGroups)
+            group.IsExpanded = isExpanded;
     }
 
     private void ReadingMaterialsFilter_Changed(object sender, SelectionChangedEventArgs e)
@@ -170,27 +245,40 @@ public sealed partial class MainWindow
         if (ReadingMaterialsList is not null) ApplyReadingMaterialsFilter();
     }
 
-    private void ReadingMaterialsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void ReadingMaterialGroupList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        _selectedReadingMaterial = ReadingMaterialsList.SelectedItem as ReadingMaterialItemViewModel;
-        LocateReadingMaterialButton.IsEnabled = !_readingMaterialsExportMode
-            && _selectedReadingMaterial?.Source == ReadingMaterialSource.Local;
-        DeleteReadingMaterialButton.IsEnabled = !_readingMaterialsExportMode
-            && _selectedReadingMaterial is not null;
+        foreach (var item in e.RemovedItems.OfType<ReadingMaterialItemViewModel>())
+            _selectedReadingMaterials.Remove(item);
+        foreach (var item in e.AddedItems.OfType<ReadingMaterialItemViewModel>())
+            _selectedReadingMaterials.Add(item);
+        UpdateReadingMaterialSelectionState();
     }
 
-    private async void ReadingMaterialsList_ItemClick(object sender, ItemClickEventArgs e)
+    private void ReadingMaterialGroupToggleButton_Click(object sender, RoutedEventArgs e)
     {
-        if (e.ClickedItem is not ReadingMaterialItemViewModel item) return;
-        if (ReferenceEquals(_selectedReadingMaterial, item) && item.Source == ReadingMaterialSource.Local)
-            await LocateReadingMaterialAsync(item);
-        else
-            ReadingMaterialsList.SelectedItem = item;
+        if (sender is FrameworkElement { DataContext: ReadingMaterialGroupViewModel group })
+            group.IsExpanded = !group.IsExpanded;
     }
 
-    private async void LocateReadingMaterialButton_Click(object sender, RoutedEventArgs e)
+    private void UpdateReadingMaterialSelectionState()
     {
-        if (_selectedReadingMaterial is not null) await LocateReadingMaterialAsync(_selectedReadingMaterial);
+        foreach (var item in _allReadingMaterials)
+            item.IsSelected = _selectedReadingMaterials.Contains(item);
+
+        var selected = _selectedReadingMaterials.ToArray();
+        DeleteReadingMaterialButton.IsEnabled = !_readingMaterialsExportMode && selected.Length > 0;
+    }
+
+    private async void ReadingMaterialEntry_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        var item = (sender as FrameworkElement)?.DataContext switch
+        {
+            ReadingMaterialItemViewModel readingMaterial => readingMaterial,
+            ReadingMaterialGroupViewModel group => group.FirstItem,
+            _ => null
+        };
+        if (item is not null) await LocateReadingMaterialAsync(item);
     }
 
     private async Task LocateReadingMaterialAsync(ReadingMaterialItemViewModel item)
@@ -212,22 +300,33 @@ public sealed partial class MainWindow
 
     private async void DeleteReadingMaterialButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_selectedReadingMaterial is not { } item) return;
-        var kindle = item.Source == ReadingMaterialSource.Kindle;
-        var message = kindle
-            ? "将删除 Kindle 的 My Clippings.txt 中这条记录。此操作不会删除书籍内部或云端已同步的标注。"
-            : "将永久删除这条本地划线与笔记。";
+        var selected = _selectedReadingMaterials.ToArray();
+        if (selected.Length == 0) return;
+        if (selected.Any(item => item.Source == ReadingMaterialSource.Kindle) && _devices.Count == 0)
+        {
+            ReadingMaterialsStatusText.Text = "Kindle 未连接，无法删除所选 Kindle 记录。";
+            return;
+        }
+        var kindleCount = selected.Count(item => item.Source == ReadingMaterialSource.Kindle);
+        var message = selected.Length == 1
+            ? kindleCount == 1
+                ? "将删除 Kindle 的 My Clippings.txt 中这条记录。此操作不会删除书籍内部或云端已同步的标注。"
+                : "将永久删除这条本地划线与笔记。"
+            : $"将删除选中的 {selected.Length} 条阅读记录（本地 {selected.Length - kindleCount} 条，Kindle {kindleCount} 条）。此操作不可撤销。";
         if (!await ShowDevicePromptAsync("删除阅读记录？", message, "删除", "取消")) return;
         try
         {
-            if (item.LocalAnnotation is { } annotation)
+            foreach (var item in selected)
             {
-                await _readerData.DeleteAnnotationAsync(annotation.Id);
-                var loaded = _readerAnnotations.FirstOrDefault(value => value.Id == annotation.Id);
-                if (loaded is not null) _readerAnnotations.Remove(loaded);
+                if (item.LocalAnnotation is { } annotation)
+                {
+                    await _readerData.DeleteAnnotationAsync(annotation.Id);
+                    var loaded = _readerAnnotations.FirstOrDefault(value => value.Id == annotation.Id);
+                    if (loaded is not null) _readerAnnotations.Remove(loaded);
+                }
+                else if (item.KindleClipping is { } clipping)
+                    await _kindle.DeleteClippingAsync(_devices[0], clipping.Id);
             }
-            else if (item.KindleClipping is { } clipping && _devices.Count > 0)
-                await _kindle.DeleteClippingAsync(_devices[0], clipping.Id);
             await RefreshReadingMaterialsAsync();
         }
         catch (Exception exception) { ReadingMaterialsStatusText.Text = $"删除失败：{exception.Message}"; }

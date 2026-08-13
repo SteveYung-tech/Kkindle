@@ -1818,6 +1818,22 @@
                                               OffContent="关"
                                               VerticalAlignment="Center" />
                             </Grid>
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="笔记批注默认收起"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"
+                                           ToolTipService.ToolTip="打开“笔记与标注”页面时，默认收起每本书的批注列表；仍可单独展开或收起。" />
+                                <ToggleSwitch x:Name="ReadingMaterialsCollapsedByDefaultCheck"
+                                              Grid.Column="1"
+                                              OnContent="开"
+                                              OffContent="关"
+                                              VerticalAlignment="Center" />
+                            </Grid>
                         </StackPanel>
                     </Border>
 
@@ -2899,7 +2915,6 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <Grid>
@@ -2913,26 +2928,32 @@
                     </StackPanel>
                     <TextBlock x:Name="ReadingMaterialsStatusText" Text="汇总本地书籍与 Kindle 的划线笔记" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
                 </StackPanel>
-                <StackPanel x:Name="ReadingMaterialsNotesActions" Grid.Column="1" Margin="0,46,0,0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
-                    <Button x:Name="LocateReadingMaterialButton" Content="在阅读器中定位" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" Click="LocateReadingMaterialButton_Click" />
-                    <Button x:Name="DeleteReadingMaterialButton" Content="删除所选" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" Click="DeleteReadingMaterialButton_Click" />
-                    <Button Content="刷新" Style="{StaticResource QuietButtonStyle}" Click="RefreshReadingMaterialsButton_Click" />
-                    <Button Content="返回书架" Click="AllBooksButton_Click" />
-                </StackPanel>
-                <StackPanel x:Name="ReadingMaterialsExportActions" Grid.Column="1" Margin="0,46,0,0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top" Visibility="Collapsed">
-                    <Button Content="刷新资料" Style="{StaticResource QuietButtonStyle}" Click="RefreshReadingMaterialsButton_Click" />
-                    <Button Content="返回书架" Click="AllBooksButton_Click" />
-                </StackPanel>
             </Grid>
 
-            <Grid Grid.Row="1" Margin="0,24,0,14" ColumnSpacing="10">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                <ComboBox x:Name="ReadingMaterialsSourceBox" Header="来源" SelectedIndex="0" SelectionChanged="ReadingMaterialsFilter_Changed">
-                    <ComboBoxItem Content="全部来源" Tag="all" />
-                    <ComboBoxItem Content="本地书籍" Tag="local" />
-                    <ComboBoxItem Content="Kindle" Tag="kindle" />
-                </ComboBox>
-                <TextBox x:Name="ReadingMaterialsSearchBox" Grid.Column="1" Header="搜索" PlaceholderText="书名、划线、笔记或位置" TextChanged="ReadingMaterialsSearchBox_TextChanged" />
+            <Grid Grid.Row="1" Margin="0,14,0,14" ColumnSpacing="14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="170" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox x:Name="ReadingMaterialsSourceBox" Header="来源" SelectedIndex="0" SelectionChanged="ReadingMaterialsFilter_Changed">
+                        <ComboBoxItem Content="全部来源" Tag="all" />
+                        <ComboBoxItem Content="本地书籍" Tag="local" />
+                        <ComboBoxItem Content="Kindle" Tag="kindle" />
+                    </ComboBox>
+                    <TextBox x:Name="ReadingMaterialsSearchBox" Grid.Column="1" Header="搜索" PlaceholderText="书名、划线、笔记或位置" TextChanged="ReadingMaterialsSearchBox_TextChanged" />
+                </Grid>
+                <StackPanel x:Name="ReadingMaterialsNotesActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+                    <Button x:Name="DeleteReadingMaterialButton" Content="删除所选" Style="{StaticResource QuietButtonStyle}" IsEnabled="False" Click="DeleteReadingMaterialButton_Click" />
+                    <Button Content="刷新" Style="{StaticResource QuietButtonStyle}" Click="RefreshReadingMaterialsButton_Click" />
+                </StackPanel>
+                <StackPanel x:Name="ReadingMaterialsExportActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom" Visibility="Collapsed">
+                    <Button Content="刷新资料" Style="{StaticResource QuietButtonStyle}" Click="RefreshReadingMaterialsButton_Click" />
+                </StackPanel>
             </Grid>
 
             <Border x:Name="ReadingMaterialsExportPanel"
@@ -2966,74 +2987,232 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Row="3"
-                    Margin="0,0,0,14"
-                    Padding="14,11"
-                    Background="#FFFFFF"
-                    BorderBrush="#000000"
-                    BorderThickness="2">
-                <TextBlock x:Name="ReadingMaterialsSummaryText"
-                           Text="本地 0 条 · Kindle 0 条"
-                           Foreground="#000000"
-                           FontWeight="SemiBold" />
-            </Border>
-
-            <Grid Grid.Row="4">
+            <Grid Grid.Row="3">
                 <ListView x:Name="ReadingMaterialsList"
-                          SelectionMode="Single"
-                          SelectionChanged="ReadingMaterialsList_SelectionChanged"
-                          IsItemClickEnabled="True"
-                          ItemClick="ReadingMaterialsList_ItemClick">
-                    <ListView.GroupStyle>
-                        <GroupStyle>
-                            <GroupStyle.HeaderTemplate>
-                                <DataTemplate x:DataType="local:ReadingMaterialGroupViewModel">
-                                    <Border Margin="0,14,0,4"
-                                            Padding="12,9"
-                                            Background="#FFFFFF"
-                                            BorderBrush="#000000"
-                                            BorderThickness="1,1,1,2">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Spacing="2">
-                                                <TextBlock Text="{x:Bind BookTitle}"
-                                                           FontSize="16"
-                                                           FontWeight="Bold" />
-                                                <TextBlock Text="{x:Bind SourceLabel}"
-                                                           FontSize="11"
-                                                           Foreground="{StaticResource MutedInkBrush}" />
-                                            </StackPanel>
-                                            <TextBlock Grid.Column="1"
-                                                       Text="{x:Bind CountLabel}"
-                                                       VerticalAlignment="Center"
-                                                       Foreground="{StaticResource MutedInkBrush}" />
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </GroupStyle.HeaderTemplate>
-                        </GroupStyle>
-                    </ListView.GroupStyle>
+                          SelectionMode="None"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto"
+                          ScrollViewer.VerticalScrollMode="Enabled"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                          ScrollViewer.HorizontalScrollMode="Disabled">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem" BasedOn="{StaticResource OutlinedListItemStyle}">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0,0,0,14" />
+                            <Setter Property="Background" Value="Transparent" />
+                            <Setter Property="BorderThickness" Value="0" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="local:ReadingMaterialItemViewModel">
-                            <Grid Padding="12,10" ColumnSpacing="14">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="76" /><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /><ColumnDefinition Width="190" /></Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="{x:Bind SourceLabel}" FontWeight="Bold" />
-                                    <TextBlock Text="{x:Bind TypeLabel}" FontSize="11" Foreground="{StaticResource MutedInkBrush}" />
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="{x:Bind BookTitle}" TextWrapping="Wrap" MaxLines="2" FontWeight="SemiBold" />
-                                <StackPanel Grid.Column="2" Spacing="3">
-                                    <TextBlock Text="{x:Bind Quote}" TextWrapping="Wrap" MaxLines="3" />
-                                    <TextBlock Text="{x:Bind Note}" TextWrapping="Wrap" MaxLines="2" Foreground="{StaticResource MutedInkBrush}" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="3" HorizontalAlignment="Right">
-                                    <TextBlock Text="{x:Bind Location}" TextWrapping="Wrap" MaxLines="2" Foreground="{StaticResource MutedInkBrush}" HorizontalAlignment="Right" />
-                                    <TextBlock Text="{x:Bind DateLabel}" FontSize="10" Foreground="{StaticResource MutedInkBrush}" HorizontalAlignment="Right" />
-                                </StackPanel>
-                            </Grid>
+                        <DataTemplate x:DataType="local:ReadingMaterialGroupViewModel">
+                            <Border Background="#FFFFFF"
+                                    BorderBrush="#000000"
+                                    BorderThickness="0">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+                                    <Grid Grid.Column="0"
+                                          Grid.RowSpan="2"
+                                          Margin="10,12,10,12"
+                                          VerticalAlignment="Top"
+                                          ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="64" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="58"
+                                                Height="82"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Top"
+                                                Background="#F2F2F2"
+                                                BorderBrush="#BFBFBF"
+                                                BorderThickness="1">
+                                            <Grid>
+                                                <Image Source="{x:Bind CoverImage}"
+                                                       Stretch="UniformToFill"
+                                                       Visibility="{x:Bind CoverImageVisibility, Mode=OneWay}" />
+                                                <FontIcon Glyph="&#xE736;"
+                                                          FontFamily="Segoe MDL2 Assets"
+                                                          FontSize="22"
+                                                          Foreground="{StaticResource MutedInkBrush}"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"
+                                                          Visibility="{x:Bind CoverPlaceholderVisibility, Mode=OneWay}" />
+                                            </Grid>
+                                        </Border>
+                                        <StackPanel Grid.Column="1"
+                                                    VerticalAlignment="Top"
+                                                    Spacing="4">
+                                            <TextBlock Text="{x:Bind BookTitle}"
+                                                       FontSize="15"
+                                                       FontWeight="Bold"
+                                                       TextWrapping="Wrap"
+                                                       MaxLines="2"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{x:Bind SourceLabel}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource MutedInkBrush}" />
+                                            <StackPanel Orientation="Horizontal"
+                                                        Spacing="4">
+                                                <TextBlock Text="{x:Bind CountLabel}"
+                                                           FontSize="12"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{StaticResource MutedInkBrush}" />
+                                                <Button Content="{x:Bind ExpandGlyph, Mode=OneWay}"
+                                                        FontFamily="Segoe MDL2 Assets"
+                                                        FontSize="13"
+                                                        Padding="5,3"
+                                                        MinWidth="28"
+                                                        Style="{StaticResource DeviceNameFieldButtonStyle}"
+                                                        Background="Transparent"
+                                                        BorderBrush="Transparent"
+                                                        BorderThickness="0"
+                                                        UseSystemFocusVisuals="False"
+                                                        Click="ReadingMaterialGroupToggleButton_Click"
+                                                        ToolTipService.ToolTip="{x:Bind ExpandLabel, Mode=OneWay}"
+                                                        AutomationProperties.Name="{x:Bind ExpandLabel, Mode=OneWay}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Grid>
+                                    <Border Grid.Column="0"
+                                            Grid.RowSpan="2"
+                                            Width="1"
+                                            Margin="0,12,0,12"
+                                            HorizontalAlignment="Right"
+                                            Background="#BFBFBF" />
+                                    <Grid Grid.RowSpan="2"
+                                          Grid.Column="1"
+                                          Margin="0,10,10,10">
+                                        <Grid VerticalAlignment="Top"
+                                              Visibility="{x:Bind PreviewVisibility, Mode=OneWay}"
+                                              DoubleTapped="ReadingMaterialEntry_DoubleTapped">
+                                            <Border VerticalAlignment="Top"
+                                                    BorderBrush="#BFBFBF"
+                                                    BorderThickness="0,0,0,1">
+                                                <Grid Padding="12,10" ColumnSpacing="16">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="220" />
+                                                    <ColumnDefinition Width="130" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{x:Bind PreviewQuoteLabel}"
+                                                           HorizontalAlignment="Left"
+                                                           TextWrapping="Wrap"
+                                                           MaxLines="3"
+                                                           TextTrimming="CharacterEllipsis">
+                                                    <ToolTipService.ToolTip>
+                                                        <ToolTip>
+                                                            <TextBlock Text="{x:Bind PreviewTooltipLabel}"
+                                                                       TextWrapping="Wrap"
+                                                                       MaxWidth="560" />
+                                                        </ToolTip>
+                                                    </ToolTipService.ToolTip>
+                                                </TextBlock>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{x:Bind PreviewNoteLabel}"
+                                                           HorizontalAlignment="Left"
+                                                           TextWrapping="Wrap"
+                                                           MaxLines="3"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Foreground="{StaticResource MutedInkBrush}">
+                                                    <ToolTipService.ToolTip>
+                                                        <ToolTip>
+                                                            <TextBlock Text="{x:Bind PreviewTooltipLabel}"
+                                                                       TextWrapping="Wrap"
+                                                                       MaxWidth="560" />
+                                                        </ToolTip>
+                                                    </ToolTipService.ToolTip>
+                                                </TextBlock>
+                                                <TextBlock Grid.Column="2"
+                                                           Text="{x:Bind PreviewDateLabel}"
+                                                           TextWrapping="Wrap"
+                                                           MaxLines="2"
+                                                           Foreground="{StaticResource MutedInkBrush}"
+                                                           HorizontalAlignment="Right" />
+                                                </Grid>
+                                            </Border>
+                                        </Grid>
+                                        <ListView ItemsSource="{x:Bind Items}"
+                                                  SelectionMode="Multiple"
+                                                  SelectionChanged="ReadingMaterialGroupList_SelectionChanged"
+                                                  MaxHeight="300"
+                                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                                  ScrollViewer.VerticalScrollMode="Enabled"
+                                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                                  ScrollViewer.HorizontalScrollMode="Disabled"
+                                                  Visibility="{x:Bind ChildrenVisibility, Mode=OneWay}"
+                                                  >
+                                            <ListView.ItemContainerStyle>
+                                                <Style TargetType="ListViewItem" BasedOn="{StaticResource OutlinedListItemStyle}">
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Margin" Value="0" />
+                                                    <Setter Property="BorderThickness" Value="0" />
+                                                    <Setter Property="Background" Value="Transparent" />
+                                                </Style>
+                                            </ListView.ItemContainerStyle>
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate x:DataType="local:ReadingMaterialItemViewModel">
+                                                    <Grid DoubleTapped="ReadingMaterialEntry_DoubleTapped">
+                                                        <Border BorderBrush="#BFBFBF"
+                                                                BorderThickness="0,0,0,1">
+                                                            <Grid Padding="12,10" ColumnSpacing="16">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="220" />
+                                                                    <ColumnDefinition Width="130" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock Text="{x:Bind QuoteLabel}"
+                                                                           HorizontalAlignment="Left"
+                                                                           TextWrapping="Wrap"
+                                                                           MaxLines="3"
+                                                                           TextTrimming="CharacterEllipsis">
+                                                                    <ToolTipService.ToolTip>
+                                                                        <ToolTip>
+                                                                            <TextBlock Text="{x:Bind TooltipLabel}"
+                                                                                       TextWrapping="Wrap"
+                                                                                       MaxWidth="560" />
+                                                                        </ToolTip>
+                                                                    </ToolTipService.ToolTip>
+                                                                </TextBlock>
+                                                                <TextBlock Grid.Column="1"
+                                                                           Text="{x:Bind NoteLabel}"
+                                                                           HorizontalAlignment="Left"
+                                                                           TextWrapping="Wrap"
+                                                                           MaxLines="3"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           Foreground="{StaticResource MutedInkBrush}">
+                                                                    <ToolTipService.ToolTip>
+                                                                        <ToolTip>
+                                                                            <TextBlock Text="{x:Bind TooltipLabel}"
+                                                                                       TextWrapping="Wrap"
+                                                                                       MaxWidth="560" />
+                                                                        </ToolTip>
+                                                                    </ToolTipService.ToolTip>
+                                                                </TextBlock>
+                                                                <TextBlock Grid.Column="2"
+                                                                           Text="{x:Bind DateLabel}"
+                                                                           TextWrapping="Wrap"
+                                                                           MaxLines="2"
+                                                                           Foreground="{StaticResource MutedInkBrush}"
+                                                                           HorizontalAlignment="Right" />
+                                                            </Grid>
+                                                        </Border>
+                                                        <Border BorderBrush="#000000"
+                                                                BorderThickness="1"
+                                                                Opacity="{x:Bind SelectionBoxOpacity, Mode=OneWay}"
+                                                                IsHitTestVisible="False" />
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                    </Grid>
+                                </Grid>
+                            </Border>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
@@ -3384,7 +3563,16 @@
                                     Background="#FFFFFF"
                                     Foreground="#B3261E"
                                     BorderBrush="#B3261E"
-                                    Click="DeleteBookButton_Click" />
+                                    Click="DeleteBookButton_Click">
+                                <Button.Resources>
+                                    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#B3261E" />
+                                    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#8F1D17" />
+                                    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#FFFFFF" />
+                                    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#FFFFFF" />
+                                    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#B3261E" />
+                                    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#8F1D17" />
+                                </Button.Resources>
+                            </Button>
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

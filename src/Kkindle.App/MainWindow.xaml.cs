@@ -228,8 +228,7 @@ public sealed partial class MainWindow : Window
         _epubReader = new EpubReaderPreparationService(paths);
         ViewModel = new LibraryViewModel(library, paths.Data);
         InitializeComponent();
-        ReadingMaterialsCollectionViewSource.Source = ReadingMaterialGroups;
-        ReadingMaterialsList.ItemsSource = ReadingMaterialsCollectionViewSource.View;
+        ReadingMaterialsList.ItemsSource = ReadingMaterialGroups;
         ConfigureReaderFeatureHosts();
         ConfigureTitleBar();
         SetActiveNavigation(AllBooksButton);
@@ -270,7 +269,6 @@ public sealed partial class MainWindow : Window
     public ObservableCollection<KindleDeviceResource> DeviceResources { get; } = [];
     public ObservableCollection<ReadingMaterialItemViewModel> ReadingMaterials { get; } = [];
     public ObservableCollection<ReadingMaterialGroupViewModel> ReadingMaterialGroups { get; } = [];
-    public CollectionViewSource ReadingMaterialsCollectionViewSource { get; } = new() { IsSourceGrouped = true };
 
     private void ConfigureTitleBar()
     {
