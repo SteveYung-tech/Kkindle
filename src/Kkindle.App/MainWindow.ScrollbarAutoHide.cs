@@ -12,37 +12,116 @@ public sealed partial class MainWindow
 {
     private const double ScrollbarAutoHideDelayMs = 900d;
     private readonly Dictionary<ScrollViewer, ScrollbarAutoHideRegistration> _scrollbarAutoHideRegistrations = [];
+    private readonly HashSet<ScrollViewer> _scrollbarAutoHidePendingViewers = [];
+    private readonly HashSet<DependencyObject> _scrollbarAutoHideRoots = [];
     private bool _scrollbarAutoHideRefreshQueued;
 
-    private void QueueScrollbarAutoHideRefresh()
+    private void QueueScrollbarAutoHideRefresh(params DependencyObject[] additionalRoots)
     {
+        foreach (var root in additionalRoots)
+            _scrollbarAutoHideRoots.Add(root);
+
         if (_scrollbarAutoHideRefreshQueued) return;
         _scrollbarAutoHideRefreshQueued = true;
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
         {
             _scrollbarAutoHideRefreshQueued = false;
             AttachScrollbarAutoHide(RootGrid);
+            foreach (var root in _scrollbarAutoHideRoots.ToArray())
+                AttachScrollbarAutoHide(root);
         });
+    }
+
+    private void RegisterScrollbarAutoHidePopup(Popup popup)
+    {
+        if (popup.Child is not DependencyObject child) return;
+
+        _scrollbarAutoHideRoots.Add(child);
+        popup.Opened += (_, _) => QueueScrollbarAutoHideRefresh(child);
     }
 
     private void AttachScrollbarAutoHide(DependencyObject root)
     {
-        foreach (var viewer in FindDescendants<ScrollViewer>(root))
+        foreach (var viewer in EnumerateScrollViewers(root))
         {
-            if (_scrollbarAutoHideRegistrations.ContainsKey(viewer)
-                || IsDescendantOf(viewer, ReaderTocList))
+            if (_scrollbarAutoHideRegistrations.ContainsKey(viewer))
                 continue;
 
+            if (IsDescendantOf(viewer, ReaderTocList))
+            {
+                StopScrollbarAutoHideRetry(viewer);
+                continue;
+            }
+
             viewer.ApplyTemplate();
-            var bars = FindDescendants<ScrollBar>(viewer)
+            var hasEnabledScrollBar = IsScrollbarEnabled(viewer, Orientation.Vertical)
+                || IsScrollbarEnabled(viewer, Orientation.Horizontal);
+            if (!hasEnabledScrollBar)
+            {
+                StopScrollbarAutoHideRetry(viewer);
+                continue;
+            }
+
+            var bars = EnumerateOwnedScrollBars(viewer)
                 .Where(bar => IsScrollbarEnabled(viewer, bar.Orientation))
                 .ToArray();
-            if (bars.Length == 0) continue;
+            if (bars.Length == 0)
+            {
+                QueueScrollbarAutoHideRetry(viewer);
+                continue;
+            }
 
+            StopScrollbarAutoHideRetry(viewer);
             var registration = new ScrollbarAutoHideRegistration(viewer, bars, DispatcherQueue);
             _scrollbarAutoHideRegistrations.Add(viewer, registration);
             registration.Attach();
         }
+    }
+
+    private static IEnumerable<ScrollViewer> EnumerateScrollViewers(DependencyObject root)
+    {
+        if (root is ScrollViewer viewer)
+            yield return viewer;
+
+        foreach (var descendant in FindDescendants<ScrollViewer>(root))
+            yield return descendant;
+    }
+
+    private static IEnumerable<ScrollBar> EnumerateOwnedScrollBars(ScrollViewer viewer)
+    {
+        foreach (var bar in FindDescendants<ScrollBar>(viewer))
+        {
+            for (var current = VisualTreeHelper.GetParent(bar); current is not null; current = VisualTreeHelper.GetParent(current))
+            {
+                if (ReferenceEquals(current, viewer))
+                {
+                    yield return bar;
+                    break;
+                }
+
+                if (current is ScrollViewer)
+                    break;
+            }
+        }
+    }
+
+    private void QueueScrollbarAutoHideRetry(ScrollViewer viewer)
+    {
+        if (!_scrollbarAutoHidePendingViewers.Add(viewer)) return;
+        viewer.LayoutUpdated += ScrollbarAutoHideViewer_LayoutUpdated;
+    }
+
+    private void StopScrollbarAutoHideRetry(ScrollViewer viewer)
+    {
+        if (!_scrollbarAutoHidePendingViewers.Remove(viewer)) return;
+        viewer.LayoutUpdated -= ScrollbarAutoHideViewer_LayoutUpdated;
+    }
+
+    private void ScrollbarAutoHideViewer_LayoutUpdated(object? sender, object e)
+    {
+        if (sender is not ScrollViewer viewer) return;
+        StopScrollbarAutoHideRetry(viewer);
+        AttachScrollbarAutoHide(viewer);
     }
 
     private static bool IsScrollbarEnabled(ScrollViewer viewer, Orientation orientation)
@@ -65,6 +144,9 @@ public sealed partial class MainWindow
         foreach (var registration in _scrollbarAutoHideRegistrations.Values)
             registration.Detach();
         _scrollbarAutoHideRegistrations.Clear();
+        foreach (var viewer in _scrollbarAutoHidePendingViewers.ToArray())
+            StopScrollbarAutoHideRetry(viewer);
+        _scrollbarAutoHideRoots.Clear();
     }
 
     private sealed class ScrollbarAutoHideRegistration

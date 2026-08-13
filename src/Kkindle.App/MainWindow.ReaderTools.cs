@@ -82,6 +82,7 @@ public sealed partial class MainWindow
             IsLightDismissEnabled = false,
             IsOpen = false
         };
+        RegisterScrollbarAutoHidePopup(_readerLayoutPopup);
 
         ReaderSearchPanel.Visibility = Visibility.Collapsed;
 
@@ -94,6 +95,7 @@ public sealed partial class MainWindow
             IsLightDismissEnabled = false,
             IsOpen = false
         };
+        RegisterScrollbarAutoHidePopup(_readerSelectionPopup);
 
         ReaderPane.Children.Remove(ReaderFootnotePopup);
         ReaderFootnotePopup.Margin = new Thickness(0);
@@ -104,6 +106,7 @@ public sealed partial class MainWindow
             IsLightDismissEnabled = false,
             IsOpen = false
         };
+        RegisterScrollbarAutoHidePopup(_readerFootnotePopup);
 
         foreach (var flyout in new[]
                  {

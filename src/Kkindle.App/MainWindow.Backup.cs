@@ -70,6 +70,7 @@ public sealed partial class MainWindow
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary
         };
+        dialog.Opened += (_, _) => QueueScrollbarAutoHideRefresh(dialog);
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
         await ImportBackupAsync(file.Path);

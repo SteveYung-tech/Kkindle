@@ -55,6 +55,7 @@ public sealed partial class MainWindow
             IsLightDismissEnabled = false,
             IsOpen = false
         };
+        RegisterScrollbarAutoHidePopup(_readerAssistantPopup);
 
         // The zen-mode bar floats above the WebView2 (an HWND island), so it
         // must live in its own Popup like the assistant and settings overlays.
@@ -69,6 +70,7 @@ public sealed partial class MainWindow
                 IsLightDismissEnabled = false,
                 IsOpen = false
             };
+            RegisterScrollbarAutoHidePopup(_readerZenPopup);
         }
 
         ConfigureReaderToolsPopupHosts();

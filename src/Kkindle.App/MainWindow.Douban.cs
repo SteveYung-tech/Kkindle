@@ -181,6 +181,7 @@ public sealed partial class MainWindow
     private void OpenDoubanOverlay()
     {
         DoubanMatchOverlay.Visibility = Visibility.Visible;
+        QueueScrollbarAutoHideRefresh(DoubanMatchOverlay);
         DoubanMatchOverlay.Focus(FocusState.Programmatic);
         DoubanMatchStatusText.Text = string.Empty;
     }

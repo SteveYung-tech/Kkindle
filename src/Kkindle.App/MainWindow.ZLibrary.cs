@@ -230,6 +230,7 @@ public sealed partial class MainWindow
         _selectedZLibraryBook = item;
         ZLibraryDetailPanel.DataContext = item;
         ZLibraryDetailPanel.Visibility = Visibility.Visible;
+        QueueScrollbarAutoHideRefresh(ZLibraryDetailPanel);
     }
 
     private void ZLibraryDetailCloseButton_Click(object sender, RoutedEventArgs e)
@@ -309,6 +310,7 @@ public sealed partial class MainWindow
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary
         };
+        dialog.Opened += (_, _) => QueueScrollbarAutoHideRefresh(dialog);
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
 
         using var cancellation = new CancellationTokenSource();

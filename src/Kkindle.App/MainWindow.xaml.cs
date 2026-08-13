@@ -1314,6 +1314,7 @@ public sealed partial class MainWindow : Window
         ImportFormatSelectionSummaryText.Text =
             $"将导入 {orderedFiles.Count} 本书籍文件；打开开关表示导入后自动补齐缺失的 EPUB / AZW3（默认全部开启）。";
         ImportFormatSelectionOverlay.Visibility = Visibility.Visible;
+        QueueScrollbarAutoHideRefresh(ImportFormatSelectionOverlay);
         ImportFormatSelectionOverlay.Focus(FocusState.Programmatic);
 
         var completion = new TaskCompletionSource<IReadOnlyDictionary<string, IReadOnlyCollection<string>>?>(
@@ -1450,6 +1451,7 @@ public sealed partial class MainWindow : Window
         DetailColumn.Width = new GridLength(ComputeGoldenDetailWidth());
         MainContentColumn.Width = new GridLength(1, GridUnitType.Star);
         DetailPane.Visibility = Visibility.Visible;
+        QueueScrollbarAutoHideRefresh(DetailPane);
     }
 
     private async void SaveDetailsButton_Click(object sender, RoutedEventArgs e)
@@ -1608,6 +1610,7 @@ public sealed partial class MainWindow : Window
         ZLibraryAccountPane.Visibility = Visibility.Collapsed;
         ReaderAiSettingsPane.Visibility = Visibility.Collapsed;
         panel.Visibility = Visibility.Visible;
+        QueueScrollbarAutoHideRefresh(panel);
         // The settings panel fills the whole right side of the window.
         MainContentColumn.Width = new GridLength(0);
         DetailColumn.Width = new GridLength(1, GridUnitType.Star);
