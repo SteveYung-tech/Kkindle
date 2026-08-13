@@ -3631,6 +3631,7 @@
                                      Margin="14,4,14,10"
                                      Height="34"
                                      Padding="10,5"
+                                     VerticalContentAlignment="Center"
                                      CornerRadius="0"
                                      BorderBrush="#000000"
                                      PlaceholderText="搜索整本书…"
@@ -3651,7 +3652,7 @@
                                     <DataTemplate x:DataType="local:ReaderSearchResultItem">
                                         <Button Padding="0"
                                                 Margin="0"
-                                                BorderThickness="1"
+                                                BorderThickness="0.5"
                                                 BorderBrush="{x:Bind ResultBorderBrush, Mode=OneWay}"
                                                 Background="Transparent"
                                                 UseSystemFocusVisuals="False"
