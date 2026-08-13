@@ -1,15 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- Portable tests only: anything needing WPD/MTP lives in
-         Kkindle.Tests.Windows. Keeping this at plain net8.0 means the bulk of
-         the suite can run on Linux and macOS once those platforms are wired. -->
-    <TargetFramework>net8.0</TargetFramework>
+    <!-- Windows-only tests: KindleDeviceService reaches WPD/MTP through COM,
+         so these cannot run on Linux or macOS. Everything portable lives in
+         Kkindle.Tests, which targets plain net8.0 for that reason. -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <RootNamespace>Kkindle.Tests.Windows</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Kkindle.Core\Kkindle.Core.csproj" />
     <ProjectReference Include="..\..\src\Kkindle.Infrastructure\Kkindle.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Kkindle.Platform.Windows\Kkindle.Platform.Windows.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2">

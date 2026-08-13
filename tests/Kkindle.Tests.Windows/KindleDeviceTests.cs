@@ -2,7 +2,7 @@ using Kkindle.Core;
 using Kkindle.Infrastructure;
 using Kkindle.Platform.Windows;
 
-namespace Kkindle.Tests;
+namespace Kkindle.Tests.Windows;
 
 public sealed class KindleDeviceTests
 {

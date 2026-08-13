@@ -215,7 +215,8 @@ src/
   Kkindle.Platform.Windows/    net8.0-windows  【新建】WPD/MTP、DPAPI、shell32、WM_DEVICECHANGE
   Kkindle.App/                 net8.0          【新建】Avalonia
   Kkindle.App.WinUI/           net8.0-windows  ← 现 Kkindle.App 改名，迁移期参照，对等后删除
-tests/Kkindle.Tests/           net8.0          ← 降级，可在任意平台跑
+tests/Kkindle.Tests/          net8.0          可移植测试，可在任意平台跑
+tests/Kkindle.Tests.Windows/  net8.0-windows  设备测试（WPD/MTP，只能在 Windows 跑）
 ```
 
 日后加 Linux/Mac 只需新增 `Kkindle.Platform.Linux` / `.Mac`，实现同一组接口。
@@ -270,8 +271,8 @@ WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost`
 - [x] `NativeDeviceChangeMonitor` → `Platform.Windows/WindowsDeviceChangeNotifier.cs`
 - [x] 移入 WPD / shell32 / `KindleDeviceService`；Infrastructure 已无任何 Windows API（`DllImport`、`ComImport`、`Marshal.`、`Shell.Application`、`Registry` 全部无匹配）
 - [x] Infrastructure 降 TFM 到 `net8.0`（编译零警告，无 CA1416 平台兼容性问题）
-- [ ] 拆出 `tests/Kkindle.Tests.Windows` 承接 `KindleDeviceTests.cs`，`Kkindle.Tests` 降 TFM
-- [ ] `Kkindle.App` 改名 `Kkindle.App.WinUI`
+- [x] 拆出 `tests/Kkindle.Tests.Windows` 承接 `KindleDeviceTests.cs`（24 个 `[Fact]`/`[Theory]`，唯一依赖 Platform.Windows 的测试文件），`Kkindle.Tests` 降 TFM 到 `net8.0`
+- [ ] `Kkindle.App` 改名 `Kkindle.App.WinUI`（与阶段 1 建 Avalonia 项目一并做，避免发布脚本路径改两次）
 
 `KindleBookClassifier` 与 `KindleScanCacheStore` 保持 `internal`，靠 `Kkindle.Infrastructure.csproj` 里的 `<InternalsVisibleTo Include="Kkindle.Platform.Windows" />` 跨程序集访问 —— 它们是设备服务的实现细节，不该进 Infrastructure 的公开契约。将来加 `Kkindle.Platform.Linux` 时在同处补一行。
 

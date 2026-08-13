@@ -12,6 +12,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kkindle.Platform.Windows", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kkindle.Tests", "tests\Kkindle.Tests\Kkindle.Tests.csproj", "{ACF6A4D0-5C0C-4CF3-B2C1-1792D5E7AF14}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kkindle.Tests.Windows", "tests\Kkindle.Tests.Windows\Kkindle.Tests.Windows.csproj", "{3F8A2D14-7B6C-4E59-A0D3-8C41B7E2569D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -38,6 +40,10 @@ Global
 		{ACF6A4D0-5C0C-4CF3-B2C1-1792D5E7AF14}.Debug|x64.Build.0 = Debug|x64
 		{ACF6A4D0-5C0C-4CF3-B2C1-1792D5E7AF14}.Release|x64.ActiveCfg = Release|x64
 		{ACF6A4D0-5C0C-4CF3-B2C1-1792D5E7AF14}.Release|x64.Build.0 = Release|x64
+		{3F8A2D14-7B6C-4E59-A0D3-8C41B7E2569D}.Debug|x64.ActiveCfg = Debug|x64
+		{3F8A2D14-7B6C-4E59-A0D3-8C41B7E2569D}.Debug|x64.Build.0 = Debug|x64
+		{3F8A2D14-7B6C-4E59-A0D3-8C41B7E2569D}.Release|x64.ActiveCfg = Release|x64
+		{3F8A2D14-7B6C-4E59-A0D3-8C41B7E2569D}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
