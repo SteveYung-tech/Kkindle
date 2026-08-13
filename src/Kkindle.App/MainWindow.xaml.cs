@@ -500,6 +500,7 @@ public sealed partial class MainWindow : Window
         _librarySearchDebounceCancellation?.Cancel();
         _librarySearchDebounceCancellation?.Dispose();
         _librarySearchDebounceCancellation = null;
+        StopScrollbarAutoHide();
         _ = FlushReaderSessionSafelyAsync(skipWebViewCapture: true);
 
         _deviceTimer.Stop();
@@ -524,6 +525,7 @@ public sealed partial class MainWindow : Window
     {
         ApplySquareWindowFrame();
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
+        QueueScrollbarAutoHideRefresh();
         ConstrainRootToViewport();
         SettingsDataPathText.Text = _paths.Data;
         DispatcherQueue.TryEnqueue(
@@ -1981,6 +1983,7 @@ public sealed partial class MainWindow : Window
             _readerInitialRevealPending = !isPdf;
             ReaderWebViewHost.Opacity = isPdf ? 1 : 0;
             ReaderPane.Visibility = Visibility.Visible;
+            QueueScrollbarAutoHideRefresh();
             ReaderBrandText.Visibility = Visibility.Visible;
             ReaderPane.UpdateLayout();
             _readerTocExpanded = true;
@@ -5196,6 +5199,7 @@ public sealed partial class MainWindow : Window
         ApplySidebarSectionColors(SystemSectionButton, SystemChevron,
             isActive: ReferenceEquals(SystemSectionButton, _activeNavigationSectionButton),
             isHovered: _hoveredSidebarSections.Contains(SystemSectionButton), animate: false);
+        QueueScrollbarAutoHideRefresh();
         QueueInteractiveControlToolTipRefresh();
     }
 

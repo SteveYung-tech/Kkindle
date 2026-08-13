@@ -14,7 +14,7 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <PublishReadyToRun>false</PublishReadyToRun>
     <UseWinUI>true</UseWinUI>
-    <Version>0.5.1</Version>
+    <Version>0.5.2</Version>
     <Product>Kkindle</Product>
     <Authors>kingstacker</Authors>
     <RepositoryUrl>https://github.com/kingstacker/Kkindle</RepositoryUrl>
