@@ -269,7 +269,7 @@ WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost`
 - [x] `WindowsDataProtection` → `Platform.Windows/WindowsSecretProtector.cs`；`AiSettingsStore` / `KindleEmailSettingsStore` / `ZLibrarySettingsStore` / `AppBackupService` 四处改构造注入
 - [x] `NativeDeviceChangeMonitor` → `Platform.Windows/WindowsDeviceChangeNotifier.cs`
 - [x] 移入 WPD / shell32 / `KindleDeviceService`；Infrastructure 已无任何 Windows API（`DllImport`、`ComImport`、`Marshal.`、`Shell.Application`、`Registry` 全部无匹配）
-- [ ] Infrastructure 降 TFM 到 `net8.0`
+- [x] Infrastructure 降 TFM 到 `net8.0`（编译零警告，无 CA1416 平台兼容性问题）
 - [ ] 拆出 `tests/Kkindle.Tests.Windows` 承接 `KindleDeviceTests.cs`，`Kkindle.Tests` 降 TFM
 - [ ] `Kkindle.App` 改名 `Kkindle.App.WinUI`
 
@@ -347,4 +347,5 @@ WSL 上 `dotnet build src/Kkindle.Core src/Kkindle.Infrastructure` 与 `dotnet t
 2. **JS 桥改造引入阅读器回归**：现有导航守卫（`_readerChapterTransitionSequence` + 取消令牌）是为轮询模型设计的，改事件驱动后时序会变，约束 #4/#5 需重新推演而不是照搬。
 3. **FluentAvalonia 定制上限**：`ContentDialog` 等控件的黑白灰定制程度需在阶段 1 就验证，避免阶段 3 才发现改不动。
 4. **迁移期双份代码**：`Kkindle.App.WinUI` 保留期间，Infrastructure 的改动要同时满足两边。建议迁移期冻结新功能开发。
+5. **硬编码可执行文件路径**（阶段 0 排查时发现，不影响 Windows 版）：`BookFormatConversionService.cs` 有 7 处硬编码 `ebook-convert.exe` / `calibre-customize.exe` 与 `Environment.SpecialFolder.ProgramFiles`。这是运行时路径解析，`net8.0` 下照常编译，所以**阶段 6 的「能编译 + 测试通过」验证抓不到它**；Linux/Mac 上 Calibre 可执行文件无 `.exe` 后缀、也不在 Program Files。真正接 Linux 时需要把候选路径表按平台分支。同类问题还需排查数据目录与设备挂载点假设。
 
