@@ -55,12 +55,17 @@ public partial class MainWindow
             _readerBookFile = file;
             _readerChapterIndex = 0;
             _readerShowingPreload = false;
+            await InitializeReaderInteractionAsync(document, file, sessionToken);
 
             var progress = await _readerData.GetProgressAsync(
                 file.Id,
                 sessionToken);
             if (progress is not null)
+            {
                 _readerChapterIndex = Math.Clamp(progress.ChapterIndex, 0, document.Chapters.Count - 1);
+                _readerRestoredProgress = progress;
+                _readerScrollPosition = Math.Max(0, progress.ScrollPosition);
+            }
 
             ReaderTitleText.Text = card.Title;
             ReaderChapterText.Text = GetReaderChapterLabel();
@@ -138,7 +143,10 @@ public partial class MainWindow
             using var cancellation = cancellationToken.Register(
                 static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(),
                 completion);
-            return await completion.Task;
+            var loaded = await completion.Task;
+            if (loaded)
+                await ConfigureReaderHostAsync(host, cancellationToken);
+            return loaded;
         }
         finally
         {
@@ -262,12 +270,15 @@ public partial class MainWindow
         ReaderWebMessageReceivedEventArgs e)
     {
         if (sender is not IReaderHost host || !ReferenceEquals(host, CurrentReaderHost)) return;
-        if (string.Equals(e.Body, "{\"type\":\"ready\"}", StringComparison.Ordinal))
-            ReaderStatusText.Text = $"共 {_readerDocument?.Chapters.Count ?? 0} 个章节";
+        HandleReaderBridgeMessage(e.Body);
     }
 
     private async Task CloseReaderAsync()
     {
+        await SaveReaderProgressAsync(CancellationToken.None);
+        await SaveReaderLayoutAsync(CancellationToken.None);
+        await SaveReaderSessionAsync(CancellationToken.None);
+        ExitReaderZenMode();
         _readerNavigationCancellation?.Cancel();
         _readerNavigationCancellation?.Dispose();
         _readerNavigationCancellation = null;
@@ -302,11 +313,9 @@ public partial class MainWindow
             chapterPath,
             null,
             _readerChapterIndex,
-            0,
-            _readerDocument.Chapters.Count == 0
-                ? 0
-                : _readerChapterIndex * 100d / _readerDocument.Chapters.Count,
-            0,
+            (int)Math.Round(_readerScrollPosition),
+            CalculateReaderProgressPercent(),
+            _readerLayout.FlowMode,
             DateTimeOffset.UtcNow);
 
         try

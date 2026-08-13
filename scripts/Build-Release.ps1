@@ -27,14 +27,16 @@ if (Test-Path -LiteralPath $OutputRoot) {
 $publishDirectory = Join-Path $OutputRoot "Kkindle-$Version-win-x64"
 New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
 
-$projectPath = Join-Path $repositoryRoot 'src\Kkindle.App.WinUI\Kkindle.App.WinUI.csproj'
+$projectPath = Join-Path $repositoryRoot 'src\Kkindle.Desktop.Windows\Kkindle.Desktop.Windows.csproj'
+if (-not (Test-Path -LiteralPath $projectPath -PathType Leaf)) {
+    throw "Avalonia desktop project was not found: $projectPath"
+}
 $publishArguments = @(
     'publish', $projectPath,
     '-c', 'Release',
     '-p:Platform=x64',
     '-r', 'win-x64',
     '--self-contained', 'true',
-    '-p:WindowsAppSDKSelfContained=true',
     "-p:Version=$Version",
     '-o', $publishDirectory
 )

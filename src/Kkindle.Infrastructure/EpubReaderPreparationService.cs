@@ -17,7 +17,7 @@ public sealed record EpubReaderDocument(
 public sealed class EpubReaderPreparationService
 {
     private const string ExtractionReadyFileName = ".kkindle-extracted";
-    private const string ExtractionFormatVersion = "2";
+    private const string ExtractionFormatVersion = "3";
     private const string ContentSecurityPolicyBase =
         "default-src 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; " +
         "connect-src 'none'; form-action 'none'; img-src 'self' file:; " +
@@ -25,13 +25,77 @@ public sealed class EpubReaderPreparationService
         "media-src 'none'; worker-src 'none'; frame-ancestors 'none';";
     private const string ReaderBridgeScript = """
         (() => {
+          if (window.__kkindleReaderBridgeInstalled) return;
+          window.__kkindleReaderBridgeInstalled = true;
+
           const send = value => {
             try {
-              if (typeof window.invokeCSharpAction === "function")
-                window.invokeCSharpAction(JSON.stringify(value));
+              const body = JSON.stringify(value);
+              const webview = window.chrome && window.chrome.webview;
+              if (webview && typeof webview.postMessage === "function")
+                webview.postMessage(body);
+              else if (typeof window.invokeCSharpAction === "function")
+                window.invokeCSharpAction(body);
             } catch (_) { }
           };
-          const ready = () => send({ type: "ready" });
+
+          const reportScroll = () => {
+            const element = document.scrollingElement || document.documentElement;
+            if (!element) return;
+            send({
+              type: "scroll",
+              top: element.scrollTop || 0,
+              left: element.scrollLeft || 0,
+              scrollWidth: element.scrollWidth || 0,
+              scrollHeight: element.scrollHeight || 0,
+              clientWidth: element.clientWidth || 0,
+              clientHeight: element.clientHeight || 0
+            });
+          };
+          let scrollQueued = false;
+          const queueScrollReport = () => {
+            if (scrollQueued) return;
+            scrollQueued = true;
+            requestAnimationFrame(() => {
+              scrollQueued = false;
+              reportScroll();
+            });
+          };
+
+          const reportSelection = () => {
+            try {
+              const selection = window.getSelection();
+              const text = (selection?.toString() || "").trim();
+              send({ type: "selection", text: text.slice(0, 12000) });
+            } catch (_) { }
+          };
+
+          document.addEventListener("click", event => {
+            try {
+              const element = event.target instanceof Element
+                ? event.target.closest("a")
+                : null;
+              if (element && element.href) {
+                event.preventDefault();
+                send({ type: "link", href: element.href, target: element.target || "" });
+              }
+            } catch (_) { }
+          }, true);
+          document.addEventListener("mouseup", reportSelection, true);
+          document.addEventListener("keyup", event => {
+            if (["ArrowLeft", "ArrowRight", "PageUp", "PageDown"].includes(event.key))
+              send({ type: "key", key: event.key });
+          }, true);
+          document.addEventListener("scroll", queueScrollReport, { passive: true });
+          window.addEventListener("resize", () => {
+            send({ type: "resize" });
+            queueScrollReport();
+          }, { passive: true });
+
+          const ready = () => {
+            send({ type: "ready" });
+            queueScrollReport();
+          };
           if (document.readyState === "loading")
             document.addEventListener("DOMContentLoaded", ready, { once: true });
           else

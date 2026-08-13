@@ -158,9 +158,11 @@ public partial class MainWindow : Window
         public byte[] Unprotect(byte[] value) => value.ToArray();
     }
 
-    private void MainWindow_Closed(object? sender, EventArgs e)
+    private async void MainWindow_Closed(object? sender, EventArgs e)
     {
         _stage3Timer.Stop();
+        if (_readerDocument is not null)
+            await CloseReaderAsync();
         _readerNavigationCancellation?.Cancel();
         _readerSessionCancellation?.Cancel();
         _lifetimeCancellation.Cancel();

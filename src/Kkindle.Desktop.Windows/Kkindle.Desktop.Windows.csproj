@@ -9,6 +9,17 @@
     <RootNamespace>Kkindle.Desktop.Windows</RootNamespace>
     <AssemblyName>Kkindle</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\Kkindle.App.WinUI\Assets\Kkindle.ico</ApplicationIcon>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <Version>0.5.2</Version>
+    <Product>Kkindle</Product>
+    <Authors>kingstacker</Authors>
+    <RepositoryUrl>https://github.com/kingstacker/Kkindle</RepositoryUrl>
+    <!-- Set this at publish time to bundle a Calibre Portable/runtime directory. -->
+    <KkindleCalibreRuntime Condition="'$(KkindleCalibreRuntime)' == ''">$(KKINDLE_CALIBRE_RUNTIME)</KkindleCalibreRuntime>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,5 +32,31 @@
       <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
+    <Content Include="..\Kkindle.App.WinUI\Assets\Kkindle.ico" Link="Assets\Kkindle.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\Kkindle.App.WinUI\Assets\Calibre-THIRD-PARTY-NOTICE.txt" Link="Calibre-THIRD-PARTY-NOTICE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\Kkindle.App.WinUI\Assets\KFX-Input-THIRD-PARTY-NOTICE.txt" Link="KFX-Input-THIRD-PARTY-NOTICE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="..\..\LICENSE" Link="LICENSE">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
+
+  <Target Name="CopyBundledCalibreToPublish" AfterTargets="Publish" Condition="'$(KkindleCalibreRuntime)' != '' and Exists('$(KkindleCalibreRuntime)\ebook-convert.exe')">
+    <ItemGroup>
+      <BundledCalibreFiles Include="$(KkindleCalibreRuntime)\**\*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(BundledCalibreFiles)"
+      DestinationFiles="@(BundledCalibreFiles-&gt;'$(PublishDir)Calibre\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
 </Project>

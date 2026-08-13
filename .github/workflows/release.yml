@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   release:
-    name: Build and publish Windows release
+    name: Build and publish Avalonia Windows release
     runs-on: windows-2022
     timeout-minutes: 90
     env:
@@ -53,6 +53,9 @@ jobs:
 
       - name: Run release tests
         run: dotnet test Kkindle.sln -c Release -p:Platform=x64 --no-restore
+
+      - name: Build Avalonia Windows head
+        run: dotnet build src/Kkindle.Desktop.Windows/Kkindle.Desktop.Windows.csproj -c Release -p:Platform=x64 --no-restore
 
       - name: Install release toolchain
         shell: pwsh

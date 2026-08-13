@@ -146,6 +146,8 @@ public sealed class EpubReaderTests
             Assert.Contains("Content-Security-Policy", html, StringComparison.Ordinal);
             Assert.Contains("script-src 'nonce-", html, StringComparison.Ordinal);
             Assert.Contains("invokeCSharpAction", html, StringComparison.Ordinal);
+            Assert.Contains("chrome.webview", html, StringComparison.Ordinal);
+            Assert.Contains("type: \"scroll\"", html, StringComparison.Ordinal);
             Assert.Contains("../images/ok.jpg", html, StringComparison.Ordinal);
 
             var cssPath = Path.Combine(document.RootPath, "OEBPS", "styles", "book.css");

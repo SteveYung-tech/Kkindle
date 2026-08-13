@@ -4,6 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="using:Kkindle"
         xmlns:core="using:Kkindle.Core"
+        xmlns:infra="using:Kkindle.Infrastructure"
         mc:Ignorable="d"
         d:DesignWidth="1440"
         d:DesignHeight="900"
@@ -873,9 +874,9 @@
             <Grid x:Name="ReaderRoot"
                   Grid.Row="1"
                   IsVisible="False"
-                  RowDefinitions="Auto,*"
+                  RowDefinitions="Auto,Auto,*"
                   Background="{StaticResource PaperBrush}">
-                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto"
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto"
                       Margin="20,12,20,10"
                       ColumnSpacing="10">
                     <Button Content="返回书库"
@@ -901,7 +902,103 @@
                             Padding="11,7"
                             Click="ReaderNextButton_Click" />
                 </Grid>
-                <Border Grid.Row="1"
+
+                <Grid Grid.Row="1"
+                      ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                      Margin="20,0,20,10"
+                      ColumnSpacing="7">
+                    <Button Content="目录"
+                            Padding="10,5"
+                            Click="ReaderTocButton_Click" />
+                    <TextBox x:Name="ReaderSearchBox"
+                             Grid.Column="1"
+                             Width="210"
+                             HorizontalAlignment="Left"
+                             PlaceholderText="查找本章文字"
+                             IsVisible="False"
+                             TextChanged="ReaderSearchBox_TextChanged"
+                             KeyDown="ReaderSearchBox_KeyDown" />
+                    <Button x:Name="ReaderSearchPreviousButton"
+                            Grid.Column="2"
+                            Content="‹"
+                            Padding="9,5"
+                            IsVisible="False"
+                            Click="ReaderSearchPreviousButton_Click" />
+                    <Button x:Name="ReaderSearchNextButton"
+                            Grid.Column="3"
+                            Content="›"
+                            Padding="9,5"
+                            IsVisible="False"
+                            Click="ReaderSearchNextButton_Click" />
+                    <TextBlock x:Name="ReaderSearchCountText"
+                               Grid.Column="4"
+                               VerticalAlignment="Center"
+                               Foreground="#666666"
+                               IsVisible="False" />
+                    <Button Content="查找"
+                            Grid.Column="5"
+                            Padding="10,5"
+                            Click="ReaderSearchButton_Click" />
+                    <Button x:Name="ReaderModeButton"
+                            Content="滚动"
+                            Grid.Column="6"
+                            Padding="10,5"
+                            Click="ReaderModeButton_Click" />
+                    <Button Content="字号 −"
+                            Grid.Column="7"
+                            Padding="10,5"
+                            Click="ReaderDecreaseFontButton_Click" />
+                    <Button Content="字号 ＋"
+                            Grid.Column="8"
+                            Padding="10,5"
+                            Click="ReaderIncreaseFontButton_Click" />
+                    <Button Content="书签"
+                            Grid.Column="9"
+                            Padding="10,5"
+                            Click="ReaderBookmarkButton_Click" />
+                    <Button Content="划线"
+                            Grid.Column="10"
+                            Padding="10,5"
+                            Click="ReaderAnnotateButton_Click" />
+                    <Button Content="禅模式"
+                            Grid.Column="11"
+                            Padding="10,5"
+                            Click="ReaderZenButton_Click" />
+                    <TextBlock x:Name="ReaderProgressText"
+                               Grid.Column="12"
+                               VerticalAlignment="Center"
+                               Foreground="#666666" />
+                </Grid>
+
+                <Grid Grid.Row="2" ColumnDefinitions="Auto,*">
+                    <Border x:Name="ReaderTocPanel"
+                            Grid.Column="0"
+                            Width="270"
+                            Margin="20,0,10,18"
+                            BorderBrush="{StaticResource HairlineBrush}"
+                            BorderThickness="1"
+                            Background="{StaticResource PaperBrush}"
+                            IsVisible="False">
+                        <Grid RowDefinitions="Auto,*">
+                            <TextBlock Text="目录"
+                                       FontSize="16"
+                                       FontWeight="Bold"
+                                       Margin="12,10,12,8" />
+                            <ListBox x:Name="ReaderTocList"
+                                     Grid.Row="1"
+                                     SelectionChanged="ReaderTocList_SelectionChanged">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="infra:EpubReaderNavigationItem">
+                                        <TextBlock Text="{Binding Title}"
+                                                   TextWrapping="Wrap"
+                                                   Margin="10,7" />
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Column="1"
                         Margin="20,0,20,18"
                         BorderBrush="{StaticResource HairlineBrush}"
                         BorderThickness="1"
@@ -914,7 +1011,8 @@
                                         HorizontalContentAlignment="Stretch"
                                         VerticalContentAlignment="Stretch" />
                     </Grid>
-                </Border>
+                    </Border>
+                </Grid>
             </Grid>
         </Grid>
 </Window>
