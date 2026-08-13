@@ -173,7 +173,7 @@ powershell -ExecutionPolicy Bypass -File scripts\Build-Release.ps1 `
 
 ## 9. Git 状态与约定
 
-- 当前 `master` 工作区干净；本地比 `origin/master` 超前 10 个提交（均未推送）；构建输出由 `.gitignore` 排除。
+- 当前 `master` 工作区干净；本地比 `origin/master` 超前 7 个提交（均未推送）；构建输出由 `.gitignore` 排除。
 - 约定：一次 exe 发布对应一次 Git 提交；每次代码/文档改动随 AI_HANDOFF 一并提交；继续工作前先 `git status --short --branch`。
 - GitHub：`git@github.com:kingstacker/Kkindle.git`。
 
@@ -298,16 +298,18 @@ WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost`
 进度：
 
 - [x] 建 `Kkindle.App`（Avalonia 库）+ `Kkindle.Desktop.Windows`（启动头），空窗口可构建
-- [ ] 自绘方角标题栏
-- [ ] 自定义 `ScrollBar` ControlTheme（带上下三角 + 自动隐藏）
-- [ ] `App.axaml` 黑白灰设计系统其余部分
-- [ ] 内置京华老宋体走 `avares://` 资源
+- [x] 自绘方角标题栏（`WindowDecorations=None` + `ExtendClientAreaToDecorationsHint`，三枚矢量 caption glyph）
+- [x] 自定义 `ScrollBar` ControlTheme（上下三角、可拖动滑块、透明滑轨、内建自动隐藏）
+- [x] `App.axaml` 黑白灰基础设计系统（颜色资源、字体、TextBlock/Button/TextBox 基础样式）
+- [x] 内置京华老宋体走 `avares://` 资源（字体文件与许可记录随 `Kkindle.App` 打包）
 
 按「先攻最难的两个控件」策略推进：标题栏和 ScrollBar 是 `App.xaml` 里定制最深的部分，也是 Avalonia `ControlTheme` 与 WinUI `Style` + `VisualStateManager` 差异最大的地方。它们能 1:1 还原，剩下 7 个 `ControlTemplate` 基本没悬念；还原不了则趁早调整设计系统策略，此时只投入了几天而非几周。
 
-- 自绘标题栏：`ExtendClientAreaToDecorationsHint` + `SystemDecorations=None`，替代 `AppWindow` + `DwmSetWindowAttribute`（约束 #7）——Avalonia 原生跨平台，比现方案干净
-- 内置京华老宋体走 `avares://` 资源
-- 滚动条自动隐藏（对应 `MainWindow.ScrollbarAutoHide.cs`）改为 Avalonia `ScrollBar` ControlTheme
+- 自绘标题栏：`WindowDecorations=None` + `ExtendClientAreaToDecorationsHint`，替代 `AppWindow` + `DwmSetWindowAttribute`（约束 #7）——Avalonia 原生跨平台，比现方案干净
+- 内置京华老宋体走 `avares://Kkindle.App/Assets/Fonts/KingHwaOldSong-v3.0.ttf#KingHwaOldSong`，字体资源在 `Kkindle.App.csproj` 中以 `AvaloniaResource` 打包
+- 滚动条自动隐藏（对应 `MainWindow.ScrollbarAutoHide.cs`）改为 `ScrollBarTheme.axaml` 的 `ControlTheme`，全局 `ScrollBar` 设置 `AllowAutoHide=True`、`HideDelay=900ms`
+
+阶段 1 骨架验收（2026-08-13）：`dotnet build Kkindle.sln -c Debug -p:Platform=x64` 0 警告/0 错误；`dotnet test Kkindle.sln -c Debug -p:Platform=x64 --no-build` 共 191 项全通过；Windows Avalonia 启动后保持运行，未发现 XAML 资源加载错误。后续在阶段 2/3 迁移具体视图时，再按需补齐 ComboBox、ListBox、Dialog 等控件的页面级主题。
 
 **阶段 2：本地书库 — 约 1.5-2 周**
 

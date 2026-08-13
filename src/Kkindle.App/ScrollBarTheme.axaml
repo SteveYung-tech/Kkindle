@@ -1,0 +1,281 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    x:ClassModifier="internal">
+    <!--
+        Kkindle's scrollbar keeps the standard Avalonia ScrollBar parts so it
+        remains fully compatible with ScrollViewer: the two line buttons,
+        Track, page buttons and Thumb are all wired exactly like the Fluent
+        theme. The visual language is intentionally spare: no rounded corners,
+        no visible track line, and a light-grey thumb that appears while the
+        bar is expanded or being used.
+    -->
+    <ControlTheme x:Key="KkindleScrollBarThumb" TargetType="Thumb">
+        <Setter Property="Background" Value="{DynamicResource KkindleScrollBarThumbBrush}" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border">
+            <Setter Property="Background" Value="{DynamicResource KkindleScrollBarThumbPointerOverBrush}" />
+        </Style>
+        <Style Selector="^:pressed /template/ Border">
+            <Setter Property="Background" Value="{DynamicResource KkindleScrollBarThumbPressedBrush}" />
+        </Style>
+        <Style Selector="^:disabled /template/ Border">
+            <Setter Property="Background" Value="{DynamicResource KkindleScrollBarThumbDisabledBrush}" />
+        </Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="KkindleScrollBarPageButton" TargetType="RepeatButton">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Opacity" Value="0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </ControlTheme>
+
+    <ControlTheme x:Key="KkindleScrollBarLineButton" TargetType="RepeatButton">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Opacity" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource KkindleScrollBarArrowBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <ContentPresenter x:Name="PART_ContentPresenter"
+                                      Background="{DynamicResource KkindleScrollBarButtonBrush}"
+                                      BorderBrush="{DynamicResource KkindleScrollBarButtonBorderBrush}"
+                                      BorderThickness="0"
+                                      Content="{TemplateBinding Content}"
+                                      Foreground="{TemplateBinding Foreground}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Setter Property="Transitions">
+            <Setter.Value>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.1" />
+                </Transitions>
+            </Setter.Value>
+        </Setter>
+        <Style Selector="^:pointerover">
+            <Setter Property="Foreground" Value="{DynamicResource KkindleScrollBarArrowPointerOverBrush}" />
+            <Style Selector="^ /template/ ContentPresenter">
+                <Setter Property="Background" Value="{DynamicResource KkindleScrollBarButtonPointerOverBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource KkindleScrollBarButtonPointerOverBorderBrush}" />
+            </Style>
+        </Style>
+        <Style Selector="^:pressed">
+            <Setter Property="Foreground" Value="{DynamicResource KkindleScrollBarArrowPressedBrush}" />
+            <Style Selector="^ /template/ ContentPresenter">
+                <Setter Property="Background" Value="{DynamicResource KkindleScrollBarButtonPressedBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource KkindleScrollBarButtonPressedBorderBrush}" />
+            </Style>
+        </Style>
+        <Style Selector="^:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource KkindleScrollBarArrowDisabledBrush}" />
+            <Style Selector="^ /template/ ContentPresenter">
+                <Setter Property="Background" Value="{DynamicResource KkindleScrollBarButtonDisabledBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource KkindleScrollBarButtonDisabledBorderBrush}" />
+            </Style>
+        </Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="{x:Type ScrollBar}" TargetType="ScrollBar">
+        <Setter Property="MinWidth" Value="{DynamicResource KkindleScrollBarSize}" />
+        <Setter Property="MinHeight" Value="{DynamicResource KkindleScrollBarSize}" />
+        <Setter Property="Background" Value="{DynamicResource KkindleScrollBarBackgroundBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource KkindleScrollBarThumbBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource KkindleScrollBarBorderBrush}" />
+        <Setter Property="CornerRadius" Value="0" />
+
+        <Style Selector="^:vertical">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Grid x:Name="Root">
+                        <Border x:Name="VerticalRoot"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <Grid RowDefinitions="Auto,*,Auto">
+                                <Rectangle x:Name="TrackRect"
+                                           Grid.RowSpan="3"
+                                           Fill="Transparent"
+                                           Stroke="Transparent"
+                                           Opacity="0">
+                                    <Rectangle.Transitions>
+                                        <Transitions>
+                                            <DoubleTransition Property="Opacity" Duration="0:0:0.1" />
+                                        </Transitions>
+                                    </Rectangle.Transitions>
+                                </Rectangle>
+
+                                <RepeatButton Name="PART_LineUpButton"
+                                              Grid.Row="0"
+                                              HorizontalAlignment="Center"
+                                              Focusable="False"
+                                              MinWidth="{DynamicResource KkindleScrollBarSize}"
+                                              Height="{DynamicResource KkindleScrollBarSize}"
+                                              Theme="{StaticResource KkindleScrollBarLineButton}"
+                                              AutomationProperties.Name="向上滚动">
+                                    <PathIcon Data="M 10,4 L 4,10 L 5,11 L 10,6 L 15,11 L 16,10 Z"
+                                              Width="6"
+                                              Height="6" />
+                                </RepeatButton>
+
+                                <Track Grid.Row="1"
+                                       Minimum="{TemplateBinding Minimum}"
+                                       Maximum="{TemplateBinding Maximum}"
+                                       Value="{TemplateBinding Value, Mode=TwoWay}"
+                                       DeferThumbDrag="{TemplateBinding ScrollViewer.IsDeferredScrollingEnabled}"
+                                       ViewportSize="{TemplateBinding ViewportSize}"
+                                       Orientation="{TemplateBinding Orientation}"
+                                       IsDirectionReversed="True">
+                                    <Track.DecreaseButton>
+                                        <RepeatButton Name="PART_PageUpButton"
+                                                      Classes="largeIncrease"
+                                                      Focusable="False"
+                                                      Theme="{StaticResource KkindleScrollBarPageButton}"
+                                                      AutomationProperties.Name="向上翻页" />
+                                    </Track.DecreaseButton>
+                                    <Track.IncreaseButton>
+                                        <RepeatButton Name="PART_PageDownButton"
+                                                      Classes="largeIncrease"
+                                                      Focusable="False"
+                                                      Theme="{StaticResource KkindleScrollBarPageButton}"
+                                                      AutomationProperties.Name="向下翻页" />
+                                    </Track.IncreaseButton>
+                                    <Thumb Theme="{StaticResource KkindleScrollBarThumb}"
+                                           Width="{DynamicResource KkindleScrollBarSize}"
+                                           MinHeight="{DynamicResource KkindleScrollBarSize}"
+                                           AutomationProperties.Name="滚动位置" />
+                                </Track>
+
+                                <RepeatButton Name="PART_LineDownButton"
+                                              Grid.Row="2"
+                                              HorizontalAlignment="Center"
+                                              Focusable="False"
+                                              MinWidth="{DynamicResource KkindleScrollBarSize}"
+                                              Height="{DynamicResource KkindleScrollBarSize}"
+                                              Theme="{StaticResource KkindleScrollBarLineButton}"
+                                              AutomationProperties.Name="向下滚动">
+                                    <PathIcon Data="M 4,6 L 10,12 L 16,6 L 15,5 L 10,10 L 5,5 Z"
+                                              Width="6"
+                                              Height="6" />
+                                </RepeatButton>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+
+        <Style Selector="^:horizontal">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Grid x:Name="Root">
+                        <Border x:Name="HorizontalRoot"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <Rectangle x:Name="TrackRect"
+                                           Grid.ColumnSpan="3"
+                                           Fill="Transparent"
+                                           Stroke="Transparent"
+                                           Opacity="0">
+                                    <Rectangle.Transitions>
+                                        <Transitions>
+                                            <DoubleTransition Property="Opacity" Duration="0:0:0.1" />
+                                        </Transitions>
+                                    </Rectangle.Transitions>
+                                </Rectangle>
+
+                                <RepeatButton Name="PART_LineUpButton"
+                                              Grid.Column="0"
+                                              VerticalAlignment="Center"
+                                              Focusable="False"
+                                              MinHeight="{DynamicResource KkindleScrollBarSize}"
+                                              Width="{DynamicResource KkindleScrollBarSize}"
+                                              Theme="{StaticResource KkindleScrollBarLineButton}"
+                                              AutomationProperties.Name="向左滚动">
+                                    <PathIcon Data="M 10,4 L 4,10 L 10,16 L 11,15 L 6,10 L 11,5 Z"
+                                              Width="6"
+                                              Height="6" />
+                                </RepeatButton>
+
+                                <Track Grid.Column="1"
+                                       Minimum="{TemplateBinding Minimum}"
+                                       Maximum="{TemplateBinding Maximum}"
+                                       Value="{TemplateBinding Value, Mode=TwoWay}"
+                                       DeferThumbDrag="{TemplateBinding ScrollViewer.IsDeferredScrollingEnabled}"
+                                       ViewportSize="{TemplateBinding ViewportSize}"
+                                       Orientation="{TemplateBinding Orientation}">
+                                    <Track.DecreaseButton>
+                                        <RepeatButton Name="PART_PageUpButton"
+                                                      Classes="largeIncrease"
+                                                      Focusable="False"
+                                                      Theme="{StaticResource KkindleScrollBarPageButton}"
+                                                      AutomationProperties.Name="向左翻页" />
+                                    </Track.DecreaseButton>
+                                    <Track.IncreaseButton>
+                                        <RepeatButton Name="PART_PageDownButton"
+                                                      Classes="largeIncrease"
+                                                      Focusable="False"
+                                                      Theme="{StaticResource KkindleScrollBarPageButton}"
+                                                      AutomationProperties.Name="向右翻页" />
+                                    </Track.IncreaseButton>
+                                    <Thumb Theme="{StaticResource KkindleScrollBarThumb}"
+                                           Height="{DynamicResource KkindleScrollBarSize}"
+                                           MinWidth="{DynamicResource KkindleScrollBarSize}"
+                                           AutomationProperties.Name="滚动位置" />
+                                </Track>
+
+                                <RepeatButton Name="PART_LineDownButton"
+                                              Grid.Column="2"
+                                              VerticalAlignment="Center"
+                                              Focusable="False"
+                                              MinHeight="{DynamicResource KkindleScrollBarSize}"
+                                              Width="{DynamicResource KkindleScrollBarSize}"
+                                              Theme="{StaticResource KkindleScrollBarLineButton}"
+                                              AutomationProperties.Name="向右滚动">
+                                    <PathIcon Data="M 10,4 L 16,10 L 10,16 L 9,15 L 14,10 L 9,5 Z"
+                                              Width="6"
+                                              Height="6" />
+                                </RepeatButton>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+
+        <Style Selector="^[IsExpanded=true]">
+            <Style Selector="^ /template/ Grid#Root">
+                <Setter Property="Background" Value="{DynamicResource KkindleScrollBarExpandedBackgroundBrush}" />
+            </Style>
+            <Style Selector="^ /template/ Rectangle#TrackRect">
+                <Setter Property="Opacity" Value="0" />
+            </Style>
+            <Style Selector="^ /template/ Thumb">
+                <Setter Property="Background" Value="{DynamicResource KkindleScrollBarThumbBrush}" />
+            </Style>
+            <Style Selector="^ /template/ RepeatButton">
+                <Setter Property="Opacity" Value="1" />
+            </Style>
+        </Style>
+    </ControlTheme>
+</ResourceDictionary>

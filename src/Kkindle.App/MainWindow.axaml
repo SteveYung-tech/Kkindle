@@ -6,11 +6,49 @@
         x:Class="Kkindle.MainWindow"
         Title="Kkindle"
         Width="1280" Height="800"
-        Background="White">
-    <!-- Skeleton only. The real chrome (self-drawn square title bar) and the
-         library/reader layout arrive with the stage 1 and stage 2 ports. -->
-    <TextBlock Text="Kkindle · Avalonia 迁移骨架"
-               HorizontalAlignment="Center"
-               VerticalAlignment="Center"
-               Foreground="Black" />
+        Background="{StaticResource PaperBrush}"
+        WindowDecorations="None"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="-1">
+
+    <Grid RowDefinitions="38,*">
+
+        <!-- Self-drawn title bar. The drag strip fills the leftover width so the
+             window can be moved by grabbing anywhere that is not a button, and
+             double-clicking it toggles maximise, matching the system behaviour
+             the extended client area removed. -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Background="{StaticResource PaperBrush}">
+            <Border x:Name="TitleBarDragRegion"
+                    Grid.Column="0"
+                    Background="Transparent"
+                    PointerPressed="TitleBarDragRegion_PointerPressed" />
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="0">
+                <Button x:Name="MinimizeWindowButton"
+                        Classes="caption"
+                        Click="MinimizeWindowButton_Click"
+                        AutomationProperties.Name="最小化">
+                    <Path Data="M 0,0 H 10" />
+                </Button>
+                <Button x:Name="MaximizeWindowButton"
+                        Classes="caption"
+                        Click="MaximizeWindowButton_Click"
+                        AutomationProperties.Name="最大化">
+                    <Path x:Name="MaximizeWindowGlyph" Data="M 0.5,0.5 H 9.5 V 9.5 H 0.5 Z" />
+                </Button>
+                <Button x:Name="CloseWindowButton"
+                        Classes="caption"
+                        Click="CloseWindowButton_Click"
+                        AutomationProperties.Name="关闭">
+                    <Path Data="M 0,0 L 10,10 M 10,0 L 0,10" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <TextBlock Grid.Row="1"
+                   Text="Kkindle · Avalonia 迁移骨架"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Foreground="{StaticResource InkBrush}" />
+    </Grid>
 </Window>

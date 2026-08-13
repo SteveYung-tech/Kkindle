@@ -5,7 +5,141 @@
     <!-- Kkindle is a paper-white reading tool: the palette is fixed light, not
          system-following. Dark mode is not a supported variant (AI_HANDOFF #13). -->
 
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceInclude Source="avares://Kkindle.App/ScrollBarTheme.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+        <!-- The whole product is black, white and grey with square corners.
+             Every value here is quoted from the WinUI App.xaml so the port can
+             be compared against docs/images/ pixel by pixel. -->
+        <Color x:Key="PaperColor">#FFFFFF</Color>
+        <Color x:Key="InkColor">#000000</Color>
+        <Color x:Key="PressedColor">#D9D9D9</Color>
+        <Color x:Key="HairlineColor">#E2E2DE</Color>
+
+        <SolidColorBrush x:Key="PaperBrush" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="InkBrush" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="PressedBrush" Color="{StaticResource PressedColor}" />
+        <SolidColorBrush x:Key="HairlineBrush" Color="{StaticResource HairlineColor}" />
+
+        <!-- The font is bundled with the portable app. The suffix is the
+             internal family name, not the filename. -->
+        <FontFamily x:Key="DefaultAppFontFamily">avares://Kkindle.App/Assets/Fonts/KingHwaOldSong-v3.0.ttf#KingHwaOldSong</FontFamily>
+
+        <!-- ScrollBarTheme.axaml intentionally uses private resource names so
+             it does not depend on FluentTheme's internal palette. -->
+        <x:Double x:Key="KkindleScrollBarSize">10</x:Double>
+        <SolidColorBrush x:Key="KkindleScrollBarBackgroundBrush" Color="Transparent" />
+        <SolidColorBrush x:Key="KkindleScrollBarExpandedBackgroundBrush" Color="Transparent" />
+        <SolidColorBrush x:Key="KkindleScrollBarBorderBrush" Color="Transparent" />
+        <SolidColorBrush x:Key="KkindleScrollBarThumbBrush" Color="#C9C9C5" />
+        <SolidColorBrush x:Key="KkindleScrollBarThumbPointerOverBrush" Color="#B4B4B0" />
+        <SolidColorBrush x:Key="KkindleScrollBarThumbPressedBrush" Color="#A4A4A0" />
+        <SolidColorBrush x:Key="KkindleScrollBarThumbDisabledBrush" Color="#777777" />
+        <SolidColorBrush x:Key="KkindleScrollBarButtonBrush" Color="Transparent" />
+        <SolidColorBrush x:Key="KkindleScrollBarButtonPointerOverBrush" Color="#000000" />
+        <SolidColorBrush x:Key="KkindleScrollBarButtonPressedBrush" Color="#000000" />
+        <SolidColorBrush x:Key="KkindleScrollBarButtonDisabledBrush" Color="Transparent" />
+        <SolidColorBrush x:Key="KkindleScrollBarButtonBorderBrush" Color="Transparent" />
+        <SolidColorBrush x:Key="KkindleScrollBarButtonPointerOverBorderBrush" Color="#000000" />
+        <SolidColorBrush x:Key="KkindleScrollBarButtonPressedBorderBrush" Color="#000000" />
+        <SolidColorBrush x:Key="KkindleScrollBarButtonDisabledBorderBrush" Color="Transparent" />
+        <SolidColorBrush x:Key="KkindleScrollBarArrowBrush" Color="#000000" />
+        <SolidColorBrush x:Key="KkindleScrollBarArrowPointerOverBrush" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="KkindleScrollBarArrowPressedBrush" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="KkindleScrollBarArrowDisabledBrush" Color="#8A8A8A" />
+        </ResourceDictionary>
+    </Application.Resources>
+
     <Application.Styles>
         <FluentTheme />
+
+        <!-- Avalonia's ScrollBar already owns the interaction state needed for
+             automatic hiding. This keeps the behavior in the control theme,
+             rather than duplicating WinUI's visual-tree registration logic. -->
+        <Style Selector="ScrollBar">
+            <Setter Property="Theme" Value="{StaticResource {x:Type ScrollBar}}" />
+            <Setter Property="AllowAutoHide" Value="True" />
+            <Setter Property="HideDelay" Value="0:0:0.9" />
+            <Setter Property="ShowDelay" Value="0:0:0" />
+        </Style>
+
+        <!-- Base typography and the monochrome interaction language used by
+             the future library/reader views. More specific view styles can
+             override sizes and spacing without changing the palette. -->
+        <Style Selector="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="Button:pointerover">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+
+        <!-- Caption buttons invert to black-on-white on hover, which is the
+             product's hover language everywhere. Note there is no red close
+             button: the three-colour rule has no exception for it. -->
+        <Style Selector="Button.caption">
+            <Setter Property="Width" Value="46" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Button.caption:pointerover">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="Button.caption:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+
+        <!-- Glyphs are drawn as vectors rather than Segoe MDL2 Assets glyphs:
+             that font ships only with Windows, so a font-based title bar would
+             compile here and render as tofu on Linux. Stroke follows the
+             button's Foreground so the hover inversion carries through. -->
+        <Style Selector="Button.caption Path">
+            <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
+            <Setter Property="StrokeThickness" Value="1" />
+            <Setter Property="Fill" Value="Transparent" />
+        </Style>
     </Application.Styles>
 </Application>
