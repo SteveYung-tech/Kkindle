@@ -246,6 +246,7 @@ public sealed partial class MainWindow
         _readerBookmarkIndicatorSequence++;
         ReaderBookmarkCornerMarker.Visibility = Visibility.Collapsed;
         ReaderSearchPanel.Visibility = Visibility.Collapsed;
+        StopReaderSearchScrollbar();
     }
 
     private void StopReaderToolsTimers()
@@ -257,6 +258,7 @@ public sealed partial class MainWindow
         _readerBookmarkFeedbackTimer?.Stop();
         ReaderBookmarkFeedbackToolTip.IsOpen = false;
         HideReaderSearchPanel();
+        StopReaderSearchScrollbar();
         HideReaderSelectionPopup();
         if (_readerLayoutPopup is not null) _readerLayoutPopup.IsOpen = false;
         _readerLayoutPopupOpen = false;
@@ -865,6 +867,7 @@ public sealed partial class MainWindow
         ReaderTocSearchBox.Visibility = Visibility.Visible;
         ReaderTocSearchBox.Text = _readerSearchQuery;
         QueueScrollbarAutoHideRefresh(ReaderSearchPanel);
+        QueueReaderSearchScrollBarRefresh(reveal: false);
         ShowReaderSearchStatus(string.IsNullOrWhiteSpace(_readerSearchQuery)
             ? "输入关键词，实时搜索整本书。"
             : "正在本地搜索…");
@@ -883,6 +886,7 @@ public sealed partial class MainWindow
         _readerSearchQueryCancellation?.Dispose();
         _readerSearchQueryCancellation = null;
         ReaderSearchPanel.Visibility = Visibility.Collapsed;
+        HideReaderSearchScrollBar();
         ReaderTocTabsPanel.Visibility = Visibility.Visible;
         ReaderReadingInfoPanel.Visibility = Visibility.Visible;
         ReaderSearchToolbarButton.Opacity = 1;
@@ -1004,6 +1008,7 @@ public sealed partial class MainWindow
         ReaderSearchStatusText.Visibility = message is null ? Visibility.Collapsed : Visibility.Visible;
         ReaderSearchResultList.Visibility = message is null ? Visibility.Visible : Visibility.Collapsed;
         QueueScrollbarAutoHideRefresh(ReaderSearchPanel);
+        QueueReaderSearchScrollBarRefresh(reveal: message is null);
     }
 
     private void ReaderSearchHighlightedText_Loaded(object sender, RoutedEventArgs e)

@@ -3635,11 +3635,12 @@
                                       SelectionMode="None"
                                       ScrollViewer.HorizontalScrollMode="Disabled"
                                       ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                      ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                                      Loaded="ReaderSearchResultList_Loaded">
                                 <ListView.ItemTemplate>
                                     <DataTemplate x:DataType="local:ReaderSearchResultItem">
                                         <Button Padding="0"
-                                                Margin="0,0,8,0"
+                                                Margin="0"
                                                 BorderThickness="1"
                                                 BorderBrush="{x:Bind ResultBorderBrush, Mode=OneWay}"
                                                 Background="Transparent"
@@ -3681,8 +3682,34 @@
                                             </StackPanel>
                                         </Button>
                                     </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
+                                 </ListView.ItemTemplate>
+                             </ListView>
+                            <Grid x:Name="ReaderSearchScrollBarOverlay"
+                                  Grid.Row="2"
+                                  Width="14"
+                                  Margin="0,4,2,4"
+                                  HorizontalAlignment="Right"
+                                  Background="Transparent"
+                                  Canvas.ZIndex="10"
+                                  IsHitTestVisible="False"
+                                  Visibility="Collapsed"
+                                  PointerEntered="ReaderSearchScrollBarOverlay_PointerEntered"
+                                  PointerExited="ReaderSearchScrollBarOverlay_PointerExited"
+                                  PointerPressed="ReaderSearchScrollBarOverlay_PointerPressed"
+                                  PointerMoved="ReaderSearchScrollBarOverlay_PointerMoved"
+                                  PointerReleased="ReaderSearchScrollBarOverlay_PointerReleased"
+                                  SizeChanged="ReaderSearchScrollBarOverlay_SizeChanged">
+                                <Canvas>
+                                    <Border x:Name="ReaderSearchScrollBarThumb"
+                                            Width="8"
+                                            Height="36"
+                                            Canvas.Left="3"
+                                            Background="#C9C9C5"
+                                            BorderBrush="#C9C9C5"
+                                            BorderThickness="0"
+                                            CornerRadius="0" />
+                                </Canvas>
+                            </Grid>
                             <TextBlock x:Name="ReaderSearchStatusText"
                                        Grid.Row="2"
                                        Margin="20"
