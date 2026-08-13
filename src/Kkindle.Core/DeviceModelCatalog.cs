@@ -18,7 +18,9 @@ public static class DeviceModelCatalog
             "Kindle Paperwhite 12 代",
             "Kindle Oasis",
             "Kindle Voyage",
-            "Kindle Scribe"
+            "Kindle Scribe 1 代",
+            "Kindle Scribe 2 代",
+            "Kindle Scribe 3 代"
         ]),
         new("汉王",
         [

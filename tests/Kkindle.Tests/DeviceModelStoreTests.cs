@@ -98,8 +98,11 @@ public sealed class DeviceModelStoreTests
     public void CatalogCoversExpectedVendorsWithModels()
     {
         var vendors = DeviceModelCatalog.Vendors;
+        var kindle = Assert.Single(vendors, vendor => vendor.Name == "Kindle");
 
-        Assert.Contains(vendors, vendor => vendor.Name == "Kindle");
+        Assert.Contains("Kindle Scribe 1 代", kindle.Models);
+        Assert.Contains("Kindle Scribe 2 代", kindle.Models);
+        Assert.Contains("Kindle Scribe 3 代", kindle.Models);
         Assert.Contains(vendors, vendor => vendor.Name == "汉王");
         Assert.Contains(vendors, vendor => vendor.Name == "掌阅");
         Assert.Contains(vendors, vendor => vendor.Name == "Kobo");

@@ -1,6 +1,8 @@
 using Kkindle.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
 
@@ -8,6 +10,16 @@ namespace Kkindle;
 
 public sealed partial class MainWindow
 {
+    private static readonly HashSet<string> FontResourceExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".ttf", ".otf"
+    };
+
+    private static readonly HashSet<string> DictionaryResourceExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".azw", ".azw3", ".mobi", ".kfx"
+    };
+
     private KindleResourceKind _deviceResourceKind = KindleResourceKind.Font;
     private KindleDeviceResource? _selectedDeviceResource;
     private bool _deviceResourceOperationInProgress;
@@ -121,24 +133,89 @@ public sealed partial class MainWindow
         if (_devices.Count == 0 || _deviceResourceOperationInProgress) return;
         var picker = new FileOpenPicker();
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-        var extensions = _deviceResourceKind == KindleResourceKind.Font
-            ? new[] { ".ttf", ".otf" }
-            : new[] { ".azw", ".azw3", ".mobi", ".kfx" };
-        foreach (var extension in extensions) picker.FileTypeFilter.Add(extension);
+        foreach (var extension in GetDeviceResourceExtensions()) picker.FileTypeFilter.Add(extension);
         var files = await picker.PickMultipleFilesAsync();
         if (files.Count == 0) return;
 
+        await ImportDeviceResourceFilesAsync(files.Select(file => file.Path));
+    }
+
+    private void DeviceResourcePage_DragOver(object sender, DragEventArgs e)
+    {
+        if (_devices.Count == 0 || _deviceResourceOperationInProgress ||
+            !e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+
+        e.AcceptedOperation = DataPackageOperation.Copy;
+        e.DragUIOverride.Caption = _deviceResourceKind == KindleResourceKind.Font
+            ? "拖放字体到 Kindle（TTF、OTF）"
+            : "拖放字典到 Kindle（AZW、AZW3、MOBI、KFX）";
+        e.DragUIOverride.IsCaptionVisible = true;
+        e.DragUIOverride.IsGlyphVisible = true;
+    }
+
+    private async void DeviceResourcePage_Drop(object sender, DragEventArgs e)
+    {
+        if (_devices.Count == 0 || _deviceResourceOperationInProgress ||
+            !e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+
+        try
+        {
+            var items = await e.DataView.GetStorageItemsAsync();
+            var droppedFiles = items
+                .OfType<StorageFile>()
+                .Select(file => file.Path)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var extensions = GetDeviceResourceExtensions();
+            var supportedFiles = droppedFiles
+                .Where(path => extensions.Contains(Path.GetExtension(path)))
+                .ToArray();
+            var skippedCount = droppedFiles.Length - supportedFiles.Length;
+
+            if (supportedFiles.Length == 0)
+            {
+                var formats = _deviceResourceKind == KindleResourceKind.Font
+                    ? "TTF 或 OTF 字体"
+                    : "AZW、AZW3、MOBI 或 KFX 字典";
+                await ShowMessageAsync("无法导入", $"拖入的文件中没有可用的 {formats}。");
+                return;
+            }
+
+            await ImportDeviceResourceFilesAsync(supportedFiles, skippedCount);
+        }
+        catch (Exception exception)
+        {
+            DeviceResourceStatusText.Text = $"读取拖入文件失败：{exception.Message}";
+        }
+    }
+
+    private HashSet<string> GetDeviceResourceExtensions() =>
+        _deviceResourceKind == KindleResourceKind.Font
+            ? FontResourceExtensions
+            : DictionaryResourceExtensions;
+
+    private async Task ImportDeviceResourceFilesAsync(IEnumerable<string> paths, int skippedCount = 0)
+    {
+        var files = paths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (files.Length == 0) return;
+
         await RunDeviceResourceOperationAsync(async (device, cancellationToken) =>
         {
-            for (var index = 0; index < files.Count; index++)
+            for (var index = 0; index < files.Length; index++)
             {
                 var file = files[index];
-                DeviceResourceStatusText.Text = $"正在导入 {index + 1}/{files.Count}：{file.Name}";
+                DeviceResourceStatusText.Text = $"正在导入 {index + 1}/{files.Length}：{Path.GetFileName(file)}";
                 var progress = new Progress<TransferProgress>(value =>
                     DeviceResourceStatusText.Text = $"{value.Message} · {value.Percentage:0}%");
-                await _kindle.SendResourceAsync(device, _deviceResourceKind, file.Path, progress, cancellationToken);
+                await _kindle.SendResourceAsync(device, _deviceResourceKind, file, progress, cancellationToken);
             }
-            DeviceResourceStatusText.Text = $"已导入 {files.Count} 个文件";
+            DeviceResourceStatusText.Text = skippedCount == 0
+                ? $"已导入 {files.Length} 个文件"
+                : $"已导入 {files.Length} 个文件，忽略 {skippedCount} 个不支持的文件";
         });
     }
 

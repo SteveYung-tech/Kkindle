@@ -2828,9 +2828,15 @@
         </Grid>
 
         <!-- Kindle fonts and dictionaries. Operations are restricted to fonts or documents\dictionaries. -->
-        <Grid x:Name="DeviceResourcePage" Grid.Row="0" Grid.Column="1" Visibility="Collapsed" Padding="30,24,30,18">
+        <Grid x:Name="DeviceResourcePage"
+              Grid.Row="0"
+              Grid.Column="1"
+              Visibility="Collapsed"
+              Padding="30,24,30,18"
+              AllowDrop="True"
+              DragOver="DeviceResourcePage_DragOver"
+              Drop="DeviceResourcePage_Drop">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
@@ -2844,6 +2850,13 @@
                         </Border>
                         <TextBlock x:Name="DeviceResourcePageTitle" Text="Kindle 字体" FontSize="28" FontWeight="Bold" />
                     </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                        <TextBlock x:Name="DeviceResourceDeviceText" Text="未检测到设备" Foreground="#000000" FontSize="12" FontWeight="SemiBold" />
+                        <TextBlock Text="·" Foreground="{StaticResource MutedInkBrush}" FontSize="12" />
+                        <TextBlock x:Name="DeviceResourcePathText" Text="Kindle\fonts" Foreground="{StaticResource MutedInkBrush}" FontSize="12" />
+                        <TextBlock Text="·" Foreground="{StaticResource MutedInkBrush}" FontSize="12" />
+                        <TextBlock x:Name="DeviceResourceCountText" Text="0 个文件" Foreground="{StaticResource MutedInkBrush}" FontSize="12" />
+                    </StackPanel>
                     <TextBlock x:Name="DeviceResourceStatusText" Text="请连接 Kindle" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Margin="0,46,0,0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
@@ -2855,23 +2868,7 @@
                 </StackPanel>
             </Grid>
 
-            <Border Grid.Row="1"
-                    Margin="0,24,0,18"
-                    Padding="16"
-                    Background="#FFFFFF"
-                    BorderBrush="#000000"
-                    BorderThickness="2">
-                <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <StackPanel>
-                        <TextBlock x:Name="DeviceResourcePathText" Text="fonts" Foreground="{StaticResource MutedInkBrush}" FontSize="11" />
-                        <TextBlock x:Name="DeviceResourceDeviceText" Text="未检测到设备" Foreground="#000000" FontSize="18" FontWeight="Bold" />
-                    </StackPanel>
-                    <TextBlock x:Name="DeviceResourceCountText" Grid.Column="1" Text="0 个文件" Foreground="#000000" FontSize="18" FontWeight="Bold" VerticalAlignment="Center" />
-                </Grid>
-            </Border>
-
-            <Grid Grid.Row="2">
+            <Grid Grid.Row="1" Margin="0,20,0,0">
                 <ListView x:Name="DeviceResourceList"
                           ItemsSource="{x:Bind DeviceResources}"
                           SelectionMode="Single"
@@ -2893,7 +2890,7 @@
                            VerticalAlignment="Center"
                            Foreground="{StaticResource MutedInkBrush}" />
             </Grid>
-            <TextBlock x:Name="DeviceResourceSafetyText" Grid.Row="3" Margin="0,12,0,0" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
+            <TextBlock x:Name="DeviceResourceSafetyText" Grid.Row="2" Margin="0,12,0,0" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
         </Grid>
 
         <!-- Unified local-reader and Kindle clippings library. -->
