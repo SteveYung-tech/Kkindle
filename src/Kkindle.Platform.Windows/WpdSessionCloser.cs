@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Kkindle.Infrastructure;
+namespace Kkindle.Platform.Windows;
 
 internal static class WpdSessionCloser
 {

@@ -1,7 +1,8 @@
 using System.Runtime.InteropServices;
 using Kkindle.Core;
+using Kkindle.Infrastructure;
 
-namespace Kkindle.Infrastructure;
+namespace Kkindle.Platform.Windows;
 
 internal static class WpdKindleAccess
 {

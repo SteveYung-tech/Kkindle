@@ -2,8 +2,9 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using Kkindle.Core;
+using Kkindle.Infrastructure;
 
-namespace Kkindle.Infrastructure;
+namespace Kkindle.Platform.Windows;
 
 public sealed class KindleDeviceService : IKindleDeviceService
 {

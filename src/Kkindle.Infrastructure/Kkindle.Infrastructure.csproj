@@ -8,4 +8,11 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
     <PackageReference Include="PdfPig" Version="0.1.15" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Kindle scan caching and book classification stay internal: they are
+         helpers for whichever platform implements IKindleDeviceService, not
+         part of Infrastructure's contract. Each platform assembly that hosts a
+         device service needs its own entry here. -->
+    <InternalsVisibleTo Include="Kkindle.Platform.Windows" />
+  </ItemGroup>
 </Project>

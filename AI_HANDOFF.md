@@ -268,10 +268,12 @@ WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost`
 - [x] `Kkindle.Core/PlatformServices.cs`：`ISecretProtector`、`IDeviceChangeNotifier`
 - [x] `WindowsDataProtection` → `Platform.Windows/WindowsSecretProtector.cs`；`AiSettingsStore` / `KindleEmailSettingsStore` / `ZLibrarySettingsStore` / `AppBackupService` 四处改构造注入
 - [x] `NativeDeviceChangeMonitor` → `Platform.Windows/WindowsDeviceChangeNotifier.cs`
-- [ ] 移入 WPD / shell32 / `KindleDeviceService`
-- [ ] Infrastructure 降 TFM
+- [x] 移入 WPD / shell32 / `KindleDeviceService`；Infrastructure 已无任何 Windows API（`DllImport`、`ComImport`、`Marshal.`、`Shell.Application`、`Registry` 全部无匹配）
+- [ ] Infrastructure 降 TFM 到 `net8.0`
 - [ ] 拆出 `tests/Kkindle.Tests.Windows` 承接 `KindleDeviceTests.cs`，`Kkindle.Tests` 降 TFM
 - [ ] `Kkindle.App` 改名 `Kkindle.App.WinUI`
+
+`KindleBookClassifier` 与 `KindleScanCacheStore` 保持 `internal`，靠 `Kkindle.Infrastructure.csproj` 里的 `<InternalsVisibleTo Include="Kkindle.Platform.Windows" />` 跨程序集访问 —— 它们是设备服务的实现细节，不该进 Infrastructure 的公开契约。将来加 `Kkindle.Platform.Linux` 时在同处补一行。
 
 **DPAPI blob 必须字节兼容**：`WindowsSecretProtector` 的 P/Invoke 逐字搬移，包括现在略显名不副实的描述串 `"Kkindle AI API Key"`（DPAPI 把描述当元数据，不参与解密）。动这块会让老用户升级后 API Key、SMTP 密码、Z-Library 登录静默失效。
 
