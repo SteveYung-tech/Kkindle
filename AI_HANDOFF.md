@@ -2,17 +2,17 @@
 
 > 给后续 AI / 开发者使用。继续工作前请先阅读本文档，再查看代码和当前 Git 状态。
 >
-> 更新时间：2026-08-12
+> 更新时间：2026-08-13
 >
 > 项目目录：`C:\Users\kings\Desktop\01_Projects\Kkindle`
 
 ## 0. 当前状态
 
 - 阶段：P0/P1/P2 全部完成；本地书库、Kreader 阅读器、阅读资料中心、Kindle 设备管理（USB/WPD/MTP）、格式转换、Z-Library、Kindle 邮件、备份/设置、AI 助手、安装包与 GitHub 自动发版均已实现并验证。
-- 分支 `master`，本次提交已推送至 `origin/master` 并打标签 `v0.5.1` 自动发版。
-- 最新版本：0.5.1（标签 `v0.5.1`）；包含书库多选/画廊显示、导入格式补齐选择、Kreader 页内查找与搜索高亮/跳转修复、AI 助手底部布局修复、README 截图与功能更新等。
-- 测试：Debug x64 191 项全部通过（0 失败、0 跳过）。
-- 最新测试包（2026-08-12 19:36，由 `685ab20` 发布，内置 Calibre 运行时与 KFX Input 插件，启动/关闭验证通过）：
+- 分支 `master`，当前提交已推送至 `origin/master` 并打标签 `v0.5.2` 自动发版；工作区干净。
+- 最新版本：0.5.2（标签 `v0.5.2`，提交 `5daf140`）；在 0.5.1 基础上新增全应用滚动条自动隐藏，滚动或悬停时显示，空闲后淡出。
+- 测试：Release x64 191 项全部通过（0 失败、0 跳过，2026-08-13）。
+- 本地最近完整测试包（2026-08-12 19:36，版本 `0.5.0-test.1`，由 `685ab20` 发布；内置 Calibre 运行时与 KFX Input 插件，启动/关闭验证通过；如需包含 0.5.2 改动请重新发布）：
   - exe：`artifacts\Kkindle-0.5.0-test.1\Kkindle-0.5.0-test.1-win-x64\Kkindle.exe`
   - 便携包：`artifacts\Kkindle-0.5.0-test.1\Kkindle-0.5.0-test.1-win-x64-portable.zip`
 - 常规发布目录：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\`（其中 exe 仍是 2026-08-10 基线，如需随最新提交刷新请重新发布）。
