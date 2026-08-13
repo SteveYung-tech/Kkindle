@@ -3692,7 +3692,7 @@
                                   Background="Transparent"
                                   Canvas.ZIndex="10"
                                   IsHitTestVisible="False"
-                                  Visibility="Collapsed"
+                                  Visibility="Visible"
                                   PointerEntered="ReaderSearchScrollBarOverlay_PointerEntered"
                                   PointerExited="ReaderSearchScrollBarOverlay_PointerExited"
                                   PointerPressed="ReaderSearchScrollBarOverlay_PointerPressed"
@@ -3700,6 +3700,11 @@
                                   PointerReleased="ReaderSearchScrollBarOverlay_PointerReleased"
                                   SizeChanged="ReaderSearchScrollBarOverlay_SizeChanged">
                                 <Canvas>
+                                    <Border x:Name="ReaderSearchScrollBarTrack"
+                                            Width="1"
+                                            Canvas.Left="6"
+                                            Background="#E2E2DE"
+                                            BorderThickness="0" />
                                     <Border x:Name="ReaderSearchScrollBarThumb"
                                             Width="8"
                                             Height="36"
@@ -3707,7 +3712,8 @@
                                             Background="#C9C9C5"
                                             BorderBrush="#C9C9C5"
                                             BorderThickness="0"
-                                            CornerRadius="0" />
+                                            CornerRadius="0"
+                                            Opacity="0" />
                                 </Canvas>
                             </Grid>
                             <TextBlock x:Name="ReaderSearchStatusText"

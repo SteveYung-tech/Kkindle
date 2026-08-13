@@ -36,6 +36,9 @@ public sealed partial class MainWindow
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
         {
             _readerSearchScrollBarRefreshQueued = false;
+            if (ReaderSearchPanel.Visibility == Visibility.Visible
+                && ReaderSearchResultList.Visibility == Visibility.Visible)
+                ReaderSearchScrollBarOverlay.Visibility = Visibility.Visible;
             AttachReaderSearchResultScrollViewer();
             var canScroll = UpdateReaderSearchScrollBarGeometry();
             if (_readerSearchScrollBarRevealPending)
@@ -220,7 +223,9 @@ public sealed partial class MainWindow
 
         _readerSearchScrollBarTrackHeight = trackHeight;
         _readerSearchScrollBarThumbHeight = thumbHeight;
+        ReaderSearchScrollBarTrack.Height = trackHeight;
         ReaderSearchScrollBarThumb.Height = thumbHeight;
+        Canvas.SetTop(ReaderSearchScrollBarTrack, 0);
         Canvas.SetTop(ReaderSearchScrollBarThumb, Math.Clamp(thumbTop, 0, maxThumbTop));
         return true;
     }
@@ -233,6 +238,7 @@ public sealed partial class MainWindow
         ReaderSearchScrollBarOverlay.Visibility = Visibility.Visible;
         ReaderSearchScrollBarOverlay.Opacity = 1;
         ReaderSearchScrollBarOverlay.IsHitTestVisible = true;
+        ReaderSearchScrollBarThumb.Opacity = 1;
         if (!_readerSearchScrollBarDragging && !_readerSearchScrollBarPointerOver)
             RestartReaderSearchScrollBarHideTimer();
     }
@@ -247,7 +253,7 @@ public sealed partial class MainWindow
     private void ReaderSearchScrollBarHideTimer_Tick(DispatcherQueueTimer sender, object args)
     {
         if (_readerSearchScrollBarDragging || _readerSearchScrollBarPointerOver) return;
-        ReaderSearchScrollBarOverlay.Opacity = 0;
+        ReaderSearchScrollBarThumb.Opacity = 0;
         ReaderSearchScrollBarOverlay.IsHitTestVisible = false;
     }
 
@@ -257,8 +263,12 @@ public sealed partial class MainWindow
         _readerSearchScrollBarDragging = false;
         _readerSearchScrollBarPointerOver = false;
         ReaderSearchScrollBarOverlay.IsHitTestVisible = false;
-        ReaderSearchScrollBarOverlay.Visibility = Visibility.Collapsed;
-        ReaderSearchScrollBarOverlay.Opacity = 0;
+        ReaderSearchScrollBarThumb.Opacity = 0;
+        ReaderSearchScrollBarOverlay.Opacity = 1;
+        ReaderSearchScrollBarOverlay.Visibility = ReaderSearchPanel.Visibility == Visibility.Visible
+            && ReaderSearchResultList.Visibility == Visibility.Visible
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void StopReaderSearchScrollbar()

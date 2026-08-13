@@ -60,7 +60,7 @@ Kkindle/
 - 每书独立排版设置（字号/行高/正文宽度/边距/字体/CJK 覆盖/竖排）持久化；进度断点恢复；书签；书内搜索（FTS + LIKE 回退，带高亮）；划线/批注；脚注悬停浮窗；阅读统计；AI 助手；禅模式。
 - 双 WebView 下一章预加载（`ReaderPreloadWebView`）；禅模式为真全屏（FullScreen presenter，F11 进入 / Esc 退出，chrome 自动隐藏）。
 - 目录/子章节 fragment 跳转顶格、章节首行归一化、分页列边界吸附（详见第 4 节约束）。
-- Kreader 全书搜索结果使用不占布局的悬浮浅灰滑块，支持拖动、点击分页、滚动/悬停显示和闲置隐藏；滑块只覆盖搜索结果区，不影响底部“返回书架”矩形。左侧底部按钮铺满整块底栏、与右侧底栏同高，外框采用与右侧底栏一致的 `#E2E2DE` 浅灰线。
+- Kreader 全书搜索结果使用右侧固定槽位中的悬浮浅灰滑块，槽位不占底部布局；轨道常驻，滑块支持拖动、点击分页、滚动/悬停显示和闲置隐藏。滑块只覆盖搜索结果区，不影响底部“返回书架”矩形。左侧底部按钮铺满整块底栏、与右侧底栏同高，外框采用与右侧底栏一致的 `#E2E2DE` 浅灰线。
 
 ### 3.3 阅读资料中心
 
@@ -172,6 +172,6 @@ powershell -ExecutionPolicy Bypass -File scripts\Build-Release.ps1 `
 
 ## 9. Git 状态与约定
 
-- 当前 `master` 工作区干净；本地比 `origin/master` 超前 6 个提交（均未推送）；构建输出由 `.gitignore` 排除。
+- 当前 `master` 工作区干净；本地比 `origin/master` 超前 7 个提交（均未推送）；构建输出由 `.gitignore` 排除。
 - 约定：一次 exe 发布对应一次 Git 提交；每次代码/文档改动随 AI_HANDOFF 一并提交；继续工作前先 `git status --short --branch`。
 - GitHub：`git@github.com:kingstacker/Kkindle.git`。
