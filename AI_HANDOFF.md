@@ -101,6 +101,8 @@ Kkindle/
 9. **SQLite**：新表一律 `CREATE TABLE IF NOT EXISTS` 幂等；旧表加列用 `PRAGMA table_info` + `ALTER TABLE`（如 `TwoPageMode`）；`ReaderDataService.InitializeAsync()` 幂等。
 10. **内置字体**：京华老宋体 v3.0（33,259,644 字节，SHA-256 `F7FEF9FC413E9E2343F0BB432C51CCA41C44B8FE37F071DC86B050896AE9F9E2`），原生 WinUI 走资源 URI，EPUB 走 `@font-face`。
 11. **其他**：`App.xaml` 的 `XamlControlsResources` 合并层级是启动稳定基础，不要改动；源码统一 UTF-8；不要根据终端显示乱码直接判断业务字符串损坏。
+12. **默认调试产物**：除非用户明确要求 Release、安装包、便携包或正式发布，否则只生成 x64 Debug EXE；必须保留完整调试工具和运行依赖，不做裁剪或精简，方便调试。
+13. **界面视觉限制**：除非用户明确要求，界面严格只使用黑、白、灰三色；按钮使用直角矩形；开关使用黑白样式；不得擅自引入圆角、彩色、渐变或强阴影。
 
 ## 5. 主要数据表
 
@@ -118,6 +120,14 @@ AppSettings          应用设置；API Key 存 ai-settings.json（DPAPI 加密�
 ## 6. 构建、测试与发布
 
 构建与测试（需要 .NET 8 SDK；本机 8.0.422 / 9.0.315 均可）：
+
+默认开发构建（除非用户明确要求发布）：
+
+```powershell
+dotnet build Kkindle.sln -c Debug -p:Platform=x64
+```
+
+完整测试构建：
 
 ```powershell
 dotnet build Kkindle.sln -c Release -p:Platform=x64
@@ -148,6 +158,8 @@ powershell -ExecutionPolicy Bypass -File scripts\Build-Release.ps1 `
 
 ## 8. 不要做的事情
 
+- 除非用户明确要求，不要生成 Release EXE、安装包或便携包；默认只生成保留完整调试工具与运行依赖的 x64 Debug EXE。
+- 除非用户明确要求，不要偏离黑/白/灰三色界面、直角矩形按钮和黑白开关的视觉基线。
 - 不要读取/修改 calibre 数据库；不要访问 Kindle `system` 目录或内部数据库；不处理/破解 DRM。
 - 不要覆盖 Kindle 上内容不同的同名文件。
 - 不要因修 UI 而改变 SQLite 结构却不更新迁移（新表 `IF NOT EXISTS`；旧表 `ALTER` 补列）。
@@ -159,6 +171,6 @@ powershell -ExecutionPolicy Bypass -File scripts\Build-Release.ps1 `
 
 ## 9. Git 状态与约定
 
-- 当前 `master` 与 `origin/master` 一致，工作区干净；构建输出由 `.gitignore` 排除。
+- 当前 `master` 工作区干净；本地比 `origin/master` 超前 2 个提交（均未推送）；构建输出由 `.gitignore` 排除。
 - 约定：一次 exe 发布对应一次 Git 提交；每次代码/文档改动随 AI_HANDOFF 一并提交；继续工作前先 `git status --short --branch`。
 - GitHub：`git@github.com:kingstacker/Kkindle.git`。
