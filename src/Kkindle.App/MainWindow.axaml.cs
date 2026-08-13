@@ -27,6 +27,8 @@ public partial class MainWindow : Window
     private readonly FontLibraryService _fontLibrary;
     private readonly DictionaryService _dictionaryService;
     private readonly ReaderDataService _readerData;
+    private readonly EpubReaderPreparationService _epubReader;
+    private readonly Func<IReaderHost> _readerHostFactory;
     private readonly ZLibraryService _zLibraryService;
     private readonly ZLibrarySettingsStore _zLibrarySettingsStore;
     private readonly KindleEmailSettingsStore _kindleEmailSettingsStore;
@@ -35,6 +37,8 @@ public partial class MainWindow : Window
     private ZLibrarySettings _zLibrarySettings = new();
     private KindleEmailSettings _kindleEmailSettings = new();
     private readonly CancellationTokenSource _lifetimeCancellation = new();
+    private IReaderHost? _readerActiveHost;
+    private IReaderHost? _readerPreloadHost;
     private bool _filterControlsReady;
     private bool _updatingFilterControls;
     private bool _updatingDetails;
@@ -73,6 +77,8 @@ public partial class MainWindow : Window
         _fontLibrary = new FontLibraryService(paths);
         _dictionaryService = new DictionaryService(paths);
         _readerData = new ReaderDataService(paths);
+        _epubReader = new EpubReaderPreparationService(paths);
+        _readerHostFactory = services?.ReaderHostFactory ?? (() => new NativeWebViewReaderHost());
         _zLibraryService = new ZLibraryService();
         _zLibrarySettingsStore = new ZLibrarySettingsStore(paths, _secretProtector);
         _kindleEmailSettingsStore = new KindleEmailSettingsStore(paths, _secretProtector);
@@ -155,10 +161,16 @@ public partial class MainWindow : Window
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
         _stage3Timer.Stop();
+        _readerNavigationCancellation?.Cancel();
+        _readerSessionCancellation?.Cancel();
         _lifetimeCancellation.Cancel();
         _lifetimeCancellation.Dispose();
         _douban.Dispose();
         _zLibraryService.Dispose();
+        _readerNavigationCancellation?.Dispose();
+        _readerSessionCancellation?.Dispose();
+        _readerActiveHost?.Dispose();
+        _readerPreloadHost?.Dispose();
         foreach (var card in ViewModel.Books)
             card.CoverImage?.Dispose();
         foreach (var folder in CollectionFolders)
@@ -396,20 +408,26 @@ public partial class MainWindow : Window
         }
     }
 
-    private Task OpenBookAsync(BookCardViewModel card, BookFile? requestedFile = null)
+    private async Task OpenBookAsync(BookCardViewModel card, BookFile? requestedFile = null)
     {
         var file = requestedFile ?? ReaderBookSelectionPolicy.SelectPreferred(card.Book.Files);
         if (file is null)
         {
             SetTaskStatus("这本书没有可打开的文件。");
-            return Task.CompletedTask;
+            return;
         }
 
         var path = ViewModel.GetAbsoluteFilePath(file);
         if (!File.Exists(path))
         {
             SetTaskStatus($"找不到文件：{file.RelativePath}");
-            return Task.CompletedTask;
+            return;
+        }
+
+        if (string.Equals(file.Format, "epub", StringComparison.OrdinalIgnoreCase))
+        {
+            await OpenEpubReaderAsync(card, file, path);
+            return;
         }
 
         try
@@ -421,7 +439,6 @@ public partial class MainWindow : Window
         {
             SetTaskStatus($"打开文件失败：{exception.Message}");
         }
-        return Task.CompletedTask;
     }
 
     private async Task DeleteSelectedBookAsync()

@@ -39,3 +39,52 @@ public interface IDeviceChangeNotifier : IDisposable
 {
     event EventHandler? DeviceChanged;
 }
+
+/// <summary>
+/// Portable boundary around the embedded web reader. The UI only depends on
+/// navigation, script execution and web messages; the concrete control stays
+/// in the Avalonia application layer so a different native webview can be
+/// supplied by another platform head later.
+/// </summary>
+public interface IReaderHost : IDisposable
+{
+    /// <summary>
+    /// The native UI control to place in an Avalonia visual tree. It is kept as
+    /// <see cref="object"/> here so Core remains free of UI-framework types.
+    /// </summary>
+    object View { get; }
+
+    Uri? Source { get; }
+
+    /// <summary>Completes after the native webview adapter is attached.</summary>
+    Task ReadyTask { get; }
+
+    event EventHandler<ReaderNavigationStartingEventArgs>? NavigationStarting;
+    event EventHandler<ReaderNavigationCompletedEventArgs>? NavigationCompleted;
+    event EventHandler<ReaderWebMessageReceivedEventArgs>? WebMessageReceived;
+
+    void Navigate(Uri uri);
+
+    Task<string?> InvokeScriptAsync(string script);
+
+    void Stop();
+}
+
+public sealed class ReaderNavigationStartingEventArgs(Uri? request) : EventArgs
+{
+    public Uri? Request { get; } = request;
+
+    public bool Cancel { get; set; }
+}
+
+public sealed class ReaderNavigationCompletedEventArgs(Uri? request, bool isSuccess) : EventArgs
+{
+    public Uri? Request { get; } = request;
+
+    public bool IsSuccess { get; } = isSuccess;
+}
+
+public sealed class ReaderWebMessageReceivedEventArgs(string? body) : EventArgs
+{
+    public string? Body { get; } = body;
+}

@@ -59,7 +59,12 @@ public partial class App : Application
 /// Returns null when the platform has no notifier, in which case callers fall
 /// back to polling.
 /// </param>
+/// <param name="ReaderHostFactory">
+/// Creates a reader webview host. A platform head may replace the default
+/// Avalonia NativeWebView implementation when it needs a different engine.
+/// </param>
 public sealed record AppServices(
     ISecretProtector SecretProtector,
     Func<IntPtr, IDeviceChangeNotifier?> CreateDeviceChangeNotifier,
-    IKindleDeviceService? KindleDeviceService = null);
+    IKindleDeviceService? KindleDeviceService = null,
+    Func<IReaderHost>? ReaderHostFactory = null);

@@ -1,4 +1,8 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Xml;
 using System.Xml.Linq;
 
 namespace Kkindle.Infrastructure;
@@ -13,6 +17,33 @@ public sealed record EpubReaderDocument(
 public sealed class EpubReaderPreparationService
 {
     private const string ExtractionReadyFileName = ".kkindle-extracted";
+    private const string ExtractionFormatVersion = "2";
+    private const string ContentSecurityPolicyBase =
+        "default-src 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; " +
+        "connect-src 'none'; form-action 'none'; img-src 'self' file:; " +
+        "font-src 'self' file:; style-src 'self' 'unsafe-inline' file:; " +
+        "media-src 'none'; worker-src 'none'; frame-ancestors 'none';";
+    private const string ReaderBridgeScript = """
+        (() => {
+          const send = value => {
+            try {
+              if (typeof window.invokeCSharpAction === "function")
+                window.invokeCSharpAction(JSON.stringify(value));
+            } catch (_) { }
+          };
+          const ready = () => send({ type: "ready" });
+          if (document.readyState === "loading")
+            document.addEventListener("DOMContentLoaded", ready, { once: true });
+          else
+            ready();
+        })();
+        """;
+    private static readonly Regex CssUrlPattern = new(
+        """url\s*\(\s*(?<quote>['"]?)(?<value>[^)'"]+)\k<quote>\s*\)""",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex CssImportPattern = new(
+        "@import\\s+[^;]+;?",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private readonly AppPaths _paths;
 
     public EpubReaderPreparationService(AppPaths paths)
@@ -34,10 +65,21 @@ public sealed class EpubReaderPreparationService
         Directory.CreateDirectory(cacheRoot);
 
         var extractionReadyPath = Path.Combine(cacheRoot, ExtractionReadyFileName);
-        if (!File.Exists(extractionReadyPath))
+        var extractionReady = await IsExtractionReadyAsync(
+            extractionReadyPath,
+            cacheKey,
+            cancellationToken);
+        if (!extractionReady)
         {
-            await ExtractSafelyAsync(epubPath, cacheRoot, cancellationToken);
-            await File.WriteAllTextAsync(extractionReadyPath, cacheKey, cancellationToken);
+            if (!File.Exists(extractionReadyPath))
+                await ExtractSafelyAsync(epubPath, cacheRoot, cancellationToken);
+
+            await SanitizeExtractedResourcesAsync(cacheRoot, cancellationToken);
+            await File.WriteAllTextAsync(
+                extractionReadyPath,
+                $"{cacheKey}\n{ExtractionFormatVersion}",
+                Encoding.UTF8,
+                cancellationToken);
         }
 
         var containerPath = Path.Combine(cacheRoot, "META-INF", "container.xml");
@@ -226,7 +268,201 @@ public sealed class EpubReaderPreparationService
     private static async Task<XDocument> LoadXmlAsync(string path, CancellationToken cancellationToken)
     {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
-        return await XDocument.LoadAsync(stream, LoadOptions.None, cancellationToken);
+        var settings = new XmlReaderSettings
+        {
+            Async = true,
+            // Standard EPUB XHTML commonly carries a DOCTYPE. Ignore it
+            // without resolving entities; the null resolver keeps external
+            // DTDs and entities out of the reader process.
+            DtdProcessing = DtdProcessing.Ignore,
+            XmlResolver = null
+        };
+        using var reader = XmlReader.Create(stream, settings);
+        return await XDocument.LoadAsync(reader, LoadOptions.PreserveWhitespace, cancellationToken);
+    }
+
+    private static async Task<bool> IsExtractionReadyAsync(
+        string markerPath,
+        string cacheKey,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(markerPath)) return false;
+        var marker = await File.ReadAllTextAsync(markerPath, cancellationToken);
+        return string.Equals(
+            marker.Trim(),
+            $"{cacheKey}\n{ExtractionFormatVersion}",
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task SanitizeExtractedResourcesAsync(
+        string cacheRoot,
+        CancellationToken cancellationToken)
+    {
+        var htmlFiles = Directory.EnumerateFiles(cacheRoot, "*.*", SearchOption.AllDirectories)
+            .Where(path => Path.GetExtension(path).Equals(".xhtml", StringComparison.OrdinalIgnoreCase)
+                || Path.GetExtension(path).Equals(".html", StringComparison.OrdinalIgnoreCase)
+                || Path.GetExtension(path).Equals(".htm", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        foreach (var path in htmlFiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await SanitizeHtmlFileAsync(path, cacheRoot, cancellationToken);
+        }
+
+        var cssFiles = Directory.EnumerateFiles(cacheRoot, "*.css", SearchOption.AllDirectories).ToArray();
+        foreach (var path in cssFiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await SanitizeCssFileAsync(path, cacheRoot, cancellationToken);
+        }
+    }
+
+    private static async Task SanitizeHtmlFileAsync(
+        string path,
+        string cacheRoot,
+        CancellationToken cancellationToken)
+    {
+        var document = await LoadXmlAsync(path, cancellationToken);
+        var root = document.Root ?? throw new InvalidDataException("EPUB HTML 缺少根元素。");
+        var namespaceName = root.Name.Namespace;
+        var elements = root.DescendantsAndSelf().ToArray();
+        foreach (var element in elements)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var localName = element.Name.LocalName;
+            if (localName is "script" or "object" or "iframe" or "frame" or "embed" or "applet" or "base")
+            {
+                element.Remove();
+                continue;
+            }
+
+            if (localName == "meta"
+                && string.Equals(
+                    element.Attribute("http-equiv")?.Value,
+                    "refresh",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                element.Remove();
+                continue;
+            }
+
+            foreach (var attribute in element.Attributes().ToArray())
+            {
+                var attributeName = attribute.Name.LocalName;
+                if (attributeName.StartsWith("on", StringComparison.OrdinalIgnoreCase)
+                    || attributeName is "srcset" or "background")
+                {
+                    attribute.Remove();
+                    continue;
+                }
+
+                if (attributeName is "src" or "href" or "action" or "poster" or "data"
+                    or "cite" or "formaction" or "xlink:href")
+                {
+                    if (!IsSafeLocalReference(attribute.Value, path, cacheRoot))
+                        attribute.Remove();
+                }
+                else if (attributeName == "style")
+                {
+                    var css = SanitizeCss(attribute.Value, path, cacheRoot);
+                    if (string.IsNullOrWhiteSpace(css)) attribute.Remove();
+                    else attribute.Value = css;
+                }
+            }
+
+            var styleText = element.Name.LocalName == "style" ? element.Value : null;
+            if (styleText is not null)
+                element.Value = SanitizeCss(styleText, path, cacheRoot);
+        }
+
+        var head = root.Elements().FirstOrDefault(element => element.Name.LocalName == "head");
+        if (head is null)
+        {
+            head = new XElement(namespaceName + "head");
+            root.AddFirst(head);
+        }
+
+        head.Elements()
+            .Where(element => element.Name.LocalName == "meta"
+                && string.Equals(
+                    element.Attribute("http-equiv")?.Value,
+                    "Content-Security-Policy",
+                    StringComparison.OrdinalIgnoreCase))
+            .Remove();
+
+        var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        var policy = $"{ContentSecurityPolicyBase} script-src 'nonce-{nonce}';";
+        head.AddFirst(
+            new XElement(
+                namespaceName + "meta",
+                new XAttribute("http-equiv", "Content-Security-Policy"),
+                new XAttribute("content", policy)));
+        head.Add(
+            new XElement(
+                namespaceName + "script",
+                new XAttribute("nonce", nonce),
+                new XCData(ReaderBridgeScript)));
+
+        await WriteXmlAsync(document, path, cancellationToken);
+    }
+
+    private static async Task SanitizeCssFileAsync(
+        string path,
+        string cacheRoot,
+        CancellationToken cancellationToken)
+    {
+        var css = await File.ReadAllTextAsync(path, cancellationToken);
+        var sanitized = SanitizeCss(css, path, cacheRoot);
+        if (!string.Equals(css, sanitized, StringComparison.Ordinal))
+            await File.WriteAllTextAsync(path, sanitized, Encoding.UTF8, cancellationToken);
+    }
+
+    private static string SanitizeCss(string css, string sourcePath, string cacheRoot)
+    {
+        var sanitized = CssImportPattern.Replace(css, string.Empty);
+        return CssUrlPattern.Replace(sanitized, match =>
+        {
+            var value = match.Groups["value"].Value.Trim();
+            return IsSafeLocalReference(value, sourcePath, cacheRoot) ? match.Value : string.Empty;
+        });
+    }
+
+    private static bool IsSafeLocalReference(string value, string sourcePath, string cacheRoot)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0 || trimmed.StartsWith('#')) return true;
+        if (trimmed.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("vbscript:", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("//", StringComparison.Ordinal)) return false;
+
+        if (!Uri.TryCreate(new Uri(sourcePath), trimmed, out var resolved) || !resolved.IsFile)
+            return false;
+        try
+        {
+            EnsureContainedPath(cacheRoot, resolved.LocalPath);
+            return true;
+        }
+        catch (InvalidDataException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task WriteXmlAsync(
+        XDocument document,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var builder = new StringBuilder();
+        using (var writer = new Utf8StringWriter(builder))
+            document.Save(writer, SaveOptions.DisableFormatting);
+        await File.WriteAllTextAsync(path, builder.ToString(), Encoding.UTF8, cancellationToken);
+    }
+
+    private sealed class Utf8StringWriter(StringBuilder builder) : StringWriter(builder, System.Globalization.CultureInfo.InvariantCulture)
+    {
+        public override Encoding Encoding => Encoding.UTF8;
     }
 
     private static string ResolveContainedPath(string root, string relativePath)

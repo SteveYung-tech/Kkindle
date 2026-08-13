@@ -6,21 +6,21 @@
 >
 > 项目目录：`C:\Users\kings\Desktop\01_Projects\Kkindle`
 
-> 当前迁移状态（2026-08-14）：Avalonia 阶段 2（本地书库）已完成，阶段 3（Kindle 设备、阅读资料、Z-Library、设置与备份）正在收尾。WinUI 版本仍保留并可独立构建。
+> 当前迁移状态（2026-08-14）：Avalonia 阶段 2（本地书库）和阶段 3（Kindle 设备、阅读资料、Z-Library、设置与备份）已完成，阶段 4（Kreader 阅读器）已启动第一切片。WinUI 版本仍保留并可独立构建。
 
 ## 0. 当前状态
 
-- 阶段：P0/P1/P2 全部完成；本地书库、Kreader 阅读器、阅读资料中心、Kindle 设备管理（USB/WPD/MTP）、格式转换、Z-Library、Kindle 邮件、备份/设置、AI 助手、安装包与 GitHub 自动发版均已实现并验证。
-- 分支 `master`；`v0.5.2`（提交 `5daf140`）已推送至 `origin/master` 并自动发版，当前本地包含尚未推送的滚动条修复提交。
+- 基线功能：P0/P1/P2、本地书库、Kreader 阅读器、阅读资料中心、Kindle 设备管理（USB/WPD/MTP）、格式转换、Z-Library、Kindle 邮件、备份/设置、AI 助手、安装包与 GitHub 自动发版均已实现并验证；Avalonia 迁移的当前进度见第 10 节，Kreader 目前是阶段 4 第一切片。
+- 分支 `master`；`v0.5.2`（提交 `5daf140`）已推送至 `origin/master` 并自动发版，当前本地包含尚未推送的 Avalonia 迁移提交，阶段 4 第一切片已提交；阶段 3 收尾提交为 `c71af9e`。
 - 最新版本：0.5.2（标签 `v0.5.2`）；在 0.5.1 基础上新增全应用滚动条自动隐藏，滚动或悬停时显示，空闲后淡出；补齐 Popup、折叠面板、ContentDialog 和延迟生成模板的挂载，并隔离嵌套 ScrollViewer 的滚动条归属。
-- 测试：Debug x64 191 项全部通过（0 失败、0 跳过，2026-08-14）。阶段 0 拆分后分布在两个项目：`Kkindle.Tests` 163 项（`net8.0`，可跨平台）+ `Kkindle.Tests.Windows` 28 项（`net8.0-windows`，WPD/MTP 设备测试）。
+- 测试：Debug x64 192 项全部通过（0 失败、0 跳过，2026-08-14）。阶段 0 拆分后分布在两个项目：`Kkindle.Tests` 164 项（`net8.0`，可跨平台）+ `Kkindle.Tests.Windows` 28 项（`net8.0-windows`，WPD/MTP 设备测试）。
 - 本地最近完整测试包（2026-08-12 19:36，版本 `0.5.0-test.1`，由 `685ab20` 发布；内置 Calibre 运行时与 KFX Input 插件，启动/关闭验证通过；如需包含 0.5.2 改动请重新发布）：
   - exe：`artifacts\Kkindle-0.5.0-test.1\Kkindle-0.5.0-test.1-win-x64\Kkindle.exe`
   - 便携包：`artifacts\Kkindle-0.5.0-test.1\Kkindle-0.5.0-test.1-win-x64-portable.zip`
 - 常规发布目录：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\`（其中 exe 仍是 2026-08-10 基线，如需随最新提交刷新请重新发布）。
 - 真机验证：Kindle Scribe（MTP）EPUB 发送/扫描/删除闭环、64 MiB 大文件传输、设备字体/字典读写均已验收，设备端无测试残留。
 - 开发约定：代码修改必须能编译；每次发布 EXE 只创建一个对应 Git 提交；文档随代码一并提交。
-- 已启动 WinUI 3 → Avalonia 迁移（Windows 优先，架构上预留 Linux/Mac），计划与进度见第 10 节；当前处于阶段 3 收尾，WinUI 版继续保留。
+- 已启动 WinUI 3 → Avalonia 迁移（Windows 优先，架构上预留 Linux/Mac），计划与进度见第 10 节；当前处于阶段 4 第一切片，WinUI 版继续保留。
 
 ## 1. 项目目标与技术路线
 
@@ -175,13 +175,13 @@ powershell -ExecutionPolicy Bypass -File scripts\Build-Release.ps1 `
 
 ## 9. Git 状态与约定
 
-- 当前 `master` 工作区干净；本地比 `origin/master` 超前 7 个提交（均未推送）；构建输出由 `.gitignore` 排除。
+- 当前 `master` 工作区干净；本地比 `origin/master` 超前 10 个提交（均未推送）；构建输出由 `.gitignore` 排除。
 - 约定：一次 exe 发布对应一次 Git 提交；每次代码/文档改动随 AI_HANDOFF 一并提交；继续工作前先 `git status --short --branch`。
 - GitHub：`git@github.com:kingstacker/Kkindle.git`。
 
 ## 10. 跨平台迁移计划（Avalonia）
 
-> 状态：**阶段 0、1、2 已完成，阶段 3 正在收尾**。目标是把 UI 层从 WinUI 3 换成 Avalonia，先在 Windows 上达到功能对等，同时把平台相关代码隔离干净，使后续接 Linux/Mac 只需新增平台实现、不改业务代码。
+> 状态：**阶段 0、1、2、3 已完成，阶段 4 已启动第一切片**。目标是把 UI 层从 WinUI 3 换成 Avalonia，先在 Windows 上达到功能对等，同时把平台相关代码隔离干净，使后续接 Linux/Mac 只需新增平台实现、不改业务代码。
 >
 > 本阶段**不交付** Linux/Mac 可运行版本，只交付「Windows 上的 Avalonia 版 + 已隔离的扩展点」。
 
@@ -196,7 +196,7 @@ WinUI 3 / Windows App SDK 没有 Linux/Mac 实现，UI 层无法移植。此外�
 | `Kkindle.Core` | 1,174 行，`net8.0` | 不动。`Services.cs` 接口已平台无关 |
 | `Kkindle.Infrastructure` | 9,272 行，`net8.0-windows` | 约 1,500 行 Windows 代码外移，其余原样 |
 | `Kkindle.App` | 18,445 行 C# + 6,868 行 XAML | 全部重写（288 处 WinUI 类型引用散布在 33 个文件） |
-| `Kkindle.Tests` | 3,828 行，191 项 | 只需降 TFM |
+| `Kkindle.Tests` | 3,828 行，192 项 | 只需降 TFM |
 
 Infrastructure 的 Windows 依赖只集中在 5 处：
 
@@ -232,7 +232,7 @@ tests/Kkindle.Tests.Windows/  net8.0-windows  设备测试（WPD/MTP，只能在
 
 - `ISecretProtector` — 替代 `WindowsDataProtection`；Windows 包 DPAPI，Linux 走 libsecret，Mac 走 Keychain
 - `IDeviceChangeNotifier` — 替代 `NativeDeviceChangeMonitor` 的 `WM_DEVICECHANGE` 子类化
-- `IReaderHost` — 阅读器 WebView 宿主抽象（见 10.4），阶段 4 才定义
+- `IReaderHost` — 阅读器 WebView 宿主抽象（见 10.4），已在阶段 4 第一切片定义
 
 `ShellFileOperation` **不抽接口**：核对后确认它的 8 个调用点全在 `WpdKindleAccess` 内部，操作对象是 WPD shell COM 项而非普通文件路径，属于 WPD 实现细节，随 WPD 一起进 Platform.Windows 即可。
 
@@ -333,13 +333,21 @@ WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost`
 - [x] 设置与备份页：默认格式、Calibre、网络/自动检测开关、备份导入导出、本地字体/字典、Kindle 邮箱配置；书籍详情提供发送到 Kindle 邮箱入口。
 - [x] 修复 Avalonia XAML 初始化期间 `TextChanged`/`SelectionChanged` 提前触发导致的启动崩溃，并完成启动稳定性验证。
 
-阶段 3 验收（2026-08-14）：`dotnet build Kkindle.sln -c Debug -p:Platform=x64 --no-restore` 通过（0 警告/0 错误）；`dotnet test Kkindle.sln -c Debug -p:Platform=x64 --no-build` 通过 191/191；Windows Avalonia EXE 启动后保持运行 8 秒正常。尚未在本轮连接真实 Kindle、调用真实 Z-Library 或发送真实 SMTP 邮件，需人工验收这些外部依赖闭环。
+阶段 3 验收（2026-08-14）：`dotnet build Kkindle.sln -c Debug -p:Platform=x64 --no-restore` 通过（0 警告/0 错误）；阶段 3 当时的回归集 `dotnet test Kkindle.sln -c Debug -p:Platform=x64 --no-build` 通过 191/191；Windows Avalonia EXE 启动后保持运行 8 秒正常。尚未在本轮连接真实 Kindle、调用真实 Z-Library 或发送真实 SMTP 邮件，需人工验收这些外部依赖闭环。
 
 `MainWindow.KindleTransfer.cs`、`.DeviceResources.cs`、`.DeviceBookExport.cs`、`.ReadingMaterials.cs`、`.ZLibrary.cs`、`.Backup.cs`、`.KindleEmail.cs`、`.Productivity.cs`。自绘控件改用 Avalonia `Control.Render(DrawingContext)`：`MonochromeBarChart`、`RectangularProgressBar`、`TetrisDownloadVisual`；`MarkdownRichTextBlock` 改用 `SelectableTextBlock.Inlines`。
 
 **阶段 4：Kreader 阅读器 — 约 3-4 周（最难）**
 
-1. `IReaderHost` + `WebView2ReaderHost`（`NativeControlHost` 承载），双 WebView 预加载结构保留
+阶段 4 当前进度（2026-08-14，第一切片）：
+
+- [x] 引入 `Avalonia.Controls.WebView` 12.0.1，完成可替换的 `IReaderHost` 与 `NativeWebViewReaderHost`；两个 WebView 宿主保持挂载，下一章节可后台预加载。
+- [x] EPUB 缓存提取后执行 XML 安全解析、HTML/CSS 消毒、外部资源与脚本事件清除、CSP nonce 和最小 `ready` 桥注入；导航默认限制在缓存根目录内，禁用开发者工具和新窗口。
+- [x] Avalonia 书库打开 EPUB 时进入阅读表面，支持章节前后切换、恢复章节索引，并将基础章节进度写回 `ReaderDataService`。
+- [x] 阶段 4 第一批消毒回归测试加入后，Debug x64 测试总数为 192 项，全部通过；启动检查保持运行 8 秒正常。
+- [ ] TOC/fragment 语义、滚动/分页、外观与四种翻页动画、批注/搜索/AI/脚注，以及完整 `postMessage` 事件桥尚未迁移；阅读器尚未完成人工视觉验收。
+
+1. `IReaderHost` + `NativeWebViewReaderHost`（Windows backend 使用 WebView2），双 WebView 预加载结构保留
 2. `EpubReaderPreparationService` 增加 HTML 消毒 + CSP 注入
 3. 四个脚本模块（`ReaderNavigationScripts` / `ReaderPaginationScripts` / `ReaderAppearanceScripts` / `ReaderWaveScripts`）的 CSS/JS 常量原样保留（约束 #8），只改事件接入方式
 4. 删除 `ReaderFeatures.cs` 的钩子与轮询，改 `postMessage` 桥
@@ -376,7 +384,7 @@ WSL 上 `dotnet build src/Kkindle.Core src/Kkindle.Infrastructure` 与 `dotnet t
 ### 10.7 验证方式
 
 - 每阶段：`dotnet build Kkindle.sln -c Debug -p:Platform=x64`（约定 #12：默认只出 x64 Debug）+ 启动运行
-- 回归基线：191 项测试在阶段 0 之后必须始终全绿
+- 回归基线：192 项测试在阶段 0 之后必须始终全绿
 - 视觉对照：`docs\images\` 下 9 张截图即验收基线，逐屏对照
 - 阶段 4 人工验收（无法自动化，见第 7 节）：分页分区点击、滚动接章、选区工具栏、四种翻页动画观感、禅模式进出
 - 真机验收：Kindle Scribe（MTP）发送/扫描/删除闭环、USB 磁盘型安全弹出

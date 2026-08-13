@@ -94,6 +94,69 @@ public sealed class EpubReaderTests
     }
 
     [Fact]
+    public async Task SanitizesHtmlScriptsEventsExternalResourcesAndAddsReaderBridge()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var epub = Path.Combine(root, "unsafe-content.epub");
+            using (var archive = ZipFile.Open(epub, ZipArchiveMode.Create))
+            {
+                TestHelpers.AddZipEntry(archive, "META-INF/container.xml", """
+                    <container><rootfiles><rootfile full-path="OEBPS/content.opf" /></rootfiles></container>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/content.opf", """
+                    <package><manifest>
+                      <item id="one" href="chapter.xhtml" media-type="application/xhtml+xml" />
+                      <item id="css" href="styles/book.css" media-type="text/css" />
+                    </manifest><spine><itemref idref="one" /></spine></package>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/chapter.xhtml", """
+                    <!DOCTYPE html>
+                    <html xmlns="http://www.w3.org/1999/xhtml">
+                      <head>
+                        <script>window.pwned = true;</script>
+                        <style>.local { background-image: url("../images/ok.jpg"); } .remote { background-image: url("https://example.com/x.png"); }</style>
+                      </head>
+                      <body onload="window.pwned = true">
+                        <img src="https://example.com/remote.jpg" />
+                        <img class="local" src="../images/ok.jpg" />
+                        <a href="javascript:alert(1)">unsafe link</a>
+                        <a href="chapter.xhtml#part">safe link</a>
+                      </body>
+                    </html>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/styles/book.css", """
+                    .local { background: url("../images/ok.jpg"); }
+                    .remote { background: url("data:image/png;base64,AAAA"); }
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/images/ok.jpg", "image");
+            }
+
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            paths.EnsureDirectories();
+            var document = await new EpubReaderPreparationService(paths)
+                .PrepareAsync(epub, new string('f', 64));
+
+            var html = await File.ReadAllTextAsync(document.Chapters[0]);
+            Assert.DoesNotContain("<script>window.pwned", html, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("onload=", html, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("https://example.com", html, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("javascript:", html, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Content-Security-Policy", html, StringComparison.Ordinal);
+            Assert.Contains("script-src 'nonce-", html, StringComparison.Ordinal);
+            Assert.Contains("invokeCSharpAction", html, StringComparison.Ordinal);
+            Assert.Contains("../images/ok.jpg", html, StringComparison.Ordinal);
+
+            var cssPath = Path.Combine(document.RootPath, "OEBPS", "styles", "book.css");
+            var css = await File.ReadAllTextAsync(cssPath);
+            Assert.Contains("../images/ok.jpg", css, StringComparison.Ordinal);
+            Assert.DoesNotContain("data:image", css, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
     public async Task ReadsNestedEpub3SubchaptersAsSeparateNavigationItems()
     {
         var root = TestHelpers.CreateTempDirectory();
