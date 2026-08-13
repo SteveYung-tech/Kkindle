@@ -3642,7 +3642,7 @@
                                        Foreground="#5E5E5E" />
                             <ListView x:Name="ReaderSearchResultList"
                                       Grid.Row="2"
-                                      Margin="14,0,14,0"
+                                      Margin="14,0,0,0"
                                       SelectionMode="None"
                                       ScrollViewer.HorizontalScrollMode="Disabled"
                                       ScrollViewer.HorizontalScrollBarVisibility="Disabled"
