@@ -209,7 +209,7 @@ public sealed class ReaderFeatureTests
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
-            var store = new AiSettingsStore(paths);
+            var store = new AiSettingsStore(paths, new TestHelpers.PlaintextSecretProtector());
             const string secret = "sk-test-secret-value";
             await store.SaveAsync(new AiConnectionSettings
             {

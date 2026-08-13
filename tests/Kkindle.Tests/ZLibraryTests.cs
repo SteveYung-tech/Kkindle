@@ -220,7 +220,7 @@ public sealed class ZLibraryTests
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
-            var store = new ZLibrarySettingsStore(paths);
+            var store = new ZLibrarySettingsStore(paths, new TestHelpers.PlaintextSecretProtector());
             const string secret = "zlibrary-password";
             await store.SaveAsync(new ZLibrarySettings
             {

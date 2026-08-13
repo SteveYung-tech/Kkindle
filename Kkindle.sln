@@ -8,6 +8,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kkindle.Core", "src\Kkindle
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kkindle.Infrastructure", "src\Kkindle.Infrastructure\Kkindle.Infrastructure.csproj", "{0D9C0D8B-6B15-4B4F-9F19-7BD5BE4A98FD}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kkindle.Platform.Windows", "src\Kkindle.Platform.Windows\Kkindle.Platform.Windows.csproj", "{7C3E1A62-9D45-4F08-B1E7-2A6C5D93F4B1}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kkindle.Tests", "tests\Kkindle.Tests\Kkindle.Tests.csproj", "{ACF6A4D0-5C0C-4CF3-B2C1-1792D5E7AF14}"
 EndProject
 Global
@@ -28,6 +30,10 @@ Global
 		{0D9C0D8B-6B15-4B4F-9F19-7BD5BE4A98FD}.Debug|x64.Build.0 = Debug|x64
 		{0D9C0D8B-6B15-4B4F-9F19-7BD5BE4A98FD}.Release|x64.ActiveCfg = Release|x64
 		{0D9C0D8B-6B15-4B4F-9F19-7BD5BE4A98FD}.Release|x64.Build.0 = Release|x64
+		{7C3E1A62-9D45-4F08-B1E7-2A6C5D93F4B1}.Debug|x64.ActiveCfg = Debug|x64
+		{7C3E1A62-9D45-4F08-B1E7-2A6C5D93F4B1}.Debug|x64.Build.0 = Debug|x64
+		{7C3E1A62-9D45-4F08-B1E7-2A6C5D93F4B1}.Release|x64.ActiveCfg = Release|x64
+		{7C3E1A62-9D45-4F08-B1E7-2A6C5D93F4B1}.Release|x64.Build.0 = Release|x64
 		{ACF6A4D0-5C0C-4CF3-B2C1-1792D5E7AF14}.Debug|x64.ActiveCfg = Debug|x64
 		{ACF6A4D0-5C0C-4CF3-B2C1-1792D5E7AF14}.Debug|x64.Build.0 = Debug|x64
 		{ACF6A4D0-5C0C-4CF3-B2C1-1792D5E7AF14}.Release|x64.ActiveCfg = Release|x64

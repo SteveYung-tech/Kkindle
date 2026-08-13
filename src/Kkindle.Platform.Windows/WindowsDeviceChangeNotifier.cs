@@ -1,9 +1,18 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Kkindle.Core;
 
-namespace Kkindle;
+namespace Kkindle.Platform.Windows;
 
-internal sealed class NativeDeviceChangeMonitor : IDisposable
+/// <summary>
+/// Subclasses the host window procedure and reports WM_DEVICECHANGE, so the
+/// Kindle device list refreshes the moment a device is plugged or unplugged.
+///
+/// Windows delivers this message only to windows, hence the handle: callers
+/// pass their own HWND and must dispose the notifier before the window is
+/// destroyed, otherwise the original window procedure is never restored.
+/// </summary>
+public sealed class WindowsDeviceChangeNotifier : IDeviceChangeNotifier
 {
     private const int GwlWndProc = -4;
     private const uint WmDeviceChange = 0x0219;
@@ -16,7 +25,7 @@ internal sealed class NativeDeviceChangeMonitor : IDisposable
     private readonly IntPtr _oldWindowProc;
     private bool _disposed;
 
-    public NativeDeviceChangeMonitor(IntPtr windowHandle)
+    public WindowsDeviceChangeNotifier(IntPtr windowHandle)
     {
         _windowHandle = windowHandle;
         _newWindowProc = WindowProc;

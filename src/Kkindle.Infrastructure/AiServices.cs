@@ -1,8 +1,8 @@
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using Kkindle.Core;
 
 namespace Kkindle.Infrastructure;
 
@@ -72,11 +72,13 @@ public sealed class AiConnectionSettings
 public sealed class AiSettingsStore
 {
     private readonly AppPaths _paths;
+    private readonly ISecretProtector _protector;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
-    public AiSettingsStore(AppPaths paths)
+    public AiSettingsStore(AppPaths paths, ISecretProtector protector)
     {
         _paths = paths;
+        _protector = protector;
     }
 
     private string SettingsPath => Path.Combine(_paths.Data, "ai-settings.json");
@@ -102,7 +104,7 @@ public sealed class AiSettingsStore
                     string.IsNullOrWhiteSpace(persisted.Model) ? defaults.Model : persisted.Model),
                 ApiKey = string.IsNullOrWhiteSpace(persisted.ProtectedApiKey)
                     ? string.Empty
-                    : Encoding.UTF8.GetString(WindowsDataProtection.Unprotect(Convert.FromBase64String(persisted.ProtectedApiKey)))
+                    : Encoding.UTF8.GetString(_protector.Unprotect(Convert.FromBase64String(persisted.ProtectedApiKey)))
             };
         }
         catch (Exception exception) when (exception is IOException or JsonException or FormatException or System.ComponentModel.Win32Exception)
@@ -121,7 +123,7 @@ public sealed class AiSettingsStore
             Model = AiConnectionSettings.NormalizeModel(settings.Provider, settings.Model),
             ProtectedApiKey = string.IsNullOrWhiteSpace(settings.ApiKey)
                 ? string.Empty
-                : Convert.ToBase64String(WindowsDataProtection.Protect(Encoding.UTF8.GetBytes(settings.ApiKey.Trim())))
+                : Convert.ToBase64String(_protector.Protect(Encoding.UTF8.GetBytes(settings.ApiKey.Trim())))
         };
         var temporaryPath = SettingsPath + ".tmp";
         await using (var stream = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
@@ -554,80 +556,3 @@ public sealed class AiChatClient : IDisposable
     public void Dispose() => _httpClient.Dispose();
 }
 
-internal static class WindowsDataProtection
-{
-    private const int CryptProtectUiForbidden = 0x1;
-
-    public static byte[] Protect(byte[] value) => Transform(value, protect: true);
-    public static byte[] Unprotect(byte[] value) => Transform(value, protect: false);
-
-    private static byte[] Transform(byte[] value, bool protect)
-    {
-        if (value.Length == 0) return [];
-        var input = CreateBlob(value);
-        try
-        {
-            var succeeded = protect
-                ? CryptProtectData(ref input, "Kkindle AI API Key", IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, CryptProtectUiForbidden, out var output)
-                : CryptUnprotectData(ref input, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, CryptProtectUiForbidden, out output);
-            if (!succeeded) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
-            try
-            {
-                var result = new byte[output.Length];
-                Marshal.Copy(output.Data, result, 0, output.Length);
-                return result;
-            }
-            finally
-            {
-                if (output.Data != IntPtr.Zero) LocalFree(output.Data);
-            }
-        }
-        finally
-        {
-            if (input.Data != IntPtr.Zero)
-            {
-                Marshal.Copy(new byte[value.Length], 0, input.Data, value.Length);
-                Marshal.FreeHGlobal(input.Data);
-            }
-        }
-    }
-
-    private static DataBlob CreateBlob(byte[] value)
-    {
-        var pointer = Marshal.AllocHGlobal(value.Length);
-        Marshal.Copy(value, 0, pointer, value.Length);
-        return new DataBlob { Length = value.Length, Data = pointer };
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct DataBlob
-    {
-        public int Length;
-        public IntPtr Data;
-    }
-
-    [DllImport("crypt32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CryptProtectData(
-        ref DataBlob dataIn,
-        string? description,
-        IntPtr optionalEntropy,
-        IntPtr reserved,
-        IntPtr promptStruct,
-        int flags,
-        out DataBlob dataOut);
-
-    [DllImport("crypt32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CryptUnprotectData(
-        ref DataBlob dataIn,
-        IntPtr description,
-        IntPtr optionalEntropy,
-        IntPtr reserved,
-        IntPtr promptStruct,
-        int flags,
-        out DataBlob dataOut);
-
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr LocalFree(IntPtr memory);
-}

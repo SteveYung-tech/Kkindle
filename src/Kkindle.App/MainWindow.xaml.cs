@@ -20,6 +20,7 @@ using Windows.UI;
 using WinRT.Interop;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
+using Kkindle.Platform.Windows;
 
 namespace Kkindle;
 
@@ -77,7 +78,7 @@ public sealed partial class MainWindow : Window
     private bool _nativeChromeConfigured;
     private AppWindow? _appWindow;
     private OverlappedPresenter? _windowPresenter;
-    private NativeDeviceChangeMonitor? _deviceChangeMonitor;
+    private IDeviceChangeNotifier? _deviceChangeMonitor;
     private IReadOnlyList<string> _readerChapters = [];
     private IReadOnlyList<EpubReaderNavigationItem> _readerNavigation = [];
     private int _readerChapterIndex = -1;
@@ -193,6 +194,7 @@ public sealed partial class MainWindow : Window
 
     public MainWindow(
         AppPaths paths,
+        ISecretProtector protector,
         IBookLibraryService library,
         IBookFormatConverter formatConverter,
         IKindleDeviceService kindle,
@@ -207,7 +209,7 @@ public sealed partial class MainWindow : Window
     {
         _paths = paths;
         _library = library;
-        _backupService = new AppBackupService(paths);
+        _backupService = new AppBackupService(paths, protector);
         _appSettingsStore = new AppSettingsStore(paths);
         _dictionaryService = new DictionaryService(paths);
         _fontLibrary = new FontLibraryService(paths);
@@ -216,7 +218,7 @@ public sealed partial class MainWindow : Window
         _readerFormatCache = new ReaderFormatCacheService(paths, formatConverter);
         _kindle = kindle;
         _deviceModelStore = deviceModels;
-        _kindleEmailSettingsStore = new KindleEmailSettingsStore(paths);
+        _kindleEmailSettingsStore = new KindleEmailSettingsStore(paths, protector);
         _kindleEmailSender = new KindleEmailSender();
         _readerData = readerData;
         _bookContent = bookContent;
@@ -311,7 +313,7 @@ public sealed partial class MainWindow : Window
         _appWindow = appWindow;
         try
         {
-            _deviceChangeMonitor = new NativeDeviceChangeMonitor(windowHandle);
+            _deviceChangeMonitor = new WindowsDeviceChangeNotifier(windowHandle);
             _deviceChangeMonitor.DeviceChanged += DeviceChangeMonitor_DeviceChanged;
         }
         catch

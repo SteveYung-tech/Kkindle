@@ -66,11 +66,13 @@ public sealed class ZLibrarySettings
 public sealed class ZLibrarySettingsStore
 {
     private readonly AppPaths _paths;
+    private readonly ISecretProtector _protector;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
-    public ZLibrarySettingsStore(AppPaths paths)
+    public ZLibrarySettingsStore(AppPaths paths, ISecretProtector protector)
     {
         _paths = paths;
+        _protector = protector;
     }
 
     private string SettingsPath => Path.Combine(_paths.Data, "zlibrary-settings.json");
@@ -91,7 +93,7 @@ public sealed class ZLibrarySettingsStore
                 Email = persisted.Email ?? string.Empty,
                 Password = string.IsNullOrWhiteSpace(persisted.ProtectedPassword)
                     ? string.Empty
-                    : Encoding.UTF8.GetString(WindowsDataProtection.Unprotect(Convert.FromBase64String(persisted.ProtectedPassword))),
+                    : Encoding.UTF8.GetString(_protector.Unprotect(Convert.FromBase64String(persisted.ProtectedPassword))),
                 BaseUrl = string.IsNullOrWhiteSpace(persisted.BaseUrl)
                     ? ZLibrarySettings.DefaultBaseUrl
                     : persisted.BaseUrl
@@ -116,7 +118,7 @@ public sealed class ZLibrarySettingsStore
             Email = normalized.Email,
             ProtectedPassword = string.IsNullOrWhiteSpace(normalized.Password)
                 ? string.Empty
-                : Convert.ToBase64String(WindowsDataProtection.Protect(Encoding.UTF8.GetBytes(normalized.Password))),
+                : Convert.ToBase64String(_protector.Protect(Encoding.UTF8.GetBytes(normalized.Password))),
             BaseUrl = normalized.BaseUrl
         };
 

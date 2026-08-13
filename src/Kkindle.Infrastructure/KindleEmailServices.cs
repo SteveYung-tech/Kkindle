@@ -67,11 +67,13 @@ public sealed class KindleEmailSettings
 public sealed class KindleEmailSettingsStore
 {
     private readonly AppPaths _paths;
+    private readonly ISecretProtector _protector;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
-    public KindleEmailSettingsStore(AppPaths paths)
+    public KindleEmailSettingsStore(AppPaths paths, ISecretProtector protector)
     {
         _paths = paths;
+        _protector = protector;
     }
 
     private string SettingsPath => Path.Combine(_paths.Data, "kindle-email-settings.json");
@@ -96,7 +98,7 @@ public sealed class KindleEmailSettingsStore
                 SmtpUsername = persisted.SmtpUsername ?? string.Empty,
                 SmtpPassword = string.IsNullOrWhiteSpace(persisted.ProtectedPassword)
                     ? string.Empty
-                    : Encoding.UTF8.GetString(WindowsDataProtection.Unprotect(Convert.FromBase64String(persisted.ProtectedPassword))),
+                    : Encoding.UTF8.GetString(_protector.Unprotect(Convert.FromBase64String(persisted.ProtectedPassword))),
                 EnableSsl = persisted.EnableSsl
             });
         }
@@ -123,7 +125,7 @@ public sealed class KindleEmailSettingsStore
             SmtpUsername = normalized.SmtpUsername,
             ProtectedPassword = string.IsNullOrWhiteSpace(normalized.SmtpPassword)
                 ? string.Empty
-                : Convert.ToBase64String(WindowsDataProtection.Protect(Encoding.UTF8.GetBytes(normalized.SmtpPassword))),
+                : Convert.ToBase64String(_protector.Protect(Encoding.UTF8.GetBytes(normalized.SmtpPassword))),
             EnableSsl = normalized.EnableSsl
         };
 

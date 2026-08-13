@@ -1,9 +1,23 @@
 using System.IO.Compression;
+using Kkindle.Core;
 
 namespace Kkindle.Tests;
 
 internal static class TestHelpers
 {
+    /// <summary>
+    /// Stands in for the OS keystore so settings tests exercise the
+    /// persistence round trip without binding to a machine account. The real
+    /// encryption belongs to the platform implementation and is verified
+    /// there, not here.
+    /// </summary>
+    internal sealed class PlaintextSecretProtector : ISecretProtector
+    {
+        public byte[] Protect(byte[] value) => (byte[])value.Clone();
+
+        public byte[] Unprotect(byte[] value) => (byte[])value.Clone();
+    }
+
     public static string CreateTempDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));

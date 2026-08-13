@@ -50,7 +50,7 @@ public sealed class KindleEmailTests
         try
         {
             var paths = new AppPaths(Path.Combine(root, "app"));
-            var store = new KindleEmailSettingsStore(paths);
+            var store = new KindleEmailSettingsStore(paths, new TestHelpers.PlaintextSecretProtector());
             const string secret = "smtp-app-password";
             await store.SaveAsync(new KindleEmailSettings
             {

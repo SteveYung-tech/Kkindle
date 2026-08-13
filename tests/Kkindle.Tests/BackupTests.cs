@@ -13,6 +13,7 @@ public sealed class BackupTests
         {
             var sourceBook = Path.Combine(root, "source.epub");
             CreateEpub(sourceBook);
+            var protector = new TestHelpers.PlaintextSecretProtector();
             var sourcePaths = new AppPaths(Path.Combine(root, "source-app"));
             var sourceLibrary = new SqliteBookLibraryService(sourcePaths, new BookMetadataService());
             var sourceReaderData = new ReaderDataService(sourcePaths);
@@ -20,14 +21,14 @@ public sealed class BackupTests
             await sourceReaderData.InitializeAsync();
             await sourceLibrary.ImportAsync([sourceBook]);
 
-            await new AiSettingsStore(sourcePaths).SaveAsync(new AiConnectionSettings
+            await new AiSettingsStore(sourcePaths, protector).SaveAsync(new AiConnectionSettings
             {
                 Provider = "openai",
                 BaseUrl = "https://api.example.com/v1",
                 Model = "example-model",
                 ApiKey = "source-api-key"
             });
-            await new KindleEmailSettingsStore(sourcePaths).SaveAsync(new KindleEmailSettings
+            await new KindleEmailSettingsStore(sourcePaths, protector).SaveAsync(new KindleEmailSettings
             {
                 KindleEmailAddress = "kindle@example.com",
                 SenderEmailAddress = "sender@example.com",
@@ -39,7 +40,7 @@ public sealed class BackupTests
             });
 
             var backupPath = Path.Combine(root, "Kkindle.kkindle");
-            var sourceBackup = new AppBackupService(sourcePaths);
+            var sourceBackup = new AppBackupService(sourcePaths, protector);
             var export = await sourceBackup.ExportAsync(backupPath);
 
             Assert.Equal(1, export.BookCount);
@@ -61,13 +62,13 @@ public sealed class BackupTests
             var targetReaderData = new ReaderDataService(targetPaths);
             await targetLibrary.InitializeAsync();
             await targetReaderData.InitializeAsync();
-            await new AiSettingsStore(targetPaths).SaveAsync(new AiConnectionSettings { ApiKey = "target-api-key" });
-            await new KindleEmailSettingsStore(targetPaths).SaveAsync(new KindleEmailSettings
+            await new AiSettingsStore(targetPaths, protector).SaveAsync(new AiConnectionSettings { ApiKey = "target-api-key" });
+            await new KindleEmailSettingsStore(targetPaths, protector).SaveAsync(new KindleEmailSettings
             {
                 SmtpPassword = "target-smtp-password"
             });
 
-            var imported = await new AppBackupService(targetPaths).ImportAsync(backupPath);
+            var imported = await new AppBackupService(targetPaths, protector).ImportAsync(backupPath);
             await targetLibrary.InitializeAsync();
             await targetReaderData.InitializeAsync();
 

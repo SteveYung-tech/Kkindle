@@ -18,6 +18,7 @@
 - 常规发布目录：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\`（其中 exe 仍是 2026-08-10 基线，如需随最新提交刷新请重新发布）。
 - 真机验证：Kindle Scribe（MTP）EPUB 发送/扫描/删除闭环、64 MiB 大文件传输、设备字体/字典读写均已验收，设备端无测试残留。
 - 开发约定：代码修改必须能编译；每次发布 EXE 只创建一个对应 Git 提交；文档随代码一并提交。
+- 已启动 WinUI 3 → Avalonia 迁移（Windows 优先，架构上预留 Linux/Mac），计划与进度见第 10 节；当前处于阶段 0（结构重整），WinUI 版仍是唯一可运行版本，迁移期建议冻结新功能开发。
 
 ## 1. 项目目标与技术路线
 
@@ -175,3 +176,173 @@ powershell -ExecutionPolicy Bypass -File scripts\Build-Release.ps1 `
 - 当前 `master` 工作区干净；本地比 `origin/master` 超前 10 个提交（均未推送）；构建输出由 `.gitignore` 排除。
 - 约定：一次 exe 发布对应一次 Git 提交；每次代码/文档改动随 AI_HANDOFF 一并提交；继续工作前先 `git status --short --branch`。
 - GitHub：`git@github.com:kingstacker/Kkindle.git`。
+
+## 10. 跨平台迁移计划（Avalonia）
+
+> 状态：**已规划，未开始**。目标是把 UI 层从 WinUI 3 换成 Avalonia，先在 Windows 上达到功能对等，同时把平台相关代码隔离干净，使后续接 Linux/Mac 只需新增平台实现、不改业务代码。
+>
+> 本阶段**不交付** Linux/Mac 可运行版本，只交付「Windows 上的 Avalonia 版 + 已隔离的扩展点」。
+
+### 10.1 为什么必须换
+
+WinUI 3 / Windows App SDK 没有 Linux/Mac 实现，UI 层无法移植。此外阅读器依赖 WebView2、Kindle 访问依赖 WPD/MTP COM、密钥依赖 DPAPI，都是 Windows 独有。
+
+### 10.2 现状盘点（已核实）
+
+| 项目 | 规模 | 迁移影响 |
+|---|---|---|
+| `Kkindle.Core` | 1,174 行，`net8.0` | 不动。`Services.cs` 接口已平台无关 |
+| `Kkindle.Infrastructure` | 9,272 行，`net8.0-windows` | 约 1,500 行 Windows 代码外移，其余原样 |
+| `Kkindle.App` | 18,445 行 C# + 6,868 行 XAML | 全部重写（288 处 WinUI 类型引用散布在 33 个文件） |
+| `Kkindle.Tests` | 3,828 行，191 项 | 只需降 TFM |
+
+Infrastructure 的 Windows 依赖只集中在 5 处：
+
+- `WpdKindleAccess.cs`（946 行，`Shell.Application` COM）
+- `WpdSessionCloser.cs`（`ComImport`）
+- `ShellFileOperation.cs`（shell32 `IFileOperation`）
+- `AiServices.cs:557-631`（`WindowsDataProtection`，crypt32 DPAPI；被 AI / SMTP / Z-Library 三处共用）
+- `KindleDeviceService.cs:813-822`（kernel32 磁盘容量）
+
+XAML 规模：`MainWindow.xaml` 5,894 行含 166 处 `x:Bind`、6 个 `ControlTemplate`；`App.xaml` 974 行含 9 个 `ControlTemplate`。
+
+### 10.3 目标结构
+
+```text
+src/
+  Kkindle.Core/                net8.0          不变 + 新增平台抽象接口
+  Kkindle.Infrastructure/      net8.0          ← 从 net8.0-windows 降级
+  Kkindle.Platform.Windows/    net8.0-windows  【新建】WPD/MTP、DPAPI、shell32、WM_DEVICECHANGE
+  Kkindle.App/                 net8.0          【新建】Avalonia
+  Kkindle.App.WinUI/           net8.0-windows  ← 现 Kkindle.App 改名，迁移期参照，对等后删除
+tests/Kkindle.Tests/           net8.0          ← 降级，可在任意平台跑
+```
+
+日后加 Linux/Mac 只需新增 `Kkindle.Platform.Linux` / `.Mac`，实现同一组接口。
+
+新增 `Kkindle.Core/PlatformServices.cs`，定义三个接口（`IKindleDeviceService` 已存在，直接复用）：
+
+- `ISecretProtector` — 替代 `WindowsDataProtection`；Windows 包 DPAPI，Linux 走 libsecret，Mac 走 Keychain
+- `IDeviceChangeNotifier` — 替代 `NativeDeviceChangeMonitor` 的 `WM_DEVICECHANGE` 子类化
+- `IReaderHost` — 阅读器 WebView 宿主抽象（见 10.4），阶段 4 才定义
+
+`ShellFileOperation` **不抽接口**：核对后确认它的 8 个调用点全在 `WpdKindleAccess` 内部，操作对象是 WPD shell COM 项而非普通文件路径，属于 WPD 实现细节，随 WPD 一起进 Platform.Windows 即可。
+
+`KindleDeviceService.cs` 本阶段**整体移入 Platform.Windows 不拆分**（USB 磁盘逻辑与 WPD 分发混在一起，边迁 UI 边拆风险过高）。拆出可复用的 USB 磁盘实现留到真正做 Linux 时。
+
+### 10.4 三个关键决策
+
+**A. MainWindow 保持单体，先求 1:1 对等。**
+code-behind 大量直接引用 XAML 命名元素（`ReaderActiveWebView`、`RootGrid` 等），Avalonia 版沿用同名 `MainWindow.axaml` + 同名分部文件 + 同名元素，让 code-behind 迁移尽量机械化。拆成 UserControl/页面留到迁移完成后作为独立重构——同时换框架又换结构，出问题无法定位是哪一边引入的。
+
+**B. XAML 必须重写，不能机械转换。**
+Avalonia 样式是 CSS 式选择器（`<Style Selector="Button.foo">`），与 WinUI 的 `Style TargetType` + `VisualStateManager` 模型不同。`App.xaml` 的 974 行黑白灰设计系统需整体重建为 Avalonia `Styles` / `ControlTheme`。用 `FluentAvalonia` 补齐 Avalonia 缺失的 `ContentDialog`、`FontIcon`/`SymbolIcon`、`NumberBox`。
+
+**C. 阅读器：把「钩子 + 轮询」反转为标准 JS 桥（本计划最大改动、风险最高）。**
+
+现状（约束 #1）：`IsScriptEnabled=false` 冻结 DOM 事件派发，所有交互靠宿主兜——全局低级鼠标/键盘钩子（`SetWindowsHookEx`，`MainWindow.ReaderFeatures.cs:1172-1400`）、滚动接章 150ms 轮询、选区 300ms 轮询、脚注悬停轮询。`SetWindowsHookEx` 是 Windows 独有，且全局钩子到 Avalonia 控件的坐标换算比 WinUI 更麻烦，无法沿用。
+
+改为：`EpubReaderPreparationService` 生成阅读缓存时对 HTML 做**落盘消毒**——剥离 `<script>`、`on*` 属性、`javascript:`/`data:` URL、外部资源引用，注入 CSP `<meta>` 只放行自己的注入脚本；然后打开脚本开关，用 `postMessage` / `WebMessageReceived` 双向通信。
+
+- 安全性不降反升：EPUB 自带脚本在落盘阶段就已剥离，不再依赖引擎开关这一道防线。file:// 导航白名单（`MainWindow.xaml.cs:3944`）保留。
+- 收益：删掉全部钩子与轮询（`ReaderFeatures.cs` 中约 400+ 行），点击分区/选区/滚动接章/脚注悬停全部变成真实 DOM 事件，更准更省电，且天然跨平台。
+- 代价：约束 #2（分页 CSS 数学）、#4（导航意图与守卫）、#5（章节切换守卫）必须逐条重新验证。
+
+WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost` 承载，藏在 `IReaderHost` 后面。Windows 上渲染表现与现在完全一致（分页 CSS、水波动画不用重调），日后换跨平台 webview 只替换接口实现。
+
+> 降级选项：阶段 4 可先原样保留钩子（Windows-only），把 JS 桥推迟到做 Linux 时。代价是这 400 行要迁两次，且跨平台时才暴露分页回归。建议现在就改——迁移期本来就要逐项验证阅读器，两次验证不如一次。
+
+### 10.5 实施阶段
+
+**阶段 0：结构重整（WinUI 版保持可用）— 约 1-2 天**
+
+1. 新建 `src/Kkindle.Platform.Windows`，移入 `WpdKindleAccess.cs`、`WpdSessionCloser.cs`、`ShellFileOperation.cs`、`KindleDeviceService.cs`
+2. 从 `AiServices.cs` 抽出 `WindowsDataProtection` → `WindowsSecretProtector : ISecretProtector`；`AiServices` / `KindleEmailServices` / `ZLibraryService` 三处改构造注入
+3. 新增 `Kkindle.Core/PlatformServices.cs`
+4. `Kkindle.Infrastructure` 与 `Kkindle.Tests` TFM 降为 `net8.0`
+5. 现 `Kkindle.App` 改名 `Kkindle.App.WinUI`，引用新平台层
+
+进度（勾选项已编译并通过 191 项测试）：
+
+- [x] 新建 `src/Kkindle.Platform.Windows`，加入 `Kkindle.sln`
+- [x] `Kkindle.Core/PlatformServices.cs`：`ISecretProtector`、`IDeviceChangeNotifier`
+- [x] `WindowsDataProtection` → `Platform.Windows/WindowsSecretProtector.cs`；`AiSettingsStore` / `KindleEmailSettingsStore` / `ZLibrarySettingsStore` / `AppBackupService` 四处改构造注入
+- [x] `NativeDeviceChangeMonitor` → `Platform.Windows/WindowsDeviceChangeNotifier.cs`
+- [ ] 移入 WPD / shell32 / `KindleDeviceService`
+- [ ] Infrastructure 降 TFM
+- [ ] 拆出 `tests/Kkindle.Tests.Windows` 承接 `KindleDeviceTests.cs`，`Kkindle.Tests` 降 TFM
+- [ ] `Kkindle.App` 改名 `Kkindle.App.WinUI`
+
+**DPAPI blob 必须字节兼容**：`WindowsSecretProtector` 的 P/Invoke 逐字搬移，包括现在略显名不副实的描述串 `"Kkindle AI API Key"`（DPAPI 把描述当元数据，不参与解密）。动这块会让老用户升级后 API Key、SMTP 密码、Z-Library 登录静默失效。
+
+测试用 `TestHelpers.PlaintextSecretProtector` 替身，不碰系统密钥库，这样设置类测试不绑定机器账户，降 TFM 后可在任意平台跑。
+
+验收：191 项测试全通过；WinUI 版仍能启动，Kindle 设备与 AI 功能正常。**此阶段是纯搬移，不改任何业务逻辑。**
+
+**阶段 1：Avalonia 骨架与设计系统 — 约 3-5 天**
+
+- `App.axaml` 黑白灰设计系统：直角矩形按钮、黑白开关、无圆角/渐变/阴影（约束 #13）
+- 自绘标题栏：`ExtendClientAreaToDecorationsHint` + `SystemDecorations=None`，替代 `AppWindow` + `DwmSetWindowAttribute`（约束 #7）——Avalonia 原生跨平台，比现方案干净
+- 内置京华老宋体走 `avares://` 资源
+- 滚动条自动隐藏（对应 `MainWindow.ScrollbarAutoHide.cs`）改为 Avalonia `ScrollBar` ControlTheme
+
+**阶段 2：本地书库 — 约 1.5-2 周**
+
+`MainWindow.Library.cs` / `LibraryViewModel.cs` / `.Collections.cs` / `.Douban.cs` / `.BookConversion.cs` / `.BookOpening.cs`。含书架/列表/画廊三视图、右键菜单（约 60 处 `MenuFlyout`）、框选多选、黄金分割布局（`ApplyGoldenSidebarWidth`）。`FileOpenPicker` + `InitializeWithWindow`（`MainWindow.xaml.cs:1223`）→ Avalonia `StorageProvider`。
+
+**阶段 3：Kindle 设备 / 阅读资料 / Z-Library / 设置 / 备份 — 约 1.5-2 周**
+
+`MainWindow.KindleTransfer.cs`、`.DeviceResources.cs`、`.DeviceBookExport.cs`、`.ReadingMaterials.cs`、`.ZLibrary.cs`、`.Backup.cs`、`.KindleEmail.cs`、`.Productivity.cs`。自绘控件改用 Avalonia `Control.Render(DrawingContext)`：`MonochromeBarChart`、`RectangularProgressBar`、`TetrisDownloadVisual`；`MarkdownRichTextBlock` 改用 `SelectableTextBlock.Inlines`。
+
+**阶段 4：Kreader 阅读器 — 约 3-4 周（最难）**
+
+1. `IReaderHost` + `WebView2ReaderHost`（`NativeControlHost` 承载），双 WebView 预加载结构保留
+2. `EpubReaderPreparationService` 增加 HTML 消毒 + CSP 注入
+3. 四个脚本模块（`ReaderNavigationScripts` / `ReaderPaginationScripts` / `ReaderAppearanceScripts` / `ReaderWaveScripts`）的 CSS/JS 常量原样保留（约束 #8），只改事件接入方式
+4. 删除 `ReaderFeatures.cs` 的钩子与轮询，改 `postMessage` 桥
+5. 逐项回归约束 #2/#3/#4/#5：分页列边界吸附、图片 contain 拟合、fragment 跳转顶格、章节切换守卫、关闭幂等
+6. 禅模式：`AppWindowPresenterKind.FullScreen` → Avalonia `WindowState.FullScreen`
+7. `MainWindow.ReaderToc.cs` / `.ReaderInPageSearch.cs` / `.ReaderTools.cs` / `.ReaderAi.cs` / `.ReaderFootnotes.cs` / `.Pdf.cs`
+
+约束 #6（`Slider`/`ComboBox` 事件在 XAML 解析期提前触发导致 `0xC000027B`）是 WinUI 特有；Avalonia 下仍需保留 `AreReaderLayoutControlsReady()` 空值守卫，但崩溃形态不同，需重新确认。
+
+**阶段 5：打包发布 — 约 2-3 天**
+
+`scripts\Build-Release.ps1`、`installer\Kkindle.iss`、`.github\workflows\release.yml` 中发布路径从 `net8.0-windows10.0.19041.0` 改为 `net8.0`；去掉 `WindowsAppSDKSelfContained` 相关逻辑；Calibre 内置与 KFX Input 插件流程不变；产物形态（安装版 EXE / 便携版 ZIP / SHA256SUMS）保持一致。对等后删除 `Kkindle.App.WinUI`，作为独立提交。
+
+**阶段 6：扩展性验证 — 约 1 天**
+
+WSL 上 `dotnet build src/Kkindle.Core src/Kkindle.Infrastructure` 与 `dotnet test tests/Kkindle.Tests` 全部通过——这就是「Linux/Mac 扩展性已预留」的可验证证据。此阶段**不**产出 Linux 可运行 GUI。
+
+**粗略总量：约 2-2.5 个月**，阶段 4 占一半且不确定性最高。
+
+### 10.6 WinUI → Avalonia 主要映射
+
+| WinUI 3 | Avalonia | 说明 |
+|---|---|---|
+| `x:Bind`（166 处） | `{CompiledBinding}` + `x:DataType` | 逐处改写，不能机械替换 |
+| `ListView` / `GridView` | `ListBox` + `ItemsPanelTemplate`(`WrapPanel`) | GridView 无直接对应 |
+| `FontIcon` / `SymbolIcon` / `NumberBox` / `ContentDialog` | FluentAvalonia | Avalonia 本体没有 |
+| `Style` + `VisualStateManager` | `Style Selector` + 伪类（`:pointerover` / `:pressed`） | `App.xaml` 需整体重建 |
+| `DispatcherQueue` | `Dispatcher.UIThread` | |
+| `AppWindow` / `OverlappedPresenter` / `DwmSetWindowAttribute` | `Window` + `ExtendClientAreaToDecorationsHint` / `WindowState` | 跨平台，比现方案简洁 |
+| `FileOpenPicker` + `InitializeWithWindow` | `StorageProvider` | 跨平台 |
+| `WebView2` 控件 | `NativeControlHost` 承载 WebView2 | 藏在 `IReaderHost` 后 |
+| `SetWindowsHookEx` + 轮询 | `postMessage` JS 桥 | 见 10.4 决策 C |
+
+### 10.7 验证方式
+
+- 每阶段：`dotnet build Kkindle.sln -c Debug -p:Platform=x64`（约定 #12：默认只出 x64 Debug）+ 启动运行
+- 回归基线：191 项测试在阶段 0 之后必须始终全绿
+- 视觉对照：`docs\images\` 下 9 张截图即验收基线，逐屏对照
+- 阶段 4 人工验收（无法自动化，见第 7 节）：分页分区点击、滚动接章、选区工具栏、四种翻页动画观感、禅模式进出
+- 真机验收：Kindle Scribe（MTP）发送/扫描/删除闭环、USB 磁盘型安全弹出
+- 阶段 6：WSL 上 Core + Infrastructure + Tests 编译测试通过
+
+### 10.8 风险
+
+1. **分页 CSS 数学**（约束 #2）：列宽 + 间距必须严格等于视口宽，换渲染宿主后 DPI 缩放与 `clientWidth` 取值可能有差异，最可能出现「差一像素、翻页错位」。
+2. **JS 桥改造引入阅读器回归**：现有导航守卫（`_readerChapterTransitionSequence` + 取消令牌）是为轮询模型设计的，改事件驱动后时序会变，约束 #4/#5 需重新推演而不是照搬。
+3. **FluentAvalonia 定制上限**：`ContentDialog` 等控件的黑白灰定制程度需在阶段 1 就验证，避免阶段 3 才发现改不动。
+4. **迁移期双份代码**：`Kkindle.App.WinUI` 保留期间，Infrastructure 的改动要同时满足两边。建议迁移期冻结新功能开发。
+

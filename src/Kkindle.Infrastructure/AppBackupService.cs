@@ -37,11 +37,11 @@ public sealed class AppBackupService
     private readonly AiSettingsStore _aiSettingsStore;
     private readonly KindleEmailSettingsStore _kindleEmailSettingsStore;
 
-    public AppBackupService(AppPaths paths)
+    public AppBackupService(AppPaths paths, ISecretProtector protector)
     {
         _paths = paths;
-        _aiSettingsStore = new AiSettingsStore(paths);
-        _kindleEmailSettingsStore = new KindleEmailSettingsStore(paths);
+        _aiSettingsStore = new AiSettingsStore(paths, protector);
+        _kindleEmailSettingsStore = new KindleEmailSettingsStore(paths, protector);
     }
 
     public async Task<AppBackupExportResult> ExportAsync(
