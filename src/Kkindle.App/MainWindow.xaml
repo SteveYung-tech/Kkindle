@@ -3404,6 +3404,16 @@
               Canvas.ZIndex="40"
               Background="#FFFFFF"
               Visibility="Collapsed">
+            <Grid.Resources>
+                <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#C9C9C5" />
+                <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#B4B4B0" />
+                <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#A4A4A0" />
+                <SolidColorBrush x:Key="ScrollBarThumbBorderBrush" Color="#C9C9C5" />
+                <SolidColorBrush x:Key="ScrollBarThumbBackground" Color="#C9C9C5" />
+                <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#C9C9C5" />
+                <SolidColorBrush x:Key="ScrollBarTrackFill" Color="#FFFFFF" />
+                <SolidColorBrush x:Key="ScrollBarTrackStroke" Color="#FFFFFF" />
+            </Grid.Resources>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="ReaderTocColumn" Width="286" />
                 <ColumnDefinition x:Name="ReaderContentColumn" Width="*" />
@@ -3715,7 +3725,7 @@
 
                     <Border Grid.Row="5"
                             Margin="0"
-                            BorderBrush="#000000"
+                            BorderBrush="#E2E2DE"
                             BorderThickness="1"
                             CornerRadius="0">
                         <Button Content="返回书架"
@@ -4277,6 +4287,16 @@
                     Grid.Column="2"
                     Margin="0,38,0,0"
                     Background="#FFFFFF">
+                <Border.Resources>
+                    <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#C9C9C5" />
+                    <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#B4B4B0" />
+                    <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#A4A4A0" />
+                    <SolidColorBrush x:Key="ScrollBarThumbBorderBrush" Color="#C9C9C5" />
+                    <SolidColorBrush x:Key="ScrollBarThumbBackground" Color="#C9C9C5" />
+                    <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#C9C9C5" />
+                    <SolidColorBrush x:Key="ScrollBarTrackFill" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ScrollBarTrackStroke" Color="#FFFFFF" />
+                </Border.Resources>
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="52" />
@@ -4653,6 +4673,16 @@
                   Canvas.ZIndex="85"
                   Background="#66000000"
                   Visibility="Collapsed">
+                <Grid.Resources>
+                    <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#C9C9C5" />
+                    <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#B4B4B0" />
+                    <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#A4A4A0" />
+                    <SolidColorBrush x:Key="ScrollBarThumbBorderBrush" Color="#C9C9C5" />
+                    <SolidColorBrush x:Key="ScrollBarThumbBackground" Color="#C9C9C5" />
+                    <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#C9C9C5" />
+                    <SolidColorBrush x:Key="ScrollBarTrackFill" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ScrollBarTrackStroke" Color="#FFFFFF" />
+                </Grid.Resources>
                 <Border Width="580"
                         MaxHeight="760"
                         HorizontalAlignment="Center"
@@ -4942,6 +4972,16 @@
                     Canvas.ZIndex="95"
                     IsHitTestVisible="False"
                     Visibility="Collapsed">
+                <Border.Resources>
+                    <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#C9C9C5" />
+                    <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#B4B4B0" />
+                    <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#A4A4A0" />
+                    <SolidColorBrush x:Key="ScrollBarThumbBorderBrush" Color="#C9C9C5" />
+                    <SolidColorBrush x:Key="ScrollBarThumbBackground" Color="#C9C9C5" />
+                    <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#C9C9C5" />
+                    <SolidColorBrush x:Key="ScrollBarTrackFill" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="ScrollBarTrackStroke" Color="#FFFFFF" />
+                </Border.Resources>
                 <ScrollViewer MaxHeight="236"
                               HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollBarVisibility="Auto">
