@@ -210,16 +210,21 @@ XAML 规模：`MainWindow.xaml` 5,894 行含 166 处 `x:Bind`、6 个 `ControlTe
 
 ```text
 src/
-  Kkindle.Core/                net8.0          不变 + 新增平台抽象接口
+  Kkindle.Core/                net8.0          不变 + 平台抽象接口
   Kkindle.Infrastructure/      net8.0          ← 从 net8.0-windows 降级
-  Kkindle.Platform.Windows/    net8.0-windows  【新建】WPD/MTP、DPAPI、shell32、WM_DEVICECHANGE
-  Kkindle.App/                 net8.0          【新建】Avalonia
-  Kkindle.App.WinUI/           net8.0-windows  ← 现 Kkindle.App 改名，迁移期参照，对等后删除
+  Kkindle.Platform.Windows/    net8.0-windows  WPD/MTP、DPAPI、WM_DEVICECHANGE
+  Kkindle.App/                 net8.0          Avalonia UI（库，全部界面代码）
+  Kkindle.Desktop.Windows/     net8.0-windows  WinExe 启动头，只做 DI 装配
+  Kkindle.App.WinUI/           net8.0-windows  ← 原 Kkindle.App，迁移期参照，对等后删除
 tests/Kkindle.Tests/          net8.0          可移植测试，可在任意平台跑
 tests/Kkindle.Tests.Windows/  net8.0-windows  设备测试（WPD/MTP，只能在 Windows 跑）
 ```
 
-日后加 Linux/Mac 只需新增 `Kkindle.Platform.Linux` / `.Mac`，实现同一组接口。
+**为什么要有启动头**：`net8.0` 项目无法引用 `net8.0-windows` 项目（SDK 硬性限制），所以 UI 拿不到 `WindowsSecretProtector`、`KindleDeviceService`。解法是每平台一个瘦 WinExe：它持有 `Main`，挑选本平台实现，通过 `AppServices` record 交给可移植的 `Kkindle.App`。
+
+真正的收益不是「能编译」，而是**编译器会强制 UI 保持可移植** —— 任何 Windows API 混进 `Kkindle.App` 会立即编译失败，而不是等到跑 Linux 才发现。加 Linux/Mac 时只需新增 `Kkindle.Platform.Linux` + `Kkindle.Desktop.Linux`，UI 一行不动。
+
+`AppServices.CreateDeviceChangeNotifier` 是 `Func<IntPtr, IDeviceChangeNotifier?>` 工厂而非实例：Windows 版要子类化窗口过程，必须等窗口创建后拿到句柄；其他平台可忽略该参数，返回 `null` 表示无通知器、调用方回退到轮询。
 
 新增 `Kkindle.Core/PlatformServices.cs`，定义三个接口（`IKindleDeviceService` 已存在，直接复用）：
 
@@ -251,6 +256,8 @@ Avalonia 样式是 CSS 式选择器（`<Style Selector="Button.foo">`），与 W
 
 WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost` 承载，藏在 `IReaderHost` 后面。Windows 上渲染表现与现在完全一致（分页 CSS、水波动画不用重调），日后换跨平台 webview 只替换接口实现。
 
+阶段 1 查包时发现 **`Avalonia.Controls.WebView` 12.0.1，owner 是 `avaloniaui`**，即官方第一方 WebView 包。这可能让阅读器直接跨平台，而不必自己包 WebView2。但尚未验证其 API 能力边界（`ExecuteScript`、双向消息桥、自定义 scheme / 资源拦截是否齐全，以及 file:// 导航白名单能否实现），且版本落后主线一个小版本。阶段 4 开始时先做一个小验证再决定：能力够就直接用它，不够再退回 `NativeControlHost` + WebView2。无论走哪条，`IReaderHost` 接口都不变。
+
 > 降级选项：阶段 4 可先原样保留钩子（Windows-only），把 JS 桥推迟到做 Linux 时。代价是这 400 行要迁两次，且跨平台时才暴露分页回归。建议现在就改——迁移期本来就要逐项验证阅读器，两次验证不如一次。
 
 ### 10.5 实施阶段
@@ -272,7 +279,9 @@ WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost`
 - [x] 移入 WPD / shell32 / `KindleDeviceService`；Infrastructure 已无任何 Windows API（`DllImport`、`ComImport`、`Marshal.`、`Shell.Application`、`Registry` 全部无匹配）
 - [x] Infrastructure 降 TFM 到 `net8.0`（编译零警告，无 CA1416 平台兼容性问题）
 - [x] 拆出 `tests/Kkindle.Tests.Windows` 承接 `KindleDeviceTests.cs`（24 个 `[Fact]`/`[Theory]`，唯一依赖 Platform.Windows 的测试文件），`Kkindle.Tests` 降 TFM 到 `net8.0`
-- [ ] `Kkindle.App` 改名 `Kkindle.App.WinUI`（与阶段 1 建 Avalonia 项目一并做，避免发布脚本路径改两次）
+- [x] `Kkindle.App` 改名 `Kkindle.App.WinUI`（随阶段 1 建 Avalonia 项目一并完成；`Build-Release.ps1` 指向 App.WinUI，发布流程迁移期不变）
+
+阶段 0 完成。四个提交：`1b854e6` 平台抽象 + DPAPI 解耦、`6792e58` WPD/shell32 搬移、`6df5734` Infrastructure 降 TFM、`3a502cf` 测试拆分。
 
 `KindleBookClassifier` 与 `KindleScanCacheStore` 保持 `internal`，靠 `Kkindle.Infrastructure.csproj` 里的 `<InternalsVisibleTo Include="Kkindle.Platform.Windows" />` 跨程序集访问 —— 它们是设备服务的实现细节，不该进 Infrastructure 的公开契约。将来加 `Kkindle.Platform.Linux` 时在同处补一行。
 
@@ -284,7 +293,18 @@ WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost`
 
 **阶段 1：Avalonia 骨架与设计系统 — 约 3-5 天**
 
-- `App.axaml` 黑白灰设计系统：直角矩形按钮、黑白开关、无圆角/渐变/阴影（约束 #13）
+环境事实（2026-08-13 实测）：Avalonia **12.1.1**（支持 `net8.0`）、`FluentAvaloniaUI` **3.0.2**、`Avalonia.Controls.WebView` **12.0.1**（owner 是 `avaloniaui`，第一方包）。模板用 `dotnet new avalonia.app` 生成，默认 TFM 是 `net10.0`，本机 SDK 9.0.315 不支持，需手改为 `net8.0`。
+
+进度：
+
+- [x] 建 `Kkindle.App`（Avalonia 库）+ `Kkindle.Desktop.Windows`（启动头），空窗口可构建
+- [ ] 自绘方角标题栏
+- [ ] 自定义 `ScrollBar` ControlTheme（带上下三角 + 自动隐藏）
+- [ ] `App.axaml` 黑白灰设计系统其余部分
+- [ ] 内置京华老宋体走 `avares://` 资源
+
+按「先攻最难的两个控件」策略推进：标题栏和 ScrollBar 是 `App.xaml` 里定制最深的部分，也是 Avalonia `ControlTheme` 与 WinUI `Style` + `VisualStateManager` 差异最大的地方。它们能 1:1 还原，剩下 7 个 `ControlTemplate` 基本没悬念；还原不了则趁早调整设计系统策略，此时只投入了几天而非几周。
+
 - 自绘标题栏：`ExtendClientAreaToDecorationsHint` + `SystemDecorations=None`，替代 `AppWindow` + `DwmSetWindowAttribute`（约束 #7）——Avalonia 原生跨平台，比现方案干净
 - 内置京华老宋体走 `avares://` 资源
 - 滚动条自动隐藏（对应 `MainWindow.ScrollbarAutoHide.cs`）改为 Avalonia `ScrollBar` ControlTheme

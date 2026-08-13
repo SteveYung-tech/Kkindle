@@ -1,0 +1,11 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Kkindle.App"
+             RequestedThemeVariant="Light">
+    <!-- Kkindle is a paper-white reading tool: the palette is fixed light, not
+         system-following. Dark mode is not a supported variant (AI_HANDOFF #13). -->
+
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+</Application>

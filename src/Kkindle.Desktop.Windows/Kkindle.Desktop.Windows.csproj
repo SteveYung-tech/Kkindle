@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Thin platform head: owns Main, picks the Windows implementations of the
+         Kkindle.Core platform interfaces, and hands them to the portable UI in
+         Kkindle.App. All UI code lives there; nothing but wiring belongs here.
+         A Linux or macOS head is a sibling of this project. -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <RootNamespace>Kkindle.Desktop.Windows</RootNamespace>
+    <AssemblyName>Kkindle</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Kkindle.App\Kkindle.App.csproj" />
+    <ProjectReference Include="..\Kkindle.Core\Kkindle.Core.csproj" />
+    <ProjectReference Include="..\Kkindle.Platform.Windows\Kkindle.Platform.Windows.csproj" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
+    <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.3">
+      <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
+      <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>

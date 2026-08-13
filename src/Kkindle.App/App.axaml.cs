@@ -1,0 +1,56 @@
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Markup.Xaml;
+using Kkindle.Core;
+
+namespace Kkindle;
+
+public partial class App : Application
+{
+    private readonly AppServices? _services;
+
+    /// <summary>
+    /// Parameterless constructor for the XAML previewer and designer, which
+    /// instantiate the application without a composition root.
+    /// </summary>
+    public App()
+    {
+    }
+
+    /// <summary>
+    /// Used by the platform head projects, which build the platform-specific
+    /// services and hand them over before the framework starts.
+    /// </summary>
+    public App(AppServices services)
+    {
+        _services = services;
+    }
+
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+    }
+
+    public override void OnFrameworkInitializationCompleted()
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            desktop.MainWindow = new MainWindow();
+
+        base.OnFrameworkInitializationCompleted();
+    }
+}
+
+/// <summary>
+/// Everything the UI needs that only a platform head can build. Kept as a
+/// record so adding a service does not ripple through every head.
+/// </summary>
+/// <param name="SecretProtector">Machine-bound encryption for stored secrets.</param>
+/// <param name="CreateDeviceChangeNotifier">
+/// Builds a removable-storage watcher for a native window handle. Windows needs
+/// the handle to subclass the window procedure; other platforms may ignore it.
+/// Returns null when the platform has no notifier, in which case callers fall
+/// back to polling.
+/// </param>
+public sealed record AppServices(
+    ISecretProtector SecretProtector,
+    Func<IntPtr, IDeviceChangeNotifier?> CreateDeviceChangeNotifier);

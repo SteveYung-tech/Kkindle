@@ -2,7 +2,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kkindle.App", "src\Kkindle.App\Kkindle.App.csproj", "{5B7B5F18-86D8-4FB0-8CF3-5D73D50B2F01}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kkindle.App.WinUI", "src\Kkindle.App.WinUI\Kkindle.App.WinUI.csproj", "{5B7B5F18-86D8-4FB0-8CF3-5D73D50B2F01}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kkindle.App", "src\Kkindle.App\Kkindle.App.csproj", "{2E9D6B47-1C58-4A03-9F62-5D8E71A4C3B0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kkindle.Desktop.Windows", "src\Kkindle.Desktop.Windows\Kkindle.Desktop.Windows.csproj", "{8B5C0E39-4A17-4D62-B3F8-6E92D1A7C540}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kkindle.Core", "src\Kkindle.Core\Kkindle.Core.csproj", "{A9BF9E87-4A09-45B3-9FCE-DB5B1E4A5E77}"
 EndProject
@@ -24,6 +28,14 @@ Global
 		{5B7B5F18-86D8-4FB0-8CF3-5D73D50B2F01}.Debug|x64.Build.0 = Debug|x64
 		{5B7B5F18-86D8-4FB0-8CF3-5D73D50B2F01}.Release|x64.ActiveCfg = Release|x64
 		{5B7B5F18-86D8-4FB0-8CF3-5D73D50B2F01}.Release|x64.Build.0 = Release|x64
+		{2E9D6B47-1C58-4A03-9F62-5D8E71A4C3B0}.Debug|x64.ActiveCfg = Debug|x64
+		{2E9D6B47-1C58-4A03-9F62-5D8E71A4C3B0}.Debug|x64.Build.0 = Debug|x64
+		{2E9D6B47-1C58-4A03-9F62-5D8E71A4C3B0}.Release|x64.ActiveCfg = Release|x64
+		{2E9D6B47-1C58-4A03-9F62-5D8E71A4C3B0}.Release|x64.Build.0 = Release|x64
+		{8B5C0E39-4A17-4D62-B3F8-6E92D1A7C540}.Debug|x64.ActiveCfg = Debug|x64
+		{8B5C0E39-4A17-4D62-B3F8-6E92D1A7C540}.Debug|x64.Build.0 = Debug|x64
+		{8B5C0E39-4A17-4D62-B3F8-6E92D1A7C540}.Release|x64.ActiveCfg = Release|x64
+		{8B5C0E39-4A17-4D62-B3F8-6E92D1A7C540}.Release|x64.Build.0 = Release|x64
 		{A9BF9E87-4A09-45B3-9FCE-DB5B1E4A5E77}.Debug|x64.ActiveCfg = Debug|x64
 		{A9BF9E87-4A09-45B3-9FCE-DB5B1E4A5E77}.Debug|x64.Build.0 = Debug|x64
 		{A9BF9E87-4A09-45B3-9FCE-DB5B1E4A5E77}.Release|x64.ActiveCfg = Release|x64

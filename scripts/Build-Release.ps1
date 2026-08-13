@@ -27,7 +27,7 @@ if (Test-Path -LiteralPath $OutputRoot) {
 $publishDirectory = Join-Path $OutputRoot "Kkindle-$Version-win-x64"
 New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
 
-$projectPath = Join-Path $repositoryRoot 'src\Kkindle.App\Kkindle.App.csproj'
+$projectPath = Join-Path $repositoryRoot 'src\Kkindle.App.WinUI\Kkindle.App.WinUI.csproj'
 $publishArguments = @(
     'publish', $projectPath,
     '-c', 'Release',
