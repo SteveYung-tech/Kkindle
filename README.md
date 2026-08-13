@@ -182,6 +182,29 @@ src/Kkindle.Infrastructure  SQLite、设备、转换、备份与 AI 服务实现
 tests/Kkindle.Tests         自动化测试
 ```
 
+## 参考技术与开源项目
+
+Kkindle 的功能设计与实现使用或参考了以下开源项目。列入本节仅说明技术关系；各项目的源码与组件仍适用其各自的许可证。
+
+### 功能实现参考与外部工具
+
+- [ZlibraryKO/zlibrary.koplugin](https://github.com/ZlibraryKO/zlibrary.koplugin)：Z-Library 登录、搜索、语言与格式筛选、服务地址发现及下载流程的实现参考。
+- [kovidgoyal/calibre](https://github.com/kovidgoyal/calibre)：通过独立的 `ebook-convert` 进程完成 EPUB、AZW3、MOBI、PDF 与 KFX 等格式的读取或转换。
+- [KFX Input](https://www.mobileread.com/forums/showthread.php?t=291290)：随内置 Calibre 提供的 KFX 输入插件，用于处理无 DRM 的 KFX 文件。
+
+### 应用运行依赖
+
+- [microsoft/WindowsAppSDK](https://github.com/microsoft/WindowsAppSDK)：WinUI 3 桌面应用框架。
+- [CommunityToolkit/dotnet](https://github.com/CommunityToolkit/dotnet)：提供 `CommunityToolkit.Mvvm` MVVM 基础设施。
+- [dotnet/efcore](https://github.com/dotnet/efcore)：`Microsoft.Data.Sqlite` 的源码项目，用于本地 SQLite 数据存储。
+- [UglyToad/PdfPig](https://github.com/UglyToad/PdfPig)：用于读取和提取 PDF 文本。
+
+### 测试工具
+
+- [xunit/xunit](https://github.com/xunit/xunit)：自动化测试框架。
+- [xunit/visualstudio.xunit](https://github.com/xunit/visualstudio.xunit)：xUnit 的 Visual Studio 与 .NET 测试适配器。
+- [microsoft/vstest](https://github.com/microsoft/vstest)：`Microsoft.NET.Test.Sdk` 对应的测试平台。
+
 ## 许可证
 
 本项目基于 [MIT License](LICENSE) 开源。随应用分发的字体、Calibre 等第三方组件适用各自的许可证。
