@@ -92,6 +92,40 @@ public sealed class BookCardViewModel : ObservableObject
     public string DescriptionLabel => string.IsNullOrWhiteSpace(Book.Description) ? "暂无简介" : Book.Description;
     public Bitmap? CoverImage { get; private set; }
 
+    // The original gallery always surfaced where a book is available. The
+    // portable library starts with the authoritative local copy and changes
+    // this value when a future device scan supplies a matching Kindle copy.
+    private BookLibraryPresence _libraryPresence = BookLibraryPresence.ComputerOnly;
+    private bool _isLibraryPresenceVisible = true;
+
+    public BookLibraryPresence LibraryPresence
+    {
+        get => _libraryPresence;
+        private set
+        {
+            if (!SetProperty(ref _libraryPresence, value)) return;
+            OnPropertyChanged(nameof(PresenceLabel));
+        }
+    }
+
+    public string PresenceLabel => LibraryPresence switch
+    {
+        BookLibraryPresence.Both => "电脑与 Kindle 书库都有",
+        BookLibraryPresence.KindleOnly => "仅 Kindle 书库有",
+        _ => "仅电脑书库有"
+    };
+
+    public bool PresenceVisibility => _isLibraryPresenceVisible;
+
+    public void SetLibraryPresence(BookLibraryPresence presence) => LibraryPresence = presence;
+
+    public void SetLibraryPresenceVisible(bool visible)
+    {
+        if (_isLibraryPresenceVisible == visible) return;
+        _isLibraryPresenceVisible = visible;
+        OnPropertyChanged(nameof(PresenceVisibility));
+    }
+
     public void Refresh()
     {
         CoverImage?.Dispose();

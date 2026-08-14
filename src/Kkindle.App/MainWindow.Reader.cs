@@ -72,6 +72,7 @@ public partial class MainWindow
             ReaderStatusText.Text = $"共 {document.Chapters.Count} 个章节 · 正在加载";
             ReaderRoot.IsVisible = true;
             LibraryRoot.IsVisible = false;
+            WindowBrandText.IsVisible = true;
 
             await EnsureReaderHostsAsync();
             SetReaderHostLayer();
@@ -180,6 +181,11 @@ public partial class MainWindow
 
     private async Task MoveReaderChapterAsync(int offset)
     {
+        if (_readerIsPdf)
+        {
+            await NavigatePdfPageAsync(_readerPdfPage + offset, ReaderToken);
+            return;
+        }
         if (_readerDocument is null || CurrentReaderHost is null) return;
         var targetIndex = _readerChapterIndex + offset;
         if (targetIndex < 0 || targetIndex >= _readerDocument.Chapters.Count)
@@ -202,8 +208,11 @@ public partial class MainWindow
             if (!loaded) throw new InvalidOperationException("章节加载失败。");
 
             _readerChapterIndex = targetIndex;
+            _readerScrollPosition = 0;
+            _readerScrollRatio = 0;
             _readerShowingPreload = !ReferenceEquals(host, CurrentReaderHost);
             SetReaderHostLayer();
+            await ApplySavedAnnotationsAsync(host, token);
             ReaderChapterText.Text = GetReaderChapterLabel();
             ReaderStatusText.Text = $"共 {_readerDocument.Chapters.Count} 个章节";
             await SaveReaderProgressAsync(sessionToken);
@@ -224,9 +233,11 @@ public partial class MainWindow
         }
     }
 
-    private string GetReaderChapterLabel() => _readerDocument is null
-        ? string.Empty
-        : $"第 {_readerChapterIndex + 1} / {_readerDocument.Chapters.Count} 章";
+    private string GetReaderChapterLabel() => _readerIsPdf
+        ? $"第 {_readerPdfPage} / {Math.Max(1, _readerPdfPages.Count)} 页"
+        : _readerDocument is null
+            ? string.Empty
+            : $"第 {_readerChapterIndex + 1} / {_readerDocument.Chapters.Count} 章";
 
     private void SetReaderHostLayer()
     {
@@ -262,7 +273,9 @@ public partial class MainWindow
             ReaderStatusText.Text = "当前章节加载失败。";
             return;
         }
-        ReaderStatusText.Text = $"共 {_readerDocument?.Chapters.Count ?? 0} 个章节";
+        ReaderStatusText.Text = _readerIsPdf
+            ? $"PDF · {_readerPdfPages.Count} 页"
+            : $"共 {_readerDocument?.Chapters.Count ?? 0} 个章节";
     }
 
     private void ReaderHost_WebMessageReceived(
@@ -285,10 +298,35 @@ public partial class MainWindow
         _readerSessionCancellation?.Cancel();
         _readerSessionCancellation?.Dispose();
         _readerSessionCancellation = null;
+        _readerAiCancellation?.Cancel();
+        _readerAiCancellation?.Dispose();
+        _readerAiCancellation = null;
         _readerActiveHost?.Stop();
         _readerPreloadHost?.Stop();
         ReaderRoot.IsVisible = false;
         LibraryRoot.IsVisible = true;
+        WindowBrandText.IsVisible = false;
+        ReaderLayoutSettingsOverlay.IsVisible = false;
+        ReaderSelectionBar.IsVisible = false;
+        ReaderInPageSearchBar.IsVisible = false;
+        ReaderFootnotePopup.IsVisible = false;
+        ReaderHighlightButton.IsVisible = false;
+        ReaderAnnotateButton.IsVisible = false;
+        ReaderAssistantPanel.IsVisible = true;
+        ReaderBodyGrid.ColumnDefinitions[2].Width = new GridLength(330);
+        _readerAssistantVisibleBeforeZen = true;
+        _readerIsPdf = false;
+        _readerPdfPages = [];
+        ReaderBookmarks.Clear();
+        ReaderAnnotations.Clear();
+        ReaderSearchResults.Clear();
+        ReaderAiMessages.Clear();
+        ReaderAiSources.Clear();
+        _readerPendingSelection = null;
+        _readerPendingSelectionStartOffset = 0;
+        _readerPendingSelectionEndOffset = 0;
+        _readerPendingSelectionPrefix = string.Empty;
+        _readerPendingSelectionSuffix = string.Empty;
         _readerDocument = null;
         _readerBookCard = null;
         _readerBookFile = null;
@@ -297,9 +335,28 @@ public partial class MainWindow
 
     private async Task SaveReaderProgressAsync(CancellationToken cancellationToken)
     {
+        if (_readerBookCard is null || _readerBookFile is null) return;
+
+        if (_readerIsPdf)
+        {
+            if (_readerPdfPages.Count == 0) return;
+            var pdfProgress = new ReaderProgressRow(
+                _readerBookCard.Book.Id,
+                _readerBookFile.Id,
+                $"pdf:page:{_readerPdfPage}",
+                null,
+                _readerPdfPage - 1,
+                (int)Math.Round(_readerScrollPosition),
+                CalculateReaderProgressPercent(),
+                0,
+                DateTimeOffset.UtcNow);
+            try { await _readerData.SaveProgressAsync(pdfProgress, cancellationToken); }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+            catch { }
+            return;
+        }
+
         if (_readerDocument is null
-            || _readerBookCard is null
-            || _readerBookFile is null
             || _readerChapterIndex < 0
             || _readerChapterIndex >= _readerDocument.Chapters.Count) return;
 

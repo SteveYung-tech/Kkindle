@@ -6,14 +6,15 @@
 >
 > 项目目录：`C:\Users\kings\Desktop\01_Projects\Kkindle`
 
-> 当前迁移状态（2026-08-14）：Avalonia 阶段 2（本地书库）和阶段 3（Kindle 设备、阅读资料、Z-Library、设置与备份）已完成，阶段 4（Kreader 阅读器）已完成核心交互切片；阶段 5 发布入口已切到 Avalonia Windows 启动头，阶段 6 已完成 Windows 侧可移植性验证。WinUI 版本仍保留作迁移参照，完整 AI/脚注/PDF 功能和人工视觉验收仍需后续对等验收。
+> 当前迁移状态（2026-08-14）：Avalonia 阶段 2（本地书库）和阶段 3（Kindle 设备、阅读资料、Z-Library、设置与备份）已完成，阶段 4（Kreader 阅读器）已完成核心交互切片；阶段 5 发布入口已切到 Avalonia Windows 启动头，阶段 6 已完成 Windows 侧可移植性验证。WinUI 版本仍保留作迁移参照。当前 Avalonia 版尚未完成与 WinUI 旧版的功能逐项 1:1 对照、同分辨率/DPI 像素级 UI 验收；完整 AI/脚注/PDF 功能和人工视觉验收仍待完成，Debug EXE 仅作为迁移调试版。
 
 ## 0. 当前状态
 
-- 基线功能：P0/P1/P2、本地书库、Kreader 阅读器、阅读资料中心、Kindle 设备管理（USB/WPD/MTP）、格式转换、Z-Library、Kindle 邮件、备份/设置、AI 助手、安装包与 GitHub 自动发版均已实现并验证；Avalonia 迁移的当前进度见第 10 节，Kreader 目前是阶段 4 第一切片。
+- 基线功能（WinUI 参考版）：P0/P1/P2、本地书库、Kreader 阅读器、阅读资料中心、Kindle 设备管理（USB/WPD/MTP）、格式转换、Z-Library、Kindle 邮件、备份/设置、AI 助手、安装包与 GitHub 自动发版均已实现并验证；Avalonia 当前版已完成阶段 2/3 与阶段 4 核心交互切片，但不能据此视为已与 WinUI 全部等价，具体对等状态见第 10.8 节。
 - 分支 `master`；`v0.5.2`（提交 `5daf140`）已推送至 `origin/master` 并自动发版，当前本地包含尚未推送的 Avalonia 迁移收尾提交；阶段 3 收尾提交为 `c71af9e`，本次阶段收尾提交为当前 `HEAD`。
 - 最新版本：0.5.2（标签 `v0.5.2`）；在 0.5.1 基础上新增全应用滚动条自动隐藏，滚动或悬停时显示，空闲后淡出；补齐 Popup、折叠面板、ContentDialog 和延迟生成模板的挂载，并隔离嵌套 ScrollViewer 的滚动条归属。
 - 测试：Debug x64 192 项全部通过（0 失败、0 跳过，2026-08-14）。阶段 0 拆分后分布在两个项目：`Kkindle.Tests` 164 项（`net8.0`，可跨平台）+ `Kkindle.Tests.Windows` 28 项（`net8.0-windows`，WPD/MTP 设备测试）。
+- 当前 Avalonia 调试 EXE：`src\Kkindle.Desktop.Windows\bin\x64\Debug\net8.0-windows10.0.19041.0\win-x64\Kkindle.exe`；已完成构建、192 项测试和启动保持运行检查，但尚未作为 UI/功能 1:1 对等验收包。
 - 本地最近完整测试包（2026-08-12 19:36，版本 `0.5.0-test.1`，由 `685ab20` 发布；内置 Calibre 运行时与 KFX Input 插件，启动/关闭验证通过；如需包含 0.5.2 改动请重新发布）：
   - exe：`artifacts\Kkindle-0.5.0-test.1\Kkindle-0.5.0-test.1-win-x64\Kkindle.exe`
   - 便携包：`artifacts\Kkindle-0.5.0-test.1\Kkindle-0.5.0-test.1-win-x64-portable.zip`
@@ -39,7 +40,9 @@ Kkindle/
 ├─ scripts\Build-Release.ps1     # 统一发布脚本（便携包 + 安装包 + 校验和）
 ├─ installer\Kkindle.iss         # Inno Setup 6 安装包脚本
 ├─ .github\workflows\release.yml # 推送 vX.Y.Z 标签自动构建发版
-├─ src\Kkindle.App/              # WinUI 3 窗口、页面、阅读器宿主与注入脚本
+├─ src\Kkindle.App.WinUI/        # WinUI 3 参考实现，作为旧版迁移基线
+├─ src\Kkindle.App/              # Avalonia 迁移中的窗口、页面、阅读器宿主与注入脚本
+├─ src\Kkindle.Desktop.Windows/  # Avalonia Windows 启动头
 ├─ src\Kkindle.Core/             # 领域模型、策略（阅读选择/导航/分页/转换/设备型号目录）
 ├─ src\Kkindle.Infrastructure/   # SQLite、元数据、Kindle 设备、Calibre、AI、备份、Z-Library
 └─ tests\Kkindle.Tests/          # 单元测试
@@ -48,6 +51,8 @@ Kkindle/
 应用数据目录在 exe 旁：`data\{library,covers,reader-cache,logs,kkindle.db}`、`backups`、`app-root.json`。
 
 ## 3. 已实现功能
+
+> 本节是 WinUI 参考版的完整功能基线；Avalonia 迁移版是否已逐项对等，以第 10.8 节的审计结果为准。
 
 ### 3.1 本地书库
 
@@ -392,7 +397,17 @@ Windows 侧 `Kkindle.Core`、`Kkindle.Infrastructure`、`Kkindle.App` 均保持 
 - 真机验收：Kindle Scribe（MTP）发送/扫描/删除闭环、USB 磁盘型安全弹出
 - 阶段 6：Windows 可移植层扫描与 Debug/Release 回归已通过；WSL 因无 distribution 尚未执行
 
-### 10.8 风险
+### 10.8 当前 UI / 功能对等审计（2026-08-14）
+
+当前结论：未完成，不得将当前 Avalonia Debug EXE 标记为 WinUI 旧版的 1:1 对等版本。
+
+- [x] 已完成旧版 `src\Kkindle.App.WinUI` 与当前 `src\Kkindle.App` 主窗口 XAML 的静态入口盘点：旧版约 204 个 XAML 事件入口，当前约 147 个，约 57 个旧入口没有在当前主窗口 XAML 中一一对应。由于 Avalonia 可能改用不同事件或代码绑定，这个数字是差异证据，不直接等同于缺失功能数量。
+- [ ] 建立旧版所有页面、子项、右键菜单、拖拽、批量操作、设备操作、格式转换和阅读器工具的功能矩阵，并逐项在 Avalonia 中实测闭环。
+- [ ] 使用相同窗口尺寸、DPI、字体和数据集，对 `docs\images\` 基线截图逐屏截图并进行像素差异验收；当前只做过局部样式常量对照，没有完成像素级验收。
+- [ ] 补齐并验收 AI 助手、脚注浮窗、PDF 专用阅读表面、四种翻页动画、完整工具栏、分页分区点击和选区工具栏等已知未对等项。
+- [ ] 完成上述审计和修复后，重新构建、测试、启动检查并生成新的对等验收 Debug EXE。
+
+### 10.9 风险
 
 1. **分页 CSS 数学**（约束 #2）：列宽 + 间距必须严格等于视口宽，换渲染宿主后 DPI 缩放与 `clientWidth` 取值可能有差异，最可能出现「差一像素、翻页错位」。
 2. **JS 桥改造引入阅读器回归**：现有导航守卫（`_readerChapterTransitionSequence` + 取消令牌）是为轮询模型设计的，改事件驱动后时序会变，约束 #4/#5 需重新推演而不是照搬。

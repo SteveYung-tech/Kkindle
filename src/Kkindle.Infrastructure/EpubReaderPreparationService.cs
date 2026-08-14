@@ -65,8 +65,33 @@ public sealed class EpubReaderPreparationService
           const reportSelection = () => {
             try {
               const selection = window.getSelection();
-              const text = (selection?.toString() || "").trim();
-              send({ type: "selection", text: text.slice(0, 12000) });
+              if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !document.body) {
+                send({ type: "selection", text: "" });
+                return;
+              }
+              const range = selection.getRangeAt(0);
+              if (!document.body.contains(range.commonAncestorContainer)) return;
+              const pointOffset = (container, offset) => {
+                const before = document.createRange();
+                before.selectNodeContents(document.body);
+                before.setEnd(container, offset);
+                return (before.cloneContents().textContent || "").length;
+              };
+              const rawText = selection.toString() || "";
+              const leading = rawText.length - rawText.trimStart().length;
+              const trailing = rawText.length - rawText.trimEnd().length;
+              const text = rawText.trim();
+              const startOffset = pointOffset(range.startContainer, range.startOffset) + leading;
+              const endOffset = pointOffset(range.endContainer, range.endOffset) - trailing;
+              const fullText = document.body.textContent || "";
+              send({
+                type: "selection",
+                text: text.slice(0, 12000),
+                startOffset,
+                endOffset,
+                prefix: fullText.slice(Math.max(0, startOffset - 72), startOffset),
+                suffix: fullText.slice(endOffset, Math.min(fullText.length, endOffset + 72))
+              });
             } catch (_) { }
           };
 

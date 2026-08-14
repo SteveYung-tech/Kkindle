@@ -15,10 +15,13 @@ public partial class MainWindow : Window
 {
     private const string MaximizeGlyphData = "M 0.5,0.5 H 9.5 V 9.5 H 0.5 Z";
     private const string RestoreGlyphData = "M 2.5,0.5 H 9.5 V 7.5 M 0.5,2.5 H 7.5 V 9.5 H 0.5 Z";
+    private const string SidebarChevronDownData = "M 1,2 L 5,6 L 9,2";
+    private const string SidebarChevronRightData = "M 2,1 L 6,5 L 2,9";
 
     private readonly AppPaths _paths;
     private readonly IBookLibraryService _library;
     private readonly IBookFormatConverter _formatConverter;
+    private readonly ReaderFormatCacheService _readerFormatCache;
     private readonly DoubanMetadataService _douban;
     private readonly IKindleDeviceService? _kindle;
     private readonly ISecretProtector _secretProtector;
@@ -27,6 +30,11 @@ public partial class MainWindow : Window
     private readonly FontLibraryService _fontLibrary;
     private readonly DictionaryService _dictionaryService;
     private readonly ReaderDataService _readerData;
+    private readonly EpubBookContentService _bookContent;
+    private readonly EpubFootnoteResolver _footnotes;
+    private readonly PdfTextService _pdfTextService;
+    private readonly AiSettingsStore _aiSettingsStore;
+    private readonly AiChatClient _aiChatClient;
     private readonly EpubReaderPreparationService _epubReader;
     private readonly Func<IReaderHost> _readerHostFactory;
     private readonly ZLibraryService _zLibraryService;
@@ -69,6 +77,7 @@ public partial class MainWindow : Window
         _paths = paths;
         _library = library;
         _formatConverter = formatConverter ?? new BookFormatConversionService();
+        _readerFormatCache = new ReaderFormatCacheService(paths, _formatConverter);
         _douban = douban ?? new DoubanMetadataService();
         _kindle = services?.KindleDeviceService;
         _secretProtector = services?.SecretProtector ?? new PlaintextSecretProtector();
@@ -77,6 +86,11 @@ public partial class MainWindow : Window
         _fontLibrary = new FontLibraryService(paths);
         _dictionaryService = new DictionaryService(paths);
         _readerData = new ReaderDataService(paths);
+        _bookContent = new EpubBookContentService(_readerData);
+        _footnotes = new EpubFootnoteResolver();
+        _pdfTextService = new PdfTextService();
+        _aiSettingsStore = new AiSettingsStore(paths, _secretProtector);
+        _aiChatClient = new AiChatClient();
         _epubReader = new EpubReaderPreparationService(paths);
         _readerHostFactory = services?.ReaderHostFactory ?? (() => new NativeWebViewReaderHost());
         _zLibraryService = new ZLibraryService();
@@ -89,6 +103,7 @@ public partial class MainWindow : Window
         DataContext = this;
         Closed += MainWindow_Closed;
         UpdateMaximizeGlyph();
+        UpdateSidebarSectionVisuals();
         SetLibraryViewMode(LibraryViewMode.Grid);
         UpdateLibraryUi();
         ConfigureStage3Timer();
@@ -161,7 +176,7 @@ public partial class MainWindow : Window
     private async void MainWindow_Closed(object? sender, EventArgs e)
     {
         _stage3Timer.Stop();
-        if (_readerDocument is not null)
+        if (_readerDocument is not null || _readerIsPdf)
             await CloseReaderAsync();
         _readerNavigationCancellation?.Cancel();
         _readerSessionCancellation?.Cancel();
@@ -169,6 +184,7 @@ public partial class MainWindow : Window
         _lifetimeCancellation.Dispose();
         _douban.Dispose();
         _zLibraryService.Dispose();
+        _aiChatClient.Dispose();
         _readerNavigationCancellation?.Dispose();
         _readerSessionCancellation?.Dispose();
         _readerActiveHost?.Dispose();
@@ -214,6 +230,7 @@ public partial class MainWindow : Window
         LibraryBusyProgress.IsVisible = ViewModel.IsBusy;
         LibrarySummaryText.Text = ViewModel.StatusText;
         TaskStatusText.Text = ViewModel.StatusText;
+        SidebarCountText.Text = ViewModel.Books.Count.ToString();
 
         var showingBooks = _libraryViewMode is LibraryViewMode.Grid or LibraryViewMode.List;
         var hasBooks = ViewModel.Books.Count > 0;
@@ -266,6 +283,9 @@ public partial class MainWindow : Window
     private void SelectBook(BookCardViewModel card)
     {
         _selectedCard = card;
+        LibraryDetailPane.IsVisible = true;
+        if (LibraryRoot.ColumnDefinitions.Count >= 3)
+            LibraryRoot.ColumnDefinitions[2].Width = new GridLength(320);
         DetailCoverImage.Source = card.CoverImage;
         DetailCoverPlaceholder.IsVisible = card.CoverImage is null;
         DetailTitleText.Text = card.Title;
@@ -305,6 +325,9 @@ public partial class MainWindow : Window
     private void ClearSelectedBook()
     {
         _selectedCard = null;
+        LibraryDetailPane.IsVisible = false;
+        if (LibraryRoot.ColumnDefinitions.Count >= 3)
+            LibraryRoot.ColumnDefinitions[2].Width = new GridLength(0);
         DetailCoverImage.Source = null;
         DetailCoverPlaceholder.IsVisible = true;
         DetailTitleText.Text = "请选择一本书";
@@ -429,6 +452,35 @@ public partial class MainWindow : Window
         if (string.Equals(file.Format, "epub", StringComparison.OrdinalIgnoreCase))
         {
             await OpenEpubReaderAsync(card, file, path);
+            return;
+        }
+
+        if (string.Equals(file.Format, "pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            await OpenPdfReaderAsync(card, file, path);
+            return;
+        }
+
+        if (file.Format.Equals("mobi", StringComparison.OrdinalIgnoreCase)
+            || file.Format.Equals("azw3", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                SetTaskStatus($"正在准备《{card.Title}》的阅读缓存…");
+                var cache = await _readerFormatCache.PrepareEpubAsync(
+                    path,
+                    file.Sha256,
+                    file.Format,
+                    _lifetimeCancellation.Token);
+                await OpenEpubReaderAsync(card, file, cache.EpubPath);
+            }
+            catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                SetTaskStatus($"准备阅读缓存失败：{exception.Message}");
+            }
             return;
         }
 
@@ -953,6 +1005,7 @@ public partial class MainWindow : Window
 
     private void ShowAllBooksButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        ShowLibraryPage();
         ViewModel.CollectionFilterId = null;
         ViewModel.CollectionFilterName = null;
         ViewModel.RefreshView();
@@ -980,6 +1033,25 @@ public partial class MainWindow : Window
 
     private async void CreateCollectionButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         => await CreateCollectionAsync();
+
+    private void ImportButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var menu = new ContextMenu();
+        var importFiles = new MenuItem { Header = "导入文件" };
+        importFiles.Click += ImportFilesButton_Click;
+        menu.Items.Add(importFiles);
+
+        var importFolder = new MenuItem { Header = "导入文件夹" };
+        importFolder.Click += ImportFolderButton_Click;
+        menu.Items.Add(importFolder);
+
+        menu.Items.Add(new Separator());
+        var importBackup = new MenuItem { Header = "导入备份" };
+        importBackup.Click += ImportBackupButton_Click;
+        menu.Items.Add(importBackup);
+
+        menu.Open(ImportButton);
+    }
 
     private async void ImportFilesButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
@@ -1247,5 +1319,44 @@ public partial class MainWindow : Window
         var isMaximized = WindowState == WindowState.Maximized;
         MaximizeWindowGlyph.Data = Geometry.Parse(isMaximized ? RestoreGlyphData : MaximizeGlyphData);
         AutomationProperties.SetName(MaximizeWindowButton, isMaximized ? "还原" : "最大化");
+    }
+
+    private void LibraryRoot_SizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (LibraryRoot.ColumnDefinitions.Count < 3) return;
+        var width = e.NewSize.Width;
+        // The reference keeps a 200px sidebar and reserves a 320px details
+        // column only when a book is selected. Narrow windows collapse the
+        // details surface so the library remains usable.
+        LibraryRoot.ColumnDefinitions[0].Width = new GridLength(200);
+        LibraryRoot.ColumnDefinitions[2].Width = _selectedCard is not null && width >= 1040
+            ? new GridLength(320)
+            : new GridLength(0);
+    }
+
+    private void SidebarSectionButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (ReferenceEquals(sender, BookManagementSectionButton))
+            BookManagementChildren.IsVisible = !BookManagementChildren.IsVisible;
+        else if (ReferenceEquals(sender, DeviceManagementSectionButton))
+            DeviceManagementChildren.IsVisible = !DeviceManagementChildren.IsVisible;
+        else if (ReferenceEquals(sender, ReadingSectionButton))
+            ReadingChildren.IsVisible = !ReadingChildren.IsVisible;
+        else if (ReferenceEquals(sender, SystemSectionButton))
+            SystemChildren.IsVisible = !SystemChildren.IsVisible;
+
+        UpdateSidebarSectionVisuals();
+    }
+
+    private void UpdateSidebarSectionVisuals()
+    {
+        BookManagementChevron.Data = Geometry.Parse(
+            BookManagementChildren.IsVisible ? SidebarChevronDownData : SidebarChevronRightData);
+        DeviceManagementChevron.Data = Geometry.Parse(
+            DeviceManagementChildren.IsVisible ? SidebarChevronDownData : SidebarChevronRightData);
+        ReadingChevron.Data = Geometry.Parse(
+            ReadingChildren.IsVisible ? SidebarChevronDownData : SidebarChevronRightData);
+        SystemChevron.Data = Geometry.Parse(
+            SystemChildren.IsVisible ? SidebarChevronDownData : SidebarChevronRightData);
     }
 }

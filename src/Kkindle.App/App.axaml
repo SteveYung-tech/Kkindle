@@ -18,11 +18,18 @@
         <Color x:Key="InkColor">#000000</Color>
         <Color x:Key="PressedColor">#D9D9D9</Color>
         <Color x:Key="HairlineColor">#E2E2DE</Color>
+        <Color x:Key="MutedInkColor">#5A5A5A</Color>
+        <Color x:Key="SidebarIndicatorColor">#BFBFBF</Color>
+        <Color x:Key="SoftHoverColor">#F2F2F2</Color>
 
         <SolidColorBrush x:Key="PaperBrush" Color="{StaticResource PaperColor}" />
         <SolidColorBrush x:Key="InkBrush" Color="{StaticResource InkColor}" />
         <SolidColorBrush x:Key="PressedBrush" Color="{StaticResource PressedColor}" />
         <SolidColorBrush x:Key="HairlineBrush" Color="{StaticResource HairlineColor}" />
+        <SolidColorBrush x:Key="MutedInkBrush" Color="{StaticResource MutedInkColor}" />
+        <SolidColorBrush x:Key="SidebarIndicatorBrush" Color="{StaticResource SidebarIndicatorColor}" />
+        <SolidColorBrush x:Key="CardBorderBrush" Color="{StaticResource SidebarIndicatorColor}" />
+        <SolidColorBrush x:Key="SoftHoverBrush" Color="{StaticResource SoftHoverColor}" />
 
         <!-- The font is bundled with the portable app. The suffix is the
              internal family name, not the filename. -->
@@ -75,11 +82,12 @@
         </Style>
         <Style Selector="Button">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
-            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Padding" Value="14,8" />
         </Style>
         <Style Selector="Button:pointerover">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
@@ -132,6 +140,170 @@
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
 
+        <!-- The WinUI reference uses a small set of named visual languages:
+             quiet outlined actions, narrow sidebar navigation, and square
+             icon buttons. Keeping these as classes makes the Avalonia XAML
+             read like the reference instead of relying on Fluent defaults. -->
+        <Style Selector="Button.quiet">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Padding" Value="12,7" />
+        </Style>
+        <Style Selector="Button.quiet:pointerover">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="Button.quiet:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+
+        <Style Selector="Button.icon">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Width" Value="38" />
+            <Setter Property="MinWidth" Value="38" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.icon:pointerover">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="Button.icon:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+
+        <Style Selector="Button.sidebarSection">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource MutedInkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Padding="{TemplateBinding Padding}"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Center" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Button.sidebarSection:pointerover">
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.sidebarSection:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.sidebarItem">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="Margin" Value="12,2,0,2" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource MutedInkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource SidebarIndicatorBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}">
+                        <Grid ColumnDefinitions="3,10,*">
+                            <Rectangle Width="3"
+                                       Height="16"
+                                       Fill="{TemplateBinding BorderBrush}"
+                                       VerticalAlignment="Center" />
+                            <ContentPresenter Grid.Column="2"
+                                              Content="{TemplateBinding Content}"
+                                              Foreground="{TemplateBinding Foreground}"
+                                              HorizontalAlignment="Stretch"
+                                              VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Button.sidebarItem:pointerover">
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.sidebarItem:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.sidebarItem.active">
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+        </Style>
+
+        <Style Selector="ListBoxItem.bookCard">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+        </Style>
+        <Style Selector="ListBoxItem.bookCard:selected">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="ListBoxItem.bookCard:pointerover">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+
+        <Style Selector="Button.readerToolbar">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="MinWidth" Value="34" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Padding" Value="9,5" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#242424" />
+            <Setter Property="BorderBrush" Value="#D5D5D1" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.readerToolbar:pointerover">
+            <Setter Property="Background" Value="#ECECEA" />
+        </Style>
+        <Style Selector="Button.readerToolbar:pressed">
+            <Setter Property="Background" Value="#D9D9D5" />
+        </Style>
+
         <!-- Glyphs are drawn as vectors rather than Segoe MDL2 Assets glyphs:
              that font ships only with Windows, so a font-based title bar would
              compile here and render as tofu on Linux. Stroke follows the
@@ -140,6 +312,50 @@
             <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
             <Setter Property="StrokeThickness" Value="1" />
             <Setter Property="Fill" Value="Transparent" />
+        </Style>
+
+        <Style Selector="Button.icon Path">
+            <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
+            <Setter Property="StrokeThickness" Value="1.5" />
+            <Setter Property="Fill" Value="Transparent" />
+        </Style>
+
+        <Style Selector="ListBoxItem">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="ListBoxItem:pointerover">
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+        </Style>
+        <Style Selector="ListBoxItem:selected">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="ListBoxItem:selected:pointerover">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+
+        <Style Selector="ContextMenu">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="MenuItem">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="MenuItem:pointerover">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
         </Style>
     </Application.Styles>
 </Application>
