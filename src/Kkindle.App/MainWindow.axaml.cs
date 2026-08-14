@@ -509,13 +509,30 @@ public partial class MainWindow : Window
 
     private void UpdateDetailActionIcons(bool isFavorite, LibraryReadingStatus readingStatus)
     {
-        DetailFavoriteIcon.Text = isFavorite ? "♥" : "♡";
-        DetailReadingStatusIcon.Text = readingStatus switch
+        // Star glyph: hollow outline when not favorite, filled when favorite
+        // (WinUI E734 / E735).
+        DetailFavoriteIcon.Fill = isFavorite ? Brushes.Black : Brushes.Transparent;
+        var favoriteLabel = isFavorite ? "已收藏；点击取消收藏" : "未收藏；点击加入收藏";
+        ToolTip.SetTip(DetailFavoriteButton, favoriteLabel);
+        AutomationProperties.SetName(DetailFavoriteButton, favoriteLabel);
+
+        // Reading-state glyphs (WinUI E8A4 / E736 / E73E): a standing book for
+        // unread, an open book for reading, a check mark for finished.
+        var (data, label) = readingStatus switch
         {
-            LibraryReadingStatus.Reading => "◐",
-            LibraryReadingStatus.Finished => "✓",
-            _ => "○"
+            LibraryReadingStatus.Reading => (
+                "M 3,4 L 8,5.5 L 8,13 L 3,11.5 Z M 13,4 L 8,5.5 L 8,13 L 13,11.5 Z M 8,5.5 L 8,13",
+                "阅读中；点击标记为已读"),
+            LibraryReadingStatus.Finished => (
+                "M 3,8.5 L 6.5,12 L 13,4.5",
+                "已读；点击重置为待读"),
+            _ => (
+                "M 5,2.5 L 12,2 L 12,14 L 5,14.5 Z M 5,5 L 12,4.5 M 5,8 L 12,7.5 M 5,11 L 12,10.5",
+                "待读；点击标记为阅读中")
         };
+        DetailReadingStatusIcon.Data = Geometry.Parse(data);
+        ToolTip.SetTip(DetailReadingStatusButton, label);
+        AutomationProperties.SetName(DetailReadingStatusButton, label);
     }
 
     private async Task RefreshLibraryAsync()

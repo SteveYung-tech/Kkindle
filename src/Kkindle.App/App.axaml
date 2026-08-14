@@ -169,6 +169,24 @@
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
 
+        <!-- Destructive action: the detail-pane delete button uses the
+             WinUI reference's red outline language (#B3261E). -->
+        <Style Selector="Button.detailDelete">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="#B3261E" />
+            <Setter Property="BorderBrush" Value="#B3261E" />
+        </Style>
+        <Style Selector="Button.detailDelete:pointerover">
+            <Setter Property="Background" Value="#B3261E" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="#B3261E" />
+        </Style>
+        <Style Selector="Button.detailDelete:pressed">
+            <Setter Property="Background" Value="#8F1D17" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="#8F1D17" />
+        </Style>
+
         <Style Selector="Button.icon">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="38" />

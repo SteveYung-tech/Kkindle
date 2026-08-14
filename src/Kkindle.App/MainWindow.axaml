@@ -1038,9 +1038,16 @@
                                             Padding="0"
                                             HorizontalContentAlignment="Center"
                                             VerticalContentAlignment="Center"
+                                            AutomationProperties.Name="从豆瓣匹配书籍信息"
                                             ToolTip.Tip="豆瓣匹配"
                                             Click="DoubanMatchButton_Click">
-                                        <TextBlock Text="豆" FontSize="13" />
+                                        <!-- Magnifier glyph (WinUI E721). -->
+                                        <Path Data="M 3,8 a 5,5 0 1,0 10,0 a 5,5 0 1,0 -10,0 M 11.5,11.5 L 16,16"
+                                              Stroke="{StaticResource InkBrush}"
+                                              StrokeThickness="1.5"
+                                              Fill="Transparent"
+                                              Width="18"
+                                              Height="18" />
                                     </Button>
                                     <Button x:Name="DetailFavoriteButton"
                                             Grid.Row="1"
@@ -1051,9 +1058,18 @@
                                             Padding="0"
                                             HorizontalContentAlignment="Center"
                                             VerticalContentAlignment="Center"
+                                            AutomationProperties.Name="收藏状态"
                                             ToolTip.Tip="收藏状态"
                                             Click="DetailFavoriteButton_Click">
-                                        <TextBlock x:Name="DetailFavoriteIcon" Text="♡" FontSize="20" />
+                                        <!-- Five-point star (WinUI E734/E735); the
+                                             code-behind fills it when favorite. -->
+                                        <Path x:Name="DetailFavoriteIcon"
+                                              Data="M 8,2 L 9.8,6.3 L 14.5,6.6 L 11,9.7 L 12.1,14.2 L 8,11.8 L 3.9,14.2 L 5,9.7 L 1.5,6.6 L 6.2,6.3 Z"
+                                              Stroke="{StaticResource InkBrush}"
+                                              StrokeThickness="1.2"
+                                              Fill="Transparent"
+                                              Width="18"
+                                              Height="18" />
                                     </Button>
                                     <Button x:Name="DetailReadingStatusButton"
                                             Grid.Row="2"
@@ -1064,9 +1080,18 @@
                                             Padding="0"
                                             HorizontalContentAlignment="Center"
                                             VerticalContentAlignment="Center"
+                                            AutomationProperties.Name="阅读状态"
                                             ToolTip.Tip="阅读状态"
                                             Click="DetailReadingStatusButton_Click">
-                                        <TextBlock x:Name="DetailReadingStatusIcon" Text="○" FontSize="19" />
+                                        <!-- Reading-state glyph (WinUI E8A4/E736/E73E):
+                                             the code-behind swaps the outline. -->
+                                        <Path x:Name="DetailReadingStatusIcon"
+                                              Data="M 5,2.5 L 12,2 L 12,14 L 5,14.5 Z M 5,5 L 12,4.5 M 5,8 L 12,7.5 M 5,11 L 12,10.5"
+                                              Stroke="{StaticResource InkBrush}"
+                                              StrokeThickness="1.2"
+                                              Fill="Transparent"
+                                              Width="18"
+                                              Height="18" />
                                     </Button>
                                 </Grid>
                             </Grid>
@@ -1139,7 +1164,7 @@
                                         HorizontalContentAlignment="Center"
                                         Click="SaveDetailsButton_Click" />
                                 <Button Grid.Column="1"
-                                        Classes="quiet"
+                                        Classes="quiet detailDelete"
                                         Content="从书库删除"
                                         HorizontalAlignment="Stretch"
                                         HorizontalContentAlignment="Center"
