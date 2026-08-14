@@ -17,7 +17,7 @@
         <Color x:Key="PaperColor">#FFFFFF</Color>
         <Color x:Key="InkColor">#000000</Color>
         <Color x:Key="PressedColor">#D9D9D9</Color>
-        <Color x:Key="HairlineColor">#E2E2DE</Color>
+        <Color x:Key="HairlineColor">#E2E2E2</Color>
         <Color x:Key="MutedInkColor">#5A5A5A</Color>
         <Color x:Key="SidebarIndicatorColor">#BFBFBF</Color>
         <Color x:Key="SoftHoverColor">#F2F2F2</Color>
@@ -41,9 +41,9 @@
         <SolidColorBrush x:Key="KkindleScrollBarBackgroundBrush" Color="Transparent" />
         <SolidColorBrush x:Key="KkindleScrollBarExpandedBackgroundBrush" Color="Transparent" />
         <SolidColorBrush x:Key="KkindleScrollBarBorderBrush" Color="Transparent" />
-        <SolidColorBrush x:Key="KkindleScrollBarThumbBrush" Color="#C9C9C5" />
-        <SolidColorBrush x:Key="KkindleScrollBarThumbPointerOverBrush" Color="#B4B4B0" />
-        <SolidColorBrush x:Key="KkindleScrollBarThumbPressedBrush" Color="#A4A4A0" />
+        <SolidColorBrush x:Key="KkindleScrollBarThumbBrush" Color="#C9C9C9" />
+        <SolidColorBrush x:Key="KkindleScrollBarThumbPointerOverBrush" Color="#B4B4B4" />
+        <SolidColorBrush x:Key="KkindleScrollBarThumbPressedBrush" Color="#A4A4A4" />
         <SolidColorBrush x:Key="KkindleScrollBarThumbDisabledBrush" Color="#777777" />
         <SolidColorBrush x:Key="KkindleScrollBarButtonBrush" Color="Transparent" />
         <SolidColorBrush x:Key="KkindleScrollBarButtonPointerOverBrush" Color="#000000" />
@@ -184,6 +184,11 @@
             <Setter Property="Background" Value="{StaticResource PressedBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
+        <Style Selector="Button.icon.active">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+        </Style>
 
         <Style Selector="Button.sidebarSection">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
@@ -193,7 +198,7 @@
             <Setter Property="Padding" Value="10,6" />
             <Setter Property="Background" Value="{StaticResource PaperBrush}" />
             <Setter Property="Foreground" Value="{StaticResource MutedInkBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource SidebarIndicatorBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="FontSize" Value="12" />
@@ -217,10 +222,17 @@
         <Style Selector="Button.sidebarSection:pointerover">
             <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="Button.sidebarSection:pressed">
             <Setter Property="Background" Value="{StaticResource PressedBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.sidebarSection.active">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="Button.sidebarItem">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
@@ -267,6 +279,183 @@
             <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
         </Style>
 
+        <!-- Settings uses the WinUI reference's two-column navigation: the
+             category rail is quiet, square and marked by a three-pixel bar. -->
+        <Style Selector="Button.settingsCategory">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource MutedInkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource SidebarIndicatorBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}">
+                        <Grid ColumnDefinitions="3,*,Auto">
+                            <Rectangle Width="3"
+                                       Height="18"
+                                       Fill="{TemplateBinding BorderBrush}"
+                                       VerticalAlignment="Center" />
+                            <ContentPresenter Grid.Column="1"
+                                              Margin="14,0,8,0"
+                                              Content="{TemplateBinding Content}"
+                                              Foreground="{TemplateBinding Foreground}"
+                                              HorizontalAlignment="Stretch"
+                                              VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Button.settingsCategory:pointerover">
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.settingsCategory.active">
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <!-- Native form controls are explicitly kept in the product's
+             monochrome language; Fluent's accent colour must not leak into
+             settings or feature pages. -->
+        <Style Selector="CheckBox">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="CheckBox:pointerover">
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="NumericUpDown">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+
+        <!-- WinUI's ToggleSwitch is the settings control, not a text
+             checkbox. The track and thumb are deliberately drawn here so
+             Fluent's accent colour can never enter the monochrome UI. -->
+        <Style Selector="ToggleSwitch">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="IsThreeState" Value="False" />
+            <Setter Property="OnContent" Value="开" />
+            <Setter Property="OffContent" Value="关" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Grid ColumnDefinitions="48,Auto" ColumnSpacing="8" MinHeight="24">
+                        <Border x:Name="SwitchTrack"
+                                Width="48"
+                                Height="24"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="12">
+                            <Grid x:Name="PART_MovingKnobs">
+                                <Ellipse x:Name="SwitchThumb"
+                                         Width="18"
+                                         Height="18"
+                                         Margin="2"
+                                         Fill="{StaticResource InkBrush}"
+                                         HorizontalAlignment="Left"
+                                         VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                        <ContentPresenter x:Name="OnContentPresenter"
+                                          Grid.Column="1"
+                                          Content="{TemplateBinding OnContent}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          VerticalAlignment="Center"
+                                          IsVisible="False" />
+                        <ContentPresenter x:Name="OffContentPresenter"
+                                          Grid.Column="1"
+                                          Content="{TemplateBinding OffContent}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          VerticalAlignment="Center" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="ToggleSwitch:checked">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="ToggleSwitch:checked /template/ Ellipse#SwitchThumb">
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="Fill" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="ToggleSwitch:checked /template/ ContentPresenter#OnContentPresenter">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <Style Selector="ToggleSwitch:checked /template/ ContentPresenter#OffContentPresenter">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="ToggleSwitch:disabled">
+            <Setter Property="Opacity" Value="0.45" />
+        </Style>
+
+        <!-- The old device card uses a small solid eject triangle. A unicode
+             glyph is font-dependent and was the source of the wrong colour /
+             shape on the Avalonia port, so keep it as a vector. -->
+        <Style Selector="Button.eject">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Width" Value="25" />
+            <Setter Property="MinWidth" Value="25" />
+            <Setter Property="Height" Value="23" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Button.eject:pointerover">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="Button.eject:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+        </Style>
+        <Style Selector="Button.eject:disabled">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+
         <Style Selector="ListBoxItem.bookCard">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
@@ -290,7 +479,7 @@
             <Setter Property="Padding" Value="9,5" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="#242424" />
-            <Setter Property="BorderBrush" Value="#D5D5D1" />
+            <Setter Property="BorderBrush" Value="#D5D5D5" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="FontSize" Value="12" />
@@ -298,10 +487,10 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         <Style Selector="Button.readerToolbar:pointerover">
-            <Setter Property="Background" Value="#ECECEA" />
+            <Setter Property="Background" Value="#ECECEC" />
         </Style>
         <Style Selector="Button.readerToolbar:pressed">
-            <Setter Property="Background" Value="#D9D9D5" />
+            <Setter Property="Background" Value="#D9D9D9" />
         </Style>
 
         <!-- Glyphs are drawn as vectors rather than Segoe MDL2 Assets glyphs:

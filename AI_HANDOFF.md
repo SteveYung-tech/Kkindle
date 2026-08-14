@@ -352,7 +352,7 @@ WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost`
 - [x] TOC/fragment 语义、滚动/分页布局、字号/行距/正文宽度、黑白外观、当前章搜索、书签、基础划线、进度/排版/阅读时长保存、禅模式与 `postMessage` 事件桥已接入 Avalonia。
 - [x] 阅读器关闭路径先保存进度/排版/阅读时长，再取消宿主；分页模式使用横向滚动位置恢复，窗口关闭也执行同一收尾流程。
 - [x] 阶段 4 核心切片回归后，Debug x64 测试总数为 192 项，全部通过；Avalonia Windows 启动检查保持运行 8 秒正常。
-- [ ] AI 助手、脚注浮窗、PDF 专用阅读表面、四种翻页动画和完整工具栏还未达到 WinUI 对等；分页分区点击、选区工具栏和视觉动画仍需人工验收。
+- [x] Avalonia Windows 已补齐 AI 助手、脚注点击/悬停预览、PDF 文字阅读表面、四档翻页过渡、阅读模式选择、分页分区点击和选区工具栏的功能入口与基本闭环；视觉动画观感、PDF/脚注真实书籍和高 DPI 行为仍需人工验收。
 
 1. `IReaderHost` + `NativeWebViewReaderHost`（Windows backend 使用 WebView2），双 WebView 预加载结构保留
 2. `EpubReaderPreparationService` 增加 HTML 消毒 + CSP 注入
@@ -404,8 +404,9 @@ Windows 侧 `Kkindle.Core`、`Kkindle.Infrastructure`、`Kkindle.App` 均保持 
 - [x] 已完成旧版 `src\Kkindle.App.WinUI` 与当前 `src\Kkindle.App` 主窗口 XAML 的静态入口盘点：旧版约 204 个 XAML 事件入口，当前约 147 个，约 57 个旧入口没有在当前主窗口 XAML 中一一对应。由于 Avalonia 可能改用不同事件或代码绑定，这个数字是差异证据，不直接等同于缺失功能数量。
 - [ ] 建立旧版所有页面、子项、右键菜单、拖拽、批量操作、设备操作、格式转换和阅读器工具的功能矩阵，并逐项在 Avalonia 中实测闭环。
 - [ ] 使用相同窗口尺寸、DPI、字体和数据集，对 `docs\images\` 基线截图逐屏截图并进行像素差异验收；当前只做过局部样式常量对照，没有完成像素级验收。
-- [ ] 补齐并验收 AI 助手、脚注浮窗、PDF 专用阅读表面、四种翻页动画、完整工具栏、分页分区点击和选区工具栏等已知未对等项。
-- [ ] 完成上述审计和修复后，重新构建、测试、启动检查并生成新的对等验收 Debug EXE。
+- [x] 已补齐 AI 助手、脚注浮窗、PDF 阅读表面、四档翻页过渡、阅读模式/排版设置、分页分区点击和选区工具栏的 Avalonia 功能闭环；四档动画与旧版的视觉实现仍不是像素级等价。
+- [x] 已重新构建、运行 164 项可移植测试 + 28 项 Windows 测试，并启动 Windows Avalonia Debug EXE 保持运行 8 秒后正常退出测试进程。
+- [ ] 仍需用真实 EPUB/PDF、真实 Kindle、相同 DPI 数据集完成手工功能矩阵和截图验收，之后才能把版本标记为 1:1 对等。
 
 ### 10.9 风险
 

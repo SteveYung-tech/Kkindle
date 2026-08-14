@@ -18,7 +18,13 @@ namespace Kkindle;
 /// </summary>
 public partial class MainWindow
 {
+    private const int ReaderAnimationNone = 0;
+    private const int ReaderAnimationFade = 1;
+    private const int ReaderAnimationSlide = 2;
+    private const int ReaderAnimationWave = 3;
+
     private ReaderLayoutSettings _readerLayout = ReaderLayoutDefaults.Normalize(new ReaderLayoutSettings());
+    private int _readerPageAnimation = ReaderAnimationFade;
     private IReadOnlyList<EpubReaderNavigationItem> _readerTocItems = [];
     private ReaderProgressRow? _readerRestoredProgress;
     private int _readerSearchSequence;
@@ -306,7 +312,7 @@ public partial class MainWindow
             .Select(item => new
             {
                 Quote = item.SelectedText.Trim(),
-                Color = item.Color,
+                Color = NormalizeReaderAnnotationColor(item.Color),
                 Style = item.UnderlineStyle
             })
             .GroupBy(item => item.Quote, StringComparer.Ordinal)
@@ -547,6 +553,27 @@ public partial class MainWindow
         await NavigateToReaderItemAsync(item, _readerSessionCancellation?.Token ?? CancellationToken.None);
     }
 
+    private async Task HandleReaderFootnoteHoverAsync(string href)
+    {
+        if (_readerDocument is null
+            || !Uri.TryCreate(href, UriKind.Absolute, out var uri)
+            || !uri.IsFile
+            || string.IsNullOrWhiteSpace(uri.Fragment))
+            return;
+        var path = Path.GetFullPath(uri.LocalPath);
+        if (!IsPathInside(_readerDocument.RootPath, path)) return;
+
+        var targets = await _footnotes.ResolveAsync(
+            _readerDocument.RootPath,
+            [uri.AbsoluteUri],
+            ReaderToken);
+        if (targets.TryGetValue(EpubFootnoteResolver.NormalizeTargetKey(uri.AbsoluteUri), out var footnote))
+        {
+            ReaderFootnoteText.Text = footnote;
+            ReaderFootnotePopup.IsVisible = true;
+        }
+    }
+
     private void HandleReaderBridgeMessage(string? body)
     {
         if (string.IsNullOrWhiteSpace(body)) return;
@@ -614,6 +641,23 @@ public partial class MainWindow
                     if (root.TryGetProperty("href", out var href))
                         _ = ObserveReaderTaskAsync(HandleReaderLinkAsync(href.GetString() ?? string.Empty));
                     break;
+                case "page":
+                    if ((_readerIsPdf || _readerLayout.FlowMode == 1)
+                        && root.TryGetProperty("direction", out var pageDirection)
+                        && pageDirection.TryGetInt32(out var pageTurnDirection))
+                    {
+                        pageTurnDirection = Math.Sign(pageTurnDirection);
+                        if (pageTurnDirection != 0)
+                            _ = ObserveReaderTaskAsync(TurnReaderPageAsync(pageTurnDirection));
+                    }
+                    break;
+                case "footnoteHover":
+                    if (root.TryGetProperty("href", out var footnoteHref))
+                        _ = ObserveReaderTaskAsync(HandleReaderFootnoteHoverAsync(footnoteHref.GetString() ?? string.Empty));
+                    break;
+                case "footnoteLeave":
+                    ReaderFootnotePopup.IsVisible = false;
+                    break;
                 case "resize":
                     _ = ObserveReaderTaskAsync(
                         ApplyReaderLayoutToHostsAsync(_readerSessionCancellation?.Token ?? CancellationToken.None));
@@ -679,7 +723,7 @@ public partial class MainWindow
             return;
         }
         if (CurrentReaderHost is not { } host) return;
-        var result = await host.InvokeScriptAsync(ReaderPaginationScripts.CreateTurnScript(direction));
+        var result = await TurnReaderPageWithAnimationAsync(host, direction);
         if (string.Equals(result?.Trim(), "false", StringComparison.OrdinalIgnoreCase)
             && direction > 0 && _readerDocument is not null
             && _readerChapterIndex < _readerDocument.Chapters.Count - 1)
@@ -692,6 +736,109 @@ public partial class MainWindow
             await MoveReaderChapterAsync(-1);
         }
     }
+
+    private async Task<string?> TurnReaderPageWithAnimationAsync(
+        IReaderHost host,
+        int direction)
+    {
+        if (_readerPageAnimation == ReaderAnimationNone)
+            return await host.InvokeScriptAsync(ReaderPaginationScripts.CreateTurnScript(direction));
+
+        var token = ReaderToken;
+        var animation = _readerPageAnimation;
+        try
+        {
+            await host.InvokeScriptAsync(CreateReaderTransitionScript(animation, direction, restore: false));
+        }
+        catch
+        {
+            // A browser that rejects a cosmetic transition must not block a
+            // normal page turn.
+        }
+
+        try
+        {
+            await Task.Delay(animation == ReaderAnimationWave ? 90 : 110, token);
+            var result = await host.InvokeScriptAsync(ReaderPaginationScripts.CreateTurnScript(direction));
+            try
+            {
+                await host.InvokeScriptAsync(CreateReaderTransitionScript(animation, direction, restore: true));
+                await Task.Delay(animation == ReaderAnimationWave ? 320 : 190, token);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // The page has already turned; cleanup is best effort.
+            }
+            return result;
+        }
+        finally
+        {
+            try
+            {
+                await host.InvokeScriptAsync(CreateReaderTransitionCleanupScript());
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private static string CreateReaderTransitionScript(int animation, int direction, bool restore)
+    {
+        var safeAnimation = Math.Clamp(animation, ReaderAnimationNone, ReaderAnimationWave);
+        var offset = direction > 0 ? -18 : 18;
+        return $$"""
+            (() => {
+              const root = document.documentElement;
+              if (!root) return false;
+              let style = document.getElementById('kkindle-reader-transition-style');
+              if (!style) {
+                style = document.createElement('style');
+                style.id = 'kkindle-reader-transition-style';
+                document.head.appendChild(style);
+              }
+              style.textContent = `
+                @keyframes kkindle-reader-wave {
+                  0% { filter: grayscale(1) contrast(1); }
+                  35% { filter: grayscale(1) contrast(1.08); }
+                  65% { filter: grayscale(1) contrast(.94); }
+                  100% { filter: grayscale(1) contrast(1); }
+                }
+              `;
+              root.style.transition = 'opacity 160ms ease, transform 180ms ease, filter 220ms ease';
+              if ({{(restore ? "true" : "false")}}) {
+                root.style.opacity = '1';
+                root.style.transform = 'translateX(0)';
+                root.style.filter = 'none';
+                root.style.animation = 'none';
+              } else {
+                root.style.opacity = {{(safeAnimation == ReaderAnimationFade ? "'0.2'" : "'0.42'")}};
+                root.style.transform = {{(safeAnimation == ReaderAnimationSlide ? $"'translateX({offset}px)'" : "'translateX(0)'")}};
+                root.style.filter = {{(safeAnimation == ReaderAnimationWave ? "'grayscale(1) contrast(1.06)'" : "'none'")}};
+                root.style.animation = {{(safeAnimation == ReaderAnimationWave ? "'kkindle-reader-wave 380ms ease both'" : "'none'")}};
+              }
+              return true;
+            })();
+            """;
+    }
+
+    private static string CreateReaderTransitionCleanupScript() =>
+        """
+        (() => {
+          const root = document.documentElement;
+          if (!root) return false;
+          root.style.removeProperty('transition');
+          root.style.removeProperty('opacity');
+          root.style.removeProperty('transform');
+          root.style.removeProperty('filter');
+          root.style.removeProperty('animation');
+          return true;
+        })();
+        """;
 
     private void ReaderTocButton_Click(object? sender, RoutedEventArgs e)
     {
@@ -768,6 +915,7 @@ public partial class MainWindow
             : !_readerLayout.TwoPageMode
                 ? ReaderLayoutDefaults.Normalize(_readerLayout with { FlowMode = 1, TwoPageMode = true })
                 : ReaderLayoutDefaults.Normalize(_readerLayout with { FlowMode = 0, TwoPageMode = false });
+        SelectReaderFlowMode(_readerLayout.FlowMode, _readerLayout.TwoPageMode);
         await ApplyReaderLayoutToHostsAsync(_readerSessionCancellation?.Token ?? CancellationToken.None);
         await SaveReaderLayoutAsync(CancellationToken.None);
     }
@@ -921,6 +1069,27 @@ public partial class MainWindow
         root.TryGetProperty(name, out var element) && element.ValueKind == JsonValueKind.String
             ? element.GetString() ?? string.Empty
             : string.Empty;
+
+    /// <summary>
+    /// The reader's custom visual language is intentionally monochrome. Older
+    /// databases may still contain the colored annotation values from the
+    /// WinUI prototype, so normalize them at the UI boundary before they are
+    /// injected into the native webview.
+    /// </summary>
+    private static string NormalizeReaderAnnotationColor(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "#D8D8D8";
+        var normalized = value.Trim();
+        if (normalized.Length != 7 || normalized[0] != '#') return "#D8D8D8";
+        if (!int.TryParse(normalized.AsSpan(1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var rgb))
+            return "#D8D8D8";
+
+        var red = (rgb >> 16) & 0xFF;
+        var green = (rgb >> 8) & 0xFF;
+        var blue = rgb & 0xFF;
+        var gray = Math.Clamp((red * 299 + green * 587 + blue * 114 + 500) / 1000, 0, 255);
+        return $"#{gray:X2}{gray:X2}{gray:X2}";
+    }
 
     private static int ParseScriptInt(string? result)
     {

@@ -152,7 +152,7 @@ public partial class MainWindow
                 :root { color-scheme: light; }
                 html, body { margin: 0; padding: 0; background: #fff; color: #111; }
                 body { font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif; padding: 36px 8vw 80px; }
-                .kkindle-pdf-page { max-width: 900px; margin: 0 auto 34px; padding: 34px 42px; border: 1px solid #e1e1dd; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.04); }
+                .kkindle-pdf-page { max-width: 900px; margin: 0 auto 34px; padding: 34px 42px; border: 1px solid #e1e1e1; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.04); }
                 .kkindle-pdf-page-title { color: #777; font-size: 12px; margin-bottom: 22px; letter-spacing: .08em; }
                 .kkindle-pdf-page-text { white-space: pre-wrap; font-size: 16px; line-height: 1.9; user-select: text; }
                 mark.kkindle-page-find-hit { background: #d8d8d8 !important; color: #000 !important; }
@@ -204,6 +204,12 @@ public partial class MainWindow
                 if (['ArrowLeft','ArrowRight','PageUp','PageDown'].includes(event.key))
                   send({ type: 'key', key: event.key });
               }, true);
+              document.addEventListener('click', event => {
+                const width = window.innerWidth || document.documentElement.clientWidth || 0;
+                const x = event.clientX || 0;
+                if (width > 0 && x <= width * .28) send({ type: 'page', direction: -1 });
+                else if (width > 0 && x >= width * .72) send({ type: 'page', direction: 1 });
+              }, true);
               window.addEventListener('resize', queue, { passive: true });
               report();
               return true;
@@ -239,7 +245,7 @@ public partial class MainWindow
             {
                 Page = annotation.ChapterPath["pdf:page:".Length..],
                 Quote = annotation.SelectedText.Trim(),
-                annotation.Color,
+                Color = NormalizeReaderAnnotationColor(annotation.Color),
                 annotation.UnderlineStyle
             })
             .Take(100)
@@ -499,7 +505,10 @@ public partial class MainWindow
             ? ++_readerPdfSearchSequence
             : ++_readerSearchSequence;
         await Task.Delay(120);
-        if (sequence != _readerPdfSearchSequence) return;
+        if (_readerIsPdf
+            ? sequence != _readerPdfSearchSequence
+            : sequence != _readerSearchSequence)
+            return;
         var query = ReaderInPageSearchBox.Text?.Trim() ?? string.Empty;
         if (_readerIsPdf)
             await ApplyReaderPdfSearchAsync(query, sequence);
@@ -612,6 +621,8 @@ public partial class MainWindow
         ReaderBodyPaddingSlider.Value = _readerLayout.BodyPadding;
         ReaderVerticalWritingCheck.IsChecked = _readerLayout.VerticalWriting;
         SelectReaderFontFamily(_readerLayout.FontFamily);
+        SelectReaderFlowMode(_readerLayout.FlowMode, _readerLayout.TwoPageMode);
+        SelectReaderPageAnimation(_readerPageAnimation);
         UpdateReaderLayoutSliderLabels();
         ReaderLayoutSettingsStatusText.Text = "修改只会作用于当前这本书。";
         ReaderLayoutSettingsOverlay.IsVisible = true;
@@ -621,15 +632,17 @@ public partial class MainWindow
     {
         var fontFamily = (ReaderFontFamilyBox.SelectedItem as ComboBoxItem)?.Tag as string
             ?? _readerLayout.FontFamily;
+        var (flowMode, twoPageMode) = GetSelectedReaderFlowMode();
         _readerLayout = ReaderLayoutDefaults.Normalize(new ReaderLayoutSettings(
             ReaderFontScaleSlider.Value,
             ReaderLineHeightSlider.Value,
             ReaderMaxWidthSlider.Value,
             ReaderBodyPaddingSlider.Value,
             fontFamily,
-            _readerLayout.FlowMode,
+            flowMode,
             ReaderVerticalWritingCheck.IsChecked == true,
-            _readerLayout.TwoPageMode));
+            twoPageMode));
+        _readerPageAnimation = GetSelectedReaderPageAnimation();
         await ApplyReaderLayoutToHostsAsync(ReaderToken);
         await SaveReaderLayoutAsync(CancellationToken.None);
         ReaderLayoutSettingsOverlay.IsVisible = false;
@@ -647,6 +660,8 @@ public partial class MainWindow
         ReaderBodyPaddingSlider.Value = ReaderLayoutDefaults.DefaultBodyPadding;
         ReaderVerticalWritingCheck.IsChecked = false;
         SelectReaderFontFamily(ReaderFontDefaults.DefaultFamily);
+        SelectReaderFlowMode(1, false);
+        SelectReaderPageAnimation(ReaderAnimationFade);
         UpdateReaderLayoutSliderLabels();
         ReaderLayoutSettingsStatusText.Text = "已恢复默认值，点击“应用”后生效。";
     }
@@ -665,6 +680,51 @@ public partial class MainWindow
             .OfType<ComboBoxItem>()
             .FirstOrDefault(candidate => string.Equals(candidate.Tag as string, family, StringComparison.OrdinalIgnoreCase));
         ReaderFontFamilyBox.SelectedItem = item ?? ReaderFontFamilyBox.Items.OfType<ComboBoxItem>().FirstOrDefault();
+    }
+
+    private (int FlowMode, bool TwoPageMode) GetSelectedReaderFlowMode()
+    {
+        var tag = (ReaderFlowModeBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        return tag switch
+        {
+            "scroll" => (0, false),
+            "double" => (1, true),
+            _ => (1, false)
+        };
+    }
+
+    private void SelectReaderFlowMode(int flowMode, bool twoPageMode)
+    {
+        var tag = flowMode == 0 ? "scroll" : twoPageMode ? "double" : "single";
+        ReaderFlowModeBox.SelectedItem = ReaderFlowModeBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), tag, StringComparison.Ordinal));
+    }
+
+    private int GetSelectedReaderPageAnimation()
+    {
+        var tag = (ReaderPageAnimationBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        return tag switch
+        {
+            "none" => ReaderAnimationNone,
+            "slide" => ReaderAnimationSlide,
+            "wave" => ReaderAnimationWave,
+            _ => ReaderAnimationFade
+        };
+    }
+
+    private void SelectReaderPageAnimation(int animation)
+    {
+        var tag = animation switch
+        {
+            ReaderAnimationNone => "none",
+            ReaderAnimationSlide => "slide",
+            ReaderAnimationWave => "wave",
+            _ => "fade"
+        };
+        ReaderPageAnimationBox.SelectedItem = ReaderPageAnimationBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), tag, StringComparison.Ordinal));
     }
 
     private void ReaderZenMinimalTocButton_Click(object? sender, RoutedEventArgs e)

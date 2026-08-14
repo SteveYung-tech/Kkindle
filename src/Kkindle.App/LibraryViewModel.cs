@@ -97,6 +97,7 @@ public sealed class BookCardViewModel : ObservableObject
     // this value when a future device scan supplies a matching Kindle copy.
     private BookLibraryPresence _libraryPresence = BookLibraryPresence.ComputerOnly;
     private bool _isLibraryPresenceVisible = true;
+    private bool _isGalleryTextVisible = true;
 
     public BookLibraryPresence LibraryPresence
     {
@@ -117,6 +118,8 @@ public sealed class BookCardViewModel : ObservableObject
 
     public bool PresenceVisibility => _isLibraryPresenceVisible;
 
+    public bool GalleryTextVisibility => _isGalleryTextVisible;
+
     public void SetLibraryPresence(BookLibraryPresence presence) => LibraryPresence = presence;
 
     public void SetLibraryPresenceVisible(bool visible)
@@ -124,6 +127,13 @@ public sealed class BookCardViewModel : ObservableObject
         if (_isLibraryPresenceVisible == visible) return;
         _isLibraryPresenceVisible = visible;
         OnPropertyChanged(nameof(PresenceVisibility));
+    }
+
+    public void SetGalleryTextVisible(bool visible)
+    {
+        if (_isGalleryTextVisible == visible) return;
+        _isGalleryTextVisible = visible;
+        OnPropertyChanged(nameof(GalleryTextVisibility));
     }
 
     public void Refresh()

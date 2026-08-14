@@ -39,7 +39,8 @@ public partial class MainWindow
             : CurrentReaderHost?.Source?.Fragment.TrimStart('#');
         if (selectedText.Length > 0) annotation.SelectedText = selectedText;
         annotation.Note = note.Trim();
-        annotation.Color = GetReaderComboTag(ReaderAnnotationColorBox, "#000000");
+        annotation.Color = NormalizeReaderAnnotationColor(
+            GetReaderComboTag(ReaderAnnotationColorBox, "#000000"));
         annotation.UnderlineStyle = GetReaderComboTag(ReaderAnnotationStyleBox, "solid");
         annotation.StartOffset = _readerPendingSelectionStartOffset;
         annotation.EndOffset = _readerPendingSelectionEndOffset > _readerPendingSelectionStartOffset

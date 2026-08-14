@@ -4,8 +4,10 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 
@@ -24,6 +26,7 @@ public partial class MainWindow : Window
     private readonly ReaderFormatCacheService _readerFormatCache;
     private readonly DoubanMetadataService _douban;
     private readonly IKindleDeviceService? _kindle;
+    private readonly DeviceModelStore _deviceModelStore;
     private readonly ISecretProtector _secretProtector;
     private readonly AppBackupService _backupService;
     private readonly AppSettingsStore _appSettingsStore;
@@ -45,6 +48,8 @@ public partial class MainWindow : Window
     private ZLibrarySettings _zLibrarySettings = new();
     private KindleEmailSettings _kindleEmailSettings = new();
     private readonly CancellationTokenSource _lifetimeCancellation = new();
+    private string? _deviceDisplayName;
+    private Button? _activeNavigationSectionButton;
     private IReaderHost? _readerActiveHost;
     private IReaderHost? _readerPreloadHost;
     private bool _filterControlsReady;
@@ -56,6 +61,9 @@ public partial class MainWindow : Window
     private TaskCompletionSource<bool>? _confirmationCompletion;
     private TaskCompletionSource<string?>? _collectionNameCompletion;
     private bool _conversionInProgress;
+    private CancellationTokenSource? _conversionCancellation;
+    private BookCardViewModel? _conversionCard;
+    private TaskCompletionSource<DoubanBookCandidate?>? _doubanCandidateCompletion;
 
     public MainWindow()
         : this(CreateDefaultDependencies())
@@ -80,6 +88,7 @@ public partial class MainWindow : Window
         _readerFormatCache = new ReaderFormatCacheService(paths, _formatConverter);
         _douban = douban ?? new DoubanMetadataService();
         _kindle = services?.KindleDeviceService;
+        _deviceModelStore = new DeviceModelStore(paths);
         _secretProtector = services?.SecretProtector ?? new PlaintextSecretProtector();
         _backupService = new AppBackupService(paths, _secretProtector);
         _appSettingsStore = new AppSettingsStore(paths);
@@ -103,7 +112,7 @@ public partial class MainWindow : Window
         DataContext = this;
         Closed += MainWindow_Closed;
         UpdateMaximizeGlyph();
-        UpdateSidebarSectionVisuals();
+        SetSidebarActive(AllBooksButton);
         SetLibraryViewMode(LibraryViewMode.Grid);
         UpdateLibraryUi();
         ConfigureStage3Timer();
@@ -112,6 +121,7 @@ public partial class MainWindow : Window
     public LibraryViewModel ViewModel { get; }
 
     public ObservableCollection<BookCollectionFolderViewModel> CollectionFolders { get; } = [];
+    public ObservableCollection<DoubanBookCandidate> DoubanCandidates { get; } = [];
 
     private enum LibraryViewMode
     {
@@ -176,6 +186,9 @@ public partial class MainWindow : Window
     private async void MainWindow_Closed(object? sender, EventArgs e)
     {
         _stage3Timer.Stop();
+        _conversionCancellation?.Cancel();
+        _doubanCandidateCompletion?.TrySetResult(null);
+        _doubanCandidateCompletion = null;
         if (_readerDocument is not null || _readerIsPdf)
             await CloseReaderAsync();
         _readerNavigationCancellation?.Cancel();
@@ -231,6 +244,11 @@ public partial class MainWindow : Window
         LibrarySummaryText.Text = ViewModel.StatusText;
         TaskStatusText.Text = ViewModel.StatusText;
         SidebarCountText.Text = ViewModel.Books.Count.ToString();
+        foreach (var card in ViewModel.Books)
+        {
+            card.SetGalleryTextVisible(!_appSettings.GridGalleryDisplay);
+            card.SetLibraryPresenceVisible(_appSettings.CompareKindleLibraryEnabled);
+        }
 
         var showingBooks = _libraryViewMode is LibraryViewMode.Grid or LibraryViewMode.List;
         var hasBooks = ViewModel.Books.Count > 0;
@@ -277,6 +295,9 @@ public partial class MainWindow : Window
         CollectionHeader.IsVisible = mode is LibraryViewMode.Grid or LibraryViewMode.List
             && ViewModel.CollectionFilterId is not null;
         CreateCollectionButton.IsVisible = mode == LibraryViewMode.Collections;
+        GridViewButton.Classes.Set("active", mode == LibraryViewMode.Grid);
+        ListViewButton.Classes.Set("active", mode == LibraryViewMode.List);
+        CollectionViewButton.Classes.Set("active", mode == LibraryViewMode.Collections);
         UpdateLibraryUi();
     }
 
@@ -431,6 +452,37 @@ public partial class MainWindow : Window
         {
             SetTaskStatus($"导入失败：{exception.Message}");
         }
+    }
+
+    private static string[] GetDraggedPaths(DragEventArgs e) =>
+        e.DataTransfer.TryGetFiles()?
+            .Select(item => item.TryGetLocalPath())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!)
+            .ToArray()
+        ?? [];
+
+    private void LibraryPane_DragOver(object? sender, DragEventArgs e)
+    {
+        var paths = GetDraggedPaths(e);
+        e.DragEffects = paths.Length > 0 ? DragDropEffects.Copy : DragDropEffects.None;
+        LibraryDropOverlay.IsVisible = paths.Length > 0;
+        e.Handled = true;
+    }
+
+    private void LibraryPane_DragLeave(object? sender, RoutedEventArgs e)
+    {
+        LibraryDropOverlay.IsVisible = false;
+        e.Handled = true;
+    }
+
+    private async void LibraryPane_Drop(object? sender, DragEventArgs e)
+    {
+        var paths = GetDraggedPaths(e);
+        LibraryDropOverlay.IsVisible = false;
+        e.Handled = true;
+        if (paths.Length > 0)
+            await ImportPathsAsync(paths);
     }
 
     private async Task OpenBookAsync(BookCardViewModel card, BookFile? requestedFile = null)
@@ -625,6 +677,14 @@ public partial class MainWindow : Window
         }));
         menu.Items.Add(collectionMenu);
 
+        menu.Items.Add(new Separator());
+        menu.Items.Add(CreateMenuItem(
+            GetSelectedCards().Count > 1 ? $"发送选中书籍到 Kindle（{GetSelectedCards().Count}）" : "发送到 Kindle",
+            SendSelectedBooksToKindleAsync));
+        menu.Items.Add(CreateMenuItem(
+            GetSelectedCards().Count > 1 ? $"邮件发送选中书籍（{GetSelectedCards().Count}）" : "邮件发送",
+            SendSelectedBooksByEmailAsync));
+
         menu.Items.Add(CreateMenuItem("豆瓣匹配", () => MatchDoubanAsync(card)));
         menu.Items.Add(new Separator());
 
@@ -792,27 +852,33 @@ public partial class MainWindow : Window
         }
 
         _conversionInProgress = true;
+        _conversionCard = card;
+        _conversionCancellation?.Dispose();
+        _conversionCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
+        BookConversionPopupTitleText.Text = $"转换《{card.Title}》";
+        BookConversionPopupMessageText.Text = $"{sourceFile.Format.ToUpperInvariant()} → {target.ToUpperInvariant()}";
+        BookConversionPopupProgress.Value = 0;
+        BookConversionPopupPercentageText.Text = "0%";
+        BookConversionPopup.IsVisible = true;
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), "KkindleConversions", Guid.NewGuid().ToString("N"));
         var temporaryOutput = Path.Combine(temporaryDirectory, "converted." + target);
         try
         {
             Directory.CreateDirectory(temporaryDirectory);
             SetTaskStatus($"正在将 {sourceFile.Format.ToUpperInvariant()} 转换为 {target.ToUpperInvariant()}…");
-            var progress = new Progress<FormatConversionProgress>(value =>
-                SetTaskStatus(string.IsNullOrWhiteSpace(value.Message)
-                    ? $"格式转换：{value.Percentage:0}%"
-                    : value.Message));
+            var progress = new Progress<FormatConversionProgress>(ApplyBookConversionProgress);
             await _formatConverter.ConvertAsync(
                 sourcePath,
                 temporaryOutput,
                 progress,
-                _lifetimeCancellation.Token);
-            await _library.AddFileToBookAsync(card.Book.Id, temporaryOutput, _lifetimeCancellation.Token);
+                _conversionCancellation.Token);
+            await _library.AddFileToBookAsync(card.Book.Id, temporaryOutput, _conversionCancellation.Token);
             await RefreshLibraryAsync();
             SetTaskStatus($"已为《{card.Title}》添加 {target.ToUpperInvariant()} 格式。");
         }
-        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (_conversionCancellation?.IsCancellationRequested == true)
         {
+            SetTaskStatus("格式转换已取消。");
         }
         catch (Exception exception)
         {
@@ -829,8 +895,27 @@ public partial class MainWindow : Window
             {
             }
             _conversionInProgress = false;
+            BookConversionPopup.IsVisible = false;
+            _conversionCard = null;
+            _conversionCancellation?.Dispose();
+            _conversionCancellation = null;
         }
     }
+
+    private void ApplyBookConversionProgress(FormatConversionProgress progress)
+    {
+        if (!_conversionInProgress) return;
+        var percentage = Math.Clamp(progress.Percentage, 0, 100);
+        BookConversionPopupProgress.Value = percentage;
+        BookConversionPopupPercentageText.Text = $"{progress.RoundedPercentage}%";
+        BookConversionPopupMessageText.Text = string.IsNullOrWhiteSpace(progress.Message)
+            ? "正在转换…"
+            : progress.Message;
+        SetTaskStatus($"格式转换：{progress.RoundedPercentage}%");
+    }
+
+    private void BookConversionCancelButton_Click(object? sender, RoutedEventArgs e) =>
+        _conversionCancellation?.Cancel();
 
     private async Task MatchDoubanAsync(BookCardViewModel card)
     {
@@ -847,7 +932,15 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var candidate = candidates[0];
+            DoubanCandidates.Clear();
+            foreach (var item in candidates)
+                DoubanCandidates.Add(item);
+            var candidate = await ChooseDoubanCandidateAsync();
+            if (candidate is null)
+            {
+                SetTaskStatus("已取消豆瓣匹配。");
+                return;
+            }
             var metadata = await _douban.GetDetailsAsync(candidate, _lifetimeCancellation.Token);
             if (!await ConfirmAsync("应用豆瓣信息", $"将使用“{metadata.Title}”的豆瓣信息更新当前书籍，继续吗？")) return;
 
@@ -891,6 +984,35 @@ public partial class MainWindow : Window
         {
             SetTaskStatus($"豆瓣匹配失败：{exception.Message}");
         }
+    }
+
+    private Task<DoubanBookCandidate?> ChooseDoubanCandidateAsync()
+    {
+        DoubanCandidateList.SelectedIndex = DoubanCandidates.Count > 0 ? 0 : -1;
+        DoubanCandidateApplyButton.IsEnabled = DoubanCandidateList.SelectedItem is DoubanBookCandidate;
+        DoubanCandidateOverlay.IsVisible = true;
+        _doubanCandidateCompletion?.TrySetResult(null);
+        _doubanCandidateCompletion = new TaskCompletionSource<DoubanBookCandidate?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        return _doubanCandidateCompletion.Task;
+    }
+
+    private void DoubanCandidateList_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
+        DoubanCandidateApplyButton.IsEnabled = DoubanCandidateList.SelectedItem is DoubanBookCandidate;
+
+    private void DoubanCandidateApplyButton_Click(object? sender, RoutedEventArgs e)
+    {
+        var candidate = DoubanCandidateList.SelectedItem as DoubanBookCandidate;
+        DoubanCandidateOverlay.IsVisible = false;
+        _doubanCandidateCompletion?.TrySetResult(candidate);
+        _doubanCandidateCompletion = null;
+    }
+
+    private void DoubanCandidateCancelButton_Click(object? sender, RoutedEventArgs e)
+    {
+        DoubanCandidateOverlay.IsVisible = false;
+        _doubanCandidateCompletion?.TrySetResult(null);
+        _doubanCandidateCompletion = null;
     }
 
     private async Task<bool> ConfirmAsync(string title, string message)
@@ -1329,6 +1451,12 @@ public partial class MainWindow : Window
         // column only when a book is selected. Narrow windows collapse the
         // details surface so the library remains usable.
         LibraryRoot.ColumnDefinitions[0].Width = new GridLength(200);
+        if (_settingsPanelVisible)
+        {
+            LibraryRoot.ColumnDefinitions[1].Width = new GridLength(0);
+            LibraryRoot.ColumnDefinitions[2].Width = new GridLength(1, GridUnitType.Star);
+            return;
+        }
         LibraryRoot.ColumnDefinitions[2].Width = _selectedCard is not null && width >= 1040
             ? new GridLength(320)
             : new GridLength(0);
@@ -1358,5 +1486,21 @@ public partial class MainWindow : Window
             ReadingChildren.IsVisible ? SidebarChevronDownData : SidebarChevronRightData);
         SystemChevron.Data = Geometry.Parse(
             SystemChildren.IsVisible ? SidebarChevronDownData : SidebarChevronRightData);
+
+        var ink = Application.Current?.Resources["InkBrush"] as IBrush ?? Brushes.Black;
+        var muted = Application.Current?.Resources["MutedInkBrush"] as IBrush ?? Brushes.Gray;
+        var sections = new[]
+        {
+            (Button: BookManagementSectionButton, Chevron: BookManagementChevron),
+            (Button: DeviceManagementSectionButton, Chevron: DeviceManagementChevron),
+            (Button: ReadingSectionButton, Chevron: ReadingChevron),
+            (Button: SystemSectionButton, Chevron: SystemChevron)
+        };
+        foreach (var section in sections)
+        {
+            var active = ReferenceEquals(section.Button, _activeNavigationSectionButton);
+            section.Button.Classes.Set("active", active);
+            section.Chevron.Stroke = active ? ink : muted;
+        }
     }
 }

@@ -103,10 +103,40 @@ public sealed class EpubReaderPreparationService
               if (element && element.href) {
                 event.preventDefault();
                 send({ type: "link", href: element.href, target: element.target || "" });
+                return;
+              }
+              if (window.__kkindleReaderFlowMode === 1) {
+                const width = window.innerWidth || document.documentElement.clientWidth || 0;
+                const x = event.clientX || 0;
+                if (width > 0 && x <= width * 0.28) {
+                  send({ type: "page", direction: -1 });
+                } else if (width > 0 && x >= width * 0.72) {
+                  send({ type: "page", direction: 1 });
+                }
               }
             } catch (_) { }
           }, true);
           document.addEventListener("mouseup", reportSelection, true);
+          let footnoteHoverTimer = 0;
+          document.addEventListener("pointerover", event => {
+            try {
+              const element = event.target instanceof Element
+                ? event.target.closest("a[href]")
+                : null;
+              if (!element || !element.href.includes('#')) return;
+              window.clearTimeout(footnoteHoverTimer);
+              footnoteHoverTimer = window.setTimeout(() =>
+                send({ type: "footnoteHover", href: element.href }), 90);
+            } catch (_) { }
+          }, true);
+          document.addEventListener("pointerout", event => {
+            try {
+              const element = event.target instanceof Element
+                ? event.target.closest("a[href]")
+                : null;
+              if (element) send({ type: "footnoteLeave" });
+            } catch (_) { }
+          }, true);
           document.addEventListener("keyup", event => {
             if (["ArrowLeft", "ArrowRight", "PageUp", "PageDown"].includes(event.key))
               send({ type: "key", key: event.key });

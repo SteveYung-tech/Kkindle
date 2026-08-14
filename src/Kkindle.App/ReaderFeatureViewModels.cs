@@ -78,15 +78,15 @@ public sealed class ReaderAiMessageViewModel : ObservableObject
         : "Kreader AI";
 
     public IBrush BubbleBackground => Role.Equals("user", StringComparison.OrdinalIgnoreCase)
-        ? new SolidColorBrush(Color.FromRgb(242, 242, 240))
+        ? new SolidColorBrush(Color.FromRgb(242, 242, 242))
         : Brushes.White;
 
     public IBrush BorderBrush => Role.Equals("user", StringComparison.OrdinalIgnoreCase)
-        ? new SolidColorBrush(Color.FromRgb(218, 218, 214))
-        : new SolidColorBrush(Color.FromRgb(232, 232, 228));
+        ? new SolidColorBrush(Color.FromRgb(218, 218, 218))
+        : new SolidColorBrush(Color.FromRgb(232, 232, 232));
 
     public IBrush RoleBrush => Role.Equals("user", StringComparison.OrdinalIgnoreCase)
-        ? new SolidColorBrush(Color.FromRgb(75, 75, 70))
+        ? new SolidColorBrush(Color.FromRgb(75, 75, 75))
         : new SolidColorBrush(Color.FromRgb(26, 26, 26));
 
     public string Content
