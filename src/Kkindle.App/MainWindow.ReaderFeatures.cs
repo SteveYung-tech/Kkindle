@@ -1,10 +1,13 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Threading;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 
@@ -21,12 +24,29 @@ public partial class MainWindow
     private void MainWindow_KeyDown(object? sender, KeyEventArgs e)
     {
         if (!ReaderRoot.IsVisible) return;
+        // F11 toggles zen mode (enter/exit), matching the common fullscreen
+        // convention used by browsers and readers; Esc is an additional way to
+        // leave zen mode (both from the WinUI reference's global hook).
+        if (e.Key == Key.F11)
+        {
+            e.Handled = true;
+            ToggleReaderZenMode();
+            return;
+        }
+        if (e.Key == Key.Escape && _readerZenMode)
+        {
+            e.Handled = true;
+            ToggleReaderZenMode();
+            return;
+        }
         if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.F)
         {
             e.Handled = true;
             if (_readerIsPdf)
             {
-                ReaderTocPanel.IsVisible = true;
+                _readerTocMinimal = false;
+                _readerTocExpanded = true;
+                ApplyReaderPanelLayout();
                 ShowReaderSearchTab();
                 ReaderTocSearchBox.Focus();
             }
@@ -104,7 +124,14 @@ public partial class MainWindow
             ReaderRoot.IsVisible = true;
             LibraryRoot.IsVisible = false;
             WindowBrandText.IsVisible = true;
-            ReaderTocPanel.IsVisible = false;
+            // The WinUI reference keeps the TOC panel open for PDF with an
+            // explanatory empty state; bookmarks still work per page.
+            _readerTocExpanded = true;
+            _readerTocMinimal = false;
+            ReaderTocEmptyText.Text = "PDF 使用内置查看器；Kkindle 已启用本地搜索、页码进度、书签和页面笔记。";
+            ReaderTocEmptyText.IsVisible = true;
+            ApplyReaderPanelLayout();
+            ShowReaderTocTab();
             ReaderAiView.IsVisible = true;
             ReaderNotesView.IsVisible = false;
             ReaderAiComposer.IsVisible = true;
@@ -232,6 +259,7 @@ public partial class MainWindow
         await host.InvokeScriptAsync($"(() => {{ const el = document.querySelector({selector}); el?.scrollIntoView({{ block: 'start', behavior: 'instant' }}); return !!el; }})();");
         ReaderChapterText.Text = GetReaderChapterLabel();
         UpdateReaderToolbar();
+        await UpdateReaderBookmarkIndicatorAsync();
         if (saveProgress) await SaveReaderProgressAsync(cancellationToken);
     }
 
@@ -288,7 +316,10 @@ public partial class MainWindow
         ReaderBookmarks.Clear();
         if (_readerBookFile is null) return;
         var bookmarks = await _readerData.GetBookmarksAsync(_readerBookFile.Id, cancellationToken);
-        foreach (var bookmark in bookmarks) ReaderBookmarks.Add(bookmark);
+        foreach (var bookmark in bookmarks
+                     .OrderBy(item => item.ChapterIndex)
+                     .ThenBy(item => item.CreatedAt))
+            ReaderBookmarks.Add(bookmark);
         ReaderBookmarkEmptyText.IsVisible = ReaderBookmarks.Count == 0;
     }
 
@@ -308,6 +339,7 @@ public partial class MainWindow
         ReaderBookmarkPane.IsVisible = false;
         ReaderSearchPanel.IsVisible = false;
         ReaderTocEmptyText.IsVisible = _readerTocItems.Count == 0;
+        SetReaderTocTabState(bookmarkTab: false);
     }
 
     private void ShowReaderBookmarkTab()
@@ -316,6 +348,7 @@ public partial class MainWindow
         ReaderBookmarkPane.IsVisible = true;
         ReaderSearchPanel.IsVisible = false;
         ReaderBookmarkEmptyText.IsVisible = ReaderBookmarks.Count == 0;
+        SetReaderTocTabState(bookmarkTab: true);
     }
 
     private void ShowReaderSearchTab()
@@ -323,6 +356,26 @@ public partial class MainWindow
         ReaderTocView.IsVisible = false;
         ReaderBookmarkPane.IsVisible = false;
         ReaderSearchPanel.IsVisible = true;
+        SetReaderTocTabState(bookmarkTab: false, searchTab: true);
+    }
+
+    // Hollow tabs: transparent fill for every state; the selected tab is
+    // outlined with a black border instead of a filled rectangle (WinUI
+    // reference's ReaderTocTabsPanel visual).
+    private void SetReaderTocTabState(bool bookmarkTab, bool searchTab = false)
+    {
+        if (ReaderTocTabButton is null || ReaderBookmarkTabButton is null) return;
+        ApplyReaderTabVisual(ReaderTocTabButton, !bookmarkTab && !searchTab);
+        ApplyReaderTabVisual(ReaderBookmarkTabButton, bookmarkTab);
+        if (ReaderWholeSearchTabButton is not null)
+            ApplyReaderTabVisual(ReaderWholeSearchTabButton, searchTab);
+    }
+
+    private static void ApplyReaderTabVisual(Button button, bool selected)
+    {
+        button.Background = Brushes.Transparent;
+        button.BorderBrush = selected ? Brushes.Black : new SolidColorBrush(Color.FromArgb(255, 213, 213, 209));
+        button.BorderThickness = new Thickness(1);
     }
 
     private void ReaderTocTabButton_Click(object? sender, RoutedEventArgs e) => ShowReaderTocTab();
@@ -338,7 +391,9 @@ public partial class MainWindow
 
     private void ReaderSearchToolbarButton_Click(object? sender, RoutedEventArgs e)
     {
-        ReaderTocPanel.IsVisible = true;
+        _readerTocMinimal = false;
+        _readerTocExpanded = true;
+        ApplyReaderPanelLayout();
         ShowReaderSearchTab();
         ReaderTocSearchBox.Focus();
     }
@@ -354,7 +409,8 @@ public partial class MainWindow
         if (sender is not Button { Tag: ReaderBookmark bookmark } || _readerBookFile is null) return;
         await _readerData.DeleteBookmarkAsync(bookmark.Id, ReaderToken);
         await RefreshReaderBookmarksAsync(ReaderToken);
-        ReaderStatusText.Text = "书签已删除";
+        await UpdateReaderBookmarkIndicatorAsync();
+        ShowReaderTransientStatus("书签已删除");
     }
 
     private async Task ToggleReaderBookmarkAsync()
@@ -365,14 +421,19 @@ public partial class MainWindow
             : GetReaderChapterPath();
         if (string.IsNullOrWhiteSpace(currentPath)) return;
 
+        var quote = _readerPendingSelection
+            ?? (await CaptureCurrentSectionQuoteAsync());
         var existing = ReaderBookmarks.FirstOrDefault(bookmark =>
             bookmark.ChapterIndex == _readerChapterIndex
             && string.Equals(bookmark.ChapterPath, currentPath, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(bookmark.Quote, _readerPendingSelection ?? string.Empty, StringComparison.Ordinal));
+            && (string.IsNullOrWhiteSpace(bookmark.Quote)
+                || string.IsNullOrWhiteSpace(quote)
+                || string.Equals(bookmark.Quote, quote, StringComparison.Ordinal)));
         if (existing is not null)
         {
             await _readerData.DeleteBookmarkAsync(existing.Id, ReaderToken);
-            ReaderStatusText.Text = "已取消当前书签";
+            ShowReaderTransientStatus("已取消书签");
+            ShowReaderBookmarkFeedback("已取消书签");
         }
         else
         {
@@ -385,11 +446,71 @@ public partial class MainWindow
                 ScrollPosition = (int)Math.Round(_readerScrollPosition),
                 FlowMode = _readerLayout.FlowMode,
                 Title = GetReaderChapterLabel(),
-                Quote = _readerPendingSelection ?? string.Empty
+                Quote = quote ?? string.Empty
             }, ReaderToken);
-            ReaderStatusText.Text = "已添加书签";
+            ShowReaderTransientStatus("已添加书签");
+            ShowReaderBookmarkFeedback("已添加书签");
         }
         await RefreshReaderBookmarksAsync(ReaderToken);
+        await UpdateReaderBookmarkIndicatorAsync();
+    }
+
+    private async Task<string?> CaptureCurrentSectionQuoteAsync()
+    {
+        if (CurrentReaderHost is not { } host) return null;
+        try
+        {
+            var result = await host.InvokeScriptAsync(
+                "(document.body?.innerText || document.body?.textContent || '').trim().slice(0, 40)");
+            var normalized = result?.Trim().Trim('"') ?? string.Empty;
+            return normalized.Length <= 40 ? normalized : normalized[..40];
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // Shows a transient ToolTip near the bookmark button so the user gets
+    // immediate feedback without clobbering the header status text (which is
+    // also updated). Mirrors the WinUI ReaderBookmarkFeedbackToolTip.
+    private void ShowReaderBookmarkFeedback(string message)
+    {
+        if (ReaderBookmarkButton is null) return;
+        ToolTip.SetTip(ReaderBookmarkButton, message);
+        ToolTip.SetIsOpen(ReaderBookmarkButton, true);
+        _ = Task.Delay(1600).ContinueWith(
+            _ => Dispatcher.UIThread.Post(() =>
+            {
+                if (ReaderBookmarkButton is not null)
+                    ToolTip.SetIsOpen(ReaderBookmarkButton, false);
+            }),
+            TaskScheduler.Default);
+    }
+
+    private async Task UpdateReaderBookmarkIndicatorAsync()
+    {
+        if (ReaderBookmarkCornerMarker is null || _readerBookFile is null)
+        {
+            return;
+        }
+        var currentPath = _readerIsPdf
+            ? $"pdf:page:{_readerPdfPage}"
+            : GetReaderChapterPath();
+        if (string.IsNullOrWhiteSpace(currentPath))
+        {
+            ReaderBookmarkCornerMarker.IsVisible = false;
+            return;
+        }
+        var tolerance = _readerLayout.FlowMode == 1 ? 8 : 4;
+        var position = (int)Math.Round(_readerScrollPosition);
+        var isBookmarked = ReaderBookmarks.Any(bookmark =>
+            string.Equals(bookmark.ChapterPath, currentPath, StringComparison.OrdinalIgnoreCase)
+            && (bookmark.ScrollPosition is int savedPosition
+                ? Math.Abs(savedPosition - position) <= tolerance
+                : true));
+        ReaderBookmarkCornerMarker.IsVisible = isBookmarked;
+        await Task.CompletedTask;
     }
 
     private async Task NavigateToReaderBookmarkAsync(ReaderBookmark bookmark)
@@ -397,6 +518,7 @@ public partial class MainWindow
         if (_readerIsPdf)
         {
             await NavigatePdfPageAsync(bookmark.ChapterIndex + 1, ReaderToken);
+            await UpdateReaderBookmarkIndicatorAsync();
             return;
         }
         if (_readerDocument is null) return;
@@ -417,6 +539,7 @@ public partial class MainWindow
             var top = _readerLayout.FlowMode == 1 ? 0 : position;
             await host.InvokeScriptAsync($"window.scrollTo({{ left: {left}, top: {top}, behavior: 'instant' }});");
         }
+        await UpdateReaderBookmarkIndicatorAsync();
     }
 
     private async void ReaderTocSearchBox_TextChanged(object? sender, TextChangedEventArgs e)
@@ -434,11 +557,17 @@ public partial class MainWindow
         if (query.Length == 0)
         {
             ReaderWholeSearchCountText.Text = string.Empty;
+            ReaderSearchStatusText.IsVisible = true;
+            ReaderSearchStatusText.Text = "输入关键词，实时搜索整本书。";
+            ReaderSearchResultList.IsVisible = false;
             return;
         }
 
         try
         {
+            ReaderSearchStatusText.IsVisible = false;
+            ReaderSearchStatusText.Text = "正在本地搜索…";
+            ReaderSearchResultList.IsVisible = false;
             if (_readerIsPdf)
             {
                 var results = PdfTextService.Search(_readerPdfPages, query, int.MaxValue);
@@ -450,6 +579,7 @@ public partial class MainWindow
                         $"pdf:page:{result.PageNumber}",
                         pageNumber: result.PageNumber,
                         query: query));
+                ReaderWholeSearchCountText.Text = $"全书 {ReaderSearchResults.Count} 条结果 · PDF 本地文本索引";
             }
             else if (_readerBookCard is not null && _readerBookFile is not null && _readerDocument is not null)
             {
@@ -460,16 +590,34 @@ public partial class MainWindow
                     query,
                     int.MaxValue,
                     ReaderToken);
-                foreach (var result in results)
+                // The same visible excerpt can come from duplicate EPUB spine
+                // entries or legacy chunks with different paths/offsets. At this
+                // final presentation boundary, identical title + snippet means an
+                // identical user-facing result and must only be shown once.
+                var distinct = results
+                    .Select(result => new
+                    {
+                        result,
+                        Title = result.ChapterTitle,
+                        Snippet = CreateSearchExcerpt(result.Content, query)
+                    })
+                    .DistinctBy(
+                        item => $"{item.Title}\u001f{item.Snippet}",
+                        StringComparer.CurrentCultureIgnoreCase)
+                    .ToArray();
+                foreach (var item in distinct)
                     ReaderSearchResults.Add(new ReaderSearchResultViewModel(
-                        result.ChapterTitle,
-                        CreateSearchExcerpt(result.Content, query),
-                        result.ChapterIndex,
-                        result.ChapterPath,
-                        new Uri(Path.GetFullPath(Path.Combine(_readerDocument.RootPath, result.ChapterPath.Replace('/', Path.DirectorySeparatorChar)))).AbsoluteUri,
+                        item.Title,
+                        item.Snippet,
+                        item.result.ChapterIndex,
+                        item.result.ChapterPath,
+                        new Uri(Path.GetFullPath(Path.Combine(_readerDocument.RootPath, item.result.ChapterPath.Replace('/', Path.DirectorySeparatorChar)))).AbsoluteUri,
                         query: query));
+                ReaderWholeSearchCountText.Text = $"全书 {ReaderSearchResults.Count} 段结果";
             }
-            ReaderWholeSearchCountText.Text = $"找到 {ReaderSearchResults.Count} 个结果";
+            ReaderSearchResultList.IsVisible = ReaderSearchResults.Count > 0;
+            ReaderSearchStatusText.IsVisible = ReaderSearchResults.Count == 0;
+            ReaderSearchStatusText.Text = _readerIsPdf ? "没有找到匹配的内容。" : "没有找到匹配的片段。";
         }
         catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
         {
@@ -477,6 +625,8 @@ public partial class MainWindow
         catch (Exception exception)
         {
             ReaderWholeSearchCountText.Text = $"搜索失败：{exception.Message}";
+            ReaderSearchStatusText.IsVisible = false;
+            ReaderSearchResultList.IsVisible = false;
         }
     }
 
@@ -489,6 +639,7 @@ public partial class MainWindow
             return;
         }
         if (_readerDocument is null || string.IsNullOrWhiteSpace(result.Target)) return;
+        ReaderSearchStatusText.Text = "正在跳转并定位关键词…";
         await NavigateToReaderItemAsync(
             new EpubReaderNavigationItem(result.Title, result.Target, result.ChapterIndex),
             ReaderToken);
@@ -497,6 +648,7 @@ public partial class MainWindow
             var sequence = ++_readerSearchSequence;
             await ApplyReaderSearchAsync(result.Query, sequence);
         }
+        ReaderSearchStatusText.Text = $"已跳转到《{result.Title}》相关位置。";
     }
 
     private async void ReaderInPageSearchBox_TextChanged(object? sender, TextChangedEventArgs e)
@@ -610,9 +762,6 @@ public partial class MainWindow
             ReaderToken);
     }
 
-    private void ReaderMoreButton_Click(object? sender, RoutedEventArgs e)
-        => ReaderLayoutSettingsButton_Click(sender, e);
-
     private void ReaderLayoutSettingsButton_Click(object? sender, RoutedEventArgs e)
     {
         ReaderFontScaleSlider.Value = _readerLayout.FontScale;
@@ -624,46 +773,135 @@ public partial class MainWindow
         SelectReaderFlowMode(_readerLayout.FlowMode, _readerLayout.TwoPageMode);
         SelectReaderPageAnimation(_readerPageAnimation);
         UpdateReaderLayoutSliderLabels();
-        ReaderLayoutSettingsStatusText.Text = "修改只会作用于当前这本书。";
+        UpdateReaderLayoutStatus();
         ReaderLayoutSettingsOverlay.IsVisible = true;
     }
 
-    private async void ReaderLayoutSettingsApplyButton_Click(object? sender, RoutedEventArgs e)
+    // ValueChanged / SelectionChanged can fire while XAML is still being
+    // parsed (slider Minimum/Maximum/Value assignment clamps the value and
+    // raises the event before sibling controls exist). Guard every layout
+    // event handler so a partially-initialized panel can never be touched.
+    private bool AreReaderLayoutControlsReady() =>
+        ReaderFontScaleSlider is not null
+        && ReaderLineHeightSlider is not null
+        && ReaderMaxWidthSlider is not null
+        && ReaderBodyPaddingSlider is not null
+        && ReaderFontFamilyBox is not null
+        && ReaderVerticalWritingCheck is not null;
+
+    private bool _suppressReaderLayoutChange;
+    private CancellationTokenSource? _readerLayoutApplyCancellation;
+
+    private void ReaderLayoutSettingChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
-        var fontFamily = (ReaderFontFamilyBox.SelectedItem as ComboBoxItem)?.Tag as string
-            ?? _readerLayout.FontFamily;
-        var (flowMode, twoPageMode) = GetSelectedReaderFlowMode();
-        _readerLayout = ReaderLayoutDefaults.Normalize(new ReaderLayoutSettings(
-            ReaderFontScaleSlider.Value,
-            ReaderLineHeightSlider.Value,
-            ReaderMaxWidthSlider.Value,
-            ReaderBodyPaddingSlider.Value,
-            fontFamily,
-            flowMode,
-            ReaderVerticalWritingCheck.IsChecked == true,
-            twoPageMode));
-        _readerPageAnimation = GetSelectedReaderPageAnimation();
-        await ApplyReaderLayoutToHostsAsync(ReaderToken);
-        await SaveReaderLayoutAsync(CancellationToken.None);
-        ReaderLayoutSettingsOverlay.IsVisible = false;
-        ReaderStatusText.Text = "阅读排版已应用";
+        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
+        UpdateReaderLayoutSliderLabels();
+        UpdateReaderLayoutStatus();
+        ScheduleReaderLayoutApply();
     }
+
+    private void ReaderFontFamilyBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
+        UpdateReaderLayoutStatus();
+        ScheduleReaderLayoutApply();
+    }
+
+    private void ReaderFlowModeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
+        UpdateReaderLayoutStatus();
+        ScheduleReaderLayoutApply();
+    }
+
+    private void ReaderPageAnimationBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
+        _readerPageAnimation = GetSelectedReaderPageAnimation();
+        SyncReaderAnimationMenu();
+    }
+
+    private void ReaderVerticalWritingCheck_IsCheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
+        UpdateReaderLayoutStatus();
+        ScheduleReaderLayoutApply();
+    }
+
+    private void UpdateReaderLayoutStatus()
+    {
+        var (flowMode, twoPageMode) = GetSelectedReaderFlowMode();
+        ReaderLayoutSettingsStatusText.Text = twoPageMode && flowMode != 1
+            ? "双页仅用于分页模式；当前模式下暂不生效。"
+            : "设置立即生效，并保存在本机。";
+    }
+
+    private void ScheduleReaderLayoutApply()
+    {
+        _readerLayoutApplyCancellation?.Cancel();
+        _readerLayoutApplyCancellation?.Dispose();
+        _readerLayoutApplyCancellation = new CancellationTokenSource();
+        var token = _readerLayoutApplyCancellation.Token;
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(160);
+            if (token.IsCancellationRequested) return;
+            Dispatcher.UIThread.Post(async () =>
+            {
+                if (token.IsCancellationRequested) return;
+                try
+                {
+                    _readerLayout = ReaderLayoutDefaults.Normalize(ReadReaderLayoutFromControls());
+                    _readerPageAnimation = GetSelectedReaderPageAnimation();
+                    UpdateReaderZoomLabel();
+                    await ApplyReaderLayoutToHostsAsync(_readerSessionCancellation?.Token ?? CancellationToken.None);
+                    await SaveReaderLayoutAsync(CancellationToken.None);
+                }
+                catch
+                {
+                }
+            });
+        });
+    }
+
+    private ReaderLayoutSettings ReadReaderLayoutFromControls() => new(
+        ReaderFontScaleSlider.Value,
+        ReaderLineHeightSlider.Value,
+        ReaderMaxWidthSlider.Value,
+        ReaderBodyPaddingSlider.Value,
+        (ReaderFontFamilyBox.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty,
+        GetSelectedReaderFlowMode().FlowMode,
+        ReaderVerticalWritingCheck.IsChecked == true,
+        GetSelectedReaderFlowMode().TwoPageMode);
 
     private void ReaderLayoutSettingsCloseButton_Click(object? sender, RoutedEventArgs e)
         => ReaderLayoutSettingsOverlay.IsVisible = false;
 
-    private void ReaderLayoutResetButton_Click(object? sender, RoutedEventArgs e)
+    private async void ReaderLayoutResetButton_Click(object? sender, RoutedEventArgs e)
     {
-        ReaderFontScaleSlider.Value = ReaderLayoutDefaults.DefaultFontScale;
-        ReaderLineHeightSlider.Value = ReaderLayoutDefaults.DefaultLineHeight;
-        ReaderMaxWidthSlider.Value = ReaderLayoutDefaults.DefaultMaxWidth;
-        ReaderBodyPaddingSlider.Value = ReaderLayoutDefaults.DefaultBodyPadding;
-        ReaderVerticalWritingCheck.IsChecked = false;
-        SelectReaderFontFamily(ReaderFontDefaults.DefaultFamily);
-        SelectReaderFlowMode(1, false);
-        SelectReaderPageAnimation(ReaderAnimationFade);
+        _suppressReaderLayoutChange = true;
+        try
+        {
+            ReaderFontScaleSlider.Value = ReaderLayoutDefaults.DefaultFontScale;
+            ReaderLineHeightSlider.Value = ReaderLayoutDefaults.DefaultLineHeight;
+            ReaderMaxWidthSlider.Value = ReaderLayoutDefaults.DefaultMaxWidth;
+            ReaderBodyPaddingSlider.Value = ReaderLayoutDefaults.DefaultBodyPadding;
+            ReaderVerticalWritingCheck.IsChecked = false;
+            SelectReaderFontFamily(ReaderFontDefaults.DefaultFamily);
+            SelectReaderFlowMode(1, false);
+            SelectReaderPageAnimation(ReaderAnimationFade);
+        }
+        finally
+        {
+            _suppressReaderLayoutChange = false;
+        }
         UpdateReaderLayoutSliderLabels();
-        ReaderLayoutSettingsStatusText.Text = "已恢复默认值，点击“应用”后生效。";
+        _readerLayout = ReaderLayoutDefaults.Normalize(ReadReaderLayoutFromControls());
+        _readerPageAnimation = ReaderAnimationFade;
+        UpdateReaderZoomLabel();
+        await ApplyReaderLayoutToHostsAsync(ReaderToken);
+        await SaveReaderLayoutAsync(CancellationToken.None);
+        ReaderLayoutSettingsStatusText.Text = "已恢复默认排版。";
     }
 
     private void UpdateReaderLayoutSliderLabels()
@@ -729,12 +967,11 @@ public partial class MainWindow
 
     private void ReaderZenMinimalTocButton_Click(object? sender, RoutedEventArgs e)
     {
-        ReaderTocPanel.IsVisible = !ReaderTocPanel.IsVisible;
-        if (ReaderTocPanel.IsVisible)
-        {
-            ShowReaderTocTab();
-            ReaderTocList.SelectedIndex = FindReaderTocIndexForChapter(_readerChapterIndex);
-        }
+        if (!_readerZenMode) return;
+        _readerTocExpanded = false;
+        _readerTocMinimal = !_readerTocMinimal;
+        ApplyReaderPanelLayout();
+        UpdateReaderZenTocToggle();
     }
 
     private void ReaderExitZenButton_Click(object? sender, RoutedEventArgs e) => ExitReaderZenMode();

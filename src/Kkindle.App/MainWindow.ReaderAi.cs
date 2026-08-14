@@ -1,7 +1,9 @@
 using System.Text;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 
@@ -15,6 +17,7 @@ public partial class MainWindow
         {
             _readerAiSettings = await _aiSettingsStore.LoadAsync(cancellationToken);
             ApplyReaderAiSettingsToControls();
+            _ = RefreshReaderAiModelSelectorAsync(cancellationToken);
             ReaderAiStatusText.Text = _appSettings.AiEnabled
                 ? _readerAiSettings.IsConfigured
                     ? "AI 已就绪；回答只会使用当前书籍的本地文本片段。"
@@ -46,15 +49,20 @@ public partial class MainWindow
                 _readerAiSettings.Provider,
                 _readerAiSettings.Model);
             _readerAiAvailableModels = modelOptions;
-            ReaderAiModelSelectorBox.ItemsSource = modelOptions;
-            ReaderAiModelSelectorBox.SelectedItem = modelOptions.FirstOrDefault(
-                model => string.Equals(model, _readerAiSettings.Model, StringComparison.OrdinalIgnoreCase));
+            ReaderAiModelSelectorBox.ItemsSource = modelOptions
+                .Prepend(_readerAiSettings.Model)
+                .Where(model => !string.IsNullOrWhiteSpace(model))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(model => new ComboBoxItem { Content = model, Tag = model })
+                .ToArray();
+            ReaderAiModelSelectorBox.SelectedItem = ReaderAiModelSelectorBox.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item => string.Equals(
+                    item.Tag as string,
+                    _readerAiSettings.Model,
+                    StringComparison.OrdinalIgnoreCase));
 
-            var reasoningOptions = new[] { "auto", "low", "medium", "high" };
-            ReaderAiReasoningDepthBox.ItemsSource = reasoningOptions;
-            ReaderAiReasoningDepthBox.SelectedItem = reasoningOptions.Contains(_readerAiReasoningDepth)
-                ? _readerAiReasoningDepth
-                : "auto";
+            UpdateReaderAiReasoningDepthSelector();
             ReaderAiProviderText.Text = $"{_readerAiSettings.ProviderDisplayName} · "
                 + (_readerAiSettings.IsConfigured ? _readerAiSettings.Model : "未配置");
         }
@@ -64,6 +72,45 @@ public partial class MainWindow
             _suppressAiModelChange = false;
             _suppressAiReasoningDepthChange = false;
         }
+    }
+
+    private void UpdateReaderAiReasoningDepthSelector()
+    {
+        if (ReaderAiReasoningDepthBox is null) return;
+
+        var options = _readerAiSettings.Provider.Equals("deepseek", StringComparison.OrdinalIgnoreCase)
+            ? new[]
+            {
+                ("auto", "自动"),
+                ("high", "深入"),
+                ("max", "极致")
+            }
+            : new[]
+            {
+                ("auto", "自动"),
+                ("low", "快速"),
+                ("medium", "平衡"),
+                ("high", "深入")
+            };
+        var selectedDepth = options.Any(option => option.Item1.Equals(
+                _readerAiReasoningDepth,
+                StringComparison.OrdinalIgnoreCase))
+            ? _readerAiReasoningDepth
+            : "auto";
+        ReaderAiReasoningDepthBox.ItemsSource = options
+            .Select(option => new ComboBoxItem
+            {
+                Content = option.Item2,
+                Tag = option.Item1
+            })
+            .ToArray();
+        ReaderAiReasoningDepthBox.SelectedItem = ReaderAiReasoningDepthBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => string.Equals(
+                item.Tag as string,
+                selectedDepth,
+                StringComparison.OrdinalIgnoreCase));
+        _readerAiReasoningDepth = selectedDepth;
     }
 
     private void SelectReaderAiProvider(string provider)
@@ -89,6 +136,8 @@ public partial class MainWindow
         ReaderAiSettingsView.IsVisible = false;
         ReaderAiComposer.IsVisible = true;
         _readerAiSettingsVisible = false;
+        SetReaderAssistantTabState(ReaderAiTabButton, selected: true);
+        SetReaderAssistantTabState(ReaderNotesTabButton, selected: false);
     }
 
     private void ShowReaderNotesTab()
@@ -98,6 +147,19 @@ public partial class MainWindow
         ReaderAiSettingsView.IsVisible = false;
         ReaderAiComposer.IsVisible = false;
         _readerAiSettingsVisible = false;
+        SetReaderAssistantTabState(ReaderAiTabButton, selected: false);
+        SetReaderAssistantTabState(ReaderNotesTabButton, selected: true);
+    }
+
+    private static void SetReaderAssistantTabState(Button button, bool selected)
+    {
+        // Hollow tabs: transparent fill for both states; the selected tab is
+        // outlined with a black border instead of a filled rectangle.
+        button.Background = Brushes.Transparent;
+        button.BorderBrush = selected
+            ? Brushes.Black
+            : new SolidColorBrush(Color.FromArgb(255, 213, 213, 209));
+        button.BorderThickness = new Thickness(1);
     }
 
     private void ReaderAiSettingsOpenButton_Click(object? sender, RoutedEventArgs e)
@@ -163,8 +225,18 @@ public partial class MainWindow
         ReaderAiModelBox.Text = defaults.Model;
         var models = AiConnectionSettings.GetModelOptions(provider, defaults.Model);
         _readerAiAvailableModels = models;
-        ReaderAiModelSelectorBox.ItemsSource = models;
-        ReaderAiModelSelectorBox.SelectedItem = defaults.Model;
+        ReaderAiModelSelectorBox.ItemsSource = models
+            .Prepend(defaults.Model)
+            .Where(model => !string.IsNullOrWhiteSpace(model))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(model => new ComboBoxItem { Content = model, Tag = model })
+            .ToArray();
+        ReaderAiModelSelectorBox.SelectedItem = ReaderAiModelSelectorBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => string.Equals(
+                item.Tag as string,
+                defaults.Model,
+                StringComparison.OrdinalIgnoreCase));
     }
 
     private void ReaderAiModelSelectorBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -172,14 +244,15 @@ public partial class MainWindow
         if (_suppressAiModelChange
             || ReaderAiModelSelectorBox is null
             || ReaderAiQuestionBox is null
-            || ReaderAiModelSelectorBox.SelectedItem is not string model) return;
+            || ReaderAiModelSelectorBox.SelectedItem is not ComboBoxItem { Tag: string model }) return;
         ReaderAiQuestionBox.Focus();
         if (!_readerAiSettingsVisible) _readerAiSettings.Model = model;
     }
 
     private void ReaderAiReasoningDepthBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_suppressAiReasoningDepthChange || ReaderAiReasoningDepthBox.SelectedItem is not string depth) return;
+        if (_suppressAiReasoningDepthChange
+            || ReaderAiReasoningDepthBox.SelectedItem is not ComboBoxItem { Tag: string depth }) return;
         _readerAiReasoningDepth = depth;
     }
 
@@ -248,6 +321,7 @@ public partial class MainWindow
         }
 
         _readerAiBusy = true;
+        SetReaderAiBusyState(true);
         _readerAiCancellation?.Cancel();
         _readerAiCancellation?.Dispose();
         var aiCancellation = CancellationTokenSource.CreateLinkedTokenSource(ReaderToken);
@@ -303,10 +377,60 @@ public partial class MainWindow
         }
         finally
         {
+            SetReaderAiBusyState(false);
             _readerAiBusy = false;
             if (ReferenceEquals(_readerAiCancellation, aiCancellation))
                 _readerAiCancellation = null;
             aiCancellation.Dispose();
+        }
+    }
+
+    private void SetReaderAiBusyState(bool busy)
+    {
+        if (ReaderAiSendButton is not null)
+            ReaderAiSendButton.IsEnabled = !busy;
+        if (ReaderAiReasoningDepthBox is not null)
+            ReaderAiReasoningDepthBox.IsEnabled = !busy;
+        if (ReaderAiModelSelectorBox is not null)
+            ReaderAiModelSelectorBox.IsEnabled = !busy;
+        if (ReaderAiQuestionBox is not null)
+            ReaderAiQuestionBox.IsEnabled = !busy;
+    }
+
+    // Refreshes the model list from the API when it is reachable, keeping the
+    // provider-specific fallback list otherwise. Mirrors the WinUI reference.
+    private async Task RefreshReaderAiModelSelectorAsync(CancellationToken sessionCancellationToken)
+    {
+        try
+        {
+            if (!Uri.TryCreate(_readerAiSettings.BaseUrl, UriKind.Absolute, out var endpoint)
+                || endpoint.Scheme is not ("http" or "https")
+                || string.IsNullOrWhiteSpace(_readerAiSettings.ApiKey))
+                return;
+            using var refreshCancellation = CancellationTokenSource.CreateLinkedTokenSource(sessionCancellationToken);
+            refreshCancellation.CancelAfter(TimeSpan.FromSeconds(10));
+            var models = await _aiChatClient.ListModelsAsync(
+                _readerAiSettings,
+                refreshCancellation.Token);
+            if (refreshCancellation.IsCancellationRequested || models.Count == 0) return;
+
+            if (_readerAiSettings.Provider.Equals("deepseek", StringComparison.OrdinalIgnoreCase)
+                && !models.Contains(_readerAiSettings.Model, StringComparer.OrdinalIgnoreCase))
+            {
+                _readerAiSettings.Model = models[0];
+                await _aiSettingsStore.SaveAsync(_readerAiSettings, CancellationToken.None);
+            }
+
+            _readerAiAvailableModels = models;
+            ApplyReaderAiSettingsToControls();
+        }
+        catch (OperationCanceledException) when (sessionCancellationToken.IsCancellationRequested)
+        {
+        }
+        catch
+        {
+            // Keep the provider-specific fallback list when model discovery is
+            // unavailable (offline network, incompatible custom endpoint, etc.).
         }
     }
 

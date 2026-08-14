@@ -33,6 +33,27 @@ public partial class MainWindow
             SelectedText = selectedText,
             CreatedAt = DateTimeOffset.UtcNow
         };
+
+        // Reject overlapping annotations in the same chapter unless the user is
+        // editing the exact annotation being saved (mirrors the WinUI guard).
+        if (selectedText.Length > 0 && _selectedReaderAnnotation is null)
+        {
+            var exact = ReaderAnnotations.FirstOrDefault(item =>
+                string.Equals(item.ChapterPath, chapterPath, StringComparison.OrdinalIgnoreCase)
+                && item.StartOffset == _readerPendingSelectionStartOffset
+                && item.EndOffset == _readerPendingSelectionEndOffset);
+            var overlaps = ReaderAnnotations.Any(item =>
+                item.Id != exact?.Id
+                && string.Equals(item.ChapterPath, chapterPath, StringComparison.OrdinalIgnoreCase)
+                && _readerPendingSelectionStartOffset < item.EndOffset
+                && _readerPendingSelectionEndOffset > item.StartOffset);
+            if (overlaps)
+            {
+                ShowReaderTransientStatus("这段文字与已有划线重叠，请缩小选择范围");
+                return;
+            }
+        }
+
         annotation.ChapterPath = chapterPath;
         annotation.Fragment = _readerIsPdf
             ? null
@@ -68,7 +89,7 @@ public partial class MainWindow
             _readerPendingSelectionPrefix = string.Empty;
             _readerPendingSelectionSuffix = string.Empty;
             ReaderAnnotationSelectionText.Text = "请先在正文中选择一段文字，再点击顶部“批注”。";
-            ReaderStatusText.Text = string.IsNullOrWhiteSpace(annotation.Note) ? "划线已保存" : "划线与笔记已保存";
+            ShowReaderTransientStatus(string.IsNullOrWhiteSpace(annotation.Note) ? "划线已保存" : "划线与笔记已保存");
         }
         catch (Exception exception)
         {
@@ -135,7 +156,7 @@ public partial class MainWindow
         ReaderAnnotationSelectionText.Text = "请先在正文中选择一段文字，再点击顶部“批注”。";
         ReaderAnnotationNoteBox.Text = string.Empty;
         ReaderDeleteAnnotationButton.IsEnabled = false;
-        ReaderStatusText.Text = "批注已删除";
+        ShowReaderTransientStatus("批注已删除");
     }
 
     private async void ReaderSelectionCopyButton_Click(object? sender, RoutedEventArgs e)
@@ -143,7 +164,7 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is not null) await clipboard.SetTextAsync(_readerPendingSelection);
-        ReaderStatusText.Text = "已复制选中文字";
+        ShowReaderTransientStatus("已复制选中文字");
     }
 
     private async void ReaderSelectionHighlightButton_Click(object? sender, RoutedEventArgs e)
@@ -165,7 +186,9 @@ public partial class MainWindow
     private void ReaderSelectionSearchButton_Click(object? sender, RoutedEventArgs e)
     {
         if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
-        ReaderTocPanel.IsVisible = true;
+        _readerTocMinimal = false;
+        _readerTocExpanded = true;
+        ApplyReaderPanelLayout();
         ShowReaderSearchTab();
         ReaderTocSearchBox.Text = _readerPendingSelection;
         ReaderTocSearchBox.Focus();
@@ -176,9 +199,9 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
         var term = _readerPendingSelection.Trim();
         var entries = await _dictionaryService.LookupAsync(term, ReaderToken);
-        ReaderStatusText.Text = entries.Count == 0
+        ShowReaderTransientStatus(entries.Count == 0
             ? $"词典中没有找到“{term}”。"
-            : $"{entries[0].DictionaryName}：{entries[0].Term} — {entries[0].Definition}";
+            : $"{entries[0].DictionaryName}：{entries[0].Term} — {entries[0].Definition}");
     }
 
     private void ReaderFootnoteCloseButton_Click(object? sender, RoutedEventArgs e)

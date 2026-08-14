@@ -1,3 +1,6 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Kkindle.Core;
@@ -31,6 +34,74 @@ public sealed class ReaderSearchResultViewModel
     public string? Target { get; }
     public int? PageNumber { get; }
     public string? Query { get; }
+}
+
+/// <summary>
+/// A TextBlock that paints the query terms of a whole-book search result in
+/// black-on-white inverse text, mirroring the WinUI reference's
+/// TextHighlighters on the result title and snippet.
+/// </summary>
+public sealed class ReaderSearchHighlightTextBlock : TextBlock
+{
+    public static readonly StyledProperty<string?> SourceProperty =
+        AvaloniaProperty.Register<ReaderSearchHighlightTextBlock, string?>(nameof(Source));
+
+    public static readonly StyledProperty<string?> QueryProperty =
+        AvaloniaProperty.Register<ReaderSearchHighlightTextBlock, string?>(nameof(Query));
+
+    public ReaderSearchHighlightTextBlock()
+    {
+        SourceProperty.Changed.AddClassHandler<ReaderSearchHighlightTextBlock>(
+            static (control, _) => control.RebuildHighlightedInlines());
+        QueryProperty.Changed.AddClassHandler<ReaderSearchHighlightTextBlock>(
+            static (control, _) => control.RebuildHighlightedInlines());
+    }
+
+    public string? Source
+    {
+        get => GetValue(SourceProperty);
+        set => SetValue(SourceProperty, value);
+    }
+
+    public string? Query
+    {
+        get => GetValue(QueryProperty);
+        set => SetValue(QueryProperty, value);
+    }
+
+    private void RebuildHighlightedInlines()
+    {
+        var text = Source ?? string.Empty;
+        var query = Query?.Trim() ?? string.Empty;
+        if (Inlines is null) return;
+        Inlines.Clear();
+        if (query.Length == 0)
+        {
+            Inlines.Add(new Run { Text = text });
+            return;
+        }
+
+        var plain = new SolidColorBrush(Color.FromRgb(0, 0, 0));
+        var highlight = new SolidColorBrush(Color.FromRgb(255, 255, 255));
+        var highlightBackground = new SolidColorBrush(Color.FromRgb(0, 0, 0));
+        var start = 0;
+        var index = text.IndexOf(query, StringComparison.CurrentCultureIgnoreCase);
+        while (index >= 0)
+        {
+            if (index > start)
+                Inlines.Add(new Run { Text = text[start..index], Foreground = plain });
+            Inlines.Add(new Run
+            {
+                Text = text[index..(index + query.Length)],
+                Foreground = highlight,
+                Background = highlightBackground
+            });
+            start = index + Math.Max(1, query.Length);
+            index = text.IndexOf(query, start, StringComparison.CurrentCultureIgnoreCase);
+        }
+        if (start < text.Length)
+            Inlines.Add(new Run { Text = text[start..], Foreground = plain });
+    }
 }
 
 public sealed class ReaderAiSourceViewModel

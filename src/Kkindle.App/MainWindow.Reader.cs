@@ -73,6 +73,7 @@ public partial class MainWindow
             ReaderRoot.IsVisible = true;
             LibraryRoot.IsVisible = false;
             WindowBrandText.IsVisible = true;
+            ApplyReaderPanelLayout();
 
             await EnsureReaderHostsAsync();
             SetReaderHostLayer();
@@ -215,6 +216,8 @@ public partial class MainWindow
             await ApplySavedAnnotationsAsync(host, token);
             ReaderChapterText.Text = GetReaderChapterLabel();
             ReaderStatusText.Text = $"共 {_readerDocument.Chapters.Count} 个章节";
+            SetReaderCompactSelectedItem(_readerTocItems.FirstOrDefault(item => item.ChapterIndex == targetIndex));
+            await UpdateReaderBookmarkIndicatorAsync();
             await SaveReaderProgressAsync(sessionToken);
             _ = PreloadNextReaderChapterAsync(sessionToken);
         }
@@ -290,7 +293,11 @@ public partial class MainWindow
     {
         await SaveReaderProgressAsync(CancellationToken.None);
         await SaveReaderLayoutAsync(CancellationToken.None);
-        await SaveReaderSessionAsync(CancellationToken.None);
+        StopReaderStatsTimer();
+        // Reading time is accounted by the active-seconds flush (the stats
+        // timer), matching the WinUI reference: time only accrues while the
+        // window is active and the reader is visible.
+        await FlushReaderActiveSecondsAsync();
         ExitReaderZenMode();
         _readerNavigationCancellation?.Cancel();
         _readerNavigationCancellation?.Dispose();
@@ -312,6 +319,10 @@ public partial class MainWindow
         ReaderFootnotePopup.IsVisible = false;
         ReaderHighlightButton.IsVisible = false;
         ReaderAnnotateButton.IsVisible = false;
+        ReaderBookmarkCornerMarker.IsVisible = false;
+        ReaderTocCompactPanel.IsVisible = false;
+        ReaderTocCompactHoverLabel.IsVisible = false;
+        ClearReaderCompactNavigationItems();
         ReaderAssistantPanel.IsVisible = true;
         ReaderBodyGrid.ColumnDefinitions[2].Width = new GridLength(330);
         _readerAssistantVisibleBeforeZen = true;
