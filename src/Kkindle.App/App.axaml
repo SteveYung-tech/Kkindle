@@ -245,12 +245,12 @@
             </Setter>
         </Style>
         <Style Selector="Button.sidebarSection:pointerover">
-            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="Button.sidebarSection:pressed">
-            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
         </Style>
@@ -292,11 +292,11 @@
             </Setter>
         </Style>
         <Style Selector="Button.sidebarItem:pointerover">
-            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="Button.sidebarItem:pressed">
-            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="Button.sidebarItem.active">
@@ -340,7 +340,7 @@
             </Setter>
         </Style>
         <Style Selector="Button.settingsCategory:pointerover">
-            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="Button.settingsCategory.active">
