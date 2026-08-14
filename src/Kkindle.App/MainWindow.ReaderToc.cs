@@ -277,11 +277,11 @@ public partial class MainWindow
             ReaderTocCompactHoverLabelText.Text = title;
             ReaderTocCompactHoverLabel.IsVisible = true;
             var markerCenter = target
-                .TranslatePoint(new Point(0, target.Bounds.Height / 2), ReaderBodyGrid)?
+                .TranslatePoint(new Point(0, target.Bounds.Height / 2), ReaderRoot)?
                 .Y ?? 0;
             var labelHeight = ReaderTocCompactHoverLabel.Bounds.Height;
             const double minimumTop = 38d;
-            var maximumTop = Math.Max(minimumTop, ReaderBodyGrid.Bounds.Height - labelHeight);
+            var maximumTop = Math.Max(minimumTop, ReaderRoot.Bounds.Height - labelHeight);
             var top = Math.Clamp(markerCenter - labelHeight / 2, minimumTop, maximumTop);
             ReaderTocCompactHoverLabel.Margin = new Thickness(ReaderTocMinimalWidth + 6, top, 0, 0);
         }
@@ -398,9 +398,11 @@ public partial class MainWindow
     {
         if (!ReaderRoot.IsVisible) return;
 
-        // Column 0 is Auto-sized; each panel carries its own explicit width
-        // (270 for the full TOC, 52 for the minimal rail), so toggling
-        // visibility is enough to reflow the reading surface.
+        // Mirror the WinUI reference's TOC column sizing: the first column is
+        // 286 when expanded, 52 when the minimal rail is shown, and 0 when the
+        // TOC is hidden entirely.
+        ReaderRoot.ColumnDefinitions[0].Width = new GridLength(
+            _readerTocExpanded ? 286d : _readerTocMinimal ? ReaderTocMinimalWidth : 0d);
         ReaderTocPanel.IsVisible = _readerTocExpanded;
         ReaderTocCompactPanel.IsVisible = _readerTocMinimal;
         ReaderTocToggleButton.Opacity = _readerTocExpanded ? 0.58 : 1;

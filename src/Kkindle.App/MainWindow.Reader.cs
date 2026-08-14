@@ -67,7 +67,7 @@ public partial class MainWindow
                 _readerScrollPosition = Math.Max(0, progress.ScrollPosition);
             }
 
-            ReaderTitleText.Text = card.Title;
+            ReaderBookInfoText.Text = $"{card.Title} · {file.Format.ToUpperInvariant()}";
             ReaderChapterText.Text = GetReaderChapterLabel();
             ReaderStatusText.Text = $"共 {document.Chapters.Count} 个章节 · 正在加载";
             ReaderRoot.IsVisible = true;
@@ -237,10 +237,24 @@ public partial class MainWindow
     }
 
     private string GetReaderChapterLabel() => _readerIsPdf
-        ? $"第 {_readerPdfPage} / {Math.Max(1, _readerPdfPages.Count)} 页"
+        ? $"{_readerPdfPage} / {Math.Max(1, _readerPdfPages.Count)} · 第 {_readerPdfPage} 页"
         : _readerDocument is null
             ? string.Empty
-            : $"第 {_readerChapterIndex + 1} / {_readerDocument.Chapters.Count} 章";
+            : $"{_readerChapterIndex + 1} / {_readerDocument.Chapters.Count} · {GetReaderChapterDisplayName(_readerChapterIndex)}";
+
+    private string GetReaderChapterDisplayName(int chapterIndex)
+    {
+        var item = _readerTocItems.FirstOrDefault(candidate => candidate.ChapterIndex == chapterIndex);
+        if (!string.IsNullOrWhiteSpace(item?.Title)) return item.Title.Trim();
+        if (_readerDocument is not null
+            && chapterIndex >= 0
+            && chapterIndex < _readerDocument.Chapters.Count)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(_readerDocument.Chapters[chapterIndex]);
+            if (!string.IsNullOrWhiteSpace(fileName)) return fileName;
+        }
+        return $"第 {chapterIndex + 1} 章";
+    }
 
     private void SetReaderHostLayer()
     {
@@ -324,7 +338,12 @@ public partial class MainWindow
         ReaderTocCompactHoverLabel.IsVisible = false;
         ClearReaderCompactNavigationItems();
         ReaderAssistantPanel.IsVisible = true;
-        ReaderBodyGrid.ColumnDefinitions[2].Width = new GridLength(330);
+        ReaderRoot.ColumnDefinitions[2].Width = new GridLength(360);
+        ReaderContentPanel.RowDefinitions[0].Height = new GridLength(52);
+        ReaderHeaderBar.IsVisible = true;
+        ReaderContentPanel.RowDefinitions[2].Height = new GridLength(50);
+        ReaderFooterBar.IsVisible = true;
+        ReaderTransitionCover.Opacity = 0;
         _readerAssistantVisibleBeforeZen = true;
         _readerIsPdf = false;
         _readerPdfPages = [];

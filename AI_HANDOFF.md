@@ -6,7 +6,7 @@
 >
 > 项目目录：`C:\Users\kings\Desktop\01_Projects\Kkindle`
 
-> 当前迁移状态（2026-08-14）：Avalonia 阶段 2（本地书库）和阶段 3（Kindle 设备、阅读资料、Z-Library、设置与备份）已完成，阶段 4（Kreader 阅读器）已完成核心交互切片，并按旧版 WinUI Kreader 完成工具栏/极简目录/书签角标/阅读统计/滚动接章/禅模式快捷键/AI 标签与搜索计数等界面与功能对齐；阶段 5 发布入口已切到 Avalonia Windows 启动头，阶段 6 已完成 Windows 侧可移植性验证。WinUI 版本仍保留作迁移参照。当前 Avalonia 版尚未完成与 WinUI 旧版的功能逐项 1:1 对照、同分辨率/DPI 像素级 UI 验收；完整 AI/脚注/PDF 功能和人工视觉验收仍待完成，Debug EXE 仅作为迁移调试版。
+> 当前迁移状态（2026-08-14）：Avalonia 阶段 2（本地书库）和阶段 3（Kindle 设备、阅读资料、Z-Library、设置与备份）已完成，阶段 4（Kreader 阅读器）已完成核心交互切片，并按旧版 WinUI Kreader 完成工具栏/极简目录/书签角标/阅读统计/滚动接章/禅模式快捷键/AI 标签与搜索计数等界面与功能对齐，阅读器 XAML 已整体重构为旧版三栏像素级布局（TOC 286 / 正文 52+50 栏 / 助手 360）；阶段 5 发布入口已切到 Avalonia Windows 启动头，阶段 6 已完成 Windows 侧可移植性验证。WinUI 版本仍保留作迁移参照。当前 Avalonia 版尚未完成同分辨率/DPI 像素级截图验收；完整 AI/脚注/PDF 功能和人工视觉验收仍待完成，Debug EXE 仅作为迁移调试版。
 
 ## 0. 当前状态
 
@@ -363,6 +363,18 @@ WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost`
 - [x] 滚动模式滚动到章节边缘自动接章（滚动接章），带连续锁定与短章节跳过；整书搜索恢复「全书 N 段结果 / N 条结果 · PDF 本地文本索引」计数、结果去重、跳转状态文本与关键词黑底白字高亮（`ReaderSearchHighlightTextBlock`）。
 - [x] AI 思考深度改为中文标签（自动/快速/平衡/深入，DeepSeek 为 自动/深入/极致），请求期间禁用发送/深度/模型控件，模型列表尝试从 API 刷新（10 秒超时，失败回退静态表）；批注保存增加重叠检测（与旧版一致）。
 - [x] 目录/书签/搜索与 AI 对话/划线与笔记标签页恢复旧版空心标签视觉（选中黑框、未选中浅灰框）。
+
+阶段 4 像素级布局重构（2026-08-14，阅读器 XAML 整体重写为旧版三栏结构）：
+
+- [x] `ReaderRoot` 改为三栏固定列：TOC 286 / 正文 * / 助手 360（与旧版 `ReaderTocColumn/ReaderContentColumn/ReaderAssistantColumn` 一致）。
+- [x] TOC 面板恢复旧版 6 行结构（52 头部 / 标签行 / 列表区 / 阅读信息 / 50 返回书架），头部为书名·格式 + 极简目录/收起按钮，底部全宽「返回书架」按钮；旧版 `ReaderTocItemStyle` 的 3px 左条 + 选中 #DEDEDB 视觉用 `readerTocList` 样式与模板实现。
+- [x] 正文面板恢复 52px 顶栏 + 50px 底栏：顶栏含 目录(64)/搜索/状态文字/A−·100%·A+/分页·更多菜单/划线·批注·书签·助手；底栏含 ‹›(34×30)/章节粒度进度条/章节文字/PDF 徽标。
+- [x] AI 助手面板恢复 52 头部 + 42 标签行 + 内容区 + 底部输入区；助手头部移除「设置」按钮（AI 设置入口在设置面板，与旧版一致），保留隐藏的阅读器内设置浮层供代码兼容。
+- [x] 标题栏新增「Kreader」品牌文字（阅读器打开时显示，18px Bold 字距 60）与禅模式标题栏按钮（极简目录/退出禅模式，zen 时随 chrome 显示）；zen 模式自动隐藏 chrome（2.5s 空闲）并在鼠标移动时唤醒。
+- [x] 禅模式退出增加过渡遮罩（`ReaderTransitionCover` 淡出，与旧版 320ms+180ms 节奏一致）；正文区顶/底栏在 zen 中折叠为 0，正文 host 边距对齐旧版。
+- [x] 删除 Avalonia 特有元素以对齐旧版：工具栏内页搜索框（改用浮条 `ReaderInPageSearchBar`）、排版浮层中的阅读模式/翻页动画下拉（改由顶栏菜单驱动）、第三个「搜索」标签（整本搜索改由顶栏「搜索」按钮切换面板并隐藏标签/阅读信息行）。
+- [x] 修复 Avalonia 12 兼容性：ColumnDefinition/RowDefinition 不再生成 x:Name 字段（改用 `ReaderRoot.ColumnDefinitions[i]` / `ReaderContentPanel.RowDefinitions[i]` 索引）；`translate(0,-3)` 必须写 `-3px`（TransformParser 要求单位）。
+- [x] 移除用户工作区中新增但导致启动崩溃的 eject 弹跳动画（Avalonia 12 `Animation` 的 `RenderTransform` Setter 无 animator），若需恢复请改用 `Margin` 或 `TranslateTransform` 属性动画。
 
 1. `IReaderHost` + `NativeWebViewReaderHost`（Windows backend 使用 WebView2），双 WebView 预加载结构保留
 2. `EpubReaderPreparationService` 增加 HTML 消毒 + CSP 注入

@@ -512,10 +512,83 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         <Style Selector="Button.readerToolbar:pointerover">
-            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="#ECECEA" />
         </Style>
         <Style Selector="Button.readerToolbar:pressed">
-            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="#D9D9D5" />
+        </Style>
+
+        <!-- Reader header chrome buttons: stable sizes keep the reader header
+             aligned when the WebView area becomes narrow (WinUI reference's
+             ReaderHeaderButtonStyle / ReaderHeaderIconButtonStyle). -->
+        <Style Selector="Button.readerHeader">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Width" Value="56" />
+            <Setter Property="MinWidth" Value="56" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#242424" />
+            <Setter Property="BorderBrush" Value="#D5D5D1" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.readerHeader:pointerover">
+            <Setter Property="Background" Value="#ECECEA" />
+        </Style>
+        <Style Selector="Button.readerHeader:pressed">
+            <Setter Property="Background" Value="#D9D9D5" />
+        </Style>
+        <Style Selector="Button.readerHeaderIcon">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Width" Value="38" />
+            <Setter Property="MinWidth" Value="38" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#242424" />
+            <Setter Property="BorderBrush" Value="#D5D5D1" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.readerHeaderIcon:pointerover">
+            <Setter Property="Background" Value="#ECECEA" />
+        </Style>
+        <Style Selector="Button.readerHeaderIcon:pressed">
+            <Setter Property="Background" Value="#D9D9D5" />
+        </Style>
+
+        <!-- TOC list items: hollow monochrome rows with a 3-DIP selection bar
+             on the left edge (WinUI reference's ReaderTocItemStyle). -->
+        <Style Selector="ListBox.readerTocList ListBoxItem">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Padding" Value="13,9,11,9" />
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="ListBox.readerTocList ListBoxItem:pointerover">
+            <Setter Property="Background" Value="#EFEFED" />
+        </Style>
+        <Style Selector="ListBox.readerTocList ListBoxItem:pressed">
+            <Setter Property="Background" Value="#DDDDDA" />
+        </Style>
+        <Style Selector="ListBox.readerTocList ListBoxItem:selected">
+            <Setter Property="Background" Value="#DEDEDB" />
+        </Style>
+        <Style Selector="ListBox.readerTocList ListBoxItem:selected:pointerover">
+            <Setter Property="Background" Value="#D5D5D1" />
+        </Style>
+        <Style Selector="ListBox.readerTocList ListBoxItem:selected:pressed">
+            <Setter Property="Background" Value="#CACAC6" />
         </Style>
 
         <!-- Glyphs are drawn as vectors rather than Segoe MDL2 Assets glyphs:

@@ -118,7 +118,7 @@ public partial class MainWindow
                 _readerPdfPage = Math.Clamp(progress.ChapterIndex + 1, 1, pages.Count);
             _readerChapterIndex = _readerPdfPage - 1;
 
-            ReaderTitleText.Text = card.Title;
+            ReaderBookInfoText.Text = $"{card.Title} · PDF";
             ReaderChapterText.Text = GetReaderChapterLabel();
             ReaderStatusText.Text = $"PDF · {pages.Count} 页 · 正在加载";
             ReaderRoot.IsVisible = true;
@@ -136,7 +136,7 @@ public partial class MainWindow
             ReaderNotesView.IsVisible = false;
             ReaderAiComposer.IsVisible = true;
             ReaderAssistantPanel.IsVisible = true;
-            ReaderBodyGrid.ColumnDefinitions[2].Width = new GridLength(330);
+            ReaderRoot.ColumnDefinitions[2].Width = new GridLength(360);
 
             await EnsureReaderHostsAsync();
             SetReaderHostLayer();
@@ -338,6 +338,8 @@ public partial class MainWindow
         ReaderTocView.IsVisible = true;
         ReaderBookmarkPane.IsVisible = false;
         ReaderSearchPanel.IsVisible = false;
+        ReaderTocTabsPanel.IsVisible = true;
+        ReaderReadingInfoPanel.IsVisible = true;
         ReaderTocEmptyText.IsVisible = _readerTocItems.Count == 0;
         SetReaderTocTabState(bookmarkTab: false);
     }
@@ -347,6 +349,8 @@ public partial class MainWindow
         ReaderTocView.IsVisible = false;
         ReaderBookmarkPane.IsVisible = true;
         ReaderSearchPanel.IsVisible = false;
+        ReaderTocTabsPanel.IsVisible = true;
+        ReaderReadingInfoPanel.IsVisible = true;
         ReaderBookmarkEmptyText.IsVisible = ReaderBookmarks.Count == 0;
         SetReaderTocTabState(bookmarkTab: true);
     }
@@ -356,19 +360,19 @@ public partial class MainWindow
         ReaderTocView.IsVisible = false;
         ReaderBookmarkPane.IsVisible = false;
         ReaderSearchPanel.IsVisible = true;
-        SetReaderTocTabState(bookmarkTab: false, searchTab: true);
+        ReaderTocTabsPanel.IsVisible = false;
+        ReaderReadingInfoPanel.IsVisible = false;
+        SetReaderTocTabState(bookmarkTab: false);
     }
 
     // Hollow tabs: transparent fill for every state; the selected tab is
     // outlined with a black border instead of a filled rectangle (WinUI
     // reference's ReaderTocTabsPanel visual).
-    private void SetReaderTocTabState(bool bookmarkTab, bool searchTab = false)
+    private void SetReaderTocTabState(bool bookmarkTab)
     {
         if (ReaderTocTabButton is null || ReaderBookmarkTabButton is null) return;
-        ApplyReaderTabVisual(ReaderTocTabButton, !bookmarkTab && !searchTab);
+        ApplyReaderTabVisual(ReaderTocTabButton, !bookmarkTab);
         ApplyReaderTabVisual(ReaderBookmarkTabButton, bookmarkTab);
-        if (ReaderWholeSearchTabButton is not null)
-            ApplyReaderTabVisual(ReaderWholeSearchTabButton, searchTab);
     }
 
     private static void ApplyReaderTabVisual(Button button, bool selected)
@@ -382,15 +386,13 @@ public partial class MainWindow
 
     private void ReaderBookmarkTabButton_Click(object? sender, RoutedEventArgs e) => ShowReaderBookmarkTab();
 
-    private async void ReaderWholeSearchTabButton_Click(object? sender, RoutedEventArgs e)
-    {
-        ShowReaderSearchTab();
-        ReaderTocSearchBox.Focus();
-        await RefreshReaderWholeSearchAsync(ReaderTocSearchBox.Text?.Trim() ?? string.Empty);
-    }
-
     private void ReaderSearchToolbarButton_Click(object? sender, RoutedEventArgs e)
     {
+        if (ReaderSearchPanel.IsVisible)
+        {
+            ShowReaderTocTab();
+            return;
+        }
         _readerTocMinimal = false;
         _readerTocExpanded = true;
         ApplyReaderPanelLayout();
@@ -744,18 +746,19 @@ public partial class MainWindow
         _ = ObserveReaderTaskAsync(NavigateReaderProgressAsync(e.NewValue));
     }
 
+    // The footer slider is chapter-granular for EPUB (1..chapter count) and
+    // page-granular for PDF (1..page count), matching the WinUI reference.
     private async Task NavigateReaderProgressAsync(double value)
     {
-        var percent = Math.Clamp(value, 0, 100);
         if (_readerIsPdf)
         {
-            var page = Math.Clamp((int)Math.Round(percent / 100d * Math.Max(0, _readerPdfPages.Count - 1)) + 1, 1, Math.Max(1, _readerPdfPages.Count));
+            var page = Math.Clamp((int)Math.Round(value), 1, Math.Max(1, _readerPdfPages.Count));
             await NavigatePdfPageAsync(page, ReaderToken);
             return;
         }
         if (_readerDocument is null || _readerDocument.Chapters.Count == 0) return;
-        var position = percent / 100d * _readerDocument.Chapters.Count;
-        var chapter = Math.Clamp((int)Math.Floor(position), 0, _readerDocument.Chapters.Count - 1);
+        var chapter = Math.Clamp((int)Math.Round(value) - 1, 0, _readerDocument.Chapters.Count - 1);
+        if (chapter == _readerChapterIndex) return;
         var target = new Uri(_readerDocument.Chapters[chapter]);
         await NavigateToReaderItemAsync(
             new EpubReaderNavigationItem($"第 {chapter + 1} 章", target.AbsoluteUri, chapter),
@@ -805,20 +808,6 @@ public partial class MainWindow
         if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
         UpdateReaderLayoutStatus();
         ScheduleReaderLayoutApply();
-    }
-
-    private void ReaderFlowModeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
-        UpdateReaderLayoutStatus();
-        ScheduleReaderLayoutApply();
-    }
-
-    private void ReaderPageAnimationBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
-        _readerPageAnimation = GetSelectedReaderPageAnimation();
-        SyncReaderAnimationMenu();
     }
 
     private void ReaderVerticalWritingCheck_IsCheckedChanged(object? sender, RoutedEventArgs e)
@@ -921,48 +910,26 @@ public partial class MainWindow
     }
 
     private (int FlowMode, bool TwoPageMode) GetSelectedReaderFlowMode()
-    {
-        var tag = (ReaderFlowModeBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
-        return tag switch
-        {
-            "scroll" => (0, false),
-            "double" => (1, true),
-            _ => (1, false)
-        };
-    }
+        => (_readerLayout.FlowMode, _readerLayout.TwoPageMode);
 
     private void SelectReaderFlowMode(int flowMode, bool twoPageMode)
     {
-        var tag = flowMode == 0 ? "scroll" : twoPageMode ? "double" : "single";
-        ReaderFlowModeBox.SelectedItem = ReaderFlowModeBox.Items
-            .OfType<ComboBoxItem>()
-            .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), tag, StringComparison.Ordinal));
+        // The flow mode lives in the header menu (ReaderFlowButton); keep the
+        // menu state in sync when the layout settings panel is opened.
+        _readerLayout = ReaderLayoutDefaults.Normalize(_readerLayout with
+        {
+            FlowMode = flowMode,
+            TwoPageMode = twoPageMode
+        });
+        SyncReaderFlowMenu();
     }
 
-    private int GetSelectedReaderPageAnimation()
-    {
-        var tag = (ReaderPageAnimationBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
-        return tag switch
-        {
-            "none" => ReaderAnimationNone,
-            "slide" => ReaderAnimationSlide,
-            "wave" => ReaderAnimationWave,
-            _ => ReaderAnimationFade
-        };
-    }
+    private int GetSelectedReaderPageAnimation() => _readerPageAnimation;
 
     private void SelectReaderPageAnimation(int animation)
     {
-        var tag = animation switch
-        {
-            ReaderAnimationNone => "none",
-            ReaderAnimationSlide => "slide",
-            ReaderAnimationWave => "wave",
-            _ => "fade"
-        };
-        ReaderPageAnimationBox.SelectedItem = ReaderPageAnimationBox.Items
-            .OfType<ComboBoxItem>()
-            .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), tag, StringComparison.Ordinal));
+        _readerPageAnimation = animation;
+        SyncReaderAnimationMenu();
     }
 
     private void ReaderZenMinimalTocButton_Click(object? sender, RoutedEventArgs e)
@@ -981,7 +948,7 @@ public partial class MainWindow
         if (_readerZenMode) return;
         var visible = !ReaderAssistantPanel.IsVisible;
         ReaderAssistantPanel.IsVisible = visible;
-        ReaderBodyGrid.ColumnDefinitions[2].Width = visible ? new GridLength(330) : new GridLength(0);
+        ReaderRoot.ColumnDefinitions[2].Width = visible ? new GridLength(360) : new GridLength(0);
     }
 
     private static string CreateSearchExcerpt(string content, string query)

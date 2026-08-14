@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using Avalonia;
+using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -136,11 +138,6 @@ public partial class MainWindow
         ReaderWholeSearchCountText.Text = string.Empty;
         ReaderSearchStatusText.IsVisible = true;
         ReaderSearchResultList.IsVisible = true;
-        ReaderSearchBox.Text = string.Empty;
-        ReaderSearchBox.IsVisible = false;
-        ReaderSearchPreviousButton.IsVisible = false;
-        ReaderSearchNextButton.IsVisible = false;
-        ReaderSearchCountText.IsVisible = false;
         ReaderInPageSearchBar.IsVisible = false;
         ReaderSelectionBar.IsVisible = false;
         ReaderHighlightButton.IsVisible = false;
@@ -155,7 +152,7 @@ public partial class MainWindow
         ReaderAiSettingsView.IsVisible = false;
         ReaderAiComposer.IsVisible = true;
         ReaderAssistantPanel.IsVisible = true;
-        ReaderBodyGrid.ColumnDefinitions[2].Width = new GridLength(330);
+        ReaderRoot.ColumnDefinitions[2].Width = new GridLength(360);
         SetReaderCompactNavigationItems(_readerTocItems);
         SetReaderCompactSelectedItem(_readerTocItems.FirstOrDefault());
         ApplyReaderPanelLayout();
@@ -729,7 +726,7 @@ public partial class MainWindow
                         ? Math.Max(0, _readerScrollWidth - _readerClientWidth)
                         : Math.Max(0, _readerScrollHeight - _readerClientHeight);
                     _readerScrollRatio = max > 0 ? Math.Clamp(_readerScrollPosition / max, 0, 1) : 0;
-                    ReaderProgressText.Text = $"{CalculateReaderProgressPercent():0}%";
+                    ReaderProgressPercentText.Text = $"{CalculateReaderProgressPercent():0}%";
                     _ = SaveReaderProgressAfterScrollAsync(++_readerProgressSaveSequence);
                     _ = UpdateReaderBookmarkIndicatorAsync();
                     TryAdvanceReaderScrollChapter();
@@ -1081,40 +1078,6 @@ public partial class MainWindow
         ReaderInPageSearchBox.SelectAll();
     }
 
-    private async void ReaderSearchBox_TextChanged(object? sender, TextChangedEventArgs e)
-    {
-        if (_readerDocument is null) return;
-        var sequence = ++_readerSearchSequence;
-        var query = ReaderSearchBox.Text?.Trim() ?? string.Empty;
-        await Task.Delay(120);
-        if (sequence != _readerSearchSequence) return;
-        await ApplyReaderSearchAsync(query, sequence);
-    }
-
-    private async void ReaderSearchBox_KeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Escape)
-        {
-            e.Handled = true;
-            await ClearReaderSearchAsync();
-            ReaderSearchBox.IsVisible = false;
-            ReaderSearchPreviousButton.IsVisible = false;
-            ReaderSearchNextButton.IsVisible = false;
-            ReaderSearchCountText.IsVisible = false;
-        }
-        else if (e.Key == Key.Enter)
-        {
-            e.Handled = true;
-            await NavigateReaderSearchAsync(_readerSearchIndex + ((e.KeyModifiers & KeyModifiers.Shift) != 0 ? -1 : 1));
-        }
-    }
-
-    private async void ReaderSearchPreviousButton_Click(object? sender, RoutedEventArgs e) =>
-        await NavigateReaderSearchAsync(_readerSearchIndex - 1);
-
-    private async void ReaderSearchNextButton_Click(object? sender, RoutedEventArgs e) =>
-        await NavigateReaderSearchAsync(_readerSearchIndex + 1);
-
     private async void ReaderFlowModeItem_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not MenuItem { Tag: string tag }) return;
@@ -1221,7 +1184,7 @@ public partial class MainWindow
         await SaveReaderAnnotationAsync(string.Empty);
     }
 
-    private void ToggleReaderZenMode()
+    private async void ToggleReaderZenMode()
     {
         if (!_readerZenMode)
         {
@@ -1232,41 +1195,168 @@ public partial class MainWindow
             WindowState = WindowState.FullScreen;
             _readerZenMode = true;
             ReaderAssistantPanel.IsVisible = false;
-            ReaderBodyGrid.ColumnDefinitions[2].Width = new GridLength(0);
+            ReaderRoot.ColumnDefinitions[2].Width = new GridLength(0);
             ReaderAssistantToggleButton.IsVisible = false;
             ReaderZenBar.IsVisible = true;
             if (ReaderZenMenuItem is not null) ReaderZenMenuItem.IsChecked = true;
             // Zen mode starts with the minimal TOC rail, matching the WinUI
             // reference: the full TOC panel is collapsed and only the 52-DIP
-            // marker rail keeps the chapter map visible.
+            // marker rail keeps the chapter map visible. The content header and
+            // footer bars collapse so the body fills the whole reading area.
             _readerTocExpanded = false;
             _readerTocMinimal = true;
+            ReaderContentPanel.RowDefinitions[0].Height = new GridLength(0);
+            ReaderHeaderBar.IsVisible = false;
+            ReaderContentPanel.RowDefinitions[2].Height = new GridLength(0);
+            ReaderFooterBar.IsVisible = false;
+            ReaderWebViewHost.Margin = new Thickness(0, 12, 0, 0);
             ApplyReaderPanelLayout();
             UpdateReaderZenTocToggle();
+            UpdateReaderZenChrome(visible: true);
         }
         else
         {
-            ExitReaderZenMode();
+            await ExitReaderZenModeSmoothlyAsync();
         }
     }
 
+    // Leaving zen restores the side panels, header/footer bars and the window
+    // size in one go, which makes the paginated body text reflow and jump.
+    // Mask that behind an opaque cover, restore everything, let the relayout
+    // settle, then fade the cover away (WinUI reference behavior).
+    private async Task ExitReaderZenModeSmoothlyAsync()
+    {
+        try
+        {
+            ReaderTransitionCover.Opacity = 1;
+            ExitReaderZenModeCore();
+            await Task.Delay(320);
+            await FadeReaderTransitionCoverAsync(1, 0, 180);
+        }
+        catch
+        {
+            ReaderTransitionCover.Opacity = 0;
+        }
+    }
+
+    private async Task FadeReaderTransitionCoverAsync(double from, double to, int durationMs)
+    {
+        try
+        {
+            var animation = new Animation
+            {
+                Duration = TimeSpan.FromMilliseconds(durationMs),
+                FillMode = Avalonia.Animation.FillMode.Forward
+            };
+            var frame = new KeyFrame { Cue = new Cue(1d) };
+            frame.Setters.Add(new Avalonia.Styling.Setter(Border.OpacityProperty, to));
+            animation.Children.Add(frame);
+            ReaderTransitionCover.Opacity = from;
+            await animation.RunAsync(ReaderTransitionCover);
+        }
+        catch
+        {
+        }
+        ReaderTransitionCover.Opacity = to;
+    }
+
     private void ExitReaderZenMode()
+    {
+        if (!_readerZenMode) return;
+        ReaderTransitionCover.Opacity = 0;
+        ExitReaderZenModeCore();
+    }
+
+    private void ExitReaderZenModeCore()
     {
         if (!_readerZenMode) return;
         WindowState = _readerWindowStateBeforeZen;
         _readerZenMode = false;
         ReaderTocPanel.IsVisible = false;
         ReaderAssistantPanel.IsVisible = _readerAssistantVisibleBeforeZen;
-        ReaderBodyGrid.ColumnDefinitions[2].Width = _readerAssistantVisibleBeforeZen
-            ? new GridLength(330)
+        ReaderRoot.ColumnDefinitions[2].Width = _readerAssistantVisibleBeforeZen
+            ? new GridLength(360)
             : new GridLength(0);
         ReaderAssistantToggleButton.IsVisible = true;
         ReaderZenBar.IsVisible = false;
         if (ReaderZenMenuItem is not null) ReaderZenMenuItem.IsChecked = false;
         _readerTocExpanded = _readerTocExpandedBeforeZen;
         _readerTocMinimal = _readerTocMinimalBeforeZen;
+        ReaderContentPanel.RowDefinitions[0].Height = new GridLength(52);
+        ReaderHeaderBar.IsVisible = true;
+        ReaderContentPanel.RowDefinitions[2].Height = new GridLength(50);
+        ReaderFooterBar.IsVisible = true;
+        ReaderWebViewHost.Margin = new Thickness(0, 12, 0, 10);
         ApplyReaderPanelLayout();
         UpdateReaderZenTocToggle();
+        // Leaving zen restores the chrome unconditionally; the hide timer must
+        // not keep running for the bookshelf.
+        _readerZenChromeHideTimer?.Stop();
+        _readerZenChromeVisible = true;
+        ReaderZenTitleTocButton.IsVisible = false;
+        ReaderZenTitleExitButton.IsVisible = false;
+        MinimizeWindowButton.IsVisible = true;
+        MaximizeWindowButton.IsVisible = true;
+        CloseWindowButton.IsVisible = true;
+        WindowBrandText.IsVisible = ReaderRoot.IsVisible;
+    }
+
+    // Zen mode auto-hides the top chrome (brand text, zen title buttons and the
+    // window caption buttons) so only the body remains; the minimal TOC rail on
+    // the left is not part of this chrome and stays visible. Mouse movement
+    // reveals it again, and it hides after ~2.5 s of inactivity.
+    private bool _readerZenChromeVisible = true;
+    private DispatcherTimer? _readerZenChromeHideTimer;
+    private long _readerZenLastMouseMoveTick;
+
+    private void ReaderRoot_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_readerZenMode) return;
+        var now = Environment.TickCount64;
+        if (now - _readerZenLastMouseMoveTick <= 80) return;
+        _readerZenLastMouseMoveTick = now;
+        if (_readerZenMode && !_readerZenChromeVisible)
+            UpdateReaderZenChrome(visible: true);
+        else if (_readerZenMode)
+            RestartReaderZenChromeHideTimer();
+    }
+
+    private void RestartReaderZenChromeHideTimer()
+    {
+        _readerZenChromeHideTimer ??= new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(2500)
+        };
+        _readerZenChromeHideTimer.Stop();
+        _readerZenChromeHideTimer.Tick -= ReaderZenChromeHideTimer_Tick;
+        _readerZenChromeHideTimer.Tick += ReaderZenChromeHideTimer_Tick;
+        _readerZenChromeHideTimer.Start();
+    }
+
+    private void ReaderZenChromeHideTimer_Tick(object? sender, EventArgs e)
+    {
+        _readerZenChromeHideTimer?.Stop();
+        if (_readerZenMode) UpdateReaderZenChrome(visible: false);
+    }
+
+    private void UpdateReaderZenChrome(bool visible)
+    {
+        _readerZenChromeVisible = visible;
+        ReaderZenTitleTocButton.IsVisible = _readerZenMode && visible;
+        ReaderZenTitleExitButton.IsVisible = _readerZenMode && visible;
+        MinimizeWindowButton.IsVisible = visible;
+        MaximizeWindowButton.IsVisible = visible;
+        CloseWindowButton.IsVisible = visible;
+        // The brand text floats over the minimal TOC rail in zen mode, so it
+        // stays hidden there; it is restored when returning to the bookshelf.
+        WindowBrandText.IsVisible = !_readerZenMode
+            && visible
+            && ReaderRoot.IsVisible;
+
+        if (visible)
+            RestartReaderZenChromeHideTimer();
+        else
+            _readerZenChromeHideTimer?.Stop();
     }
 
     private void UpdateReaderToolbar()
@@ -1285,8 +1375,6 @@ public partial class MainWindow
         SyncReaderAnimationMenu();
         if (ReaderZoomText is not null)
             ReaderZoomText.Text = $"{_readerLayout.FontScale:P0}";
-        if (ReaderProgressText is not null)
-            ReaderProgressText.Text = $"{CalculateReaderProgressPercent():0}%";
         if (ReaderProgressPercentText is not null)
             ReaderProgressPercentText.Text = $"{CalculateReaderProgressPercent():0}%";
         if (ReaderReadingProgressText is not null)
@@ -1296,9 +1384,25 @@ public partial class MainWindow
         if (ReaderProgressSlider is not null)
         {
             _readerProgressSliderUpdating = true;
-            ReaderProgressSlider.Minimum = 0;
-            ReaderProgressSlider.Maximum = 100;
-            ReaderProgressSlider.Value = Math.Clamp(CalculateReaderProgressPercent(), 0, 100);
+            if (_readerIsPdf)
+            {
+                var pageCount = Math.Max(1, _readerPdfPages.Count);
+                ReaderProgressSlider.Minimum = 1;
+                ReaderProgressSlider.Maximum = pageCount;
+                ReaderProgressSlider.Value = Math.Clamp(_readerPdfPage, 1, pageCount);
+            }
+            else if (_readerDocument is not null && _readerDocument.Chapters.Count > 0)
+            {
+                ReaderProgressSlider.Minimum = 1;
+                ReaderProgressSlider.Maximum = _readerDocument.Chapters.Count;
+                ReaderProgressSlider.Value = Math.Clamp(_readerChapterIndex + 1, 1, _readerDocument.Chapters.Count);
+            }
+            else
+            {
+                ReaderProgressSlider.Minimum = 1;
+                ReaderProgressSlider.Maximum = 1;
+                ReaderProgressSlider.Value = 1;
+            }
             _readerProgressSliderUpdating = false;
         }
         // PDF hides the zoom controls and shows the PDF badge, matching the
@@ -1312,9 +1416,11 @@ public partial class MainWindow
         if (ReaderPdfBottomText is not null)
             ReaderPdfBottomText.IsVisible = _readerIsPdf;
         if (ReaderPreviousButton is not null)
-            ReaderPreviousButton.IsEnabled = _readerIsPdf ? _readerPdfPage > 1 : true;
+            ReaderPreviousButton.IsEnabled = _readerIsPdf ? _readerPdfPage > 1 : _readerChapterIndex > 0;
         if (ReaderNextButton is not null)
-            ReaderNextButton.IsEnabled = _readerIsPdf ? _readerPdfPage < Math.Max(1, _readerPdfPages.Count) : true;
+            ReaderNextButton.IsEnabled = _readerIsPdf
+                ? _readerPdfPage < Math.Max(1, _readerPdfPages.Count)
+                : _readerDocument is not null && _readerChapterIndex + 1 < _readerDocument.Chapters.Count;
         UpdateReaderSearchCount();
     }
 
@@ -1323,7 +1429,6 @@ public partial class MainWindow
         var text = _readerSearchCount <= 0
             ? "0/0"
             : $"{_readerSearchIndex + 1}/{_readerSearchCount}";
-        ReaderSearchCountText.Text = text;
         ReaderInPageSearchCountText.Text = text;
     }
 

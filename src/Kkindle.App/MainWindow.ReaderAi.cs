@@ -133,7 +133,6 @@ public partial class MainWindow
     {
         ReaderAiView.IsVisible = true;
         ReaderNotesView.IsVisible = false;
-        ReaderAiSettingsView.IsVisible = false;
         ReaderAiComposer.IsVisible = true;
         _readerAiSettingsVisible = false;
         SetReaderAssistantTabState(ReaderAiTabButton, selected: true);
@@ -144,7 +143,6 @@ public partial class MainWindow
     {
         ReaderAiView.IsVisible = false;
         ReaderNotesView.IsVisible = true;
-        ReaderAiSettingsView.IsVisible = false;
         ReaderAiComposer.IsVisible = false;
         _readerAiSettingsVisible = false;
         SetReaderAssistantTabState(ReaderAiTabButton, selected: false);
@@ -163,15 +161,7 @@ public partial class MainWindow
     }
 
     private void ReaderAiSettingsOpenButton_Click(object? sender, RoutedEventArgs e)
-    {
-        ApplyReaderAiSettingsToControls();
-        ReaderAiView.IsVisible = false;
-        ReaderNotesView.IsVisible = false;
-        ReaderAiSettingsView.IsVisible = true;
-        ReaderAiComposer.IsVisible = false;
-        _readerAiSettingsVisible = true;
-        ReaderAiSettingsStatusText.Text = "API Key 只保存在当前设备的本地设置中。";
-    }
+        => ReaderAiSettingsButton_Click(sender, e);
 
     private void ReaderAiSettingsCancelButton_Click(object? sender, RoutedEventArgs e) => ShowReaderAiTab();
 
@@ -315,8 +305,7 @@ public partial class MainWindow
         }
         if (!_readerAiSettings.IsConfigured)
         {
-            ReaderAiStatusText.Text = "请先打开 AI 设置，填写 Base URL、模型和 API Key。";
-            ReaderAiSettingsOpenButton.Focus();
+            ReaderAiStatusText.Text = "请先到设置面板的 AI 助手设置中填写 Base URL、模型和 API Key。";
             return;
         }
 
