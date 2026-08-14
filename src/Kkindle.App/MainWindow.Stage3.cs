@@ -246,7 +246,6 @@ public partial class MainWindow
         ConfigureAppSettingsAutoSave();
         await RefreshManagedResourcesAsync(cancellationToken);
         DevicePageDeviceText.Text = "正在检查设备…";
-        DevicePageConnectionText.Text = string.Empty;
         DevicePageStatusText.Text = "正在读取 Kindle 连接状态。";
         _stage3Ready = true;
         await RunAutoBackupIfNeededAsync(cancellationToken);
@@ -400,7 +399,6 @@ public partial class MainWindow
             {
                 _devices = [];
                 DevicePageDeviceText.Text = "平台服务未连接";
-                DevicePageConnectionText.Text = "当前启动头未提供 Kindle 平台服务";
                 DevicePageStatusText.Text = "设备功能将在 Windows 平台启动头中启用。";
                 SetEjectButtonsEnabled(false);
                 return;
@@ -455,8 +453,7 @@ public partial class MainWindow
             _devices = [device];
             _lastDeviceIdentity = device.Identity;
             _deviceDisplayName = displayName;
-            DevicePageDeviceText.Text = _deviceDisplayName;
-            DevicePageConnectionText.Text = $"{device.ConnectionLabel} · {device.CapacityLabel}";
+            DevicePageDeviceText.Text = $"{_deviceDisplayName} · {device.ConnectionLabel}";
             DeviceNameButton.IsEnabled = true;
             DevicePageStatusText.Text = changed ? "设备已连接，正在准备设备信息…" : "设备已连接。";
             KindleStatusText.Text = _deviceDisplayName;
@@ -500,7 +497,6 @@ public partial class MainWindow
         _devices = [];
         _deviceDisplayName = null;
         DevicePageDeviceText.Text = "未检测到设备";
-        DevicePageConnectionText.Text = string.Empty;
         DeviceNameButton.IsEnabled = false;
         DevicePageStatusText.Text = detail ?? "请连接并解锁 Kindle；支持 USB 磁盘与 MTP。";
         KindleStatusText.Text = "无设备连接";
@@ -947,8 +943,7 @@ public partial class MainWindow
         KindleStatusText.Text = _deviceDisplayName;
         KindleConnectionText.Text = $"{device.ConnectionLabel} · 已连接";
         KindleConnectionText.IsVisible = true;
-        DevicePageDeviceText.Text = _deviceDisplayName;
-        DevicePageConnectionText.Text = $"{device.ConnectionLabel} · {device.CapacityLabel}";
+        DevicePageDeviceText.Text = $"{_deviceDisplayName} · {device.ConnectionLabel}";
         DeviceNameButton.IsEnabled = true;
         if (DeviceResourcePage.IsVisible)
             DeviceResourceStatusText.Text = $"{_deviceDisplayName} · {device.ConnectionLabel}";
@@ -3367,14 +3362,59 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
     public string Title => Book.Title;
     public string Authors => Book.Authors;
     public string FormatLabel => Book.Format.ToUpperInvariant();
+    public string SizeLabel => Book.SizeLabel;
     public string InfoLabel => $"{FormatLabel} · {Book.SizeLabel}";
+    public string FileName => Book.FileName;
     public string RelativePath => Book.RelativePath;
+    public string ModifiedLabel => Book.ModifiedAt is { } modifiedAt
+        ? $"修改于 {modifiedAt.ToLocalTime():yyyy-MM-dd HH:mm}"
+        : "修改时间未知";
+    public string HashLabel => string.IsNullOrWhiteSpace(Book.Sha256)
+        ? "SHA-256 未计算"
+        : $"SHA-256 {Book.Sha256[..Math.Min(12, Book.Sha256.Length)]}…";
     public string PresenceLabel => LibraryPresence switch
     {
         BookLibraryPresence.Both => "电脑与 Kindle 都有",
         BookLibraryPresence.ComputerOnly => "仅电脑书库",
         _ => "仅 Kindle"
     };
+
+    // Gallery mode (shared with the PC library grid): hide the title/author/
+    // info text so only the cover image remains.
+    private bool _galleryTextVisible = true;
+    private bool _isLibraryPresenceVisible = true;
+
+    public bool GalleryTextVisibility
+    {
+        get => _galleryTextVisible;
+        private set => SetProperty(ref _galleryTextVisible, value);
+    }
+
+    public void SetGalleryTextVisible(bool visible)
+    {
+        if (_galleryTextVisible == visible) return;
+        _galleryTextVisible = visible;
+        OnPropertyChanged(nameof(GalleryTextVisibility));
+        OnPropertyChanged(nameof(PresenceVisibility));
+    }
+
+    public bool PresenceVisibility
+    {
+        get => _isLibraryPresenceVisible && _galleryTextVisible;
+        private set
+        {
+            if (_isLibraryPresenceVisible == value) return;
+            _isLibraryPresenceVisible = value;
+            OnPropertyChanged(nameof(PresenceVisibility));
+        }
+    }
+
+    public void SetLibraryPresenceVisible(bool visible)
+    {
+        if (_isLibraryPresenceVisible == visible) return;
+        _isLibraryPresenceVisible = visible;
+        OnPropertyChanged(nameof(PresenceVisibility));
+    }
     public BookLibraryPresence LibraryPresence
     {
         get => _libraryPresence;

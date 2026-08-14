@@ -23,6 +23,106 @@
         ExtendClientAreaTitleBarHeightHint="-1"
         KeyDown="MainWindow_KeyDown">
 
+    <Window.Resources>
+        <!-- Library-presence glyph shared by the PC grid, the PC list and the
+             Kindle cards. The three states (PC only / Kindle only / both) are
+             drawn at the exact coordinates of the WinUI reference template:
+             laptop outline with 1.5 rounded corners, reader body, open book. -->
+        <DataTemplate x:Key="LibraryPresenceGlyph" x:CompileBindings="False">
+            <Grid Width="23" Height="21" IsHitTestVisible="False">
+                <!-- PC only: a simple laptop outline. -->
+                <Grid IsVisible="{Binding ComputerOnlyPresenceVisibility}">
+                    <Border Width="17"
+                            Height="12"
+                            Margin="3,2,0,0"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Top"
+                            CornerRadius="1.5"
+                            BorderBrush="{StaticResource InkBrush}"
+                            BorderThickness="1.6" />
+                    <Path Data="M 1,15 L 22,15 L 20,19 L 3,19 Z"
+                          Fill="{StaticResource InkBrush}"
+                          HorizontalAlignment="Left"
+                          VerticalAlignment="Top" />
+                    <Rectangle Width="7"
+                               Height="1.2"
+                               Margin="8,15,0,0"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Top"
+                               Fill="{StaticResource PaperBrush}" />
+                </Grid>
+
+                <!-- Kindle only: reader body, text page and home bar. -->
+                <Grid Width="15"
+                      Height="21"
+                      IsVisible="{Binding KindleOnlyPresenceVisibility}">
+                    <Border CornerRadius="2.5"
+                            BorderBrush="{StaticResource InkBrush}"
+                            BorderThickness="1.6">
+                        <Grid>
+                            <Border Margin="2.5,2.5,2.5,5"
+                                    BorderBrush="{StaticResource InkBrush}"
+                                    BorderThickness="1.2">
+                                <StackPanel Margin="2,2" Spacing="1.3">
+                                    <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
+                                    <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
+                                    <Rectangle Width="5" Height="1" HorizontalAlignment="Left" Fill="{StaticResource InkBrush}" />
+                                    <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
+                                </StackPanel>
+                            </Border>
+                            <Rectangle Width="5"
+                                       Height="1.5"
+                                       Margin="0,0,0,1.5"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Bottom"
+                                       Fill="{StaticResource InkBrush}" />
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- Both libraries: an open book displayed on a laptop. -->
+                <Grid IsVisible="{Binding BothLibrariesPresenceVisibility}">
+                    <Border Width="18"
+                            Height="13"
+                            Margin="2.5,1,0,0"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Top"
+                            CornerRadius="1.5"
+                            BorderBrush="{StaticResource InkBrush}"
+                            BorderThickness="1.6" />
+                    <Path Data="M 1,15 L 22,15 L 20,19 L 3,19 Z"
+                          Fill="{StaticResource InkBrush}"
+                          HorizontalAlignment="Left"
+                          VerticalAlignment="Top" />
+                    <Rectangle Width="7"
+                               Height="1.2"
+                               Margin="8,15,0,0"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Top"
+                               Fill="{StaticResource PaperBrush}" />
+                    <Path Data="M 5,4 L 11.5,6 L 11.5,13 L 5,11 Z"
+                          Fill="{StaticResource PaperBrush}"
+                          Stroke="{StaticResource InkBrush}"
+                          StrokeThickness="1.3"
+                          HorizontalAlignment="Left"
+                          VerticalAlignment="Top" />
+                    <Path Data="M 11.5,6 L 18,4 L 18,11 L 11.5,13 Z"
+                          Fill="{StaticResource PaperBrush}"
+                          Stroke="{StaticResource InkBrush}"
+                          StrokeThickness="1.3"
+                          HorizontalAlignment="Left"
+                          VerticalAlignment="Top" />
+                    <Ellipse Width="2.5"
+                             Height="1.5"
+                             Margin="10.25,12,0,0"
+                             HorizontalAlignment="Left"
+                             VerticalAlignment="Top"
+                             Fill="{StaticResource InkBrush}" />
+                </Grid>
+            </Grid>
+        </DataTemplate>
+    </Window.Resources>
+
     <!-- Transparent window with a shadowed content host: the UI floats on the
          desktop with a soft drop shadow around the whole main interface. Two
          shadow layers (tight + diffuse) read softer than a single heavy one.
@@ -568,87 +668,14 @@
                                                 ToolTip.Tip="{Binding PresenceLabel}"
                                                 AutomationProperties.Name="{Binding PresenceLabel}"
                                                 IsVisible="{Binding PresenceVisibility}">
-                                            <Grid Width="23" Height="21">
-                                                <Grid IsVisible="{Binding ComputerOnlyPresenceVisibility}">
-                                                    <Border Width="17"
-                                                            Height="12"
-                                                            Margin="0,0,0,5"
-                                                            HorizontalAlignment="Center"
-                                                            VerticalAlignment="Top"
-                                                            BorderBrush="{StaticResource InkBrush}"
-                                                            BorderThickness="1.5" />
-                                                    <Path Data="M 1,15 L 22,15 L 20,19 L 3,19 Z"
-                                                          Fill="{StaticResource InkBrush}"
-                                                          HorizontalAlignment="Center"
-                                                          VerticalAlignment="Bottom" />
-                                                    <Rectangle Width="7"
-                                                               Height="1"
-                                                               Fill="{StaticResource PaperBrush}"
-                                                               HorizontalAlignment="Center"
-                                                               VerticalAlignment="Bottom"
-                                                               Margin="0,0,0,4" />
-                                                </Grid>
-                                                <Grid Width="15"
-                                                      Height="21"
-                                                      IsVisible="{Binding KindleOnlyPresenceVisibility}">
-                                                    <Border BorderBrush="{StaticResource InkBrush}"
-                                                            BorderThickness="1.5"
-                                                            CornerRadius="2">
-                                                        <Grid>
-                                                            <Border Margin="2.5,2.5,2.5,5"
-                                                                    BorderBrush="{StaticResource InkBrush}"
-                                                                    BorderThickness="1">
-                                                                <StackPanel Margin="2,2" Spacing="1.5">
-                                                                    <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
-                                                                    <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
-                                                                    <Rectangle Width="5" Height="1" HorizontalAlignment="Left" Fill="{StaticResource InkBrush}" />
-                                                                    <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
-                                                                </StackPanel>
-                                                            </Border>
-                                                            <Rectangle Width="5"
-                                                                       Height="1.5"
-                                                                       Margin="0,0,0,1.5"
-                                                                       HorizontalAlignment="Center"
-                                                                       VerticalAlignment="Bottom"
-                                                                       Fill="{StaticResource InkBrush}" />
-                                                        </Grid>
-                                                    </Border>
-                                                </Grid>
-                                                <Grid IsVisible="{Binding BothLibrariesPresenceVisibility}">
-                                                    <Border Width="18"
-                                                            Height="13"
-                                                            Margin="0,0,0,3"
-                                                            HorizontalAlignment="Center"
-                                                            VerticalAlignment="Top"
-                                                            BorderBrush="{StaticResource InkBrush}"
-                                                            BorderThickness="1.5" />
-                                                    <Path Data="M 1,15 L 22,15 L 20,19 L 3,19 Z"
-                                                          Fill="{StaticResource InkBrush}"
-                                                          HorizontalAlignment="Center"
-                                                          VerticalAlignment="Bottom" />
-                                                    <Rectangle Width="7"
-                                                               Height="1"
-                                                               Fill="{StaticResource PaperBrush}"
-                                                               HorizontalAlignment="Center"
-                                                               VerticalAlignment="Bottom"
-                                                               Margin="0,0,0,4" />
-                                                    <Path Data="M 5,4 L 11.5,6 L 11.5,13 L 5,11 Z"
-                                                          Fill="{StaticResource PaperBrush}"
-                                                          Stroke="{StaticResource InkBrush}"
-                                                          StrokeThickness="1.2" />
-                                                    <Path Data="M 11.5,6 L 18,4 L 18,11 L 11.5,13 Z"
-                                                          Fill="{StaticResource PaperBrush}"
-                                                          Stroke="{StaticResource InkBrush}"
-                                                          StrokeThickness="1.2" />
-                                                    <Ellipse Width="2.5"
-                                                             Height="1.5"
-                                                             Margin="0,0,0,2"
-                                                             HorizontalAlignment="Center"
-                                                             VerticalAlignment="Bottom"
-                                                             Fill="{StaticResource InkBrush}" />
-                                                </Grid>
-                                            </Grid>
-                                        </Border>
+                                            <ContentControl Content="{Binding}"
+                                                Padding="0"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                HorizontalContentAlignment="Center"
+                                                VerticalContentAlignment="Center"
+                                                ContentTemplate="{StaticResource LibraryPresenceGlyph}" />
+</Border>
                                         <!-- 格式转换进度徽标：点击可恢复转换弹窗 -->
                                         <Border Grid.Row="0"
                                                 Width="68"
@@ -767,35 +794,14 @@
                                                             ToolTip.Tip="{Binding PresenceLabel}"
                                                             AutomationProperties.Name="{Binding PresenceLabel}"
                                                             IsVisible="{Binding PresenceVisibility}">
-                                                        <Grid Width="21" Height="19">
-                                                            <Grid IsVisible="{Binding ComputerOnlyPresenceVisibility}">
-                                                                <Border Width="16" Height="11" Margin="0,0,0,5" HorizontalAlignment="Center" VerticalAlignment="Top" BorderBrush="{StaticResource InkBrush}" BorderThickness="1.4" />
-                                                                <Path Data="M 1,13 L 20,13 L 18.5,16.5 L 2.5,16.5 Z" Fill="{StaticResource InkBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" />
-                                                                <Rectangle Width="6" Height="1" Fill="{StaticResource PaperBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,3.5" />
-                                                            </Grid>
-                                                            <Grid Width="14" Height="19" IsVisible="{Binding KindleOnlyPresenceVisibility}">
-                                                                <Border BorderBrush="{StaticResource InkBrush}" BorderThickness="1.4" CornerRadius="2">
-                                                                    <Grid>
-                                                                        <Border Margin="2.5,2.5,2.5,4.5" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
-                                                                            <StackPanel Margin="1.5,1.5" Spacing="1.2">
-                                                                                <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
-                                                                                <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
-                                                                                <Rectangle Width="4.5" Height="1" HorizontalAlignment="Left" Fill="{StaticResource InkBrush}" />
-                                                                            </StackPanel>
-                                                                        </Border>
-                                                                        <Rectangle Width="4.5" Height="1.3" Margin="0,0,0,1.3" HorizontalAlignment="Center" VerticalAlignment="Bottom" Fill="{StaticResource InkBrush}" />
-                                                                    </Grid>
-                                                                </Border>
-                                                            </Grid>
-                                                            <Grid IsVisible="{Binding BothLibrariesPresenceVisibility}">
-                                                                <Border Width="17" Height="12" Margin="0,0,0,3" HorizontalAlignment="Center" VerticalAlignment="Top" BorderBrush="{StaticResource InkBrush}" BorderThickness="1.4" />
-                                                                <Path Data="M 1,13 L 20,13 L 18.5,16.5 L 2.5,16.5 Z" Fill="{StaticResource InkBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" />
-                                                                <Rectangle Width="6" Height="1" Fill="{StaticResource PaperBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,3.5" />
-                                                                <Path Data="M 4.5,3.5 L 10.5,5.5 L 10.5,11.5 L 4.5,9.5 Z" Fill="{StaticResource PaperBrush}" Stroke="{StaticResource InkBrush}" StrokeThickness="1.1" />
-                                                                <Path Data="M 10.5,5.5 L 16.5,3.5 L 16.5,9.5 L 10.5,11.5 Z" Fill="{StaticResource PaperBrush}" Stroke="{StaticResource InkBrush}" StrokeThickness="1.1" />
-                                                            </Grid>
-                                                        </Grid>
-                                                    </Border>
+                                                        <ContentControl Content="{Binding}"
+                                                       Padding="0"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"
+                                                       HorizontalContentAlignment="Center"
+                                                       VerticalContentAlignment="Center"
+                                                       ContentTemplate="{StaticResource LibraryPresenceGlyph}" />
+</Border>
                                                     <Button Tag="{Binding}" Content="打开" Padding="10,5" Click="OpenCardButton_Click" />
                                                 </StackPanel>
                                             </StackPanel>
@@ -1203,7 +1209,7 @@
                   Grid.Column="1"
                   Margin="30,24,30,18"
                   IsVisible="False"
-                  RowDefinitions="Auto,Auto,*,Auto">
+                  RowDefinitions="Auto,*,Auto">
                   <Grid.Transitions>
                       <Transitions>
                           <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
@@ -1241,10 +1247,27 @@
                         <TextBlock x:Name="DevicePageStatusText" Text="正在检查设备…" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
-                        <Button Content="刷新" Classes="quiet" ToolTip.Tip="重新检测 Kindle 设备" Click="RefreshDevicesButton_Click" />
-                        <Button Content="扫描书库" Classes="quiet" ToolTip.Tip="重新读取 Kindle 上的书籍列表" Click="ScanDeviceBooksButton_Click" />
+                        <Button Classes="quiet"
+                                Width="38"
+                                MinWidth="38"
+                                Height="38"
+                                Padding="0"
+                                ToolTip.Tip="刷新设备"
+                                AutomationProperties.Name="刷新设备"
+                                Click="RefreshDevicesButton_Click">
+                            <Path Data="M 10,4 A 6,6 0 1,1 4,10 M 10,4 L 10,1 M 4,10 L 1,10"
+                                  Stroke="{StaticResource InkBrush}"
+                                  StrokeThickness="1.6"
+                                  Fill="Transparent"
+                                  Width="18"
+                                  Height="18" />
+                        </Button>
                         <Button x:Name="DeviceViewToggleButton"
                                 Classes="quiet"
+                                Width="38"
+                                MinWidth="38"
+                                Height="38"
+                                Padding="0"
                                 ToolTip.Tip="网格 / 列表视图"
                                 AutomationProperties.Name="切换视图">
                             <Button.Flyout>
@@ -1262,44 +1285,32 @@
                                               Click="DeviceViewMenuItem_Click" />
                                 </MenuFlyout>
                             </Button.Flyout>
-                            <StackPanel Orientation="Horizontal" Spacing="7">
-                                <Path x:Name="DeviceViewToggleIcon"
-                                      Data="M 2,2 H 8 V 8 H 2 Z M 14,2 H 20 V 8 H 14 Z M 2,14 H 8 V 20 H 2 Z M 14,14 H 20 V 20 H 14 Z"
-                                      Width="14"
-                                      Height="14"
-                                      Fill="{StaticResource InkBrush}"
-                                      VerticalAlignment="Center" />
-                                <TextBlock Text="视图" Foreground="{StaticResource InkBrush}" VerticalAlignment="Center" />
-                            </StackPanel>
+                            <Path x:Name="DeviceViewToggleIcon"
+                                  Data="M 2,2 H 8 V 8 H 2 Z M 14,2 H 20 V 8 H 14 Z M 2,14 H 8 V 20 H 2 Z M 14,14 H 20 V 20 H 14 Z"
+                                  Stroke="{StaticResource InkBrush}"
+                                  StrokeThickness="1.4"
+                                  Fill="Transparent"
+                                  Width="18"
+                                  Height="18" />
                         </Button>
                         <Button x:Name="EjectDeviceButton"
                                 Classes="quiet"
-                                ToolTip.Tip="安全弹出 Kindle（会先确认并等待任务完成）"
+                                Width="38"
+                                MinWidth="38"
+                                Height="38"
+                                Padding="0"
                                 Click="EjectDeviceButton_Click"
                                 IsEnabled="False">
-                            <StackPanel Orientation="Horizontal" Spacing="7">
-                                <Polygon Points="0,8 7,0 14,8"
-                                         Width="14"
-                                         Height="8"
-                                         Fill="{StaticResource InkBrush}"
-                                         Stroke="{StaticResource InkBrush}"
-                                         StrokeThickness="1" />
-                                <TextBlock Text="安全弹出" Foreground="{StaticResource InkBrush}" VerticalAlignment="Center" />
-                            </StackPanel>
+                            <Polygon Points="0,8 7,0 14,8"
+                                     Width="14"
+                                     Height="8"
+                                     Fill="{StaticResource InkBrush}"
+                                     Stroke="{StaticResource InkBrush}"
+                                     StrokeThickness="1" />
                         </Button>
                     </StackPanel>
                 </Grid>
-                <Border Grid.Row="1"
-                        Margin="0,14,0,12"
-                        Padding="10,8"
-                        BorderBrush="{StaticResource HairlineBrush}"
-                        BorderThickness="1">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <TextBlock x:Name="DevicePageConnectionText" VerticalAlignment="Center" />
-                        <TextBlock Text="支持 USB 磁盘与 MTP" Grid.Column="1" FontSize="11" Foreground="{StaticResource MutedInkBrush}" VerticalAlignment="Center" />
-                    </Grid>
-                </Border>
-                <ScrollViewer x:Name="DeviceBookGridScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer x:Name="DeviceBookGridScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto">
                     <ItemsControl ItemsSource="{Binding DeviceBooks}" HorizontalAlignment="Stretch">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -1315,13 +1326,22 @@
                                       ContextRequested="DeviceBook_ContextRequested">
                                     <Grid RowDefinitions="214,Auto">
                                         <Border Classes="bookCover" Background="#D9D9D9" BorderThickness="1">
+                                            <ToolTip.Tip>
+                                                <ToolTip>
+                                                    <StackPanel MaxWidth="360" Spacing="4">
+                                                        <TextBlock Text="{Binding Title}" FontWeight="Bold" TextWrapping="Wrap" />
+                                                        <TextBlock Text="{Binding Authors}" TextWrapping="Wrap" />
+                                                        <TextBlock Text="{Binding RelativePath}" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
+                                                    </StackPanel>
+                                                </ToolTip>
+                                            </ToolTip.Tip>
                                             <Grid>
-                                                <TextBlock Text="KINDLE" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#777777" FontSize="11" />
+                                                <TextBlock Text="KINDLE" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#777777" FontSize="13" />
                                                 <Image Source="{Binding CoverImage}" Stretch="Uniform" />
                                                 <Border Height="4" VerticalAlignment="Top" Background="{StaticResource InkBrush}" />
                                             </Grid>
                                         </Border>
-                                        <StackPanel Grid.Row="1" Margin="2,8,2,0" Spacing="2">
+                                        <StackPanel Grid.Row="1" Margin="2,9,2,0" Spacing="2" IsVisible="{Binding GalleryTextVisibility}">
                                             <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxLines="2" />
                                             <TextBlock Text="{Binding Authors}" FontSize="11" Foreground="#666666" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding InfoLabel}" FontSize="10" Foreground="#777777" />
@@ -1332,44 +1352,21 @@
                                             </Border>
                                         </Border>
                                         <Border Width="28" Height="28" Margin="0,5,5,0" HorizontalAlignment="Right" VerticalAlignment="Top" Background="{StaticResource PaperBrush}" BorderBrush="{StaticResource InkBrush}" BorderThickness="1" ToolTip.Tip="{Binding PresenceLabel}" AutomationProperties.Name="{Binding PresenceLabel}">
-                                            <Grid Width="23" Height="21">
-                                                <Grid IsVisible="{Binding ComputerOnlyPresenceVisibility}">
-                                                    <Border Width="17" Height="12" Margin="0,0,0,5" HorizontalAlignment="Center" VerticalAlignment="Top" BorderBrush="{StaticResource InkBrush}" BorderThickness="1.5" />
-                                                    <Path Data="M 1,15 L 22,15 L 20,19 L 3,19 Z" Fill="{StaticResource InkBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" />
-                                                    <Rectangle Width="7" Height="1" Fill="{StaticResource PaperBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,4" />
-                                                </Grid>
-                                                <Grid Width="15" Height="21" IsVisible="{Binding KindleOnlyPresenceVisibility}">
-                                                    <Border BorderBrush="{StaticResource InkBrush}" BorderThickness="1.5" CornerRadius="2">
-                                                        <Grid>
-                                                            <Border Margin="2.5,2.5,2.5,5" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
-                                                                <StackPanel Margin="2,2" Spacing="1.5">
-                                                                    <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
-                                                                    <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
-                                                                    <Rectangle Width="5" Height="1" HorizontalAlignment="Left" Fill="{StaticResource InkBrush}" />
-                                                                    <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
-                                                                </StackPanel>
-                                                            </Border>
-                                                            <Rectangle Width="5" Height="1.5" Margin="0,0,0,1.5" HorizontalAlignment="Center" VerticalAlignment="Bottom" Fill="{StaticResource InkBrush}" />
-                                                        </Grid>
-                                                    </Border>
-                                                </Grid>
-                                                <Grid IsVisible="{Binding BothLibrariesPresenceVisibility}">
-                                                    <Border Width="18" Height="13" Margin="0,0,0,3" HorizontalAlignment="Center" VerticalAlignment="Top" BorderBrush="{StaticResource InkBrush}" BorderThickness="1.5" />
-                                                    <Path Data="M 1,15 L 22,15 L 20,19 L 3,19 Z" Fill="{StaticResource InkBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" />
-                                                    <Rectangle Width="7" Height="1" Fill="{StaticResource PaperBrush}" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,4" />
-                                                    <Path Data="M 5,4 L 11.5,6 L 11.5,13 L 5,11 Z" Fill="{StaticResource PaperBrush}" Stroke="{StaticResource InkBrush}" StrokeThickness="1.2" />
-                                                    <Path Data="M 11.5,6 L 18,4 L 18,11 L 11.5,13 Z" Fill="{StaticResource PaperBrush}" Stroke="{StaticResource InkBrush}" StrokeThickness="1.2" />
-                                                    <Ellipse Width="2.5" Height="1.5" Margin="0,0,0,2" HorizontalAlignment="Center" VerticalAlignment="Bottom" Fill="{StaticResource InkBrush}" />
-                                                </Grid>
-                                            </Grid>
-                                        </Border>
+                                            <ContentControl Content="{Binding}"
+                                                Padding="0"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                HorizontalContentAlignment="Center"
+                                                VerticalContentAlignment="Center"
+                                                ContentTemplate="{StaticResource LibraryPresenceGlyph}" />
+</Border>
                                     </Grid>
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </ScrollViewer>
-                <ScrollViewer x:Name="DeviceBookListScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" IsVisible="False">
+                <ScrollViewer x:Name="DeviceBookListScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" IsVisible="False">
                     <ItemsControl ItemsSource="{Binding DeviceBooks}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="local:KindleBookCardViewModel">
@@ -1380,18 +1377,48 @@
                                         DoubleTapped="DeviceBook_DoubleTapped"
                                         ContextRequested="DeviceBook_ContextRequested">
                                     <Grid ColumnDefinitions="54,2*,*,180" ColumnSpacing="10" MinHeight="72">
-                                        <Border Width="42" Height="56" Background="#D9D9D9" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
-                                            <Image Source="{Binding CoverImage}" Stretch="Uniform" />
-                                        </Border>
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding Authors}" FontSize="11" Foreground="#666666" TextTrimming="CharacterEllipsis" />
+                                        <Grid Width="42" Height="56" VerticalAlignment="Center">
+                                            <Border Background="#D9D9D9" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
+                                                <Image Source="{Binding CoverImage}" Stretch="Uniform" />
+                                            </Border>
+                                            <Border Width="18"
+                                                    Height="18"
+                                                    Margin="0,0,0,2"
+                                                    HorizontalAlignment="Right"
+                                                    VerticalAlignment="Bottom"
+                                                    Background="{StaticResource PaperBrush}"
+                                                    BorderBrush="{StaticResource InkBrush}"
+                                                    BorderThickness="1"
+                                                    IsVisible="{Binding PresenceVisibility}"
+                                                    ToolTip.Tip="{Binding PresenceLabel}"
+                                                    AutomationProperties.Name="{Binding PresenceLabel}">
+                                                <ContentControl Content="{Binding}"
+                                                                Padding="0"
+                                                                HorizontalAlignment="Center"
+                                                                VerticalAlignment="Center"
+                                                                HorizontalContentAlignment="Center"
+                                                                VerticalContentAlignment="Center"
+                                                                ContentTemplate="{StaticResource LibraryPresenceGlyph}"
+                                                                RenderTransformOrigin="0.5,0.5">
+                                                    <ContentControl.RenderTransform>
+                                                        <ScaleTransform ScaleX="0.72" ScaleY="0.72" />
+                                                    </ContentControl.RenderTransform>
+                                                </ContentControl>
+                                            </Border>
+                                        </Grid>
+                                        <StackPanel Grid.Column="1" Margin="12,0,12,0" VerticalAlignment="Center" Spacing="2" IsVisible="{Binding GalleryTextVisibility}">
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding Authors}" Foreground="{StaticResource MutedInkBrush}" FontSize="11" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding FileName}" Foreground="#777777" FontSize="10" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding FileName}" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="{Binding InfoLabel}" FontSize="11" />
-                                            <TextBlock Text="{Binding PresenceLabel}" FontSize="10" Foreground="#777777" />
+                                            <TextBlock Text="{Binding InfoLabel}" Foreground="{StaticResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding ModifiedLabel}" Foreground="#777777" FontSize="10" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
-                                        <TextBlock Grid.Column="3" Text="{Binding RelativePath}" FontSize="10" Foreground="#777777" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="{Binding RelativePath}" Foreground="#777777" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" ToolTip.Tip="{Binding RelativePath}" />
+                                            <TextBlock Text="{Binding HashLabel}" Foreground="#999999" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" />
+                                        </StackPanel>
                                         <Border Grid.ColumnSpan="4" BorderBrush="{StaticResource InkBrush}" BorderThickness="3" IsVisible="{Binding IsSelected}" IsHitTestVisible="False" />
                                     </Grid>
                                 </Border>
@@ -1400,7 +1427,7 @@
                     </ItemsControl>
                 </ScrollViewer>
                 <Border x:Name="DeviceBookSelectionBar"
-                        Grid.Row="2"
+                        Grid.Row="1"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Bottom"
                         Margin="0,0,0,16"
@@ -1417,7 +1444,7 @@
                         <Button Content="取消选择" Padding="11,6" Click="ClearDeviceBookSelectionButton_Click" />
                     </StackPanel>
                 </Border>
-                <TextBlock Grid.Row="3" x:Name="DeviceBookEmptyText" Text="连接 Kindle 后扫描书籍。" Foreground="#666666" Margin="0,10,0,0" />
+                <TextBlock Grid.Row="2" x:Name="DeviceBookEmptyText" Text="连接 Kindle 后扫描书籍。" Foreground="#666666" Margin="0,10,0,0" />
             </Grid>
 
             <!-- Stage 3: fonts and dictionaries on the connected Kindle. -->
@@ -1425,7 +1452,7 @@
                   Grid.Column="1"
                   Margin="30,24,30,18"
                   IsVisible="False"
-                  RowDefinitions="Auto,Auto,*,Auto"
+                  RowDefinitions="Auto,*,Auto"
                   DragDrop.AllowDrop="True"
                   DragDrop.DragOver="DeviceResourcePage_DragOver"
                   DragDrop.Drop="DeviceResourcePage_Drop">
@@ -1790,7 +1817,7 @@
                   Grid.Column="1"
                   Margin="30,24,30,18"
                   IsVisible="False"
-                  RowDefinitions="Auto,Auto,*,Auto">
+                  RowDefinitions="Auto,*,Auto">
                   <Grid.Transitions>
                       <Transitions>
                           <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
@@ -2820,7 +2847,7 @@
                         BorderThickness="2"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
-                    <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
+                    <Grid RowDefinitions="Auto,*,Auto" RowSpacing="10">
                         <TextBlock Text="选择豆瓣条目" FontSize="19" FontWeight="SemiBold" />
                         <TextBlock Grid.Row="1"
                                    Text="请选择与当前书籍匹配的结果，确认后再读取详细元数据。"
@@ -3064,7 +3091,7 @@
                   Grid.Row="0"
                   IsVisible="False"
                   Margin="0,38,0,0"
-                  RowDefinitions="Auto,Auto,*,Auto"
+                  RowDefinitions="Auto,*,Auto"
                   Background="{StaticResource PaperBrush}">
                 <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto"
                       Margin="20,12,20,10"
@@ -3454,7 +3481,7 @@
                             BorderBrush="{StaticResource HairlineBrush}"
                             BorderThickness="1"
                             Background="{StaticResource PaperBrush}">
-                        <Grid RowDefinitions="Auto,Auto,*,Auto">
+                        <Grid RowDefinitions="Auto,*,Auto">
                             <Border BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1" Padding="14,8">
                                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">

@@ -362,6 +362,11 @@ public partial class MainWindow : Window
             card.SetGalleryTextVisible(!_appSettings.GridGalleryDisplay);
             card.SetLibraryPresenceVisible(_appSettings.CompareKindleLibraryEnabled);
         }
+        foreach (var card in DeviceBooks)
+        {
+            card.SetGalleryTextVisible(!_appSettings.GridGalleryDisplay);
+            card.SetLibraryPresenceVisible(_appSettings.CompareKindleLibraryEnabled);
+        }
         SyncCardSelectionVisuals();
 
         var showingBooks = _libraryViewMode is LibraryViewMode.Grid or LibraryViewMode.List;
