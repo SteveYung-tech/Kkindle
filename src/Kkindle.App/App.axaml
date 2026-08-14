@@ -619,6 +619,16 @@
             <Setter Property="Padding" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
         </Style>
+        <!-- Button.Flyout menus render inside a MenuFlyoutPresenter; the Fluent
+             default border is grey, so the monochrome language must be applied
+             here as well. -->
+        <Style Selector="MenuFlyoutPresenter">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
         <Style Selector="MenuItem">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
             <Setter Property="Background" Value="{StaticResource PaperBrush}" />
@@ -629,6 +639,16 @@
         <Style Selector="MenuItem:pointerover">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
             <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="MenuItem:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <!-- Menu separators: solid black line instead of the Fluent grey. -->
+        <Style Selector="Separator">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Margin" Value="8,5" />
         </Style>
 
         <!-- Book cover hover: the grid card cover deepens its border and lifts
