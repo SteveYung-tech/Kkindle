@@ -419,7 +419,10 @@
 
         <!-- The old device card uses a small solid eject triangle. A unicode
              glyph is font-dependent and was the source of the wrong colour /
-             shape on the Avalonia port, so keep it as a vector. -->
+             shape on the Avalonia port, so keep it as a vector. The triangle
+             lives in the button content; the code-behind switches it between
+             solid (connected) and hollow (disconnected) exactly like the WinUI
+             EjectButtonStyle disabled state. -->
         <Style Selector="Button.eject">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="25" />
@@ -451,9 +454,6 @@
         </Style>
         <Style Selector="Button.eject:pressed">
             <Setter Property="Background" Value="{StaticResource PressedBrush}" />
-        </Style>
-        <Style Selector="Button.eject:disabled">
-            <Setter Property="Opacity" Value="0" />
         </Style>
 
         <Style Selector="ListBoxItem.bookCard">
@@ -526,6 +526,65 @@
         <Style Selector="ListBoxItem:selected:pointerover">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
             <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+
+        <!-- The WinUI shelf selects the 154-DIP card content, never the
+             172-DIP wrap slot around it. Keep the ListBox container visually
+             transparent so the outline inside the card stays flush with the
+             cover's left and right edges. -->
+        <Style Selector="ListBox.bookGrid ListBoxItem">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                      VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="ListBox.bookGrid ListBoxItem:selected">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="ListBox.bookGrid ListBoxItem:pointerover">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="ListBox.bookGrid ListBoxItem:selected:pointerover">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="ListBox.bookList ListBoxItem">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                      VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="ListBox.bookList ListBoxItem:selected">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="ListBox.bookList ListBoxItem:pointerover">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="ListBox.bookList ListBoxItem:selected:pointerover">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
 
         <Style Selector="ContextMenu">

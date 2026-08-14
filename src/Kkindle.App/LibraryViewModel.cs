@@ -92,6 +92,17 @@ public sealed class BookCardViewModel : ObservableObject
     public string DescriptionLabel => string.IsNullOrWhiteSpace(Book.Description) ? "暂无简介" : Book.Description;
     public Bitmap? CoverImage { get; private set; }
 
+    // Keep selection on the card itself. The legacy WinUI shelf did not use
+    // the list control's selection fill; it drew a black outline around the
+    // exact 154-DIP card footprint instead.
+    private bool _isMultiSelected;
+
+    public bool IsMultiSelected
+    {
+        get => _isMultiSelected;
+        set => SetProperty(ref _isMultiSelected, value);
+    }
+
     // The original gallery always surfaced where a book is available. The
     // portable library starts with the authoritative local copy and changes
     // this value when a future device scan supplies a matching Kindle copy.
@@ -106,8 +117,19 @@ public sealed class BookCardViewModel : ObservableObject
         {
             if (!SetProperty(ref _libraryPresence, value)) return;
             OnPropertyChanged(nameof(PresenceLabel));
+            OnPropertyChanged(nameof(ComputerOnlyPresenceVisibility));
+            OnPropertyChanged(nameof(KindleOnlyPresenceVisibility));
+            OnPropertyChanged(nameof(BothLibrariesPresenceVisibility));
         }
     }
+
+    // The WinUI reference draws three distinct monochrome glyphs for the
+    // library-presence badge (PC only / Kindle only / both). Avalonia keeps
+    // the same three-state model so the comparison stays readable instead of
+    // using a fixed icon on every card.
+    public bool ComputerOnlyPresenceVisibility => LibraryPresence == BookLibraryPresence.ComputerOnly;
+    public bool KindleOnlyPresenceVisibility => LibraryPresence == BookLibraryPresence.KindleOnly;
+    public bool BothLibrariesPresenceVisibility => LibraryPresence == BookLibraryPresence.Both;
 
     public string PresenceLabel => LibraryPresence switch
     {
@@ -134,6 +156,60 @@ public sealed class BookCardViewModel : ObservableObject
         if (_isGalleryTextVisible == visible) return;
         _isGalleryTextVisible = visible;
         OnPropertyChanged(nameof(GalleryTextVisibility));
+    }
+
+    // Format conversion progress shown on the book card while the conversion
+    // popup is minimized to the background. The badge is a tap target that
+    // restores the popup, matching the WinUI card behaviour.
+    private bool _isConversionProgressVisible;
+    private double _conversionProgress;
+    private string _conversionProgressLabel = "0%";
+    private string _conversionProgressMessage = "正在转换…";
+
+    public bool IsConversionProgressVisible
+    {
+        get => _isConversionProgressVisible;
+        private set
+        {
+            if (!SetProperty(ref _isConversionProgressVisible, value)) return;
+            OnPropertyChanged(nameof(ConversionProgressVisibility));
+        }
+    }
+
+    public bool ConversionProgressVisibility => IsConversionProgressVisible;
+
+    public double ConversionProgress
+    {
+        get => _conversionProgress;
+        private set => SetProperty(ref _conversionProgress, value);
+    }
+
+    public string ConversionProgressLabel
+    {
+        get => _conversionProgressLabel;
+        private set => SetProperty(ref _conversionProgressLabel, value);
+    }
+
+    public string ConversionProgressMessage
+    {
+        get => _conversionProgressMessage;
+        private set => SetProperty(ref _conversionProgressMessage, value);
+    }
+
+    public void SetConversionProgress(FormatConversionProgress progress, bool showIndicator)
+    {
+        ConversionProgress = Math.Clamp(progress.Percentage, 0, 100);
+        ConversionProgressLabel = $"{progress.RoundedPercentage}%";
+        ConversionProgressMessage = progress.Message;
+        IsConversionProgressVisible = showIndicator;
+    }
+
+    public void ClearConversionProgress()
+    {
+        IsConversionProgressVisible = false;
+        ConversionProgress = 0;
+        ConversionProgressLabel = "0%";
+        ConversionProgressMessage = "正在转换…";
     }
 
     public void Refresh()
