@@ -5,6 +5,7 @@ using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -574,6 +575,16 @@ public partial class MainWindow
         // WinUI EjectButtonStyle: the disabled state hollows the triangle out
         // (transparent fill, black outline stays visible).
         DeviceEjectTriangleGlyph.Fill = enabled ? Brushes.Black : Brushes.Transparent;
+        // ToolTip / automation name follow the connection state and transport,
+        // exactly like the WinUI reference (WPD sessions are "stopped", USB
+        // disks are "ejected").
+        var action = !enabled
+            ? "未连接设备"
+            : CurrentDevice?.Transport == KindleTransport.Wpd ? "停止访问设备" : "安全弹出设备";
+        ToolTip.SetTip(DeviceStatusEjectButton, action);
+        AutomationProperties.SetName(DeviceStatusEjectButton, action);
+        ToolTip.SetTip(EjectDeviceButton, action);
+        AutomationProperties.SetName(EjectDeviceButton, action);
     }
     private void DeviceStatusEjectButton_Tapped(object? sender, TappedEventArgs e)
         => e.Handled = true;
