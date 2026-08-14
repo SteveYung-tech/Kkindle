@@ -1,8 +1,10 @@
 using System.Text;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 
@@ -139,12 +141,16 @@ public partial class MainWindow
             .DefaultIfEmpty(-1)
             .First();
         if (chapterIndex < 0 || chapterIndex >= _readerDocument.Chapters.Count) return;
+        var chapterUri = new Uri(_readerDocument.Chapters[chapterIndex]);
+        if (!string.IsNullOrWhiteSpace(annotation.Fragment))
+            chapterUri = new Uri(chapterUri.AbsoluteUri + "#" + Uri.EscapeDataString(annotation.Fragment.TrimStart('#')));
         await NavigateToReaderItemAsync(
             new EpubReaderNavigationItem(
                 $"第 {chapterIndex + 1} 章",
-                new Uri(_readerDocument.Chapters[chapterIndex]).AbsoluteUri,
+                chapterUri.AbsoluteUri,
                 chapterIndex),
-            ReaderToken);
+            ReaderToken,
+            ReaderNavigationIntent.Annotation);
     }
 
     private async void ReaderDeleteAnnotationButton_Click(object? sender, RoutedEventArgs e)
@@ -164,11 +170,82 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is not null) await clipboard.SetTextAsync(_readerPendingSelection);
+        // Clear the live DOM selection so the highlighted text returns to the
+        // normal body rendering after the copy action (WinUI reference).
+        if (!_readerIsPdf && CurrentReaderHost is { } host)
+        {
+            try
+            {
+                await host.InvokeScriptAsync(
+                    "(() => { const s = window.getSelection(); if (s) s.removeAllRanges(); return true; })();");
+            }
+            catch
+            {
+            }
+        }
+        ReaderSelectionBar.IsVisible = false;
+        ReaderHighlightButton.IsVisible = false;
+        ReaderAnnotateButton.IsVisible = false;
         ShowReaderTransientStatus("已复制选中文字");
     }
 
     private async void ReaderSelectionHighlightButton_Click(object? sender, RoutedEventArgs e)
         => await SaveReaderAnnotationAsync(string.Empty);
+
+    // The "划线 ▾" button opens a style picker flyout on hover (WinUI
+    // reference's ReaderSelectionHighlightButton + ReaderTools close timer):
+    // moving into the flyout cancels the close, leaving it starts a 240 ms
+    // grace before it hides.
+    private DispatcherTimer? _readerHighlightFlyoutCloseTimer;
+
+    private void ReaderSelectionHighlightButton_PointerEntered(object? sender, PointerEventArgs e)
+    {
+        StopReaderHighlightFlyoutCloseTimer();
+        if (ReaderSelectionHighlightButton.Flyout is { } flyout && !flyout.IsOpen)
+            flyout.ShowAt(ReaderSelectionHighlightButton);
+    }
+
+    private void ReaderSelectionHighlightButton_PointerExited(object? sender, PointerEventArgs e)
+        => StartReaderHighlightFlyoutCloseTimer();
+
+    private void ReaderSelectionHighlightFlyoutItem_PointerEntered(object? sender, PointerEventArgs e)
+        => StopReaderHighlightFlyoutCloseTimer();
+
+    private void ReaderSelectionHighlightFlyoutItem_PointerExited(object? sender, PointerEventArgs e)
+        => StartReaderHighlightFlyoutCloseTimer();
+
+    private void ReaderSelectionHighlightFlyout_Closed(object? sender, EventArgs e)
+        => StopReaderHighlightFlyoutCloseTimer();
+
+    private void StartReaderHighlightFlyoutCloseTimer()
+    {
+        _readerHighlightFlyoutCloseTimer ??= new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(240)
+        };
+        _readerHighlightFlyoutCloseTimer.Stop();
+        _readerHighlightFlyoutCloseTimer.Tick -= ReaderHighlightFlyoutCloseTimer_Tick;
+        _readerHighlightFlyoutCloseTimer.Tick += ReaderHighlightFlyoutCloseTimer_Tick;
+        _readerHighlightFlyoutCloseTimer.Start();
+    }
+
+    private void StopReaderHighlightFlyoutCloseTimer()
+        => _readerHighlightFlyoutCloseTimer?.Stop();
+
+    private void ReaderHighlightFlyoutCloseTimer_Tick(object? sender, EventArgs e)
+    {
+        _readerHighlightFlyoutCloseTimer?.Stop();
+        if (ReaderSelectionHighlightButton.Flyout is { } flyout && flyout.IsOpen)
+            flyout.Hide();
+    }
+
+    private async void ReaderSelectionHighlightStyle_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string style }) return;
+        SelectReaderComboTag(ReaderAnnotationStyleBox, style);
+        ReaderSelectionHighlightButton.Flyout?.Hide();
+        await SaveReaderAnnotationAsync(string.Empty);
+    }
 
     private void ReaderSelectionAnnotateButton_Click(object? sender, RoutedEventArgs e)
     {
@@ -199,9 +276,11 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
         var term = _readerPendingSelection.Trim();
         var entries = await _dictionaryService.LookupAsync(term, ReaderToken);
-        ShowReaderTransientStatus(entries.Count == 0
-            ? $"词典中没有找到“{term}”。"
-            : $"{entries[0].DictionaryName}：{entries[0].Term} — {entries[0].Definition}");
+        // Show every dictionary entry in a dialog, matching the WinUI
+        // reference's ReaderSelectionDictionaryButton_Click.
+        await ShowMessageAsync($"词典 · {term}", entries.Count == 0
+            ? "没有找到释义。请先在“字典管理”中导入词典。"
+            : string.Join("\n\n", entries.Select(entry => $"[{entry.DictionaryName}] {entry.Definition}")));
     }
 
     private void ReaderFootnoteCloseButton_Click(object? sender, RoutedEventArgs e)

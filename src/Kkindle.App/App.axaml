@@ -35,6 +35,24 @@
              internal family name, not the filename. -->
         <FontFamily x:Key="DefaultAppFontFamily">avares://Kkindle.App/Assets/Fonts/KingHwaOldSong-v3.0.ttf#KingHwaOldSong</FontFamily>
 
+        <!-- The migrated reader buttons use the same deliberately plain
+             template as the WinUI reference instead of Fluent's extra button
+             chrome. State colours remain supplied by the selector styles below. -->
+        <ControlTemplate x:Key="ReaderToolbarButtonTemplate" TargetType="Button">
+            <Border Padding="{TemplateBinding Padding}"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}">
+                <ContentPresenter Content="{TemplateBinding Content}"
+                                  Foreground="{TemplateBinding Foreground}"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
+                                  HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                  VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+            </Border>
+        </ControlTemplate>
+
         <!-- ScrollBarTheme.axaml intentionally uses private resource names so
              it does not depend on FluentTheme's internal palette. -->
         <x:Double x:Key="KkindleScrollBarSize">10</x:Double>
@@ -504,18 +522,23 @@
             <Setter Property="Padding" Value="9,5" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="#242424" />
-            <Setter Property="BorderBrush" Value="#D5D5D5" />
+            <Setter Property="BorderBrush" Value="#D5D5D1" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="FontSize" Value="12" />
+            <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template" Value="{StaticResource ReaderToolbarButtonTemplate}" />
         </Style>
         <Style Selector="Button.readerToolbar:pointerover">
             <Setter Property="Background" Value="#ECECEA" />
         </Style>
         <Style Selector="Button.readerToolbar:pressed">
             <Setter Property="Background" Value="#D9D9D5" />
+        </Style>
+        <Style Selector="Button.readerToolbar:disabled">
+            <Setter Property="Opacity" Value="0.35" />
         </Style>
 
         <!-- Reader header chrome buttons: stable sizes keep the reader header
@@ -533,8 +556,10 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="FontSize" Value="12" />
+            <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template" Value="{StaticResource ReaderToolbarButtonTemplate}" />
         </Style>
         <Style Selector="Button.readerHeader:pointerover">
             <Setter Property="Background" Value="#ECECEA" />
@@ -554,8 +579,10 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template" Value="{StaticResource ReaderToolbarButtonTemplate}" />
         </Style>
         <Style Selector="Button.readerHeaderIcon:pointerover">
             <Setter Property="Background" Value="#ECECEA" />
@@ -568,7 +595,7 @@
              on the left edge (WinUI reference's ReaderTocItemStyle). -->
         <Style Selector="ListBox.readerTocList ListBoxItem">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
-            <Setter Property="Padding" Value="13,9,11,9" />
+            <Setter Property="Padding" Value="0" />
             <Setter Property="Margin" Value="0,1" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />

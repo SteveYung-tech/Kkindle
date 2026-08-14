@@ -33,10 +33,28 @@ public partial class MainWindow
             ToggleReaderZenMode();
             return;
         }
-        if (e.Key == Key.Escape && _readerZenMode)
+        if (e.Key == Key.Escape)
         {
-            e.Handled = true;
-            ToggleReaderZenMode();
+            // Esc closes reader overlays in priority order, matching the WinUI
+            // reference's RootGrid_KeyDown: whole-book search panel first, then
+            // the layout settings overlay, then zen mode.
+            if (ReaderSearchPanel.IsVisible)
+            {
+                e.Handled = true;
+                ShowReaderTocTab();
+                return;
+            }
+            if (ReaderLayoutSettingsOverlay.IsVisible)
+            {
+                e.Handled = true;
+                ReaderLayoutSettingsOverlay.IsVisible = false;
+                return;
+            }
+            if (_readerZenMode)
+            {
+                e.Handled = true;
+                ToggleReaderZenMode();
+            }
             return;
         }
         if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.F)
@@ -93,15 +111,17 @@ public partial class MainWindow
             _readerBookFile = file;
             _readerDocument = null;
             _readerIsPdf = true;
+            _readerPdfSourcePath = path;
             _readerPdfPages = pages;
             _readerPdfPage = 1;
             _readerChapterIndex = 0;
             _readerScrollRatio = 0;
             _readerScrollPosition = 0;
 
-            // The PDF surface is rendered as a local, selectable HTML text view.
-            // This keeps paging, search, highlights and the assistant consistent
-            // with EPUB instead of handing control to an opaque browser plugin.
+            // The PDF surface is rendered by WebView2's built-in PDF viewer
+            // (file:// URL + #page=N fragment), exactly like the WinUI
+            // reference. The extracted page texts stay as the local search /
+            // progress / bookmark / AI context index underneath it.
             await InitializeReaderInteractionAsync(
                 new EpubReaderDocument(Path.GetDirectoryName(path) ?? string.Empty, [], []),
                 file,
@@ -140,11 +160,13 @@ public partial class MainWindow
 
             await EnsureReaderHostsAsync();
             SetReaderHostLayer();
-            if (CurrentReaderHost is not { } host || !await NavigateReaderHostAndWaitAsync(host, new Uri("about:blank"), token))
+            var pdfSource = new Uri(path).AbsoluteUri + $"#page={_readerPdfPage}";
+            if (CurrentReaderHost is not { } host
+                || !await NavigateReaderHostAndWaitAsync(host, new Uri(pdfSource), token))
+            {
                 throw new InvalidOperationException("PDF 阅读器页面加载失败。");
+            }
 
-            await RenderPdfPagesAsync(host, token);
-            await ApplySavedReaderPdfAnnotationsAsync(token);
             ReaderStatusText.Text = $"PDF · {pages.Count} 页 · 可搜索文本已加载";
             UpdateReaderToolbar();
             await SaveReaderProgressAsync(token);
@@ -159,157 +181,32 @@ public partial class MainWindow
         }
     }
 
-    private async Task RenderPdfPagesAsync(IReaderHost host, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var pages = JsonSerializer.Serialize(_readerPdfPages.Select(page => new
-        {
-            page.PageNumber,
-            page.Text
-        }));
-
-        var script = """
-            (() => {
-              const pages = __PAGES__;
-              document.open();
-              document.write('<!doctype html><html><head><meta charset="utf-8"><title>Kreader PDF</title></head><body></body></html>');
-              document.close();
-              const style = document.createElement('style');
-              style.textContent = `
-                :root { color-scheme: light; }
-                html, body { margin: 0; padding: 0; background: #fff; color: #111; }
-                body { font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif; padding: 36px 8vw 80px; }
-                .kkindle-pdf-page { max-width: 900px; margin: 0 auto 34px; padding: 34px 42px; border: 1px solid #e1e1e1; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.04); }
-                .kkindle-pdf-page-title { color: #777; font-size: 12px; margin-bottom: 22px; letter-spacing: .08em; }
-                .kkindle-pdf-page-text { white-space: pre-wrap; font-size: 16px; line-height: 1.9; user-select: text; }
-                mark.kkindle-page-find-hit { background: #d8d8d8 !important; color: #000 !important; }
-                mark.kkindle-saved-annotation { background: #e6e6e6 !important; color: #000 !important; }
-              `;
-              document.head.appendChild(style);
-              const root = document.body;
-              for (const page of pages) {
-                const article = document.createElement('article');
-                article.className = 'kkindle-pdf-page';
-                article.dataset.page = String(page.PageNumber);
-                const title = document.createElement('div');
-                title.className = 'kkindle-pdf-page-title';
-                title.textContent = 'PDF · 第 ' + page.PageNumber + ' 页';
-                const text = document.createElement('div');
-                text.className = 'kkindle-pdf-page-text';
-                text.textContent = page.Text || '（本页没有可提取的文本）';
-                article.append(title, text);
-                root.appendChild(article);
-              }
-              const send = value => {
-                try {
-                  const body = JSON.stringify(value);
-                  const webview = window.chrome && window.chrome.webview;
-                  if (webview && typeof webview.postMessage === 'function') webview.postMessage(body);
-                } catch (_) { }
-              };
-              const report = () => {
-                const pagesOnScreen = Array.from(document.querySelectorAll('[data-page]'));
-                let current = pagesOnScreen[0]?.dataset.page || '1';
-                let best = Number.POSITIVE_INFINITY;
-                for (const page of pagesOnScreen) {
-                  const distance = Math.abs(page.getBoundingClientRect().top - 96);
-                  if (distance < best) { best = distance; current = page.dataset.page || current; }
-                }
-                const element = document.scrollingElement || document.documentElement;
-                send({ type: 'pdfPage', page: Number(current) || 1, top: element.scrollTop || 0,
-                  scrollWidth: element.scrollWidth || 0, scrollHeight: element.scrollHeight || 0,
-                  clientWidth: element.clientWidth || 0, clientHeight: element.clientHeight || 0 });
-              };
-              let queued = false;
-              const queue = () => { if (queued) return; queued = true; requestAnimationFrame(() => { queued = false; report(); }); };
-              document.addEventListener('scroll', queue, { passive: true });
-              document.addEventListener('mouseup', () => {
-                const text = (window.getSelection()?.toString() || '').trim();
-                send({ type: 'selection', text: text.slice(0, 12000) });
-              }, true);
-              document.addEventListener('keydown', event => {
-                if (['ArrowLeft','ArrowRight','PageUp','PageDown'].includes(event.key))
-                  send({ type: 'key', key: event.key });
-              }, true);
-              document.addEventListener('click', event => {
-                const width = window.innerWidth || document.documentElement.clientWidth || 0;
-                const x = event.clientX || 0;
-                if (width > 0 && x <= width * .28) send({ type: 'page', direction: -1 });
-                else if (width > 0 && x >= width * .72) send({ type: 'page', direction: 1 });
-              }, true);
-              window.addEventListener('resize', queue, { passive: true });
-              report();
-              return true;
-            })();
-            """.Replace("__PAGES__", pages, StringComparison.Ordinal);
-
-        await host.InvokeScriptAsync(script);
-        await NavigatePdfPageAsync(_readerPdfPage, cancellationToken, saveProgress: false);
-    }
-
     private async Task NavigatePdfPageAsync(
         int page,
         CancellationToken cancellationToken,
         bool saveProgress = true)
     {
         if (!_readerIsPdf || _readerPdfPages.Count == 0 || CurrentReaderHost is not { } host) return;
+        if (string.IsNullOrWhiteSpace(_readerPdfSourcePath)) return;
         _readerPdfPage = Math.Clamp(page, 1, _readerPdfPages.Count);
         _readerChapterIndex = _readerPdfPage - 1;
-        var selector = JsonSerializer.Serialize($"[data-page='{_readerPdfPage}']");
-        await host.InvokeScriptAsync($"(() => {{ const el = document.querySelector({selector}); el?.scrollIntoView({{ block: 'start', behavior: 'instant' }}); return !!el; }})();");
+        // Load the real PDF page through WebView2's built-in viewer (the
+        // WinUI reference navigates the same file:// + #page=N URL). Page
+        // turns are fire-and-forget like the reference: the viewer replaces
+        // the pending navigation and the host state is already final.
+        var source = new Uri(_readerPdfSourcePath).AbsoluteUri + $"#page={_readerPdfPage}";
+        host.Navigate(new Uri(source));
         ReaderChapterText.Text = GetReaderChapterLabel();
         UpdateReaderToolbar();
         await UpdateReaderBookmarkIndicatorAsync();
         if (saveProgress) await SaveReaderProgressAsync(cancellationToken);
     }
 
+    // PDF annotations cannot render inside WebView2's built-in PDF viewer
+    // (no DOM to inject into), exactly like the WinUI reference: they live in
+    // the notes list and jump to their page on click.
     private async Task ApplySavedReaderPdfAnnotationsAsync(CancellationToken cancellationToken)
-    {
-        if (!_readerIsPdf || _readerBookFile is null || CurrentReaderHost is not { } host) return;
-        var annotations = (await _readerData.GetAnnotationsAsync(_readerBookFile.Id, cancellationToken))
-            .Where(annotation => annotation.ChapterPath.StartsWith("pdf:page:", StringComparison.OrdinalIgnoreCase))
-            .Where(annotation => !string.IsNullOrWhiteSpace(annotation.SelectedText))
-            .Select(annotation => new
-            {
-                Page = annotation.ChapterPath["pdf:page:".Length..],
-                Quote = annotation.SelectedText.Trim(),
-                Color = NormalizeReaderAnnotationColor(annotation.Color),
-                annotation.UnderlineStyle
-            })
-            .Take(100)
-            .ToArray();
-        if (annotations.Length == 0) return;
-
-        var serialized = JsonSerializer.Serialize(annotations);
-        var script = """
-            (() => {
-              const annotations = __ANNOTATIONS__;
-              for (const oldMark of Array.from(document.querySelectorAll('mark.kkindle-saved-annotation'))) {
-                const parent = oldMark.parentNode; if (!parent) continue;
-                parent.replaceChild(document.createTextNode(oldMark.textContent || ''), oldMark); parent.normalize?.();
-              }
-              for (const annotation of annotations) {
-                const root = document.querySelector('[data-page="' + annotation.Page + '"]');
-                if (!root || !annotation.Quote) continue;
-                const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-                const folded = annotation.Quote.toLocaleLowerCase(); let found = false;
-                while (walker.nextNode() && !found) {
-                  const node = walker.currentNode; const parent = node.parentElement;
-                  if (!parent || ['SCRIPT','STYLE','MARK'].includes(parent.tagName)) continue;
-                  const start = (node.data || '').toLocaleLowerCase().indexOf(folded); if (start < 0) continue;
-                  const range = document.createRange(); range.setStart(node, start); range.setEnd(node, start + annotation.Quote.length);
-                  const mark = document.createElement('mark'); mark.className = 'kkindle-saved-annotation';
-                  const color = /^#[0-9a-f]{6}$/i.test(annotation.Color || '') ? annotation.Color : '#E6E6E6';
-                  if ((annotation.UnderlineStyle || 'solid') === 'marker') mark.style.background = color;
-                  else mark.style.textDecoration = 'underline 2px ' + color + ' ' + (annotation.UnderlineStyle || 'solid');
-                  range.surroundContents(mark); found = true;
-                }
-              }
-              return true;
-            })();
-            """.Replace("__ANNOTATIONS__", serialized, StringComparison.Ordinal);
-        await host.InvokeScriptAsync(script);
-    }
+        => await Task.CompletedTask;
 
     private async Task RefreshReaderBookmarksAsync(CancellationToken cancellationToken)
     {
@@ -533,7 +430,8 @@ public partial class MainWindow
             target = new Uri(target.AbsoluteUri + "#" + Uri.EscapeDataString(bookmark.Fragment.TrimStart('#')));
         await NavigateToReaderItemAsync(
             new EpubReaderNavigationItem(bookmark.Title, target.AbsoluteUri, bookmark.ChapterIndex),
-            ReaderToken);
+            ReaderToken,
+            ReaderNavigationIntent.Bookmark);
         if (bookmark.ScrollPosition is { } position && CurrentReaderHost is { } host)
         {
             _readerScrollPosition = Math.Max(0, position);
@@ -644,7 +542,8 @@ public partial class MainWindow
         ReaderSearchStatusText.Text = "正在跳转并定位关键词…";
         await NavigateToReaderItemAsync(
             new EpubReaderNavigationItem(result.Title, result.Target, result.ChapterIndex),
-            ReaderToken);
+            ReaderToken,
+            ReaderNavigationIntent.Search);
         if (!string.IsNullOrWhiteSpace(result.Query))
         {
             var sequence = ++_readerSearchSequence;
@@ -710,40 +609,63 @@ public partial class MainWindow
         ReaderInPageSearchBox.Text = string.Empty;
     }
 
+    // PDF in-page search cannot run inside WebView2's built-in viewer (no DOM
+    // to mark); Ctrl+F routes PDF to the whole-book search tab instead, like
+    // the WinUI reference. Kept as a guarded no-op for the text-search entry.
     private async Task ApplyReaderPdfSearchAsync(string query, int sequence)
-    {
-        if (!_readerIsPdf || CurrentReaderHost is not { } host) return;
-        var serialized = JsonSerializer.Serialize(query);
-        var script = """
-            (() => {
-              for (const mark of Array.from(document.querySelectorAll('mark.kkindle-page-find-hit'))) {
-                const parent = mark.parentNode; if (!parent) continue;
-                parent.replaceChild(document.createTextNode(mark.textContent || ''), mark); parent.normalize?.();
-              }
-              const query = (__QUERY__ || '').trim(); if (!query) return 0;
-              const folded = query.toLocaleLowerCase(); const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); const matches = [];
-              while (walker.nextNode()) { const node = walker.currentNode; const parent = node.parentElement;
-                if (!parent || ['SCRIPT','STYLE','MARK'].includes(parent.tagName)) continue;
-                const text = node.data || ''; let start = text.toLocaleLowerCase().indexOf(folded);
-                while (start >= 0) { matches.push({ node, start }); start = text.toLocaleLowerCase().indexOf(folded, start + Math.max(1, folded.length)); }
-              }
-              for (let index = matches.length - 1; index >= 0; index--) { const match = matches[index]; const range = document.createRange();
-                range.setStart(match.node, match.start); range.setEnd(match.node, match.start + query.length);
-                const mark = document.createElement('mark'); mark.className = 'kkindle-page-find-hit'; range.surroundContents(mark); }
-              return matches.length;
-            })()
-            """.Replace("__QUERY__", serialized, StringComparison.Ordinal);
-        var result = await host.InvokeScriptAsync(script);
-        if (sequence != _readerPdfSearchSequence) return;
-        _readerSearchCount = ParseScriptInt(result);
-        _readerSearchIndex = _readerSearchCount > 0 ? 0 : -1;
-        await NavigateReaderSearchAsync(_readerSearchIndex);
-    }
+        => await Task.CompletedTask;
 
     private void ReaderProgressSlider_ValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
         if (_readerProgressSliderUpdating || !IsInitialized) return;
+        if (_readerSliderDragging) UpdateReaderSliderToolTip();
         _ = ObserveReaderTaskAsync(NavigateReaderProgressAsync(e.NewValue));
+    }
+
+    // The footer slider shows a drag tooltip "{current} / {total} · 章节名"
+    // (PDF: "第 N 页"), mirroring the WinUI reference's
+    // ReaderProgressToolTipValueConverter wiring.
+    private bool _readerSliderDragging;
+
+    private void ReaderProgressSlider_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(ReaderProgressSlider).Properties.IsLeftButtonPressed)
+        {
+            _readerSliderDragging = true;
+            UpdateReaderSliderToolTip();
+        }
+    }
+
+    private void ReaderProgressSlider_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_readerSliderDragging) UpdateReaderSliderToolTip();
+    }
+
+    private void ReaderProgressSlider_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        _readerSliderDragging = false;
+        if (ReaderProgressSlider is not null)
+            ToolTip.SetIsOpen(ReaderProgressSlider, false);
+    }
+
+    private void UpdateReaderSliderToolTip()
+    {
+        if (ReaderProgressSlider is null) return;
+        ToolTip.SetTip(ReaderProgressSlider, GetReaderProgressSliderLabel());
+        ToolTip.SetIsOpen(ReaderProgressSlider, true);
+    }
+
+    private string GetReaderProgressSliderLabel()
+    {
+        var value = ReaderProgressSlider?.Value ?? 1;
+        if (_readerIsPdf)
+        {
+            var pageCount = Math.Max(1, _readerPdfPages.Count);
+            return $"第 {Math.Clamp((int)Math.Round(value), 1, pageCount)} 页";
+        }
+        if (_readerDocument is null || _readerDocument.Chapters.Count == 0) return string.Empty;
+        var index = Math.Clamp((int)Math.Round(value) - 1, 0, _readerDocument.Chapters.Count - 1);
+        return $"{index + 1} / {_readerDocument.Chapters.Count} · {GetReaderChapterDisplayName(index)}";
     }
 
     // The footer slider is chapter-granular for EPUB (1..chapter count) and
@@ -762,7 +684,8 @@ public partial class MainWindow
         var target = new Uri(_readerDocument.Chapters[chapter]);
         await NavigateToReaderItemAsync(
             new EpubReaderNavigationItem($"第 {chapter + 1} 章", target.AbsoluteUri, chapter),
-            ReaderToken);
+            ReaderToken,
+            ReaderNavigationIntent.Progress);
     }
 
     private void ReaderLayoutSettingsButton_Click(object? sender, RoutedEventArgs e)

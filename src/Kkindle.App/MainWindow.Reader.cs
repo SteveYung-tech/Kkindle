@@ -220,6 +220,10 @@ public partial class MainWindow
             await UpdateReaderBookmarkIndicatorAsync();
             await SaveReaderProgressAsync(sessionToken);
             _ = PreloadNextReaderChapterAsync(sessionToken);
+            // Scroll mode keeps advancing across chapters that are too short to
+            // scroll (WinUI reference's SkipShortChapterIfNeededAsync).
+            if (!_readerIsPdf && _readerLayout.FlowMode == 0 && offset > 0)
+                _ = SkipShortReaderChapterIfNeededAsync(targetIndex, sessionToken);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -347,6 +351,7 @@ public partial class MainWindow
         _readerAssistantVisibleBeforeZen = true;
         _readerIsPdf = false;
         _readerPdfPages = [];
+        _readerPdfSourcePath = null;
         ReaderBookmarks.Clear();
         ReaderAnnotations.Clear();
         ReaderSearchResults.Clear();

@@ -134,7 +134,6 @@ public partial class MainWindow
         ReaderAiView.IsVisible = true;
         ReaderNotesView.IsVisible = false;
         ReaderAiComposer.IsVisible = true;
-        _readerAiSettingsVisible = false;
         SetReaderAssistantTabState(ReaderAiTabButton, selected: true);
         SetReaderAssistantTabState(ReaderNotesTabButton, selected: false);
     }
@@ -144,7 +143,6 @@ public partial class MainWindow
         ReaderAiView.IsVisible = false;
         ReaderNotesView.IsVisible = true;
         ReaderAiComposer.IsVisible = false;
-        _readerAiSettingsVisible = false;
         SetReaderAssistantTabState(ReaderAiTabButton, selected: false);
         SetReaderAssistantTabState(ReaderNotesTabButton, selected: true);
     }
@@ -236,7 +234,7 @@ public partial class MainWindow
             || ReaderAiQuestionBox is null
             || ReaderAiModelSelectorBox.SelectedItem is not ComboBoxItem { Tag: string model }) return;
         ReaderAiQuestionBox.Focus();
-        if (!_readerAiSettingsVisible) _readerAiSettings.Model = model;
+        _readerAiSettings.Model = model;
     }
 
     private void ReaderAiReasoningDepthBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -490,7 +488,8 @@ public partial class MainWindow
         if (!IsPathInside(_readerDocument.RootPath, path)) return;
         await NavigateToReaderItemAsync(
             new EpubReaderNavigationItem(chunk.ChapterTitle, new Uri(path).AbsoluteUri, chunk.ChapterIndex),
-            ReaderToken);
+            ReaderToken,
+            ReaderNavigationIntent.AiSource);
     }
 
     private static string LimitReaderContext(string value)

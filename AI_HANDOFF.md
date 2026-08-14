@@ -6,7 +6,7 @@
 >
 > 项目目录：`C:\Users\kings\Desktop\01_Projects\Kkindle`
 
-> 当前迁移状态（2026-08-14）：Avalonia 阶段 2（本地书库）和阶段 3（Kindle 设备、阅读资料、Z-Library、设置与备份）已完成，阶段 4（Kreader 阅读器）已完成核心交互切片，并按旧版 WinUI Kreader 完成工具栏/极简目录/书签角标/阅读统计/滚动接章/禅模式快捷键/AI 标签与搜索计数等界面与功能对齐，阅读器 XAML 已整体重构为旧版三栏像素级布局（TOC 286 / 正文 52+50 栏 / 助手 360）；阶段 5 发布入口已切到 Avalonia Windows 启动头，阶段 6 已完成 Windows 侧可移植性验证。WinUI 版本仍保留作迁移参照。当前 Avalonia 版尚未完成同分辨率/DPI 像素级截图验收；完整 AI/脚注/PDF 功能和人工视觉验收仍待完成，Debug EXE 仅作为迁移调试版。
+> 当前迁移状态（2026-08-14）：Avalonia 阶段 2（本地书库）和阶段 3（Kindle 设备、阅读资料、Z-Library、设置与备份）已完成，阶段 4（Kreader 阅读器）已完成核心交互切片，并按旧版 WinUI Kreader 完成工具栏/极简目录/书签角标/阅读统计/滚动接章/禅模式快捷键/AI 标签与搜索计数等界面与功能对齐，阅读器 XAML 已整体重构为旧版三栏像素级布局（TOC 286 / 正文 52+50 栏 / 助手 360）；随后按 `docs/Kreader功能对比.md` 的 22 项缺口清单完成了功能全量移植（见 10.5「阶段 4 功能对等缺口全量移植」）。阶段 5 发布入口已切到 Avalonia Windows 启动头，阶段 6 已完成 Windows 侧可移植性验证。WinUI 版本仍保留作迁移参照。当前 Avalonia 版尚未完成同分辨率/DPI 像素级截图验收；完整 AI/脚注/PDF 功能和人工视觉验收仍待完成，Debug EXE 仅作为迁移调试版。
 
 ## 0. 当前状态
 
@@ -21,7 +21,7 @@
 - 常规发布目录：`src\Kkindle.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\publish\`（其中 exe 仍是 2026-08-10 基线，如需随最新提交刷新请重新发布）。
 - 真机验证：Kindle Scribe（MTP）EPUB 发送/扫描/删除闭环、64 MiB 大文件传输、设备字体/字典读写均已验收，设备端无测试残留。
 - 开发约定：代码修改必须能编译；每次发布 EXE 只创建一个对应 Git 提交；文档随代码一并提交。
-- 已启动 WinUI 3 → Avalonia 迁移（Windows 优先，架构上预留 Linux/Mac），计划与进度见第 10 节；当前处于阶段 4 核心交互切片，WinUI 版继续保留。
+- 已启动 WinUI 3 → Avalonia 迁移（Windows 优先，架构上预留 Linux/Mac），计划与进度见第 10 节；当前阶段 4 功能对等缺口已全量移植（见 10.5），WinUI 版继续保留。
 
 ## 1. 项目目标与技术路线
 
@@ -161,7 +161,10 @@ powershell -ExecutionPolicy Bypass -File scripts\Build-Release.ps1 `
 ## 7. 已知限制与待人工验收
 
 - 分页模式竖排不生效（有提示），竖排仅滚动模式。
-- WebView2 合成岛的真实鼠标/滚轮端到端（分页分区点击、滚动接章、选区工具栏、翻页动画观感）建议在交互桌面人工复核。
+- PDF 使用 WebView2 内置查看器渲染（与旧版一致）：无 Kreader 缩放控制（Chromium 自带）、无页内搜索（Ctrl+F 走全书搜索）、无页内划线显示（标注在笔记列表并可跳页）、无左右区域点击翻页（键盘/按钮/滑块/滚轮可用）；PDF 文本选择无选区工具条（旧版同样没有）。
+- 波浪翻页动画为 CSS 近似（灰度脉冲 + 斜向扫光），旧版基于 CDP 页面快照的真实卷页未移植——Avalonia `NativeWebView` adapter 仅暴露原始 COM 指针，无托管 CDP 通道；如需真实卷页需手写 WebView2 COM 互操作。
+- WebView2 安全基线：无法恢复旧版 `IsScriptEnabled=false`（桥接依赖 `InvokeScript`），已由净化（去 script/iframe/on* 属性）+ CSP nonce + `contextmenu` 页面级取消 + `EnableDevTools=false` 兜底；Chromium 默认右键菜单已被页面事件取消。
+- 波浪/滑动/淡入动画观感、PDF 真实书籍（扫描页/图片/公式）、禅模式鼠标唤醒、AI Markdown 气泡、标注锚定定位等需在交互桌面人工复核。
 - 真实 Kindle 物理拔出/重连事件、USB 磁盘型 Kindle 的安全弹出未自动化验收。
 - 安装包未配置代码签名。
 
@@ -376,6 +379,32 @@ WebView 引擎本阶段仍用 **WebView2**，通过 Avalonia `NativeControlHost`
 - [x] 修复 Avalonia 12 兼容性：ColumnDefinition/RowDefinition 不再生成 x:Name 字段（改用 `ReaderRoot.ColumnDefinitions[i]` / `ReaderContentPanel.RowDefinitions[i]` 索引）；`translate(0,-3)` 必须写 `-3px`（TransformParser 要求单位）。
 - [x] 移除用户工作区中新增但导致启动崩溃的 eject 弹跳动画（Avalonia 12 `Animation` 的 `RenderTransform` Setter 无 animator），若需恢复请改用 `Margin` 或 `TranslateTransform` 属性动画。
 
+阶段 4 功能对等缺口全量移植（2026-08-14，依据 `docs/Kreader功能对比.md` 的 22 项清单逐项完成）：
+
+- [x] **P0 PDF 徽标**：外层 Border 命名 `ReaderPdfBadge` 并去掉硬编码 `IsVisible=False`，`UpdateReaderToolbar` 改为切换徽标整体（原仅切内层文本导致永不显示）。
+- [x] **分页滚轮翻页**：EPUB 桥接脚本（`EpubReaderPreparationService.ReaderBridgeScript`）增加非 passive `wheel` 监听（仅分页模式，preventDefault），宿主 `wheel` 消息按 120 单位累计翻页（方向翻转清零），对应旧版 WH_MOUSE_LL。
+- [x] **滚动模式键盘**：桥接 `key` 消息在滚动模式下处理 ←/→ 翻章、↑/↓ 平滑滚动 72px（`ScrollReaderWithKeyboardAsync` + `CreateReaderKeyboardScrollScript`，边缘 4px 停止）；↑/↓ 走 keydown 保留重复语义。
+- [x] **禅模式鼠标唤醒**：桥接新增 80ms 节流 `pointermove` 消息，宿主在 zen 中唤醒 chrome 或重启 2.5s 隐藏计时（覆盖 WebView2 HWND 岛的指针盲区，对应旧版钩子）。
+- [x] **键盘选区工具条**：桥接新增 `selectionchange`（rAF 防抖）上报，Shift+方向键选区也能弹出选区工具条（对应旧版 300ms 轮询）。
+- [x] **划线样式快速选择器**：选区条「划线 ▾」改为悬停展开 `MenuFlyout`（直线/双线/虚线/点线/波浪线/荧光标记），240ms 关闭宽限定时器，选中即同步笔记面板样式框并保存（对应旧版 `ReaderSelectionHighlightButton` + `ReaderTools` 关闭计时器）。
+- [x] **Chromium 默认右键菜单**：EPUB 桥接与 PDF 页面均 `contextmenu` preventDefault（Avalonia adapter 无托管 WebView2 设置对象，旧版 `AreDefaultContextMenusEnabled=false` 改由页面级取消事件实现；DevTools 仍由 `EnableDevTools=false` 关闭，脚本对话框被净化+CSP nonce 消解）。
+- [x] **PDF 真实渲染**：`OpenPdfReaderAsync` 改为直接把 PDF 文件 URI + `#page=N` 交给 WebView2 内置 PDF 查看器（旧版同款）；删除文本 HTML 渲染 `RenderPdfPagesAsync`；翻页 `NavigatePdfPageAsync` 直接导航；`ConfigureReaderHostAsync` 对 PDF 跳过；PDF 页内高亮/页内搜索不再注入（旧版同样不可注入，标注留在笔记列表并跳页）；文本索引仍驱动全书搜索/进度/书签/AI 上下文。
+- [x] **AI 气泡 Markdown 渲染**：新增 `KreaderMarkdownTextBlock`（TextBlock 子类，标题/列表/引用/分隔线/粗体/斜体/行内代码/```代码块/链接下划线），替换 AI 气泡纯文本（对应旧版 `MarkdownRichTextBlock`）。
+- [x] **正文外观覆盖 CSS**：`BuildReaderAppearanceCss` 注入 `::selection` 黑白反色、两端对齐、链接色 #222、p/h1-h4/blockquote 间距、图片约束（分页 max-height 70vh + contain）、pre/table 横滚、hr、ruby、`.kkindle-fragment-break` 断列（对应旧版 `ApplyReaderAppearanceAsync` 覆盖样式）。
+- [x] **字体项与字体栈**：字体框补「等线 DengXian」项（阅读器 + 设置页 7 项与旧版一致）；`KingHwaOldSong-v3.0.ttf` 复制进 `Kkindle.App\Assets\Fonts`（AvaloniaResource + Content 复制到输出）；`BuildReaderFontStack` 构造回退栈，`ConfigureReaderHostAsync` 注入 `@font-face`（file:// URL，旧版同款）。
+- [x] **标注重定位锚定**：`ApplySavedAnnotationsAsync` 注入脚本按 prefix/suffix（各 72 字符）前后文锚定评分选最优命中（`commonSuffixLength` + `commonPrefixLength`，旧版算法），不再取首个命中。
+- [x] **词典弹窗**：`ReaderSelectionDictionaryButton_Click` 改用 `ShowMessageAsync` 显示全部词典条目（旧版同款弹窗）。
+- [x] **复制清除正文选区**：复制后注入脚本 `getSelection().removeAllRanges()` 并收起选区工具条（旧版 `ClearReaderSelectionAsync`）。
+- [x] **Esc 层叠关闭**：Esc 依次关闭全书搜索面板 → 排版浮层 → 禅模式（旧版 `RootGrid_KeyDown` 顺序）。
+- [x] **按钮 ToolTip**：缩放 A−/A+ 补充 `ToolTip.Tip`；其余阅读器按钮已手写覆盖（旧版为全窗口自动补提示服务，行为对等）。
+- [x] **滑块拖动提示**：`ReaderProgressSlider` 拖动时显示「current / total · 章节名」（PDF「第 N 页」）ToolTip，对应旧版 `ReaderProgressToolTipValueConverter`。
+- [x] **短章节连跳**：滚动模式切章后 60ms 检测章节不可滚动（≤16px）自动连跳下一章，深度上限 5 防死循环（旧版 `SkipShortChapterIfNeededAsync`）。
+- [x] **导航意图管线**：`NavigateToReaderItemAsync` 增加 `ReaderNavigationIntent`（Toc/Progress/Bookmark/Annotation/Search/AiSource），`ApplyReaderLocationAsync` 按 `ReaderNavigationLocationPolicy` 决定章节起始归一化/锚点滚动/保持 DOM 不动；TOC/滑块归一化章节起始，书签/批注/搜索/AI 源保留偏移，批注跳转附带 fragment 锚点。
+- [x] **波浪翻页增强**：`CreateReaderTransitionScript` 的 wave 增加斜向扫光条带（`.kkindle-wave-sweep`，380ms skew 扫过 + 灰度脉冲），更接近旧版「条带滑动」观感；旧版基于 CDP 页面快照的真实卷页因 Avalonia adapter 仅暴露 COM 指针（无托管 CDP 通道）未移植，见第 7 节。
+- [x] **代码卫生**：删除恒 false 的 `_readerAiSettingsVisible` 残留字段与判断（模型选择恒写入设置）；阅读器内 AI 设置面板死 UI（`ReaderAiSettingsView`）保留作代码兼容（真实入口在主设置页）。
+
+遗留架构差异（有意保留，见第 7 节与 `docs/Kreader功能对比.md`）：PDF 点击左右区域翻页在 WebView2 内置查看器下不存在（键盘 PageUp/PageDown/方向键、‹› 按钮、滑块与滚轮可用）；`IsScriptEnabled=false` 安全基线无法恢复（桥接依赖 `InvokeScript`，页面脚本已由净化+CSP nonce 兜底）。
+
 1. `IReaderHost` + `NativeWebViewReaderHost`（Windows backend 使用 WebView2），双 WebView 预加载结构保留
 2. `EpubReaderPreparationService` 增加 HTML 消毒 + CSP 注入
 3. 四个脚本模块（`ReaderNavigationScripts` / `ReaderPaginationScripts` / `ReaderAppearanceScripts` / `ReaderWaveScripts`）的 CSS/JS 常量原样保留（约束 #8），只改事件接入方式
@@ -421,12 +450,13 @@ Windows 侧 `Kkindle.Core`、`Kkindle.Infrastructure`、`Kkindle.App` 均保持 
 
 ### 10.8 当前 UI / 功能对等审计（2026-08-14）
 
-当前结论：未完成，不得将当前 Avalonia Debug EXE 标记为 WinUI 旧版的 1:1 对等版本。
+当前结论：功能对等缺口已按 `docs/Kreader功能对比.md` 全量移植（2026-08-14），但**尚未完成**同分辨率/DPI 像素级截图与真实书籍交互验收，不得将当前 Avalonia Debug EXE 标记为 WinUI 旧版的 1:1 对等版本。
 
 - [x] 已完成旧版 `src\Kkindle.App.WinUI` 与当前 `src\Kkindle.App` 主窗口 XAML 的静态入口盘点：旧版约 204 个 XAML 事件入口，当前约 147 个，约 57 个旧入口没有在当前主窗口 XAML 中一一对应。由于 Avalonia 可能改用不同事件或代码绑定，这个数字是差异证据，不直接等同于缺失功能数量。
 - [ ] 建立旧版所有页面、子项、右键菜单、拖拽、批量操作、设备操作、格式转换和阅读器工具的功能矩阵，并逐项在 Avalonia 中实测闭环。
 - [ ] 使用相同窗口尺寸、DPI、字体和数据集，对 `docs\images\` 基线截图逐屏截图并进行像素差异验收；当前只做过局部样式常量对照，没有完成像素级验收。
 - [x] 已补齐 AI 助手、脚注浮窗、PDF 阅读表面、四档翻页过渡、阅读模式/排版设置、分页分区点击和选区工具栏的 Avalonia 功能闭环；四档动画与旧版的视觉实现仍不是像素级等价。
+- [x] 已按 `docs/Kreader功能对比.md` 全量移植 22 项缺口（P0 PDF 徽标、P1 输入层六项、P2 渲染差异四项、P3 行为差异九项、架构两项的可行部分），详见 10.5「阶段 4 功能对等缺口全量移植」；遗留限制记录于第 7 节。
 - [x] 已重新构建、运行 164 项可移植测试 + 28 项 Windows 测试，并启动 Windows Avalonia Debug EXE 保持运行 8 秒后正常退出测试进程。
 - [ ] 仍需用真实 EPUB/PDF、真实 Kindle、相同 DPI 数据集完成手工功能矩阵和截图验收，之后才能把版本标记为 1:1 对等。
 

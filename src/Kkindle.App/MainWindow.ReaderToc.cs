@@ -5,6 +5,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Kkindle.Core;
 using Kkindle.Infrastructure;
 
 namespace Kkindle;
@@ -391,7 +392,7 @@ public partial class MainWindow
         if (ReaderTocList.SelectedIndex != index)
             ReaderTocList.SelectedIndex = index;
         else
-            _ = NavigateToReaderItemAsync(item, _readerSessionCancellation?.Token ?? CancellationToken.None);
+            _ = NavigateToReaderItemAsync(item, _readerSessionCancellation?.Token ?? CancellationToken.None, ReaderNavigationIntent.Toc);
     }
 
     private void ApplyReaderPanelLayout()

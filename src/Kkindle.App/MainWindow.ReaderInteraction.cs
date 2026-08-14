@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -61,10 +62,11 @@ public partial class MainWindow
     private bool _readerLastNearBottom;
     private DateTimeOffset _readerLastChapterChange = DateTimeOffset.MinValue;
     private bool _readerScrollPollRunning;
+    private int _readerWheelDeltaRemainder;
+    private int _readerContinuousSkipDepth;
     private int _readerProgressSaveSequence;
     private bool _readerProgressSliderUpdating;
     private bool _readerAiBusy;
-    private bool _readerAiSettingsVisible;
     private bool _suppressAiProviderChange;
     private bool _suppressAiModelChange;
     private bool _suppressAiReasoningDepthChange;
@@ -75,6 +77,7 @@ public partial class MainWindow
     private IReadOnlyList<string> _readerAiAvailableModels = [];
     private IReadOnlyList<PdfPageText> _readerPdfPages = [];
     private int _readerPdfPage = 1;
+    private string? _readerPdfSourcePath;
     private bool _readerIsPdf;
     private ReaderAnnotation? _selectedReaderAnnotation;
 
@@ -113,6 +116,7 @@ public partial class MainWindow
         _readerSearchIndex = -1;
         _readerSearchSequence++;
         _readerWholeSearchSequence++;
+        _readerContinuousSkipDepth = 0;
         _readerPdfSearchSequence++;
         _readerSessionStarted = DateTimeOffset.UtcNow;
         _readerZenMode = false;
@@ -169,6 +173,10 @@ public partial class MainWindow
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        // PDF renders inside WebView2's built-in viewer: there is no document
+        // to inject layout into (and InvokeScript would throw), so host
+        // configuration applies to EPUB pages only.
+        if (_readerIsPdf) return;
         var pagination = _readerLayout.FlowMode == 1;
         var flowCss = ReaderPaginationScripts.CreateFlowCss(
             pagination,
@@ -176,12 +184,15 @@ public partial class MainWindow
             _readerLayout.TwoPageMode,
             _readerLayout.BodyPadding,
             _readerLayout.MaxWidth);
-        var fontFamily = EscapeCssString(_readerLayout.FontFamily);
         var css = ReaderAppearanceScripts.MonochromeScrollbarCss
             + "\n"
             + flowCss
-            + $"\nhtml, body {{ background: #FFFFFF !important; color: #000000 !important; }}"
-            + $"\nbody {{ font-size: {Format(_readerLayout.FontScale)}em !important; line-height: {Format(_readerLayout.LineHeight)} !important; font-family: \"{fontFamily}\" !important; }}";
+            + BuildReaderAppearanceCss(
+                _readerLayout.FontScale,
+                _readerLayout.LineHeight,
+                BuildReaderFontStack(_readerLayout.FontFamily),
+                _readerLayout.VerticalWriting,
+                pagination);
         if (!pagination)
         {
             css += $"\nbody {{ max-width: {Format(_readerLayout.MaxWidth)}px !important; margin-left: auto !important; margin-right: auto !important; }}";
@@ -228,6 +239,90 @@ public partial class MainWindow
         }
     }
 
+    // Reader appearance overrides, mirroring the WinUI reference's
+    // ApplyReaderAppearanceAsync: white surface, bundled @font-face, selection
+    // inversion, justified text, link/heading/paragraph/blockquote spacing,
+    // image constraints for paginated columns, horizontal overflow guards and
+    // the fragment-break anchor rule used by CreateFragmentScroll.
+    private static string BuildReaderAppearanceCss(
+        double fontScale,
+        double lineHeight,
+        string fontStack,
+        bool vertical,
+        bool pagination)
+    {
+        var builder = new StringBuilder();
+        builder.Append("\nhtml, body { background: #FFFFFF !important; color: #000000 !important; }");
+        builder.Append($"\nbody {{ font-size: {Format(fontScale)}em !important; line-height: {Format(lineHeight)} !important; font-family: {fontStack} !important; letter-spacing: 0.012em !important; }}");
+        if (!vertical)
+            builder.Append("\nbody { text-align: justify !important; }");
+        builder.Append("\n::selection { background: #000000 !important; color: #FFFFFF !important; }");
+        builder.Append("\na { color: #222222 !important; }");
+        builder.Append("\np { margin: 0.55em 0 1.05em 0 !important; }");
+        builder.Append("\nh1, h2, h3, h4 { font-weight: bold !important; margin: 1.1em 0 0.55em 0 !important; }");
+        builder.Append("\nblockquote { border-left: 3px solid #000000 !important; margin: 0.8em 0 !important; padding: 0.2em 0 0.2em 1em !important; color: #333333 !important; }");
+        builder.Append("\nimg { max-width: 100% !important; height: auto !important; }");
+        if (pagination)
+            builder.Append("\nimg { max-height: 70vh !important; object-fit: contain !important; }");
+        builder.Append("\npre, table { overflow-x: auto !important; }");
+        builder.Append("\nhr { border: none !important; border-top: 1px solid #D8D8D4 !important; margin: 1.2em 0 !important; }");
+        builder.Append("\nruby rt { font-size: 0.5em !important; }");
+        builder.Append("\n.kkindle-fragment-break { break-before: column !important; }");
+        var bundledFontUri = GetBundledFontFileUri();
+        if (bundledFontUri is not null)
+            builder.Append($"\n@font-face {{ font-family: \"{ReaderFontDefaults.BundledFamily}\"; src: url(\"{bundledFontUri}\") format(\"truetype\"); font-display: swap; }}");
+        return builder.ToString();
+    }
+
+    // Fallback stack for the reading font, mirroring the WinUI reference's
+    // BuildReaderFontStack: the chosen family first (comma-separated combined
+    // families like "Source Han Serif SC, Noto Serif CJK SC" are split), then
+    // the bundled KingHwaOldSong, common serif CJK fonts and sans-serif.
+    private static string BuildReaderFontStack(string? fontFamily)
+    {
+        var families = new List<string>();
+        void Add(string? family)
+        {
+            var value = family?.Trim();
+            if (string.IsNullOrWhiteSpace(value)) return;
+            if (families.Any(existing => string.Equals(existing, value, StringComparison.OrdinalIgnoreCase)))
+                return;
+            families.Add(value);
+        }
+        if (!string.IsNullOrWhiteSpace(fontFamily))
+        {
+            foreach (var part in fontFamily.Split(
+                ',',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                Add(part);
+            }
+        }
+        Add(ReaderFontDefaults.BundledFamily);
+        Add("Source Han Serif SC");
+        Add("Noto Serif CJK SC");
+        Add("Microsoft YaHei UI");
+        families.Add("sans-serif");
+        return string.Join(", ", families.Select(family => $"\"{family}\""));
+    }
+
+    private static string? GetBundledFontFileUri()
+    {
+        try
+        {
+            var path = Path.Combine(
+                AppContext.BaseDirectory,
+                "Assets",
+                "Fonts",
+                "KingHwaOldSong-v3.0.ttf");
+            return File.Exists(path) ? new Uri(path).AbsoluteUri : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private async Task ApplyReaderLayoutToHostsAsync(CancellationToken cancellationToken)
     {
         var hosts = new[] { _readerActiveHost, _readerPreloadHost }
@@ -241,7 +336,8 @@ public partial class MainWindow
 
     private async Task NavigateToReaderItemAsync(
         EpubReaderNavigationItem item,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ReaderNavigationIntent intent = ReaderNavigationIntent.None)
     {
         if (_readerDocument is null || CurrentReaderHost is null) return;
         if (item.ChapterIndex < 0 || item.ChapterIndex >= _readerDocument.Chapters.Count) return;
@@ -249,10 +345,14 @@ public partial class MainWindow
         if (!IsPathInside(_readerDocument.RootPath, target.LocalPath)) return;
 
         var current = CurrentReaderHost;
-        if (ReferenceEquals(current, CurrentReaderHost)
-            && ReaderNavigationLocationPolicy.TargetsSameDocument(current.Source, target))
+        if (ReaderNavigationLocationPolicy.TargetsSameDocument(current.Source, target))
         {
-            await ApplyReaderFragmentAsync(current, target.Fragment, cancellationToken);
+            await ApplyReaderLocationAsync(
+                current,
+                target,
+                cancellationToken,
+                intent,
+                _readerRestoredProgress is not null);
             _readerChapterIndex = item.ChapterIndex;
             _readerScrollPosition = 0;
             _readerScrollRatio = 0;
@@ -282,7 +382,12 @@ public partial class MainWindow
             _readerShowingPreload = !ReferenceEquals(host, CurrentReaderHost);
             SetReaderHostLayer();
             await ApplySavedAnnotationsAsync(host, navigationToken);
-            await ApplyReaderFragmentAsync(host, target.Fragment, navigationToken);
+            await ApplyReaderLocationAsync(
+                host,
+                target,
+                navigationToken,
+                intent,
+                _readerRestoredProgress is not null);
             ReaderTocList.SelectedIndex = FindReaderTocIndex(item);
             SetReaderCompactSelectedItem(item);
             ReaderChapterText.Text = GetReaderChapterLabel();
@@ -306,24 +411,38 @@ public partial class MainWindow
         }
     }
 
-    private async Task ApplyReaderFragmentAsync(
+    // Intent-aware positioning (Kkindle.Core.ReaderNavigationLocationPolicy):
+    // TOC entries without an explicit anchor and progress-slider jumps start
+    // at the chapter's first line (normalizing the chapter start); anchors are
+    // scrolled for TOC/bookmark/annotation targets; search and AI-source
+    // targets keep the DOM untouched because their own offset-based scrolling
+    // (and annotation offset math) depends on it; plain switches normalize
+    // unless a breakpoint restore is pending.
+    private async Task ApplyReaderLocationAsync(
         IReaderHost host,
-        string? fragment,
-        CancellationToken cancellationToken)
+        Uri target,
+        CancellationToken cancellationToken,
+        ReaderNavigationIntent intent,
+        bool hasPendingRestorePosition)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (string.IsNullOrWhiteSpace(fragment))
+        if (ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(intent, target, hasPendingRestorePosition))
         {
             await host.InvokeScriptAsync(ReaderNavigationScripts.NormalizeChapterStart);
             return;
         }
 
-        var escaped = EscapeJavaScriptSingleQuoted(Uri.UnescapeDataString(fragment.TrimStart('#')));
-        await host.InvokeScriptAsync(ReaderNavigationScripts.CreateFragmentScroll(
-            escaped,
-            _readerLayout.FlowMode,
-            _readerLayout.VerticalWriting,
-            _readerLayout.TwoPageMode));
+        var fragment = target.Fragment;
+        if (!string.IsNullOrWhiteSpace(fragment)
+            && intent is not (ReaderNavigationIntent.Search or ReaderNavigationIntent.AiSource))
+        {
+            var escaped = EscapeJavaScriptSingleQuoted(Uri.UnescapeDataString(fragment.TrimStart('#')));
+            await host.InvokeScriptAsync(ReaderNavigationScripts.CreateFragmentScroll(
+                escaped,
+                _readerLayout.FlowMode,
+                _readerLayout.VerticalWriting,
+                _readerLayout.TwoPageMode));
+        }
     }
 
     private async Task ApplySavedAnnotationsAsync(
@@ -340,6 +459,8 @@ public partial class MainWindow
             .Select(item => new
             {
                 Quote = item.SelectedText.Trim(),
+                Prefix = item.Prefix,
+                Suffix = item.Suffix,
                 Color = NormalizeReaderAnnotationColor(item.Color),
                 Style = item.UnderlineStyle
             })
@@ -353,6 +474,18 @@ public partial class MainWindow
         var script = $$"""
             (() => {
               const annotations = {{serialized}};
+              const commonSuffixLength = (left, right) => {
+                let length = 0;
+                const max = Math.min(left.length, right.length);
+                while (length < max && left[left.length - 1 - length] === right[right.length - 1 - length]) length++;
+                return length;
+              };
+              const commonPrefixLength = (left, right) => {
+                let length = 0;
+                const max = Math.min(left.length, right.length);
+                while (length < max && left[length] === right[length]) length++;
+                return length;
+              };
               for (const oldMark of Array.from(document.querySelectorAll('mark.kkindle-saved-annotation'))) {
                 const parent = oldMark.parentNode;
                 if (!parent) continue;
@@ -362,30 +495,50 @@ public partial class MainWindow
               for (const annotation of annotations) {
                 const quote = annotation.Quote || '';
                 if (!quote) continue;
-                let found = false;
+                // Anchor by prefix/suffix context like the WinUI reference:
+                // score every candidate occurrence by how well the 72 chars
+                // before/after match the saved anchors, then pick the best.
+                const foldedQuote = quote.toLocaleLowerCase();
+                const prefix = (annotation.Prefix || '').slice(-72).toLocaleLowerCase();
+                const suffix = (annotation.Suffix || '').slice(0, 72).toLocaleLowerCase();
+                let bestNode = null;
+                let bestAt = -1;
+                let bestScore = -1;
                 const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-                while (walker.nextNode() && !found) {
+                while (walker.nextNode()) {
                   const node = walker.currentNode;
                   const parent = node.parentElement;
                   if (!parent || ['SCRIPT', 'STYLE', 'MARK'].includes(parent.tagName)) continue;
-                  const at = (node.data || '').toLocaleLowerCase().indexOf(quote.toLocaleLowerCase());
-                  if (at < 0) continue;
-                  const range = document.createRange();
-                  range.setStart(node, at);
-                  range.setEnd(node, at + quote.length);
-                  const mark = document.createElement('mark');
-                  mark.className = 'kkindle-saved-annotation';
-                  const color = /^#[0-9a-f]{6}$/i.test(annotation.Color || '') ? annotation.Color : '#E6E6E6';
-                  if ((annotation.Style || 'solid') === 'marker') {
-                    mark.style.setProperty('background', color, 'important');
-                  } else {
-                    mark.style.setProperty('background', 'transparent', 'important');
-                    mark.style.setProperty('text-decoration', `underline 2px ${color} ${annotation.Style || 'solid'}`, 'important');
+                  const data = node.data || '';
+                  const folded = data.toLocaleLowerCase();
+                  let at = folded.indexOf(foldedQuote);
+                  while (at >= 0) {
+                    const before = data.slice(Math.max(0, at - 72), at).toLocaleLowerCase();
+                    const after = data.slice(at + quote.length, at + quote.length + 72).toLocaleLowerCase();
+                    const score = commonSuffixLength(before, prefix) + commonPrefixLength(after, suffix);
+                    if (score > bestScore) {
+                      bestScore = score;
+                      bestNode = node;
+                      bestAt = at;
+                    }
+                    at = folded.indexOf(foldedQuote, at + Math.max(1, foldedQuote.length));
                   }
-                  mark.style.setProperty('color', '#000000', 'important');
-                  range.surroundContents(mark);
-                  found = true;
                 }
+                if (!bestNode) continue;
+                const range = document.createRange();
+                range.setStart(bestNode, bestAt);
+                range.setEnd(bestNode, bestAt + quote.length);
+                const mark = document.createElement('mark');
+                mark.className = 'kkindle-saved-annotation';
+                const color = /^#[0-9a-f]{6}$/i.test(annotation.Color || '') ? annotation.Color : '#E6E6E6';
+                if ((annotation.Style || 'solid') === 'marker') {
+                  mark.style.setProperty('background', color, 'important');
+                } else {
+                  mark.style.setProperty('background', 'transparent', 'important');
+                  mark.style.setProperty('text-decoration', `underline 2px ${color} ${annotation.Style || 'solid'}`, 'important');
+                }
+                mark.style.setProperty('color', '#000000', 'important');
+                range.surroundContents(mark);
               }
               return true;
             })();
@@ -779,25 +932,142 @@ public partial class MainWindow
                     _ = ObserveReaderTaskAsync(
                         ApplyReaderLayoutToHostsAsync(_readerSessionCancellation?.Token ?? CancellationToken.None));
                     break;
-                case "key":
+                case "wheel":
+                    // Paginated EPUB pages and the PDF text view translate the
+                    // vertical wheel into page turns, mirroring the WinUI
+                    // reference's low-level mouse hook (120 units per page,
+                    // direction flips reset the remainder, and the browser is
+                    // told to ignore the event so it never double-scrolls).
                     if ((_readerIsPdf || _readerLayout.FlowMode == 1)
-                        && root.TryGetProperty("key", out var key))
+                        && root.TryGetProperty("deltaY", out var wheel))
+                    {
+                        var delta = (int)Math.Round(wheel.GetDouble());
+                        if (delta != 0)
+                        {
+                            if (_readerWheelDeltaRemainder != 0
+                                && Math.Sign(_readerWheelDeltaRemainder) != Math.Sign(delta))
+                            {
+                                _readerWheelDeltaRemainder = 0;
+                            }
+                            _readerWheelDeltaRemainder += delta;
+                            if (Math.Abs(_readerWheelDeltaRemainder) >= 120)
+                            {
+                                var direction = _readerWheelDeltaRemainder > 0 ? 1 : -1;
+                                _readerWheelDeltaRemainder %= 120;
+                                _ = ObserveReaderTaskAsync(TurnReaderPageAsync(direction));
+                            }
+                        }
+                    }
+                    break;
+                case "pointermove":
+                    // Zen chrome wake-up for pointer movement over the webview
+                    // (an HWND island whose events never reach Avalonia). The
+                    // page throttles the reports; keep a host-side tick guard
+                    // so a burst of messages cannot restart the timer faster
+                    // than the 80 ms window.
+                    if (_readerZenMode)
+                    {
+                        var moveNow = Environment.TickCount64;
+                        if (moveNow - _readerZenLastMouseMoveTick > 80)
+                        {
+                            _readerZenLastMouseMoveTick = moveNow;
+                            if (!_readerZenChromeVisible)
+                                UpdateReaderZenChrome(visible: true);
+                            else
+                                RestartReaderZenChromeHideTimer();
+                        }
+                    }
+                    break;
+                case "key":
+                    if (root.TryGetProperty("key", out var key))
                     {
                         var keyName = key.GetString();
-                        var direction = string.Equals(keyName, "ArrowLeft", StringComparison.Ordinal)
-                            || string.Equals(keyName, "PageUp", StringComparison.Ordinal)
-                            ? -1
-                            : string.Equals(keyName, "ArrowRight", StringComparison.Ordinal)
-                                || string.Equals(keyName, "PageDown", StringComparison.Ordinal)
-                                ? 1
-                                : 0;
-                        if (direction != 0)
-                            _ = ObserveReaderTaskAsync(TurnReaderPageAsync(direction));
+                        if (_readerIsPdf || _readerLayout.FlowMode == 1)
+                        {
+                            // Paginated/PDF: arrows and paging keys turn pages.
+                            var direction = string.Equals(keyName, "ArrowLeft", StringComparison.Ordinal)
+                                || string.Equals(keyName, "PageUp", StringComparison.Ordinal)
+                                ? -1
+                                : string.Equals(keyName, "ArrowRight", StringComparison.Ordinal)
+                                    || string.Equals(keyName, "PageDown", StringComparison.Ordinal)
+                                    ? 1
+                                    : 0;
+                            if (direction != 0)
+                                _ = ObserveReaderTaskAsync(TurnReaderPageAsync(direction));
+                        }
+                        else if (_readerLayout.FlowMode == 0 && _readerDocument is not null)
+                        {
+                            // Continuous mode (WinUI reference): left/right own
+                            // chapter navigation; up/down scroll smoothly and
+                            // stop at chapter edges instead of advancing.
+                            var chapterDirection = string.Equals(keyName, "ArrowLeft", StringComparison.Ordinal)
+                                ? -1
+                                : string.Equals(keyName, "ArrowRight", StringComparison.Ordinal)
+                                    ? 1
+                                    : 0;
+                            if (chapterDirection != 0)
+                            {
+                                _ = ObserveReaderTaskAsync(MoveReaderChapterAsync(chapterDirection));
+                            }
+                            else
+                            {
+                                var scrollDirection = string.Equals(keyName, "ArrowUp", StringComparison.Ordinal)
+                                    ? -1
+                                    : string.Equals(keyName, "ArrowDown", StringComparison.Ordinal)
+                                        ? 1
+                                        : 0;
+                                if (scrollDirection != 0)
+                                    _ = ObserveReaderTaskAsync(ScrollReaderWithKeyboardAsync(scrollDirection));
+                            }
+                        }
                     }
                     break;
             }
         }
         catch (JsonException)
+        {
+        }
+    }
+
+    // Continuous-mode short-chapter skip (WinUI reference's
+    // SkipShortChapterIfNeededAsync): shortly after entering a chapter, if it
+    // cannot scroll at all (content fits the viewport), advance to the next
+    // one so the reader never stops on an empty page. Depth-capped so a chain
+    // of empty chapters cannot loop forever.
+    private async Task SkipShortReaderChapterIfNeededAsync(
+        int enteredIndex,
+        CancellationToken cancellationToken)
+    {
+        if (_readerDocument is null || CurrentReaderHost is not { } host) return;
+        try
+        {
+            await Task.Delay(60, cancellationToken);
+            var result = await host.InvokeScriptAsync(
+                "(() => { const el = document.scrollingElement || document.documentElement; if (!el) return '{}'; return JSON.stringify({ sh: el.scrollHeight, ch: el.clientHeight, sw: el.scrollWidth, cw: el.clientWidth }); })();");
+            if (result is null) return;
+            var raw = result.Trim().Trim('"');
+            if (raw.Length == 0 || raw == "{}") return;
+            using var document = JsonDocument.Parse(raw);
+            var root = document.RootElement;
+            var horizontal = _readerLayout.VerticalWriting;
+            var scrollSize = horizontal
+                ? ReadDouble(root, "sw")
+                : ReadDouble(root, "sh");
+            var clientSize = horizontal
+                ? ReadDouble(root, "cw")
+                : ReadDouble(root, "ch");
+            if (scrollSize <= 0 || clientSize <= 0) return;
+            if (scrollSize > clientSize + 16) return;
+            if (_readerChapterIndex != enteredIndex) return;
+            if (_readerChapterIndex + 1 >= _readerDocument.Chapters.Count) return;
+            if (_readerContinuousSkipDepth >= 5) return;
+            _readerContinuousSkipDepth++;
+            await MoveReaderChapterAsync(1);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch
         {
         }
     }
@@ -914,6 +1184,43 @@ public partial class MainWindow
         _readerLastNearBottom = nearBottom;
     }
 
+    // Continuous-mode keyboard scroll: up/down move 72 px smoothly and stop at
+    // chapter edges (left/right own chapter navigation), exactly like the
+    // WinUI reference's ScrollReaderWithKeyboardAsync.
+    private async Task ScrollReaderWithKeyboardAsync(int direction)
+    {
+        if (CurrentReaderHost is not { } host) return;
+        try
+        {
+            await host.InvokeScriptAsync(
+                CreateReaderKeyboardScrollScript(direction, _readerLayout.VerticalWriting));
+        }
+        catch
+        {
+            // A stale host must never surface a keyboard scroll failure.
+        }
+    }
+
+    private static string CreateReaderKeyboardScrollScript(int direction, bool vertical) =>
+        $$"""
+        (() => {
+          const el = document.scrollingElement || document.documentElement;
+          if (!el) return false;
+          const horizontal = {{(vertical ? "true" : "false")}};
+          const position = horizontal ? el.scrollLeft : el.scrollTop;
+          const viewport = horizontal ? el.clientWidth : el.clientHeight;
+          const extent = horizontal ? el.scrollWidth : el.scrollHeight;
+          const sign = {{(direction < 0 ? -1 : 1)}};
+          if (sign < 0 && position <= 4) return false;
+          if (sign > 0 && position + viewport >= extent - 4) return false;
+          const delta = sign * 72;
+          window.scrollBy(horizontal
+            ? { left: delta, top: 0, behavior: 'smooth' }
+            : { left: 0, top: delta, behavior: 'smooth' });
+          return true;
+        })();
+        """;
+
     private async Task TurnReaderPageAsync(int direction)
     {
         if (_readerIsPdf)
@@ -1007,6 +1314,15 @@ public partial class MainWindow
                   65% { filter: grayscale(1) contrast(.94); }
                   100% { filter: grayscale(1) contrast(1); }
                 }
+                @keyframes kkindle-reader-sweep {
+                  0% { transform: translateX(-120%) skewX(-14deg); }
+                  100% { transform: translateX(120%) skewX(-14deg); }
+                }
+                .kkindle-wave-sweep {
+                  position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;
+                  background: linear-gradient(105deg, transparent 30%, rgba(0,0,0,.16) 50%, transparent 70%);
+                  animation: kkindle-reader-sweep 380ms ease-in-out both;
+                }
               `;
               root.style.transition = 'opacity 160ms ease, transform 180ms ease, filter 220ms ease';
               if ({{(restore ? "true" : "false")}}) {
@@ -1014,11 +1330,18 @@ public partial class MainWindow
                 root.style.transform = 'translateX(0)';
                 root.style.filter = 'none';
                 root.style.animation = 'none';
+                const sweep = document.querySelector('.kkindle-wave-sweep');
+                if (sweep) sweep.remove();
               } else {
                 root.style.opacity = {{(safeAnimation == ReaderAnimationFade ? "'0.2'" : "'0.42'")}};
                 root.style.transform = {{(safeAnimation == ReaderAnimationSlide ? $"'translateX({offset}px)'" : "'translateX(0)'")}};
                 root.style.filter = {{(safeAnimation == ReaderAnimationWave ? "'grayscale(1) contrast(1.06)'" : "'none'")}};
                 root.style.animation = {{(safeAnimation == ReaderAnimationWave ? "'kkindle-reader-wave 380ms ease both'" : "'none'")}};
+                if ({{(safeAnimation == ReaderAnimationWave ? "true" : "false")}}) {
+                  const sweep = document.createElement('div');
+                  sweep.className = 'kkindle-wave-sweep';
+                  document.body.appendChild(sweep);
+                }
               }
               return true;
             })();
@@ -1061,7 +1384,7 @@ public partial class MainWindow
     private async void ReaderTocList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (e.AddedItems.Count > 0 && e.AddedItems[0] is EpubReaderNavigationItem item)
-            await NavigateToReaderItemAsync(item, _readerSessionCancellation?.Token ?? CancellationToken.None);
+            await NavigateToReaderItemAsync(item, _readerSessionCancellation?.Token ?? CancellationToken.None, ReaderNavigationIntent.Toc);
     }
 
     private async void ReaderSearchButton_Click(object? sender, RoutedEventArgs e)
@@ -1151,7 +1474,6 @@ public partial class MainWindow
         ReaderAnimationFadeItem.IsChecked = _readerPageAnimation == ReaderAnimationFade;
         ReaderAnimationSlideItem.IsChecked = _readerPageAnimation == ReaderAnimationSlide;
         ReaderAnimationWaveItem.IsChecked = _readerPageAnimation == ReaderAnimationWave;
-        SelectReaderPageAnimation(_readerPageAnimation);
     }
 
     private async void ReaderDecreaseFontButton_Click(object? sender, RoutedEventArgs e) =>
@@ -1209,6 +1531,11 @@ public partial class MainWindow
             ReaderHeaderBar.IsVisible = false;
             ReaderContentPanel.RowDefinitions[2].Height = new GridLength(0);
             ReaderFooterBar.IsVisible = false;
+            ReaderTocPanel.Margin = new Thickness(0);
+            ReaderTocCompactPanel.Margin = new Thickness(0);
+            ReaderContentPanel.Margin = new Thickness(0);
+            ReaderAssistantPanel.Margin = new Thickness(0);
+            ReaderWebViewBottomCover.Margin = new Thickness(0);
             ReaderWebViewHost.Margin = new Thickness(0, 12, 0, 0);
             ApplyReaderPanelLayout();
             UpdateReaderZenTocToggle();
@@ -1286,6 +1613,12 @@ public partial class MainWindow
         ReaderHeaderBar.IsVisible = true;
         ReaderContentPanel.RowDefinitions[2].Height = new GridLength(50);
         ReaderFooterBar.IsVisible = true;
+        ReaderTocPanel.Margin = new Thickness(0, 38, 0, 0);
+        ReaderTocCompactPanel.Margin = new Thickness(0, 38, 0, 0);
+        ReaderContentPanel.Margin = new Thickness(0, 38, 0, 0);
+        ReaderAssistantPanel.Margin = new Thickness(0, 38, 0, 0);
+        ReaderLayoutSettingsOverlay.Margin = new Thickness(0, 38, 0, 0);
+        ReaderWebViewBottomCover.Margin = new Thickness(0, 0, 0, 10);
         ReaderWebViewHost.Margin = new Thickness(0, 12, 0, 10);
         ApplyReaderPanelLayout();
         UpdateReaderZenTocToggle();
@@ -1413,8 +1746,8 @@ public partial class MainWindow
             ReaderZoomText.IsVisible = !_readerIsPdf;
             ReaderZoomInButton.IsVisible = !_readerIsPdf;
         }
-        if (ReaderPdfBottomText is not null)
-            ReaderPdfBottomText.IsVisible = _readerIsPdf;
+        if (ReaderPdfBadge is not null)
+            ReaderPdfBadge.IsVisible = _readerIsPdf;
         if (ReaderPreviousButton is not null)
             ReaderPreviousButton.IsEnabled = _readerIsPdf ? _readerPdfPage > 1 : _readerChapterIndex > 0;
         if (ReaderNextButton is not null)

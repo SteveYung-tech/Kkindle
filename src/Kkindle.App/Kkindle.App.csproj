@@ -25,6 +25,15 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\Fonts\*" />
+    <!-- The reader CSS injects @font-face with a file:// URL so WebView2 can
+         use the bundled font, mirroring the WinUI reference's
+         ApplyReaderAppearanceAsync; copy it to the output for that reason. -->
+    <Content Include="Assets\Fonts\KingHwaOldSong-v3.0.ttf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Fonts\KingHwaOldSong-LICENSE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

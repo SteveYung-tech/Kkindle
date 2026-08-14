@@ -141,6 +141,50 @@ public sealed class EpubReaderPreparationService
             if (["ArrowLeft", "ArrowRight", "PageUp", "PageDown"].includes(event.key))
               send({ type: "key", key: event.key });
           }, true);
+          // ArrowUp/ArrowDown are scroll-only in continuous mode; keydown keeps
+          // the repeat semantics of the WinUI reference's keyboard handling.
+          document.addEventListener("keydown", event => {
+            if (event.key === "ArrowUp" || event.key === "ArrowDown")
+              send({ type: "key", key: event.key });
+          }, true);
+          // Suppress the Chromium/WebView2 default context menu (the WinUI
+          // reference disabled it via CoreWebView2 settings; the Avalonia
+          // adapter exposes no managed settings object, so the page cancels
+          // the event instead). Text actions stay in the native selection bar.
+          document.addEventListener("contextmenu", event => {
+            event.preventDefault();
+          }, true);
+          // In paginated mode the vertical wheel advances pages exactly like
+          // the WinUI reference's low-level mouse hook; the host accumulates
+          // the deltas. Continuous mode is left to native scrolling.
+          document.addEventListener("wheel", event => {
+            if (window.__kkindleReaderFlowMode !== 1) return;
+            event.preventDefault();
+            send({ type: "wheel", deltaY: event.deltaY || 0 });
+          }, { passive: false });
+          // Keyboard-driven selections (Shift+arrows) never raise mouseup, so
+          // report on selectionchange as well (debounced through rAF), matching
+          // the WinUI reference's selection polling.
+          let selectionQueued = false;
+          document.addEventListener("selectionchange", () => {
+            if (selectionQueued) return;
+            selectionQueued = true;
+            requestAnimationFrame(() => {
+              selectionQueued = false;
+              reportSelection();
+            });
+          }, true);
+          // Zen mode's auto-hide chrome is woken by pointer movement. The
+          // webview is a native HWND island whose events never reach the
+          // Avalonia tree, so the page reports movement through the bridge
+          // (throttled), replacing the WinUI reference's low-level mouse hook.
+          let lastPointerMove = 0;
+          document.addEventListener("pointermove", () => {
+            const now = Date.now();
+            if (now - lastPointerMove < 80) return;
+            lastPointerMove = now;
+            send({ type: "pointermove" });
+          }, true);
           document.addEventListener("scroll", queueScrollReport, { passive: true });
           window.addEventListener("resize", () => {
             send({ type: "resize" });
