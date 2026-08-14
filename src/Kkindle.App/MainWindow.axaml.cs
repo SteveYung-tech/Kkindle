@@ -8,6 +8,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
@@ -432,6 +433,8 @@ public partial class MainWindow : Window
     {
         _selectedCard = card;
         LibraryDetailPane.IsVisible = true;
+        LibraryDetailPane.Opacity = 0;
+        Dispatcher.UIThread.Post(() => LibraryDetailPane.Opacity = 1);
         if (LibraryRoot.ColumnDefinitions.Count >= 3)
             LibraryRoot.ColumnDefinitions[2].Width = new GridLength(320);
         DetailCoverImage.Source = card.CoverImage;
@@ -691,7 +694,7 @@ public partial class MainWindow : Window
             _importFormatSelectionRows.Add((file, toggle));
         }
         ImportFormatSelectionSummaryText.Text = $"共 {files.Count} 个文件。可逐项决定是否在导入后补齐 EPUB 与 AZW3；原始文件始终保留。";
-        ImportFormatSelectionOverlay.IsVisible = true;
+        ShowOverlay(ImportFormatSelectionOverlay);
         ImportFormatSelectionOverlay.Focus();
         _importFormatSelectionCompletion = new TaskCompletionSource<IReadOnlyDictionary<string, IReadOnlyCollection<string>>?>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1576,7 +1579,7 @@ public partial class MainWindow : Window
         DoubanPreviewOverlay.IsVisible = false;
         DoubanCandidateList.SelectedIndex = DoubanCandidates.Count > 0 ? 0 : -1;
         SetDoubanCandidateButtonsEnabled(DoubanCandidateList.SelectedItem is DoubanBookCandidate);
-        DoubanCandidateOverlay.IsVisible = true;
+        ShowOverlay(DoubanCandidateOverlay);
         _doubanCandidateCompletion?.TrySetResult(null);
         _doubanCandidateCompletion = new TaskCompletionSource<DoubanBookCandidate?>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1610,7 +1613,7 @@ public partial class MainWindow : Window
         DoubanUpdatePublicationCheck.IsChecked = hasPublicationData;
         DoubanUpdatePublicationCheck.IsEnabled = hasPublicationData;
 
-        DoubanPreviewOverlay.IsVisible = true;
+        ShowOverlay(DoubanPreviewOverlay);
         DoubanPreviewOverlay.Focus();
 
         // Candidate covers are decorative; a failure must never block the
@@ -1788,13 +1791,30 @@ public partial class MainWindow : Window
         ConfirmationTitleText.Text = title;
         ConfirmationMessageText.Text = message;
         ConfirmationOkButton.Content = title.Contains("删除", StringComparison.Ordinal) ? "确认删除" : "应用";
-        ConfirmationOverlay.IsVisible = true;
+        ShowOverlay(ConfirmationOverlay);
         _confirmationCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var completion = _confirmationCompletion;
         var confirmed = await completion.Task;
         if (ReferenceEquals(_confirmationCompletion, completion))
             _confirmationCompletion = null;
         return confirmed;
+    }
+
+    // Fade-in helpers: the overlays and pages carry an Opacity transition in
+    // XAML; showing them at 0 and restoring 1 on the next frame animates the
+    // entrance instead of popping it in.
+    private static void ShowOverlay(Control overlay)
+    {
+        overlay.IsVisible = true;
+        overlay.Opacity = 0;
+        Dispatcher.UIThread.Post(() => overlay.Opacity = 1);
+    }
+
+    private static void FadeInPage(Control page)
+    {
+        page.IsVisible = true;
+        page.Opacity = 0;
+        Dispatcher.UIThread.Post(() => page.Opacity = 1);
     }
 
     // Monochrome information dialog (WinUI ShowMessageAsync). Fire-and-forget
@@ -1804,7 +1824,7 @@ public partial class MainWindow : Window
     {
         MessageTitleText.Text = title;
         MessageBodyText.Text = message;
-        MessageOverlay.IsVisible = true;
+        ShowOverlay(MessageOverlay);
         MessageOverlay.Focus();
         _messageCompletion?.TrySetResult(true);
         _messageCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1832,7 +1852,7 @@ public partial class MainWindow : Window
     {
         if (_collectionNameCompletion is not null) return Task.FromResult<string?>(null);
         CollectionNameBox.Text = string.Empty;
-        CollectionNameOverlay.IsVisible = true;
+        ShowOverlay(CollectionNameOverlay);
         CollectionNameBox.Focus();
         _collectionNameCompletion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
         return _collectionNameCompletion.Task;
@@ -1943,7 +1963,21 @@ public partial class MainWindow : Window
     }
 
     private void FilterButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-        => FilterPanel.IsVisible = !FilterPanel.IsVisible;
+    {
+        if (FilterPanel.IsVisible)
+        {
+            FilterPanel.IsVisible = false;
+            return;
+        }
+        FilterPanel.IsVisible = true;
+        FilterPanel.MaxHeight = 0;
+        FilterPanel.Opacity = 0;
+        Dispatcher.UIThread.Post(() =>
+        {
+            FilterPanel.MaxHeight = 80;
+            FilterPanel.Opacity = 1;
+        });
+    }
 
     private void LibraryViewMenuItem_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {

@@ -258,7 +258,7 @@ public partial class MainWindow
         WindowBrandText.IsVisible = false;
         HideSettingsPanel();
         SetSidebarActive(AllBooksButton);
-        LibraryWorkspace.IsVisible = true;
+        FadeInPage(LibraryWorkspace);
         LibraryDetailPane.IsVisible = _selectedCard is not null;
         if (LibraryRoot.ColumnDefinitions.Count >= 3)
             LibraryRoot.ColumnDefinitions[2].Width = _selectedCard is null
@@ -292,6 +292,7 @@ public partial class MainWindow
         LibraryDetailPane.IsVisible = false;
         if (LibraryRoot.ColumnDefinitions.Count >= 3)
             LibraryRoot.ColumnDefinitions[2].Width = new GridLength(0);
+        FadeInPage(page);
         DevicePage.IsVisible = ReferenceEquals(page, DevicePage);
         DeviceResourcePage.IsVisible = ReferenceEquals(page, DeviceResourcePage);
         ReadingMaterialsPage.IsVisible = ReferenceEquals(page, ReadingMaterialsPage);
@@ -602,7 +603,7 @@ public partial class MainWindow
         DevicePromptMessageText.Text = message;
         DevicePromptPrimaryButton.Content = primaryText;
         DevicePromptCancelButton.Content = cancelText;
-        DevicePromptOverlay.IsVisible = true;
+        ShowOverlay(DevicePromptOverlay);
         DevicePromptOverlay.Focus();
         _devicePromptCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         return _devicePromptCompletion.Task;
@@ -881,7 +882,7 @@ public partial class MainWindow
     private void ShowDeviceModelInput()
     {
         DeviceModelInputBox.Text = _deviceDisplayName ?? CurrentDevice?.Name ?? string.Empty;
-        DeviceModelInputOverlay.IsVisible = true;
+        ShowOverlay(DeviceModelInputOverlay);
         DeviceModelInputBox.Focus();
         DeviceModelInputBox.SelectAll();
     }

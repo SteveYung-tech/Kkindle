@@ -379,6 +379,11 @@
                   Grid.Column="1"
                   Margin="30,24,30,18"
                   RowDefinitions="Auto,Auto,Auto,*,Auto">
+                  <Grid.Transitions>
+                      <Transitions>
+                          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                      </Transitions>
+                  </Grid.Transitions>
                 <StackPanel Spacing="3">
                     <StackPanel Orientation="Horizontal" Spacing="9">
                         <Border Background="{StaticResource InkBrush}" Padding="7,3" VerticalAlignment="Center">
@@ -445,7 +450,15 @@
                         Padding="10"
                         BorderBrush="{StaticResource InkBrush}"
                         BorderThickness="1"
+                        MaxHeight="0"
+                        Opacity="0"
                         IsVisible="False">
+                    <Border.Transitions>
+                        <Transitions>
+                            <DoubleTransition Property="MaxHeight" Duration="0:0:0.18" />
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+                        </Transitions>
+                    </Border.Transitions>
                     <Grid ColumnDefinitions="*,*,*,*,*,*,*,Auto" ColumnSpacing="10">
                         <ComboBox x:Name="AuthorFilterBox" PlaceholderText="作者" SelectionChanged="FilterComboBox_SelectionChanged" />
                         <ComboBox x:Name="TagFilterBox" Grid.Column="1" PlaceholderText="标签" SelectionChanged="FilterComboBox_SelectionChanged" />
@@ -514,8 +527,8 @@
                                           ContextRequested="BookCard_ContextRequested"
                                           DoubleTapped="BookCard_DoubleTapped">
                                         <Border Grid.Row="0"
+                                                Classes="bookCover"
                                                 Background="#D9D9D9"
-                                                BorderBrush="{StaticResource InkBrush}"
                                                 BorderThickness="1">
                                             <Grid Background="Transparent">
                                                 <TextBlock Text="BOOK"
@@ -904,16 +917,26 @@
                                     Spacing="10"
                                     IsVisible="False"
                                     IsHitTestVisible="False">
-                            <Border Width="58"
-                                    Height="76"
-                                    HorizontalAlignment="Center"
-                                    BorderBrush="{StaticResource InkBrush}"
-                                    BorderThickness="2">
-                                <TextBlock Text="BOOK"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"
-                                           FontSize="10" />
-                            </Border>
+                            <!-- Open-book illustration for the empty state. -->
+                            <Grid Width="64" Height="52" HorizontalAlignment="Center" Margin="0,0,0,4">
+                                <Path Data="M 4,8 L 30,5 L 30,44 L 4,47 Z M 30,5 L 60,8 L 60,47 L 30,44 Z"
+                                      Stroke="{StaticResource InkBrush}"
+                                      StrokeThickness="1.5"
+                                      Fill="{StaticResource PaperBrush}" />
+                                <Path Data="M 30,5 L 30,44"
+                                      Stroke="{StaticResource InkBrush}"
+                                      StrokeThickness="1.5" />
+                                <StackPanel Margin="10,11,0,0" Spacing="5" IsHitTestVisible="False">
+                                    <Rectangle Width="12" Height="2" Fill="{StaticResource InkBrush}" />
+                                    <Rectangle Width="12" Height="2" Fill="{StaticResource InkBrush}" />
+                                    <Rectangle Width="8" Height="2" Fill="{StaticResource InkBrush}" />
+                                </StackPanel>
+                                <StackPanel Margin="34,11,0,0" Spacing="5" IsHitTestVisible="False">
+                                    <Rectangle Width="12" Height="2" Fill="{StaticResource InkBrush}" />
+                                    <Rectangle Width="12" Height="2" Fill="{StaticResource InkBrush}" />
+                                    <Rectangle Width="9" Height="2" Fill="{StaticResource InkBrush}" />
+                                </StackPanel>
+                            </Grid>
                             <TextBlock x:Name="EmptyLibraryTitleText"
                                        Text="电脑书库还是空的"
                                        HorizontalAlignment="Center"
@@ -1156,6 +1179,11 @@
                   Margin="30,24,30,18"
                   IsVisible="False"
                   RowDefinitions="Auto,Auto,*,Auto">
+                  <Grid.Transitions>
+                      <Transitions>
+                          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                      </Transitions>
+                  </Grid.Transitions>
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                     <StackPanel Spacing="3">
                         <StackPanel Orientation="Horizontal" Spacing="9">
@@ -1261,7 +1289,7 @@
                                       DoubleTapped="DeviceBook_DoubleTapped"
                                       ContextRequested="DeviceBook_ContextRequested">
                                     <Grid RowDefinitions="214,Auto">
-                                        <Border Background="#D9D9D9" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1">
+                                        <Border Classes="bookCover" Background="#D9D9D9" BorderThickness="1">
                                             <Grid>
                                                 <TextBlock Text="KINDLE" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#777777" FontSize="11" />
                                                 <Image Source="{Binding CoverImage}" Stretch="Uniform" />
@@ -1376,6 +1404,11 @@
                   DragDrop.AllowDrop="True"
                   DragDrop.DragOver="DeviceResourcePage_DragOver"
                   DragDrop.Drop="DeviceResourcePage_Drop">
+                  <Grid.Transitions>
+                      <Transitions>
+                          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                      </Transitions>
+                  </Grid.Transitions>
                 <StackPanel Spacing="3">
                     <TextBlock x:Name="DeviceResourcePageTitle" Text="Kindle 字体" FontSize="27" FontWeight="Bold" />
                     <TextBlock x:Name="DeviceResourcePathText" Text="Kindle\fonts" Foreground="#666666" />
@@ -1418,6 +1451,11 @@
                   Margin="30,24,30,18"
                   IsVisible="False"
                   RowDefinitions="Auto,Auto,Auto,*,Auto">
+                  <Grid.Transitions>
+                      <Transitions>
+                          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                      </Transitions>
+                  </Grid.Transitions>
                 <StackPanel Spacing="3">
                     <TextBlock x:Name="ReadingMaterialsPageTitle" Text="笔记与标注" FontSize="27" FontWeight="Bold" />
                     <TextBlock x:Name="ReadingMaterialsStatusText" Text="统一浏览本地书籍与 Kindle 的划线、笔记和批注。" Foreground="#666666" TextWrapping="Wrap" />
@@ -1557,6 +1595,11 @@
                   Margin="30,24,30,18"
                   IsVisible="False"
                   RowDefinitions="Auto,*">
+                  <Grid.Transitions>
+                      <Transitions>
+                          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                      </Transitions>
+                  </Grid.Transitions>
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                     <StackPanel Spacing="3">
                         <TextBlock Text="阅读数据" FontSize="27" FontWeight="Bold" />
@@ -1639,7 +1682,8 @@
                                                         Height="{Binding BarHeight}"
                                                         Background="{StaticResource InkBrush}"
                                                         BorderBrush="{StaticResource InkBrush}"
-                                                        BorderThickness="1" />
+                                                        BorderThickness="1"
+                                                        ToolTip.Tip="{Binding TimeLabel}" />
                                                 <TextBlock Grid.Row="1"
                                                            Text="{Binding TimeLabel}"
                                                            FontSize="9"
@@ -1665,7 +1709,7 @@
                                                   AutomationProperties.Name="单本书累计阅读时长排行">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="local:Stage3DashboardBarViewModel">
-                                                <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="8" Margin="0,3">
+                                                <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="8" Margin="0,3" ToolTip.Tip="{Binding ValueLabel}">
                                                     <TextBlock Text="{Binding Label}" FontSize="10" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                                     <Border Grid.Column="1" Width="{Binding BarWidth}" Height="12" Background="{StaticResource InkBrush}" HorizontalAlignment="Left" />
                                                     <TextBlock Grid.Column="2" Text="{Binding ValueLabel}" FontSize="10" Foreground="{StaticResource MutedInkBrush}" VerticalAlignment="Center" />
@@ -1683,7 +1727,7 @@
                                                   AutomationProperties.Name="阅读进度区间分布柱状图">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="local:Stage3DashboardBarViewModel">
-                                                <Grid ColumnDefinitions="70,*,Auto" ColumnSpacing="8" Margin="0,3">
+                                                <Grid ColumnDefinitions="70,*,Auto" ColumnSpacing="8" Margin="0,3" ToolTip.Tip="{Binding ValueLabel}">
                                                     <TextBlock Text="{Binding Label}" FontSize="10" VerticalAlignment="Center" />
                                                     <Border Grid.Column="1" Width="{Binding BarWidth}" Height="12" Background="{StaticResource InkBrush}" HorizontalAlignment="Left" />
                                                     <TextBlock Grid.Column="2" Text="{Binding ValueLabel}" FontSize="10" Foreground="{StaticResource MutedInkBrush}" VerticalAlignment="Center" />
@@ -1701,7 +1745,7 @@
                                                   AutomationProperties.Name="阅读中与已完成书籍分布柱状图">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="local:Stage3DashboardBarViewModel">
-                                                <Grid ColumnDefinitions="70,*,Auto" ColumnSpacing="8" Margin="0,3">
+                                                <Grid ColumnDefinitions="70,*,Auto" ColumnSpacing="8" Margin="0,3" ToolTip.Tip="{Binding ValueLabel}">
                                                     <TextBlock Text="{Binding Label}" FontSize="10" VerticalAlignment="Center" />
                                                     <Border Grid.Column="1" Width="{Binding BarWidth}" Height="12" Background="{StaticResource InkBrush}" HorizontalAlignment="Left" />
                                                     <TextBlock Grid.Column="2" Text="{Binding ValueLabel}" FontSize="10" Foreground="{StaticResource MutedInkBrush}" VerticalAlignment="Center" />
@@ -1722,6 +1766,11 @@
                   Margin="30,24,30,18"
                   IsVisible="False"
                   RowDefinitions="Auto,Auto,*,Auto">
+                  <Grid.Transitions>
+                      <Transitions>
+                          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                      </Transitions>
+                  </Grid.Transitions>
                 <StackPanel Spacing="3">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <TextBlock Text="Z-Library 在线书库" FontSize="27" FontWeight="Bold" />
@@ -1839,6 +1888,11 @@
                   Margin="30,24,30,18"
                   IsVisible="False"
                   RowDefinitions="Auto,*">
+                  <Grid.Transitions>
+                      <Transitions>
+                          <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                      </Transitions>
+                  </Grid.Transitions>
                 <StackPanel Spacing="3">
                     <TextBlock Text="基础设置" FontSize="28" FontWeight="Bold" />
                     <TextBlock x:Name="SettingsStatusText"
@@ -2575,6 +2629,11 @@
                   ZIndex="104"
                   Focusable="True"
                   KeyDown="DevicePromptOverlay_KeyDown">
+                <Grid.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                    </Transitions>
+                </Grid.Transitions>
                 <Border Width="560"
                         MaxWidth="560"
                         Background="{StaticResource PaperBrush}"
@@ -2625,6 +2684,11 @@
                   Background="#66000000"
                   IsVisible="False"
                   ZIndex="100">
+                <Grid.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                    </Transitions>
+                </Grid.Transitions>
                 <Border Width="430"
                         Padding="22"
                         Background="{StaticResource PaperBrush}"
@@ -2649,6 +2713,11 @@
                   Background="#66000000"
                   IsVisible="False"
                   ZIndex="101">
+                <Grid.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                    </Transitions>
+                </Grid.Transitions>
                 <Border Width="430"
                         Padding="22"
                         Background="{StaticResource PaperBrush}"
@@ -2673,6 +2742,11 @@
                   Background="#66000000"
                   IsVisible="False"
                   ZIndex="103">
+                <Grid.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                    </Transitions>
+                </Grid.Transitions>
                 <Border Width="430"
                         Padding="22"
                         Background="{StaticResource PaperBrush}"
@@ -2708,6 +2782,11 @@
                   Background="#66000000"
                   IsVisible="False"
                   ZIndex="102">
+                <Grid.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                    </Transitions>
+                </Grid.Transitions>
                 <Border Width="680"
                         MaxHeight="620"
                         Padding="20"
@@ -2775,6 +2854,11 @@
                   ZIndex="102"
                   Focusable="True"
                   KeyDown="DoubanPreviewOverlay_KeyDown">
+                <Grid.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                    </Transitions>
+                </Grid.Transitions>
                 <Border Width="720"
                         MaxHeight="660"
                         Padding="22"
@@ -2864,6 +2948,11 @@
                   ZIndex="105"
                   Focusable="True"
                   KeyDown="ImportFormatSelectionOverlay_KeyDown">
+                <Grid.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                    </Transitions>
+                </Grid.Transitions>
                 <Border Width="620"
                         MaxHeight="650"
                         Background="{StaticResource PaperBrush}"
@@ -2899,6 +2988,11 @@
                   ZIndex="110"
                   Focusable="True"
                   KeyDown="MessageOverlay_KeyDown">
+                <Grid.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                    </Transitions>
+                </Grid.Transitions>
                 <Border Width="560"
                         MaxWidth="560"
                         Background="{StaticResource PaperBrush}"

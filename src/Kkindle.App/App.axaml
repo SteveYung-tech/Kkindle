@@ -88,6 +88,13 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="Padding" Value="14,8" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.15" />
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
+                    <BrushTransition Property="Foreground" Duration="0:0:0.15" />
+                </Transitions>
+            </Setter>
         </Style>
         <Style Selector="Button:pointerover">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
@@ -604,6 +611,22 @@
         <Style Selector="MenuItem:pointerover">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
             <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+
+        <!-- Book cover hover: the grid card cover deepens its border and lifts
+             2 DIP when the pointer is over it. -->
+        <Style Selector="Border.bookCover">
+            <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
+                    <ThicknessTransition Property="Margin" Duration="0:0:0.15" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.bookCover:pointerover">
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="Margin" Value="0,-2,0,2" />
         </Style>
     </Application.Styles>
 </Application>
