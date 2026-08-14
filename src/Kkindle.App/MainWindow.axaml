@@ -615,13 +615,13 @@
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                             <ListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <WrapPanel Orientation="Horizontal" ItemWidth="172" ItemHeight="298" />
+                                    <WrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="292" />
                                 </ItemsPanelTemplate>
                             </ListBox.ItemsPanel>
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="local:BookCardViewModel">
                                     <Grid Width="154"
-                                          Margin="0,0,18,22"
+                                          Margin="0,0,12,16"
                                           RowDefinitions="214,Auto"
                                           PointerPressed="BookCard_PointerPressed"
                                           ContextRequested="BookCard_ContextRequested"
@@ -705,6 +705,7 @@
                                             </Grid>
                                         </Border>
                                         <Border Grid.RowSpan="2"
+                                                Classes="bookOutline"
                                                 BorderBrush="{StaticResource CardBorderBrush}"
                                                 BorderThickness="1"
                                                 IsHitTestVisible="False" />

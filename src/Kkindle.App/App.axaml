@@ -651,20 +651,31 @@
             <Setter Property="Margin" Value="8,5" />
         </Style>
 
-        <!-- Book cover hover: the grid card cover deepens its border and lifts
-             2 DIP when the pointer is over it. -->
+        <!-- Book cover hover: the grid card cover deepens its border when the
+             pointer is over it (WinUI BookCardItemStyle: outline turns black,
+             no lift or scale animation). -->
         <Style Selector="Border.bookCover">
             <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
             <Setter Property="Transitions">
                 <Transitions>
-                    <BrushTransition Property="BorderBrush" Duration="0:0:0.15" />
-                    <ThicknessTransition Property="Margin" Duration="0:0:0.15" />
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
                 </Transitions>
             </Setter>
         </Style>
         <Style Selector="Border.bookCover:pointerover">
             <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
-            <Setter Property="Margin" Value="0,-2,0,2" />
+        </Style>
+        <!-- Whole-card outline turns black on hover, staying 1 DIP. -->
+        <Style Selector="Border.bookOutline">
+            <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.bookOutline:pointerover">
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
         </Style>
     </Application.Styles>
 </Application>
