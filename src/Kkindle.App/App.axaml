@@ -112,10 +112,10 @@
         <x:Double x:Key="MenuFlyoutThemeMinHeight">0</x:Double>
         <Thickness x:Key="MenuFlyoutPresenterThemePadding">0</Thickness>
         <Thickness x:Key="MenuFlyoutPresenterBorderThemeThickness">1</Thickness>
-        <!-- Match the old WinUI popup spacing; the book menu content is kept
-             to the same compact set of actions as the reference build. -->
+        <!-- Match the old WinUI popup row height. Keep the horizontal padding
+             narrow so the taller rows do not make the popup wider. -->
         <Thickness x:Key="MenuFlyoutItemThemePadding">8,9,8,10</Thickness>
-        <Thickness x:Key="MenuFlyoutItemThemePaddingNarrow">8,4,8,7</Thickness>
+        <Thickness x:Key="MenuFlyoutItemThemePaddingNarrow">8,9,8,10</Thickness>
         <Thickness x:Key="MenuFlyoutItemChevronMargin">8,0,0,0</Thickness>
         <Thickness x:Key="MenuInputGestureTextMargin">0</Thickness>
         <Thickness x:Key="MenuFlyoutSeparatorThemePadding">12,4,12,4</Thickness>
