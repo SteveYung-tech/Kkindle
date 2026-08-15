@@ -17,7 +17,9 @@ public sealed record EpubReaderDocument(
 public sealed class EpubReaderPreparationService
 {
     private const string ExtractionReadyFileName = ".kkindle-extracted";
-    private const string ExtractionFormatVersion = "5";
+    // Bump whenever sanitization or the injected bridge changes. Existing
+    // reader caches otherwise keep the old JavaScript indefinitely.
+    private const string ExtractionFormatVersion = "7";
     private const string ContentSecurityPolicyBase =
         "default-src 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; " +
         "connect-src 'none'; form-action 'none'; img-src 'self' file:; " +
@@ -49,7 +51,8 @@ public sealed class EpubReaderPreparationService
               scrollWidth: element.scrollWidth || 0,
               scrollHeight: element.scrollHeight || 0,
               clientWidth: element.clientWidth || 0,
-              clientHeight: element.clientHeight || 0
+              clientHeight: element.clientHeight || 0,
+              fragment: location.hash || ''
             });
           };
           let scrollQueued = false;
@@ -72,11 +75,17 @@ public sealed class EpubReaderPreparationService
               }
               const range = selection.getRangeAt(0);
               if (!document.body.contains(range.commonAncestorContainer)) return;
+              const removeNonReaderText = root => {
+                root.querySelectorAll?.('script, style, noscript, #kkindle-selection-bar, .kkindle-wave-sweep')
+                  .forEach(node => node.remove());
+                return root;
+              };
               const pointOffset = (container, offset) => {
                 const before = document.createRange();
                 before.selectNodeContents(document.body);
                 before.setEnd(container, offset);
-                return (before.cloneContents().textContent || "").length;
+                const fragment = removeNonReaderText(before.cloneContents());
+                return (fragment.textContent || "").length;
               };
               const rawText = selection.toString() || "";
               const leading = rawText.length - rawText.trimStart().length;
@@ -84,7 +93,8 @@ public sealed class EpubReaderPreparationService
               const text = rawText.trim();
               const startOffset = pointOffset(range.startContainer, range.startOffset) + leading;
               const endOffset = pointOffset(range.endContainer, range.endOffset) - trailing;
-              const fullText = document.body.textContent || "";
+              const textClone = removeNonReaderText(document.body.cloneNode(true));
+              const fullText = textClone.textContent || "";
               const rect = range.getBoundingClientRect();
               const anchorX = contextEvent ? contextEvent.clientX : rect.left;
               const anchorY = contextEvent ? contextEvent.clientY : rect.top;
@@ -131,7 +141,7 @@ public sealed class EpubReaderPreparationService
                 }
                 #kkindle-selection-bar {
                   position: fixed; display: none; z-index: 2147483647;
-                  background: #FFFFFF; border: 1px solid #000000;
+                  background: #FFFFFF; border: 1px solid #E2E2E2;
                   padding: 3px; white-space: nowrap;
                   font-family: "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
                 }
@@ -140,14 +150,15 @@ public sealed class EpubReaderPreparationService
                   padding: 6px 10px; font-size: 12px; line-height: 1;
                   font-family: inherit; cursor: pointer; border-radius: 0;
                 }
-                #kkindle-selection-bar button:hover { background: #000000; color: #FFFFFF; }
+                #kkindle-selection-bar button:hover { background: #F2F2F2; color: #000000; }
+                #kkindle-selection-bar button:active { background: #D9D9D9; color: #000000; }
                 #kkindle-selection-bar .kk-sel-sep {
                   display: inline-block; width: 1px; height: 18px;
                   background: #D5D5D1; vertical-align: middle; margin: 0 2px;
                 }
                 #kkindle-selection-bar .kk-sel-styles {
                   position: absolute; bottom: 100%; left: 0; display: none;
-                  background: #FFFFFF; border: 1px solid #000000; padding: 3px;
+                  background: #FFFFFF; border: 1px solid #E2E2E2; padding: 3px;
                 }
                 #kkindle-selection-bar .kk-sel-styles.open { display: block; }`;
               document.head.appendChild(styleElement);
@@ -157,7 +168,7 @@ public sealed class EpubReaderPreparationService
             selectionBar.innerHTML = `
               <button data-action="copy">复制</button>
               <span class="kk-sel-sep"></span>
-              <button id="kk-sel-highlight">划线 ▾</button>
+              <button id="kk-sel-highlight" data-action="highlight-menu">划线 ▾</button>
               <div class="kk-sel-styles" id="kk-sel-styles">
                 <button data-highlight="solid">直线</button>
                 <button data-highlight="double">双线</button>
@@ -236,6 +247,21 @@ public sealed class EpubReaderPreparationService
             if (selectionBar) selectionBar.style.display = 'none';
           };
 
+          const isFootnoteLink = element => {
+            const metadata = [
+              element.getAttribute('epub:type') || '',
+              element.getAttribute('role') || '',
+              element.getAttribute('rel') || '',
+              element.getAttribute('class') || '',
+              element.getAttribute('id') || '',
+              element.getAttribute('href') || ''
+            ].join(' ');
+            const label = (element.textContent || '').trim();
+            return /\b(noteref|doc-noteref|footnote|endnote|note[-_]?ref|fn[-_]?ref)\b/i.test(metadata)
+              || /(?:^|[#\s_-])(?:note|fn|ftn|footnote|zww?)[-_:]?\d*(?:n|ref)?(?:$|[\s#_-])/i.test(metadata)
+              || (!!(element.closest('sup') || element.querySelector('sup'))
+                  && /^(?:\[?\d{1,3}\]?|[＊*†‡])$/.test(label));
+          };
           document.addEventListener("click", event => {
             try {
               const element = event.target instanceof Element
@@ -243,7 +269,8 @@ public sealed class EpubReaderPreparationService
                 : null;
               if (element && element.href) {
                 event.preventDefault();
-                send({ type: "link", href: element.href, target: element.target || "" });
+                const footnote = isFootnoteLink(element);
+                send({ type: "link", href: element.href, target: element.target || "", footnote });
                 return;
               }
               if (window.__kkindleReaderFlowMode === 1) {
@@ -265,6 +292,7 @@ public sealed class EpubReaderPreparationService
                 ? event.target.closest("a[href]")
                 : null;
               if (!element || !element.href.includes('#')) return;
+              if (!isFootnoteLink(element)) return;
               window.clearTimeout(footnoteHoverTimer);
               footnoteHoverTimer = window.setTimeout(() =>
                 send({ type: "footnoteHover", href: element.href }), 90);
@@ -272,6 +300,7 @@ public sealed class EpubReaderPreparationService
           }, true);
           document.addEventListener("pointerout", event => {
             try {
+              window.clearTimeout(footnoteHoverTimer);
               const element = event.target instanceof Element
                 ? event.target.closest("a[href]")
                 : null;
@@ -285,8 +314,22 @@ public sealed class EpubReaderPreparationService
           // ArrowUp/ArrowDown are scroll-only in continuous mode; keydown keeps
           // the repeat semantics of the WinUI reference's keyboard handling.
           document.addEventListener("keydown", event => {
-            if (event.key === "ArrowUp" || event.key === "ArrowDown")
-              send({ type: "key", key: event.key });
+            const key = event.key || '';
+            const lower = key.toLowerCase();
+            if (key === 'F11' || key === 'Escape'
+                || (event.ctrlKey && (lower === 'f' || lower === 'b'))) {
+              event.preventDefault();
+              event.stopPropagation();
+              send({ type: "shortcut", key: lower, ctrlKey: !!event.ctrlKey });
+              return;
+            }
+            const paginated = window.__kkindleReaderFlowMode === 1;
+            const controlled = paginated
+              ? ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(key)
+              : ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key);
+            if (controlled) event.preventDefault();
+            if (key === "ArrowUp" || key === "ArrowDown")
+              send({ type: "key", key });
           }, true);
           // Replace Chromium's default context menu with Kreader's native text
           // actions. Right-clicking a live selection reports both its anchor and
@@ -377,8 +420,10 @@ public sealed class EpubReaderPreparationService
             cancellationToken);
         if (!extractionReady)
         {
-            if (!File.Exists(extractionReadyPath))
-                await ExtractSafelyAsync(epubPath, cacheRoot, cancellationToken);
+            // Re-extract on every format-version mismatch. Re-sanitizing an
+            // already transformed cache cannot restore content removed by an
+            // older sanitizer and would leave bridge changes version-skewed.
+            await ExtractSafelyAsync(epubPath, cacheRoot, cancellationToken);
 
             await SanitizeExtractedResourcesAsync(cacheRoot, cancellationToken);
             await File.WriteAllTextAsync(

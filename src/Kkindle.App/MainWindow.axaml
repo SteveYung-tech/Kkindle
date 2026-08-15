@@ -25,101 +25,22 @@
         KeyDown="MainWindow_KeyDown">
 
     <Window.Resources>
-        <!-- Library-presence glyph shared by the PC grid, the PC list and the
-             Kindle cards. The three states (PC only / Kindle only / both) are
-             drawn at the exact coordinates of the WinUI reference template:
-             laptop outline with 1.5 rounded corners, reader body, open book. -->
+        <!-- Minimal library-presence glyph shared by the PC grid/list and the
+             Kindle cards. Every state uses the same centred optical box. -->
         <DataTemplate x:Key="LibraryPresenceGlyph" x:CompileBindings="False">
-            <Grid Width="23" Height="21" IsHitTestVisible="False">
-                <!-- PC only: a simple laptop outline. -->
-                <Grid IsVisible="{Binding ComputerOnlyPresenceVisibility}">
-                    <Border Width="17"
-                            Height="12"
-                            Margin="3,2,0,0"
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Top"
-                            CornerRadius="1.5"
-                            BorderBrush="{StaticResource InkBrush}"
-                            BorderThickness="1.6" />
-                    <Path Data="M 1,15 L 22,15 L 20,19 L 3,19 Z"
-                          Fill="{StaticResource InkBrush}"
-                          HorizontalAlignment="Left"
-                          VerticalAlignment="Top" />
-                    <Rectangle Width="7"
-                               Height="1.2"
-                               Margin="8,15,0,0"
-                               HorizontalAlignment="Left"
-                               VerticalAlignment="Top"
-                               Fill="{StaticResource PaperBrush}" />
-                </Grid>
-
-                <!-- Kindle only: reader body, text page and home bar. -->
-                <Grid Width="15"
-                      Height="21"
-                      IsVisible="{Binding KindleOnlyPresenceVisibility}">
-                    <Border CornerRadius="2.5"
-                            BorderBrush="{StaticResource InkBrush}"
-                            BorderThickness="1.6">
-                        <Grid>
-                            <Border Margin="2.5,2.5,2.5,5"
-                                    BorderBrush="{StaticResource InkBrush}"
-                                    BorderThickness="1.2">
-                                <StackPanel Margin="2,2" Spacing="1.3">
-                                    <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
-                                    <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
-                                    <Rectangle Width="5" Height="1" HorizontalAlignment="Left" Fill="{StaticResource InkBrush}" />
-                                    <Rectangle Height="1" Fill="{StaticResource InkBrush}" />
-                                </StackPanel>
-                            </Border>
-                            <Rectangle Width="5"
-                                       Height="1.5"
-                                       Margin="0,0,0,1.5"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Bottom"
-                                       Fill="{StaticResource InkBrush}" />
-                        </Grid>
-                    </Border>
-                </Grid>
-
-                <!-- Both libraries: an open book displayed on a laptop. -->
-                <Grid IsVisible="{Binding BothLibrariesPresenceVisibility}">
-                    <Border Width="18"
-                            Height="13"
-                            Margin="2.5,1,0,0"
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Top"
-                            CornerRadius="1.5"
-                            BorderBrush="{StaticResource InkBrush}"
-                            BorderThickness="1.6" />
-                    <Path Data="M 1,15 L 22,15 L 20,19 L 3,19 Z"
-                          Fill="{StaticResource InkBrush}"
-                          HorizontalAlignment="Left"
-                          VerticalAlignment="Top" />
-                    <Rectangle Width="7"
-                               Height="1.2"
-                               Margin="8,15,0,0"
-                               HorizontalAlignment="Left"
-                               VerticalAlignment="Top"
-                               Fill="{StaticResource PaperBrush}" />
-                    <Path Data="M 5,4 L 11.5,6 L 11.5,13 L 5,11 Z"
-                          Fill="{StaticResource PaperBrush}"
-                          Stroke="{StaticResource InkBrush}"
-                          StrokeThickness="1.3"
-                          HorizontalAlignment="Left"
-                          VerticalAlignment="Top" />
-                    <Path Data="M 11.5,6 L 18,4 L 18,11 L 11.5,13 Z"
-                          Fill="{StaticResource PaperBrush}"
-                          Stroke="{StaticResource InkBrush}"
-                          StrokeThickness="1.3"
-                          HorizontalAlignment="Left"
-                          VerticalAlignment="Top" />
-                    <Ellipse Width="2.5"
-                             Height="1.5"
-                             Margin="10.25,12,0,0"
-                             HorizontalAlignment="Left"
-                             VerticalAlignment="Top"
-                             Fill="{StaticResource InkBrush}" />
-                </Grid>
+            <Grid Width="20" Height="20" IsHitTestVisible="False">
+                <Path Classes="libraryGlyph"
+                      Data="M 4,5 H 20 V 15 H 4 Z M 2,19 H 22"
+                      Stroke="{StaticResource InkBrush}"
+                      IsVisible="{Binding ComputerOnlyPresenceVisibility}" />
+                <Path Classes="libraryGlyph"
+                      Data="M 7,3 H 17 V 21 H 7 Z M 10,17 H 14"
+                      Stroke="{StaticResource InkBrush}"
+                      IsVisible="{Binding KindleOnlyPresenceVisibility}" />
+                <Path Classes="libraryGlyph"
+                      Data="M 3,5 H 17 V 15 H 3 Z M 2,18 H 17 M 15,9 H 21 V 21 H 15 Z"
+                      Stroke="{StaticResource InkBrush}"
+                      IsVisible="{Binding BothLibrariesPresenceVisibility}" />
             </Grid>
         </DataTemplate>
     </Window.Resources>
@@ -136,8 +57,7 @@
                 Margin="4"
                 Background="{StaticResource PaperBrush}"
                 BorderBrush="#808080"
-                BorderThickness="0.5"
-                BoxShadow="0 1 4 0 #26000000, 0 6 20 0 #12000000">
+                BorderThickness="0.5">
         <Grid Background="{StaticResource PaperBrush}">
         <!-- Self-drawn square title bar. -->
         <Grid Grid.Row="0"
@@ -235,6 +155,7 @@
         </Grid>
 
         <Grid x:Name="LibraryRoot"
+              Classes="libraryShell"
               Grid.Row="0"
               ColumnDefinitions="200,*,0"
               Background="{StaticResource PaperBrush}"
@@ -459,17 +380,19 @@
                                         ToolTip.Tip="未连接设备"
                                         AutomationProperties.Name="弹出设备"
                                         Click="EjectDeviceButton_Click">
-                                    <Polygon x:Name="DeviceEjectTriangleGlyph"
-                                             Classes="ejectGlyph"
-                                             Points="0,8 7,0 14,8"
-                                             Width="14"
-                                             Height="8"
-                                             Fill="Transparent"
-                                             Stroke="{StaticResource InkBrush}"
-                                             StrokeThickness="1"
-                                             Stretch="Fill"
-                                             HorizontalAlignment="Center"
-                                             VerticalAlignment="Center" />
+                                    <Path x:Name="DeviceEjectTriangleGlyph"
+                                          Classes="ejectGlyph"
+                                          Data="M 3,10 L 7,6 L 11,10 M 3,14 H 11"
+                                          Width="14"
+                                          Height="14"
+                                          Fill="Transparent"
+                                          Stroke="{StaticResource InkBrush}"
+                                          StrokeThickness="1.5"
+                                          StrokeLineCap="Round"
+                                          StrokeJoin="Round"
+                                          Stretch="Uniform"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center" />
                                 </Button>
                             </Grid>
                             <TextBlock x:Name="DeviceStorageText"
@@ -522,10 +445,8 @@
                              TextChanged="SearchBox_TextChanged" />
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="10,0,0,0">
                         <Button x:Name="FilterButton" Classes="icon" ToolTip.Tip="显示或隐藏筛选条件" Click="FilterButton_Click" AutomationProperties.Name="筛选">
-                            <Path Data="M 2,3 H 20 L 13,11 V 19 L 9,16 V 11 Z"
-                                  Fill="Transparent"
-                                  Stroke="{StaticResource InkBrush}"
-                                  StrokeThickness="1.5" />
+                            <Path Classes="libraryGlyph"
+                                  Data="M 4,5 H 20 L 14,12 V 19 L 10,21 V 12 Z" />
                         </Button>
                         <Button x:Name="LibraryViewToggleButton"
                                 Classes="icon"
@@ -552,33 +473,26 @@
                                 </MenuFlyout>
                             </Button.Flyout>
                             <Path x:Name="LibraryViewToggleIcon"
-                                  Data="M 2,2 H 8 V 8 H 2 Z M 14,2 H 20 V 8 H 14 Z M 2,14 H 8 V 20 H 2 Z M 14,14 H 20 V 20 H 14 Z"
-                                  Fill="Transparent"
-                                  Stroke="{StaticResource InkBrush}"
-                                  StrokeThickness="1.5" />
+                                  Classes="libraryGlyph"
+                                  Data="M 3,3 H 9 V 9 H 3 Z M 15,3 H 21 V 9 H 15 Z M 3,15 H 9 V 21 H 3 Z M 15,15 H 21 V 21 H 15 Z" />
                         </Button>
                         <Rectangle Width="1" Height="20" Fill="{StaticResource HairlineBrush}" VerticalAlignment="Center" Margin="2,0" />
                         <Button x:Name="ImportButton" Classes="icon" ToolTip.Tip="导入书籍文件或文件夹" Click="ImportButton_Click" AutomationProperties.Name="导入">
-                            <Path Data="M 4,2 H 13 L 19,8 V 21 H 4 Z M 13,2 V 8 H 19 M 13,14 A 4,4 0 1,1 10,10 M 13,14 L 11,11 M 13,14 L 10,14"
-                                  Fill="Transparent"
-                                  Stroke="{StaticResource InkBrush}"
-                                  StrokeThickness="1.4" />
+                            <Path Classes="libraryGlyph"
+                                  Data="M 12,3 V 16 M 7,11 L 12,16 L 17,11 M 4,21 H 20" />
                         </Button>
                         <Button x:Name="ExportBackupButton" Classes="icon" ToolTip.Tip="导出 Kkindle 备份" Click="ExportBackupButton_Click" AutomationProperties.Name="导出备份">
-                            <Path Data="M 11,20 V 5 M 6,10 L 11,5 L 16,10 M 3,20 H 19"
-                                  Fill="Transparent"
-                                  Stroke="{StaticResource InkBrush}"
-                                  StrokeThickness="1.5" />
+                            <Path Classes="libraryGlyph"
+                                  Data="M 12,21 V 8 M 7,13 L 12,8 L 17,13 M 4,3 H 20" />
                         </Button>
                     </StackPanel>
                 </Grid>
 
                 <Border x:Name="FilterPanel"
+                        Classes="flatSubsection"
                         Grid.Row="2"
                         Margin="0,0,0,12"
                         Padding="10"
-                        BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="1"
                         MaxHeight="0"
                         Opacity="0"
                         IsVisible="False">
@@ -655,13 +569,11 @@
                             </ListBox.ItemsPanel>
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="local:BookCardViewModel">
-                                    <Border Margin="0,0,0,7"
-                                            Padding="10"
-                                            Classes="bookRow"
-                                            Background="{StaticResource PaperBrush}"
-                                            BorderBrush="{StaticResource HairlineBrush}"
-                                            BorderThickness="1"
-                                            PointerPressed="BookCard_PointerPressed"
+                                        <Border Margin="0,0,0,7"
+                                                Classes="bookRow flatRow"
+                                                Padding="10"
+                                                Background="{StaticResource PaperBrush}"
+                                                PointerPressed="BookCard_PointerPressed"
                                             ContextRequested="BookCard_ContextRequested"
                                             DoubleTapped="BookCard_DoubleTapped">
                                         <Grid ColumnDefinitions="48,1.55*,1.65*,1.2*,140" ColumnSpacing="12">
@@ -822,26 +734,17 @@
                                     Spacing="10"
                                     IsVisible="False"
                                     IsHitTestVisible="False">
-                            <!-- Open-book illustration for the empty state. -->
-                            <Grid Width="64" Height="52" HorizontalAlignment="Center" Margin="0,0,0,4">
-                                <Path Data="M 4,8 L 30,5 L 30,44 L 4,47 Z M 30,5 L 60,8 L 60,47 L 30,44 Z"
-                                      Stroke="{StaticResource InkBrush}"
-                                      StrokeThickness="1.5"
-                                      Fill="{StaticResource PaperBrush}" />
-                                <Path Data="M 30,5 L 30,44"
-                                      Stroke="{StaticResource InkBrush}"
-                                      StrokeThickness="1.5" />
-                                <StackPanel Margin="10,11,0,0" Spacing="5" IsHitTestVisible="False">
-                                    <Rectangle Width="12" Height="2" Fill="{StaticResource InkBrush}" />
-                                    <Rectangle Width="12" Height="2" Fill="{StaticResource InkBrush}" />
-                                    <Rectangle Width="8" Height="2" Fill="{StaticResource InkBrush}" />
-                                </StackPanel>
-                                <StackPanel Margin="34,11,0,0" Spacing="5" IsHitTestVisible="False">
-                                    <Rectangle Width="12" Height="2" Fill="{StaticResource InkBrush}" />
-                                    <Rectangle Width="12" Height="2" Fill="{StaticResource InkBrush}" />
-                                    <Rectangle Width="9" Height="2" Fill="{StaticResource InkBrush}" />
-                                </StackPanel>
-                            </Grid>
+                            <Path Data="M 3,6 L 12,9 L 21,6 V 19 L 12,22 L 3,19 Z M 12,9 V 22"
+                                  Width="48"
+                                  Height="48"
+                                  Margin="0,0,0,4"
+                                  HorizontalAlignment="Center"
+                                  Stretch="Uniform"
+                                  Stroke="{StaticResource InkBrush}"
+                                  StrokeThickness="1.25"
+                                  StrokeLineCap="Round"
+                                  StrokeJoin="Round"
+                                  Fill="Transparent" />
                             <TextBlock x:Name="EmptyLibraryTitleText"
                                        Text="电脑书库还是空的"
                                        HorizontalAlignment="Center"
@@ -857,10 +760,10 @@
                         <Border x:Name="LibraryDropOverlay"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
-                                Padding="34,24"
-                                Background="{StaticResource PaperBrush}"
-                                BorderBrush="{StaticResource InkBrush}"
-                                BorderThickness="2"
+                        Padding="34,24"
+                        Background="{StaticResource PaperBrush}"
+                        BorderBrush="{StaticResource InkBrush}"
+                        BorderThickness="1"
                                 IsVisible="False"
                                 IsHitTestVisible="False"
                                 ZIndex="30">
@@ -884,7 +787,7 @@
                             Padding="14,8"
                             Background="{StaticResource PaperBrush}"
                             BorderBrush="{StaticResource InkBrush}"
-                            BorderThickness="2"
+                            BorderThickness="1"
                             IsVisible="False"
                             ZIndex="20">
                         <StackPanel Orientation="Horizontal" Spacing="10">
@@ -952,12 +855,8 @@
                                             ToolTip.Tip="豆瓣匹配"
                                             Click="DoubanMatchButton_Click">
                                         <!-- Magnifier glyph (WinUI E721). -->
-                                        <Path Data="M 3,8 a 5,5 0 1,0 10,0 a 5,5 0 1,0 -10,0 M 11.5,11.5 L 16,16"
-                                              Stroke="{StaticResource InkBrush}"
-                                              StrokeThickness="1.5"
-                                              Fill="Transparent"
-                                              Width="18"
-                                              Height="18" />
+                                        <Path Classes="libraryGlyph"
+                                              Data="M 11,4 A 7,7 0 1,0 11,18 A 7,7 0 1,0 11,4 M 16,16 L 21,21" />
                                     </Button>
                                     <Button x:Name="DetailFavoriteButton"
                                             Grid.Row="1"
@@ -971,15 +870,9 @@
                                             AutomationProperties.Name="收藏状态"
                                             ToolTip.Tip="收藏状态"
                                             Click="DetailFavoriteButton_Click">
-                                        <!-- Five-point star (WinUI E734/E735); the
-                                             code-behind fills it when favorite. -->
                                         <Path x:Name="DetailFavoriteIcon"
-                                              Data="M 8,2 L 9.8,6.3 L 14.5,6.6 L 11,9.7 L 12.1,14.2 L 8,11.8 L 3.9,14.2 L 5,9.7 L 1.5,6.6 L 6.2,6.3 Z"
-                                              Stroke="{StaticResource InkBrush}"
-                                              StrokeThickness="1.2"
-                                              Fill="Transparent"
-                                              Width="18"
-                                              Height="18" />
+                                              Classes="libraryGlyph"
+                                              Data="M 12,3 L 14.8,8.7 L 21,9.6 L 16.5,14 L 17.6,20.2 L 12,17.3 L 6.4,20.2 L 7.5,14 L 3,9.6 L 9.2,8.7 Z" />
                                     </Button>
                                     <Button x:Name="DetailReadingStatusButton"
                                             Grid.Row="2"
@@ -993,15 +886,9 @@
                                             AutomationProperties.Name="阅读状态"
                                             ToolTip.Tip="阅读状态"
                                             Click="DetailReadingStatusButton_Click">
-                                        <!-- Reading-state glyph (WinUI E8A4/E736/E73E):
-                                             the code-behind swaps the outline. -->
                                         <Path x:Name="DetailReadingStatusIcon"
-                                              Data="M 5,2.5 L 12,2 L 12,14 L 5,14.5 Z M 5,5 L 12,4.5 M 5,8 L 12,7.5 M 5,11 L 12,10.5"
-                                              Stroke="{StaticResource InkBrush}"
-                                              StrokeThickness="1.2"
-                                              Fill="Transparent"
-                                              Width="18"
-                                              Height="18" />
+                                              Classes="libraryGlyph"
+                                              Data="M 7,3 H 17 V 21 H 7 Z M 10,7 H 14" />
                                     </Button>
                                 </Grid>
                             </Grid>
@@ -1158,12 +1045,8 @@
                                 ToolTip.Tip="刷新设备"
                                 AutomationProperties.Name="刷新设备"
                                 Click="RefreshDevicesButton_Click">
-                            <Path Data="M 10,4 A 6,6 0 1,1 4,10 M 10,4 L 10,1 M 4,10 L 1,10"
-                                  Stroke="{StaticResource InkBrush}"
-                                  StrokeThickness="1.6"
-                                  Fill="Transparent"
-                                  Width="18"
-                                  Height="18" />
+                            <Path Classes="libraryGlyph"
+                                  Data="M 20,8 A 9,9 0 1,0 20,16 M 20,8 V 3 M 20,8 H 15" />
                         </Button>
                         <Button x:Name="DeviceViewToggleButton"
                                 Classes="quiet"
@@ -1189,12 +1072,8 @@
                                 </MenuFlyout>
                             </Button.Flyout>
                             <Path x:Name="DeviceViewToggleIcon"
-                                  Data="M 2,2 H 8 V 8 H 2 Z M 14,2 H 20 V 8 H 14 Z M 2,14 H 8 V 20 H 2 Z M 14,14 H 20 V 20 H 14 Z"
-                                  Stroke="{StaticResource InkBrush}"
-                                  StrokeThickness="1.4"
-                                  Fill="Transparent"
-                                  Width="18"
-                                  Height="18" />
+                                  Classes="libraryGlyph"
+                                  Data="M 3,3 H 9 V 9 H 3 Z M 15,3 H 21 V 9 H 15 Z M 3,15 H 9 V 21 H 3 Z M 15,15 H 21 V 21 H 15 Z" />
                         </Button>
                         <Button x:Name="EjectDeviceButton"
                                 Classes="quiet"
@@ -1204,12 +1083,8 @@
                                 Padding="0"
                                 Click="EjectDeviceButton_Click"
                                 IsEnabled="False">
-                            <Polygon Points="0,8 7,0 14,8"
-                                     Width="14"
-                                     Height="8"
-                                     Fill="{StaticResource InkBrush}"
-                                     Stroke="{StaticResource InkBrush}"
-                                     StrokeThickness="1" />
+                            <Path Classes="libraryGlyph"
+                                  Data="M 6,15 L 12,9 L 18,15 M 6,20 H 18" />
                         </Button>
                     </StackPanel>
                 </Grid>
@@ -1341,7 +1216,7 @@
                         Padding="12,8"
                         Background="{StaticResource PaperBrush}"
                         BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="2"
+                        BorderThickness="1"
                         IsVisible="False"
                         ZIndex="20">
                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -1413,7 +1288,7 @@
                         </ListBox.Styles>
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="core:KindleDeviceResource">
-                                <Border BorderBrush="#BFBFBF" BorderThickness="1" Padding="10,8">
+                    <Border Classes="flatRow" Padding="10,8">
                                     <Grid ColumnDefinitions="2*,90,110" ColumnSpacing="16">
                                         <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="1" Text="{Binding Format}" Foreground="{StaticResource MutedInkBrush}" />
@@ -1481,19 +1356,17 @@
                     </Grid>
                 </Grid>
                 <Border x:Name="ReadingMaterialsSummaryBorder"
+                        Classes="flatPanel"
                         Grid.Row="2"
                         Padding="16,12"
-                        Background="{StaticResource PaperBrush}"
-                        BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="2">
+                        Background="{StaticResource PaperBrush}">
                     <TextBlock x:Name="ReadingMaterialsSummaryText" Text="本地 0 条 · Kindle 0 条 · 当前显示 0 条" FontSize="16" FontWeight="Bold" />
                 </Border>
                 <Border x:Name="ReadingMaterialsExportPanel"
+                        Classes="flatPanel"
                         Grid.Row="2"
                         Padding="16,14"
                         Background="{StaticResource PaperBrush}"
-                        BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="2"
                         IsVisible="False">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
                         <StackPanel Spacing="4">
@@ -1517,12 +1390,11 @@
                     </Grid>
                 </Border>
                 <Border x:Name="ReadingMaterialsExportSummaryBorder"
+                        Classes="flatPanel"
                         Grid.Row="3"
                         Margin="0,18,0,0"
                         Padding="16,12"
                         Background="{StaticResource PaperBrush}"
-                        BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="2"
                         IsVisible="False">
                     <TextBlock x:Name="ReadingMaterialsExportSummaryText" Text="导出预览 · 本地 0 条 · Kindle 0 条 · 当前将导出 0 条" FontSize="16" FontWeight="Bold" />
                 </Border>
@@ -1531,7 +1403,7 @@
                         <ItemsControl ItemsSource="{Binding ReadingMaterialGroups}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="local:Stage3ReadingMaterialGroupViewModel">
-                                    <Border BorderBrush="{StaticResource InkBrush}" BorderThickness="1" Margin="0,0,0,10">
+                                    <Border Classes="flatRow" Margin="0,0,0,10">
                                         <StackPanel>
                                             <Grid ColumnDefinitions="58,*,Auto" ColumnSpacing="12" Margin="12">
                                                 <Border Width="48" Height="64" Background="#E4E4E4" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
@@ -1638,25 +1510,25 @@
                 <ScrollViewer Grid.Row="1" Margin="0,20,0,0" VerticalScrollBarVisibility="Auto">
                     <StackPanel Spacing="16">
                         <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
-                            <Border Padding="14" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
+                            <Border Classes="flatMetric" Padding="14">
                                 <StackPanel Spacing="4">
                                     <TextBlock Text="累计阅读" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
                                     <TextBlock x:Name="DashboardTotalTimeText" Text="0 秒" FontSize="24" FontWeight="Bold" />
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Column="1" Padding="14" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
+                            <Border Grid.Column="1" Classes="flatMetric" Padding="14">
                                 <StackPanel Spacing="4">
                                     <TextBlock Text="已开始" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
                                     <TextBlock x:Name="DashboardBooksStartedText" Text="0 本" FontSize="24" FontWeight="Bold" />
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Column="2" Padding="14" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
+                            <Border Grid.Column="2" Classes="flatMetric" Padding="14">
                                 <StackPanel Spacing="4">
                                     <TextBlock Text="已读完" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
                                     <TextBlock x:Name="DashboardBooksFinishedText" Text="0 本" FontSize="24" FontWeight="Bold" />
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Column="3" Padding="14" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
+                            <Border Grid.Column="3" Classes="flatMetric" Padding="14">
                                 <StackPanel Spacing="4">
                                     <TextBlock Text="书签 / 批注" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
                                     <TextBlock x:Name="DashboardBookmarksText" Text="0 / 0" FontSize="24" FontWeight="Bold" />
@@ -1664,7 +1536,7 @@
                             </Border>
                         </Grid>
                         <Grid ColumnDefinitions="*,*" RowDefinitions="270,270" ColumnSpacing="16" RowSpacing="16">
-                            <Border Padding="14" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
+                            <Border Classes="flatPanel" Padding="14">
                                 <StackPanel Spacing="8">
                                     <TextBlock Text="近 14 天阅读时长" FontSize="16" FontWeight="SemiBold" />
                                     <TextBlock Text="每天有效阅读分钟数" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
@@ -1686,7 +1558,7 @@
                                     </ItemsControl>
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Column="1" Padding="14" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
+                            <Border Grid.Column="1" Classes="flatPanel" Padding="14">
                                 <StackPanel Spacing="8">
                                     <TextBlock Text="单本阅读时长" FontSize="16" FontWeight="SemiBold" />
                                     <TextBlock Text="累计阅读时长最高的书籍" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
@@ -1703,7 +1575,7 @@
                                     </ItemsControl>
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Row="1" Padding="14" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
+                            <Border Grid.Row="1" Classes="flatPanel" Padding="14">
                                 <StackPanel Spacing="8">
                                     <TextBlock Text="阅读进度分布" FontSize="16" FontWeight="SemiBold" />
                                     <TextBlock Text="按当前阅读百分比分组" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
@@ -1720,7 +1592,7 @@
                                     </ItemsControl>
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Row="1" Grid.Column="1" Padding="14" BorderBrush="{StaticResource InkBrush}" BorderThickness="1">
+                            <Border Grid.Row="1" Grid.Column="1" Classes="flatPanel" Padding="14">
                                 <StackPanel Spacing="8">
                                     <TextBlock Text="阅读状态分布" FontSize="16" FontWeight="SemiBold" />
                                     <TextBlock Text="阅读中与已完成书籍数量" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
@@ -1818,9 +1690,8 @@
                             AutomationProperties.Name="搜索"
                             ToolTip.Tip="搜索"
                             Click="ZLibrarySearchButton_Click">
-                        <Path Data="M 10,2 A 8,8 0 1 0 10,18 A 8,8 0 1 0 10,2 M 16,16 L 22,22"
-                              Stroke="{StaticResource PaperBrush}"
-                              StrokeThickness="1.8" />
+                        <Path Classes="libraryGlyph"
+                              Data="M 11,4 A 7,7 0 1,0 11,18 A 7,7 0 1,0 11,4 M 16,16 L 21,21" />
                     </Button>
                 </Grid>
                 <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="16">
@@ -1829,9 +1700,8 @@
                         <ItemsControl ItemsSource="{Binding ZLibraryBooks}" HorizontalAlignment="Stretch">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="local:ZLibraryBookCardViewModel">
-                                    <Border BorderBrush="{StaticResource HairlineBrush}"
-                                            BorderThickness="1"
-                                            Margin="0,0,0,8"
+                                            <Border Classes="flatRow"
+                                                    Margin="0,0,0,8"
                                             Padding="10,10,22,10"
                                             MinHeight="112"
                                             Tapped="ZLibraryBookRow_Tapped">
@@ -2044,11 +1914,10 @@
                                   HorizontalScrollBarVisibility="Disabled"
                                   VerticalScrollBarVisibility="Auto">
                         <StackPanel Spacing="16">
-                            <Border x:Name="SettingsGeneralSection"
-                                    Padding="18,18,18,32"
-                                    Background="{StaticResource PaperBrush}"
-                                    BorderBrush="{StaticResource InkBrush}"
-                                    BorderThickness="1">
+                <Border x:Name="SettingsGeneralSection"
+                        Classes="flatPanel"
+                        Padding="18,18,18,32"
+                        Background="{StaticResource PaperBrush}">
                                 <StackPanel Spacing="14">
                                     <TextBlock Text="常规" FontSize="18" FontWeight="SemiBold" />
                                     <StackPanel Spacing="5">
@@ -2081,12 +1950,11 @@
                                 </StackPanel>
                             </Border>
 
-                            <Border x:Name="SettingsLibrarySection"
-                                    IsVisible="False"
-                                    Padding="18,18,18,32"
-                                    Background="{StaticResource PaperBrush}"
-                                    BorderBrush="{StaticResource InkBrush}"
-                                    BorderThickness="1">
+                <Border x:Name="SettingsLibrarySection"
+                        Classes="flatPanel"
+                        IsVisible="False"
+                        Padding="18,18,18,32"
+                        Background="{StaticResource PaperBrush}">
                                 <StackPanel Spacing="14">
                                     <TextBlock Text="书库" FontSize="18" FontWeight="SemiBold" />
                                     <StackPanel Spacing="5">
@@ -2113,12 +1981,11 @@
                                 </StackPanel>
                             </Border>
 
-                            <Border x:Name="SettingsKindleSection"
-                                    IsVisible="False"
-                                    Padding="18"
-                                    Background="{StaticResource PaperBrush}"
-                                    BorderBrush="{StaticResource InkBrush}"
-                                    BorderThickness="1">
+                <Border x:Name="SettingsKindleSection"
+                        Classes="flatPanel"
+                        IsVisible="False"
+                        Padding="18"
+                        Background="{StaticResource PaperBrush}">
                                 <StackPanel Spacing="14">
                                     <TextBlock Text="Kindle" FontSize="18" FontWeight="SemiBold" />
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Margin="0,11,0,0">
@@ -2144,12 +2011,11 @@
                                 </StackPanel>
                             </Border>
 
-                            <Border x:Name="SettingsReadingSection"
-                                    IsVisible="False"
-                                    Padding="18"
-                                    Background="{StaticResource PaperBrush}"
-                                    BorderBrush="{StaticResource InkBrush}"
-                                    BorderThickness="1">
+                <Border x:Name="SettingsReadingSection"
+                        Classes="flatPanel"
+                        IsVisible="False"
+                        Padding="18"
+                        Background="{StaticResource PaperBrush}">
                                 <StackPanel Spacing="28">
                                     <StackPanel Spacing="5">
                                         <TextBlock Text="默认阅读排版" FontSize="18" FontWeight="SemiBold" />
@@ -2192,11 +2058,10 @@
                                         <TextBlock Text="新书默认使用竖排" FontSize="13" VerticalAlignment="Center" />
                                         <ToggleSwitch x:Name="DefaultVerticalWritingCheck" Grid.Column="1" OnContent="开" OffContent="关" VerticalAlignment="Center" />
                                     </Grid>
-                                    <Border x:Name="LocalResourcesSettingsSection"
-                                            Margin="0,11,0,0"
-                                            Padding="14"
-                                            BorderBrush="{StaticResource InkBrush}"
-                                            BorderThickness="1">
+                            <Border x:Name="LocalResourcesSettingsSection"
+                                    Classes="flatSubsection"
+                                    Margin="0,11,0,0"
+                                    Padding="14">
                                         <StackPanel Spacing="10">
                                             <TextBlock Text="Kreader 本地字体" FontSize="16" FontWeight="SemiBold" />
                                             <TextBlock Text="导入 TTF、OTF、WOFF 或 WOFF2 字体，导入后可作为每本书的阅读排版设置中选择。请自行确认字体许可。"
@@ -2218,10 +2083,9 @@
                                             </StackPanel>
                                         </StackPanel>
                                     </Border>
-                                    <Border x:Name="DictionaryManagementSection"
-                                            Padding="14"
-                                            BorderBrush="{StaticResource InkBrush}"
-                                            BorderThickness="1">
+                            <Border x:Name="DictionaryManagementSection"
+                                    Classes="flatSubsection"
+                                    Padding="14">
                                         <StackPanel Spacing="10">
                                             <TextBlock Text="Kreader 本地词典" FontSize="16" FontWeight="SemiBold" />
                                             <TextBlock Text="支持 UTF-8 文本词典，每行使用“词条 + Tab + 释义”或“词条=释义”。阅读时选中文字可直接查词。"
@@ -2249,12 +2113,11 @@
                                 </StackPanel>
                             </Border>
 
-                            <Border x:Name="SettingsBackupSection"
-                                    IsVisible="False"
-                                    Padding="18"
-                                    Background="{StaticResource PaperBrush}"
-                                    BorderBrush="{StaticResource InkBrush}"
-                                    BorderThickness="1">
+                <Border x:Name="SettingsBackupSection"
+                        Classes="flatPanel"
+                        IsVisible="False"
+                        Padding="18"
+                        Background="{StaticResource PaperBrush}">
                                 <StackPanel Spacing="14">
                                     <TextBlock Text="数据备份与迁移" FontSize="18" FontWeight="SemiBold" />
                                     <TextBlock Text="一键打包书籍文件、封面、书库信息和阅读记录，生成 .kkindle 备份文件。导入备份会覆盖当前书库；导入前会自动校验备份内容。"
@@ -2284,10 +2147,9 @@
                             <StackPanel x:Name="SettingsAboutSection"
                                         IsVisible="False"
                                         Spacing="16">
-                                <Border Padding="18"
-                                        Background="{StaticResource PaperBrush}"
-                                        BorderBrush="{StaticResource InkBrush}"
-                                        BorderThickness="1">
+                                <Border Classes="flatPanel"
+                                        Padding="18"
+                                        Background="{StaticResource PaperBrush}">
                                     <StackPanel Spacing="8">
                                         <TextBlock Text="本地数据目录" FontSize="18" FontWeight="SemiBold" />
                                         <TextBlock x:Name="SettingsDataPathText"
@@ -2305,10 +2167,9 @@
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="18"
-                                        Background="{StaticResource PaperBrush}"
-                                        BorderBrush="{StaticResource InkBrush}"
-                                        BorderThickness="1">
+                                <Border Classes="flatPanel"
+                                        Padding="18"
+                                        Background="{StaticResource PaperBrush}">
                                     <StackPanel Spacing="14">
                                         <Grid ColumnDefinitions="*,Auto">
                                             <TextBlock Text="关于" FontSize="18" FontWeight="SemiBold" />
@@ -2593,7 +2454,7 @@
                     Margin="0,0,30,30"
                     Background="{StaticResource PaperBrush}"
                     BorderBrush="{StaticResource InkBrush}"
-                    BorderThickness="2"
+                    BorderThickness="1"
                     IsVisible="False"
                     ZIndex="80"
                     Tapped="BookConversionPopup_Tapped">
@@ -2656,7 +2517,7 @@
                     Margin="0,0,30,30"
                     Background="{StaticResource PaperBrush}"
                     BorderBrush="{StaticResource InkBrush}"
-                    BorderThickness="2"
+                    BorderThickness="1"
                     IsVisible="False"
                     ZIndex="75"
                     IsHitTestVisible="False">
@@ -2699,7 +2560,7 @@
                     Margin="0,0,30,30"
                     Background="{StaticResource PaperBrush}"
                     BorderBrush="{StaticResource InkBrush}"
-                    BorderThickness="2"
+                    BorderThickness="1"
                     IsVisible="False"
                     ZIndex="90"
                     IsHitTestVisible="False">
@@ -2743,7 +2604,7 @@
                         MaxWidth="560"
                         Background="{StaticResource PaperBrush}"
                         BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="2"
+                        BorderThickness="1"
                         CornerRadius="0"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
@@ -2853,7 +2714,7 @@
                         MaxWidth="560"
                         Background="{StaticResource PaperBrush}"
                         BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="2"
+                        BorderThickness="1"
                         CornerRadius="0"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
@@ -2927,7 +2788,7 @@
                         Padding="20"
                         Background="{StaticResource PaperBrush}"
                         BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="2"
+                        BorderThickness="1"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
                     <Grid RowDefinitions="Auto,*,Auto" RowSpacing="10">
@@ -2999,7 +2860,7 @@
                         Padding="22"
                         Background="{StaticResource PaperBrush}"
                         BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="2"
+                        BorderThickness="1"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
                     <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10">
@@ -3092,7 +2953,7 @@
                         MaxHeight="650"
                         Background="{StaticResource PaperBrush}"
                         BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="2"
+                        BorderThickness="1"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
                     <Grid RowDefinitions="Auto,Auto">
@@ -3132,7 +2993,7 @@
                         MaxWidth="560"
                         Background="{StaticResource PaperBrush}"
                         BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="2"
+                        BorderThickness="1"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
                     <Grid RowDefinitions="Auto,Auto">
@@ -3174,6 +3035,7 @@
              50-DIP footer bar inside the content column, and a six-row TOC
              panel ending in the full-width 返回书架 button. -->
         <Grid x:Name="ReaderRoot"
+              Classes="readerShell"
               Grid.Row="0"
               Grid.ColumnSpan="3"
               IsVisible="False"
@@ -3263,21 +3125,19 @@
 
                     <Grid x:Name="ReaderTocTabsPanel"
                           Grid.Row="1"
-                          Margin="14,4,14,4"
+                          Margin="18,4,18,4"
                           ColumnDefinitions="*,*"
                           ColumnSpacing="6">
                         <Button x:Name="ReaderTocTabButton"
-                                Classes="readerToolbar"
+                                Classes="readerTab active"
                                 Content="目录"
                                 HorizontalAlignment="Stretch"
-                                BorderThickness="1"
                                 Click="ReaderTocTabButton_Click" />
                         <Button x:Name="ReaderBookmarkTabButton"
                                 Grid.Column="1"
-                                Classes="readerToolbar"
+                                Classes="readerTab"
                                 Content="书签"
                                 HorizontalAlignment="Stretch"
-                                BorderThickness="1"
                                 Click="ReaderBookmarkTabButton_Click" />
                     </Grid>
 
@@ -3313,6 +3173,7 @@
 
                         <Grid x:Name="ReaderBookmarkPane" IsVisible="False">
                             <ListBox x:Name="ReaderBookmarkList"
+                                     Classes="readerTocList"
                                      ItemsSource="{Binding ReaderBookmarks}"
                                      SelectionMode="Single"
                                      SelectionChanged="ReaderBookmarkList_SelectionChanged">
@@ -3381,8 +3242,6 @@
                                                     <Button Classes="readerToolbar"
                                                             Margin="0,0,14,6"
                                                             Padding="14,9"
-                                                            BorderThickness="0.5"
-                                                            BorderBrush="#BFBFBF"
                                                             Background="Transparent"
                                                             HorizontalContentAlignment="Stretch"
                                                             Tag="{Binding}"
@@ -3444,8 +3303,8 @@
                     </StackPanel>
 
                     <Border Grid.Row="5"
-                            BorderBrush="#E2E2DE"
-                            BorderThickness="1"
+                            BorderBrush="{StaticResource HairlineBrush}"
+                            BorderThickness="0,1,0,0"
                             CornerRadius="0">
                         <Button Content="返回书架"
                                 Margin="0"
@@ -3563,7 +3422,7 @@
                     HorizontalAlignment="Left"
                     VerticalAlignment="Top"
                     Background="{StaticResource PaperBrush}"
-                    BorderBrush="#C9C9C5"
+                    BorderBrush="{StaticResource HairlineBrush}"
                     BorderThickness="1"
                     ZIndex="90"
                     IsHitTestVisible="False"
@@ -3781,7 +3640,7 @@
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top"
                             Background="{StaticResource PaperBrush}"
-                            BorderBrush="{StaticResource InkBrush}"
+                            BorderBrush="{StaticResource HairlineBrush}"
                             BorderThickness="1"
                             IsVisible="False"
                             ZIndex="45">
@@ -3813,7 +3672,7 @@
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top"
                             Background="{StaticResource PaperBrush}"
-                            BorderBrush="{StaticResource InkBrush}"
+                            BorderBrush="{StaticResource HairlineBrush}"
                             BorderThickness="1"
                             IsVisible="False"
                             ZIndex="70">
@@ -3891,11 +3750,10 @@
                                    VerticalAlignment="Center" />
                         <Border x:Name="ReaderPdfBadge"
                                 Grid.Column="4"
-                                Padding="6,2"
+                                Padding="6,2,0,2"
                                 VerticalAlignment="Center"
-                                Background="#F2F2F0"
-                                BorderBrush="#D5D5D1"
-                                BorderThickness="1">
+                                Background="Transparent"
+                                BorderThickness="0">
                             <TextBlock x:Name="ReaderPdfBottomText"
                                        Text="PDF"
                                        FontSize="9"
@@ -3955,17 +3813,15 @@
 
                     <Grid Grid.Row="1" ColumnDefinitions="*,*" Margin="12,4" ColumnSpacing="6">
                         <Button x:Name="ReaderAiTabButton"
-                                Classes="readerToolbar"
+                                Classes="readerTab active"
                                 Content="AI 对话"
                                 HorizontalAlignment="Stretch"
-                                BorderThickness="1"
                                 Click="ReaderAiTabButton_Click" />
                         <Button x:Name="ReaderNotesTabButton"
                                 Grid.Column="1"
-                                Classes="readerToolbar"
+                                Classes="readerTab"
                                 Content="划线与笔记"
                                 HorizontalAlignment="Stretch"
-                                BorderThickness="1"
                                 Click="ReaderNotesTabButton_Click" />
                     </Grid>
 
@@ -3973,29 +3829,29 @@
                         <Grid x:Name="ReaderAiView">
                             <ScrollViewer x:Name="ReaderAiScrollViewer" Padding="14,14,14,18" VerticalScrollBarVisibility="Auto">
                                 <StackPanel Spacing="13">
-                                    <StackPanel x:Name="ReaderAiEmptyState" Spacing="8" HorizontalAlignment="Center">
-                                        <TextBlock Text="Kreader AI" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                    <StackPanel x:Name="ReaderAiEmptyState" Spacing="4" HorizontalAlignment="Stretch" Margin="0,4,0,2">
+                                        <TextBlock Text="开始对话" FontSize="14" FontWeight="SemiBold" />
                                         <TextBlock Text="基于当前选文和本地书籍索引对话"
                                                    MaxWidth="250"
-                                                   FontSize="12"
+                                                   FontSize="11"
                                                    Foreground="{StaticResource MutedInkBrush}"
-                                                   TextAlignment="Center"
                                                    TextWrapping="Wrap" />
                                     </StackPanel>
                                     <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="6" RowSpacing="6">
-                                        <Button Classes="readerToolbar" Content="总结本章" HorizontalAlignment="Stretch" BorderThickness="1" Click="ReaderAiSummarizeChapterButton_Click" />
-                                        <Button Grid.Column="1" Classes="readerToolbar" Content="解释选中" HorizontalAlignment="Stretch" BorderThickness="1" Click="ReaderAiExplainSelectionButton_Click" />
-                                        <Button Grid.Row="1" Classes="readerToolbar" Content="全书概览" HorizontalAlignment="Stretch" BorderThickness="1" Click="ReaderAiSummarizeBookButton_Click" />
-                                        <Button Grid.Row="1" Grid.Column="1" Classes="readerToolbar" Content="清空对话" HorizontalAlignment="Stretch" BorderThickness="1" Click="ReaderAiClearButton_Click" />
+                                        <Button Classes="readerToolbar" Content="总结本章" HorizontalAlignment="Stretch" Click="ReaderAiSummarizeChapterButton_Click" />
+                                        <Button Grid.Column="1" Classes="readerToolbar" Content="解释选中" HorizontalAlignment="Stretch" Click="ReaderAiExplainSelectionButton_Click" />
+                                        <Button Grid.Row="1" Classes="readerToolbar" Content="全书概览" HorizontalAlignment="Stretch" Click="ReaderAiSummarizeBookButton_Click" />
+                                        <Button Grid.Row="1" Grid.Column="1" Classes="readerToolbar" Content="清空对话" HorizontalAlignment="Stretch" Click="ReaderAiClearButton_Click" />
                                     </Grid>
                                     <ItemsControl x:Name="ReaderChatMessagesPanel" ItemsSource="{Binding ReaderAiMessages}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="local:ReaderAiMessageViewModel">
                                                 <Border Padding="10"
-                                                        Background="{Binding BubbleBackground}"
+                                                        Background="Transparent"
                                                         BorderBrush="{Binding BorderBrush}"
-                                                        BorderThickness="1"
-                                                        Margin="0,2">
+                                                        BorderThickness="3,0,0,0"
+                                                        Margin="0,2"
+                                                        CornerRadius="0">
                                                     <StackPanel Spacing="5">
                                                         <TextBlock Text="{Binding RoleLabel}" FontSize="10" FontWeight="SemiBold" Foreground="{Binding RoleBrush}" />
                                                         <TextBlock Text="{Binding Reasoning}" IsVisible="{Binding IsReasoningVisible}" FontSize="10" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
@@ -4034,9 +3890,9 @@
                                                Foreground="{StaticResource MutedInkBrush}"
                                                TextWrapping="Wrap" />
                                     <Border Padding="10"
-                                            Background="{StaticResource PaperBrush}"
-                                            BorderBrush="{StaticResource InkBrush}"
-                                            BorderThickness="1">
+                                            Background="Transparent"
+                                            BorderBrush="{StaticResource SidebarIndicatorBrush}"
+                                            BorderThickness="3,0,0,0">
                                         <TextBlock x:Name="ReaderAnnotationSelectionText"
                                                    Text="请先在正文中选择一段文字，再点击顶部“批注”。"
                                                    FontSize="12"
@@ -4073,7 +3929,7 @@
                                             </ComboBox>
                                         </StackPanel>
                                     </Grid>
-                                    <Button Classes="readerToolbar" Content="保存划线与笔记" HorizontalAlignment="Stretch" BorderThickness="1" Click="ReaderAnnotationSaveButton_Click" />
+                                    <Button Classes="readerToolbar" Content="保存划线与笔记" HorizontalAlignment="Stretch" Click="ReaderAnnotationSaveButton_Click" />
                                     <Grid ColumnDefinitions="*,Auto">
                                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <TextBlock Text="本书批注" FontSize="13" FontWeight="SemiBold" />
@@ -4092,9 +3948,9 @@
                                                 <Button Classes="readerToolbar"
                                                         Margin="0,0,0,7"
                                                         Padding="10"
-                                                        BorderThickness="1"
-                                                        BorderBrush="{StaticResource InkBrush}"
-                                                        Background="{StaticResource PaperBrush}"
+                                                        BorderThickness="3,0,0,0"
+                                                        BorderBrush="{StaticResource SidebarIndicatorBrush}"
+                                                        Background="Transparent"
                                                         Tag="{Binding}"
                                                         HorizontalContentAlignment="Stretch"
                                                         Click="ReaderAnnotationItemButton_Click">
@@ -4107,8 +3963,8 @@
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
                                     <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
-                                        <Button Classes="readerToolbar" Content="导出 Markdown" HorizontalAlignment="Stretch" BorderThickness="1" Click="ReaderExportMarkdownButton_Click" />
-                                        <Button Grid.Column="1" Classes="readerToolbar" Content="导出文本" HorizontalAlignment="Stretch" BorderThickness="1" Click="ReaderExportTextButton_Click" />
+                                        <Button Classes="readerToolbar" Content="导出 Markdown" HorizontalAlignment="Stretch" Click="ReaderExportMarkdownButton_Click" />
+                                        <Button Grid.Column="1" Classes="readerToolbar" Content="导出文本" HorizontalAlignment="Stretch" Click="ReaderExportTextButton_Click" />
                                     </Grid>
                                     <TextBlock x:Name="ReaderExportStatusText" FontSize="10" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
                                 </StackPanel>
@@ -4141,7 +3997,7 @@
 
                     <Border Grid.Row="3"
                             Padding="12"
-                            BorderBrush="{StaticResource InkBrush}"
+                            BorderBrush="{StaticResource HairlineBrush}"
                             BorderThickness="0,1,0,0">
                         <Grid x:Name="ReaderAiComposer" RowDefinitions="Auto,Auto,Auto" RowSpacing="7">
                             <Grid ColumnDefinitions="*,*" ColumnSpacing="7">
@@ -4169,7 +4025,6 @@
                                         Classes="quiet"
                                         Content="发送"
                                         MinWidth="66"
-                                        BorderThickness="1"
                                         Click="ReaderAiSendButton_Click" />
                             </Grid>
                         </Grid>
@@ -4181,20 +4036,20 @@
             <Grid x:Name="ReaderLayoutSettingsOverlay"
                   Grid.ColumnSpan="3"
                   Margin="0,38,0,0"
-                  Background="#66000000"
+                  Background="#26000000"
                   IsVisible="False"
                   ZIndex="85">
                 <Border Width="580"
                         MaxHeight="760"
                         Background="{StaticResource PaperBrush}"
-                        BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="2"
+                        BorderBrush="{StaticResource HairlineBrush}"
+                        BorderThickness="1"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <Grid RowDefinitions="Auto,Auto">
                             <StackPanel Margin="22,20" Spacing="12">
-                                <TextBlock Text="阅读排版设置" FontSize="20" FontWeight="SemiBold" />
+                                <TextBlock Text="阅读排版设置" FontSize="18" FontWeight="SemiBold" />
                                 <TextBlock Text="这些设置只对当前这本书生效，并在下次打开时自动恢复。"
                                            FontSize="11"
                                            Foreground="#666666"
@@ -4310,8 +4165,8 @@
                     HorizontalAlignment="Right"
                     VerticalAlignment="Top"
                     Background="{StaticResource PaperBrush}"
-                    BorderBrush="{StaticResource InkBrush}"
-                    BorderThickness="2"
+                    BorderBrush="{StaticResource HairlineBrush}"
+                    BorderThickness="1"
                     IsVisible="False"
                     ZIndex="95">
                 <Grid RowDefinitions="Auto,*" RowSpacing="8">

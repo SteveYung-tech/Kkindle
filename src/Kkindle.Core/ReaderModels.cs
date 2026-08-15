@@ -190,7 +190,7 @@ public static class ReaderFormatting
 //               chapter's first line; entries that explicitly carry a
 //               fragment anchor jump to that anchor.
 //   - Progress  progress-slider jump: chapter first line.
-//   - Bookmark / Annotation / Search / AiSource:
+//   - Link / Bookmark / Annotation / Search / AiSource:
 //               explicit named locations that scroll to their own target.
 // An explicit user target must win over any automatic breakpoint restore,
 // and a navigation must never inherit the stale pending location of the
@@ -205,7 +205,8 @@ public enum ReaderNavigationIntent
     Bookmark = 3,
     Annotation = 4,
     Search = 5,
-    AiSource = 6
+    AiSource = 6,
+    Link = 7
 }
 
 public static class ReaderNavigationLocationPolicy
@@ -282,6 +283,7 @@ public static class ReaderNavigationLocationPolicy
             ReaderNavigationIntent.Toc => target is not null && !TocTargetHasAnchor(target),
             ReaderNavigationIntent.Progress => true,
             ReaderNavigationIntent.None => !hasPendingRestorePosition,
+            ReaderNavigationIntent.Link => target is not null && !TocTargetHasAnchor(target),
             _ => false
         };
 }

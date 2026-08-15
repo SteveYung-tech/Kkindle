@@ -83,9 +83,10 @@ internal static class ReaderSearchPresentation
             match = runs
                 .Select(term => normalized.IndexOf(term, StringComparison.CurrentCultureIgnoreCase))
                 .Where(index => index >= 0)
-                .DefaultIfEmpty(0)
+                .DefaultIfEmpty(-1)
                 .Min();
         }
+        var hasMatch = match >= 0;
         if (match < 0) match = 0;
 
         var start = Math.Max(0, match - 45);
@@ -111,7 +112,7 @@ internal static class ReaderSearchPresentation
         // A query longer than the visible 150-character window still needs a
         // visible highlight. This is also the fallback for a title-only hit
         // where the query is not present in the body chunk itself.
-        if (rawRanges.Count == 0 && match >= 0)
+        if (rawRanges.Count == 0 && hasMatch)
         {
             var visibleStart = Math.Max(match, start);
             var visibleEnd = Math.Min(match + normalizedQuery.Length, start + length);
@@ -233,14 +234,15 @@ public sealed class ReaderSearchHighlightTextBlock : TextBlock
         AvaloniaProperty.Register<ReaderSearchHighlightTextBlock, IReadOnlyList<ReaderSearchHighlightRange>?>(
             nameof(HighlightRanges));
 
-    public ReaderSearchHighlightTextBlock()
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
-        SourceProperty.Changed.AddClassHandler<ReaderSearchHighlightTextBlock>(
-            static (control, _) => control.RebuildHighlightedInlines());
-        QueryProperty.Changed.AddClassHandler<ReaderSearchHighlightTextBlock>(
-            static (control, _) => control.RebuildHighlightedInlines());
-        HighlightRangesProperty.Changed.AddClassHandler<ReaderSearchHighlightTextBlock>(
-            static (control, _) => control.RebuildHighlightedInlines());
+        base.OnPropertyChanged(change);
+        if (change.Property == SourceProperty
+            || change.Property == QueryProperty
+            || change.Property == HighlightRangesProperty)
+        {
+            RebuildHighlightedInlines();
+        }
     }
 
     public string? Source
@@ -281,6 +283,7 @@ public sealed class ReaderSearchHighlightTextBlock : TextBlock
         {
             var start = Math.Clamp(range.Start, 0, text.Length);
             var end = Math.Clamp(range.Start + range.Length, start, text.Length);
+            if (start < cursor) start = cursor;
             if (start > cursor)
                 Inlines.Add(new Run { Text = text[cursor..start] });
             if (end <= start) continue;

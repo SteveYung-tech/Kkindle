@@ -20,6 +20,7 @@ public partial class MainWindow
     private bool _readerShowingPreload;
     private CancellationTokenSource? _readerSessionCancellation;
     private CancellationTokenSource? _readerNavigationCancellation;
+    private int _readerCloseInProgress;
     private readonly SemaphoreSlim _readerActiveHostNavigationGate = new(1, 1);
     private readonly SemaphoreSlim _readerPreloadHostNavigationGate = new(1, 1);
 
@@ -67,6 +68,7 @@ public partial class MainWindow
                 _readerChapterIndex = Math.Clamp(progress.ChapterIndex, 0, document.Chapters.Count - 1);
                 _readerRestoredProgress = progress;
                 _readerScrollPosition = Math.Max(0, progress.ScrollPosition);
+                _readerCurrentFragment = DecodeReaderFragment(progress.Fragment);
             }
 
             ReaderBookInfoText.Text = $"{card.Title} · {file.Format.ToUpperInvariant()}";
@@ -86,6 +88,13 @@ public partial class MainWindow
             SetReaderHostLayer(revealActiveHost: false);
 
             var target = new Uri(document.Chapters[_readerChapterIndex]);
+            if (!string.IsNullOrWhiteSpace(_readerCurrentFragment))
+            {
+                target = new Uri(
+                    target.AbsoluteUri
+                    + "#"
+                    + Uri.EscapeDataString(_readerCurrentFragment));
+            }
             var loaded = await NavigateReaderHostAndWaitAsync(
                 CurrentReaderHost!,
                 target,
@@ -94,7 +103,11 @@ public partial class MainWindow
                 throw new InvalidOperationException("阅读器无法加载 EPUB 章节。");
 
             SetReaderHostLayer();
+            SetReaderTocSelectionForChapter(_readerChapterIndex);
+            await UpdateReaderScrollStateAsync(CurrentReaderHost!);
+            PrimeReaderContinuousEdgeTracking();
 
+            await UpdateReaderBookmarkIndicatorAsync();
             await SaveReaderProgressAsync(sessionToken);
             _ = PreloadNextReaderChapterAsync(sessionToken);
         }
@@ -144,11 +157,12 @@ public partial class MainWindow
         await gate.WaitAsync(cancellationToken);
         try
         {
-            // A TOC click can request the chapter currently being prepared by
-            // the hidden host. Serializing each host's navigations lets that
-            // preload finish first; assigning the identical URI afterwards is
-            // a WebView2 no-op that does not raise NavigationCompleted.
-            if (UriEquals(host.Source, target))
+            // A TOC click can request a fragment in the chapter currently
+            // prepared by the hidden host. Same-document WebView navigation
+            // is not guaranteed to raise NavigationCompleted, so reuse the
+            // loaded document and let ApplyReaderLocationAsync perform the
+            // exact anchor/offset jump after the host swap.
+            if (ReaderNavigationLocationPolicy.TargetsSameDocument(host.Source, target))
             {
                 await ConfigureReaderHostAsync(host, cancellationToken);
                 return true;
@@ -209,6 +223,12 @@ public partial class MainWindow
 
     private async Task MoveReaderChapterAsync(int offset)
     {
+        await ResetReaderInPageSearchForNavigationAsync();
+        _readerPendingBookmarkQuote = null;
+        _readerPendingBookmarkPosition = null;
+        _readerPendingBookmarkFlowMode = 0;
+        _readerPendingAnnotation = null;
+        _readerCurrentFragment = null;
         if (_readerIsPdf)
         {
             await NavigatePdfPageAsync(_readerPdfPage + offset, ReaderToken);
@@ -221,6 +241,7 @@ public partial class MainWindow
             ReaderStatusText.Text = offset < 0 ? "已经是第一章。" : "已经是最后一章。";
             return;
         }
+        ResetReaderContinuousEdgeTracking();
 
         var sessionToken = _readerSessionCancellation?.Token ?? _lifetimeCancellation.Token;
         _readerNavigationCancellation?.Cancel();
@@ -245,9 +266,11 @@ public partial class MainWindow
             _readerShowingPreload = ReferenceEquals(host, _readerPreloadHost);
             SetReaderHostLayer();
             await ApplySavedAnnotationsAsync(host, token);
+            await UpdateReaderScrollStateAsync(host);
+            PrimeReaderContinuousEdgeTracking();
             ReaderChapterText.Text = GetReaderChapterLabel();
             ReaderStatusText.Text = $"共 {_readerDocument.Chapters.Count} 个章节";
-            SetReaderCompactSelectedItem(_readerTocItems.FirstOrDefault(item => item.ChapterIndex == targetIndex));
+            SetReaderTocSelectionForChapter(targetIndex);
             await UpdateReaderBookmarkIndicatorAsync();
             await SaveReaderProgressAsync(sessionToken);
             _ = PreloadNextReaderChapterAsync(sessionToken);
@@ -361,6 +384,9 @@ public partial class MainWindow
 
     private async Task CloseReaderAsync()
     {
+        if (Interlocked.Exchange(ref _readerCloseInProgress, 1) != 0) return;
+        try
+        {
         await SaveReaderProgressAsync(CancellationToken.None);
         await SaveReaderLayoutAsync(CancellationToken.None);
         StopReaderStatsTimer();
@@ -375,6 +401,9 @@ public partial class MainWindow
         _readerSessionCancellation?.Cancel();
         _readerSessionCancellation?.Dispose();
         _readerSessionCancellation = null;
+        _readerLayoutApplyCancellation?.Cancel();
+        _readerLayoutApplyCancellation?.Dispose();
+        _readerLayoutApplyCancellation = null;
         _readerAiCancellation?.Cancel();
         _readerAiCancellation?.Dispose();
         _readerAiCancellation = null;
@@ -385,9 +414,12 @@ public partial class MainWindow
         WindowBrandText.IsVisible = false;
         ReaderLayoutSettingsOverlay.IsVisible = false;
         ReaderInPageSearchBar.IsVisible = false;
+        _readerFootnoteHoverSequence++;
+        _readerFootnotePinned = false;
         ReaderFootnotePopup.IsVisible = false;
         ReaderHighlightButton.IsVisible = false;
         ReaderAnnotateButton.IsVisible = false;
+        _readerBookmarkIndicatorSequence++;
         ReaderBookmarkCornerMarker.IsVisible = false;
         ReaderTocCompactPanel.IsVisible = false;
         ReaderTocCompactHoverLabel.IsVisible = false;
@@ -409,6 +441,13 @@ public partial class MainWindow
         _readerPendingChunkOffset = null;
         _readerPendingSearchQuery = null;
         _readerPendingSearchContext = null;
+        _readerPendingBookmarkQuote = null;
+        _readerPendingBookmarkPosition = null;
+        _readerPendingBookmarkFlowMode = 0;
+        _readerPendingAnnotation = null;
+        _readerCurrentFragment = null;
+        _readerSearchSequence++;
+        _readerWholeSearchSequence++;
         ReaderAiMessages.Clear();
         ReaderAiSources.Clear();
         _readerPendingSelection = null;
@@ -420,6 +459,11 @@ public partial class MainWindow
         _readerBookCard = null;
         _readerBookFile = null;
         await Task.CompletedTask;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _readerCloseInProgress, 0);
+        }
     }
 
     private async Task SaveReaderProgressAsync(CancellationToken cancellationToken)
@@ -457,7 +501,7 @@ public partial class MainWindow
             _readerBookCard.Book.Id,
             _readerBookFile.Id,
             chapterPath,
-            null,
+            _readerCurrentFragment,
             _readerChapterIndex,
             (int)Math.Round(_readerScrollPosition),
             CalculateReaderProgressPercent(),

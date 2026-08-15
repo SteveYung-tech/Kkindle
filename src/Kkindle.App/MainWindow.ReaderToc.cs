@@ -390,13 +390,14 @@ public partial class MainWindow
         // "move to chapter end" intent from a superseded previous-chapter turn.
         SetReaderCompactSelectedItem(item);
         // Selecting the item in the full TOC list triggers the selection
-        // handler, which performs the actual navigation (same as a direct TOC
-        // list click); keep both surfaces in sync.
-        var index = FindReaderTocIndex(item);
-        if (ReaderTocList.SelectedIndex != index)
-            ReaderTocList.SelectedIndex = index;
-        else
-            _ = NavigateToReaderItemAsync(item, _readerSessionCancellation?.Token ?? CancellationToken.None, ReaderNavigationIntent.Toc);
+        // handler for real user clicks. This is a programmatic selection,
+        // therefore use the guarded sync helper and start exactly one jump.
+        SetReaderTocSelection(item);
+        _ = ObserveReaderTaskAsync(
+            NavigateToReaderItemAsync(
+                item,
+                _readerSessionCancellation?.Token ?? CancellationToken.None,
+                ReaderNavigationIntent.Toc));
     }
 
     private void ApplyReaderPanelLayout()

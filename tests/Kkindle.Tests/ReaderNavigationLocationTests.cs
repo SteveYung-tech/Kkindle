@@ -141,6 +141,17 @@ public sealed class ReaderNavigationLocationTests
         Assert.False(ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(ReaderNavigationIntent.Toc, anchored, false));
     }
 
+    [Theory]
+    [InlineData("file:///c:/cache/EPUB/chapter.xhtml", true)]
+    [InlineData("file:///c:/cache/EPUB/chapter.xhtml#sec-2", false)]
+    public void BodyLinksNormalizeOnlyWhenTheyHaveNoFragment(string target, bool expected)
+    {
+        Assert.Equal(expected, ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(
+            ReaderNavigationIntent.Link,
+            new Uri(target),
+            hasPendingRestorePosition: false));
+    }
+
     [Fact]
     public void ChapterStartNormalizationSkipsBreakpointRestore()
     {

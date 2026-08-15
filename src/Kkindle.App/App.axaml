@@ -259,7 +259,7 @@
         </Style>
         <Style Selector="Button:pressed">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
         </Style>
         <Style Selector="TextBox">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
@@ -300,7 +300,7 @@
         </Style>
         <Style Selector="Button.caption:pressed">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
         </Style>
 
         <!-- The WinUI reference uses a small set of named visual languages:
@@ -322,7 +322,7 @@
         </Style>
         <Style Selector="Button.quiet:pressed">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
         </Style>
 
         <!-- Destructive action: the detail-pane delete button uses the
@@ -363,7 +363,7 @@
         </Style>
         <Style Selector="Button.icon:pressed">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
         </Style>
         <Style Selector="Button.icon.active">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
@@ -511,6 +511,126 @@
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
 
+        <!-- The library shell and its feature pages share the sidebar's flat
+             interaction language. Inputs are underline-only, secondary
+             actions have no permanent box, and hover supplies the surface
+             feedback. ReaderRoot is a sibling, so these rules never alter the
+             reading canvas or its toolbars. -->
+        <Style Selector="Grid.libraryShell Button.quiet">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="Grid.libraryShell Button.quiet:pointerover">
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.libraryShell Button.quiet:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.libraryShell Button.icon">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="Grid.libraryShell Button.icon:pointerover">
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.libraryShell Button.icon:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.libraryShell TextBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Padding" Value="2,7" />
+        </Style>
+        <Style Selector="Grid.libraryShell TextBox:focus">
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.libraryShell ComboBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="Grid.libraryShell ComboBox:focus">
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.libraryShell NumericUpDown">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="Grid.libraryShell CheckBox">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Grid ColumnDefinitions="18,Auto" ColumnSpacing="8" MinHeight="22">
+                        <Border x:Name="FlatCheckIndicator"
+                                Width="18"
+                                Height="18"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1"
+                                VerticalAlignment="Center">
+                            <Path x:Name="FlatCheckGlyph"
+                                  Data="M 3,8 L 7,12 L 15,4"
+                                  Stroke="{StaticResource PaperBrush}"
+                                  StrokeThickness="2"
+                                  IsVisible="False" />
+                        </Border>
+                        <ContentPresenter Grid.Column="1"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          VerticalAlignment="Center" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Grid.libraryShell CheckBox:pointerover /template/ Border#FlatCheckIndicator">
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+        </Style>
+        <Style Selector="Grid.libraryShell CheckBox:checked /template/ Border#FlatCheckIndicator">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.libraryShell CheckBox:checked /template/ Path#FlatCheckGlyph">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <Style Selector="Grid.libraryShell CheckBox:disabled">
+            <Setter Property="Opacity" Value="0.45" />
+        </Style>
+        <Style Selector="Grid.libraryShell Border.flatPanel">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="3,0,0,0" />
+        </Style>
+        <Style Selector="Grid.libraryShell Border.flatMetric">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="0,1,0,0" />
+        </Style>
+        <Style Selector="Grid.libraryShell Border.flatRow">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+        </Style>
+        <Style Selector="Grid.libraryShell Border.flatSubsection">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="0,1,0,0" />
+        </Style>
+
         <!-- Native form controls are explicitly kept in the product's
              monochrome language; Fluent's accent colour must not leak into
              settings or feature pages. -->
@@ -579,15 +699,15 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="1"
-                                CornerRadius="12">
+                                CornerRadius="0">
                             <Grid x:Name="PART_MovingKnobs">
-                                <Ellipse x:Name="SwitchThumb"
-                                         Width="18"
-                                         Height="18"
-                                         Margin="2"
-                                         Fill="{StaticResource InkBrush}"
-                                         HorizontalAlignment="Left"
-                                         VerticalAlignment="Center" />
+                                <Border x:Name="SwitchThumb"
+                                        Width="18"
+                                        Height="18"
+                                        Margin="2"
+                                        Background="{StaticResource InkBrush}"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center" />
                             </Grid>
                         </Border>
                         <ContentPresenter x:Name="OnContentPresenter"
@@ -609,9 +729,9 @@
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
-        <Style Selector="ToggleSwitch:checked /template/ Ellipse#SwitchThumb">
+        <Style Selector="ToggleSwitch:checked /template/ Border#SwitchThumb">
             <Setter Property="HorizontalAlignment" Value="Right" />
-            <Setter Property="Fill" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
         </Style>
         <Style Selector="ToggleSwitch:checked /template/ ContentPresenter#OnContentPresenter">
             <Setter Property="IsVisible" Value="True" />
@@ -623,12 +743,8 @@
             <Setter Property="Opacity" Value="0.45" />
         </Style>
 
-        <!-- The old device card uses a small solid eject triangle. A unicode
-             glyph is font-dependent and was the source of the wrong colour /
-             shape on the Avalonia port, so keep it as a vector. The triangle
-             lives in the button content; the code-behind switches it between
-             solid (connected) and hollow (disconnected) exactly like the WinUI
-             EjectButtonStyle disabled state. -->
+        <!-- The device card uses the same minimal vector eject mark as the
+             Kindle page toolbar; it stays font-independent and centred. -->
         <Style Selector="Button.eject">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="25" />
@@ -661,7 +777,7 @@
         <Style Selector="Button.eject:pressed">
             <Setter Property="Background" Value="{StaticResource PressedBrush}" />
         </Style>
-        <Style Selector="Polygon.ejectGlyph">
+        <Style Selector="Path.ejectGlyph">
             <Setter Property="RenderTransformOrigin" Value="50%,50%" />
             <Setter Property="RenderTransform" Value="scale(1)" />
             <Setter Property="Transitions">
@@ -670,10 +786,10 @@
                 </Transitions>
             </Setter>
         </Style>
-        <Style Selector="Button.eject:pointerover Polygon.ejectGlyph">
+        <Style Selector="Button.eject:pointerover Path.ejectGlyph">
             <Setter Property="RenderTransform" Value="scale(1.22)" />
         </Style>
-        <Style Selector="Button.eject:pressed Polygon.ejectGlyph">
+        <Style Selector="Button.eject:pressed Path.ejectGlyph">
             <Setter Property="RenderTransform" Value="scale(0.92)" />
         </Style>
         <Style Selector="TextBlock.kindleStatusTrigger">
@@ -733,6 +849,115 @@
         </Style>
         <Style Selector="Button.readerToolbar:disabled">
             <Setter Property="Opacity" Value="0.35" />
+        </Style>
+
+        <!-- Kreader follows the library sidebar's flat visual language:
+             controls have no resting boxes, hover is a quiet grey plane,
+             inputs are underline-only, and selected tabs use a slim left
+             marker instead of an outlined capsule/card. -->
+        <Style Selector="Grid.readerShell Button.readerToolbar">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="Grid.readerShell Button.readerToolbar:pointerover">
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.readerShell Button.readerToolbar:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.readerShell Button.icon">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="Grid.readerShell Button.icon:pointerover">
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.readerShell Button.icon:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.readerShell Button.quiet">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="Grid.readerShell Button.quiet:pointerover">
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.readerShell Button.quiet:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.readerShell TextBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="Grid.readerShell TextBox:focus">
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Grid.readerShell ComboBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="Grid.readerShell ComboBox:focus">
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+        </Style>
+
+        <Style Selector="Button.readerTab">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource MutedInkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource SidebarIndicatorBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}">
+                        <Grid ColumnDefinitions="3,*">
+                            <Rectangle Width="3"
+                                       Height="16"
+                                       Fill="{TemplateBinding BorderBrush}"
+                                       VerticalAlignment="Center" />
+                            <ContentPresenter Grid.Column="1"
+                                              Margin="12,0,8,0"
+                                              Content="{TemplateBinding Content}"
+                                              Foreground="{TemplateBinding Foreground}"
+                                              HorizontalAlignment="Left"
+                                              VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Button.readerTab:pointerover">
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.readerTab:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.readerTab.active">
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
 
         <!-- Reader header chrome buttons: stable sizes keep the reader header
@@ -797,19 +1022,22 @@
             <Setter Property="CornerRadius" Value="0" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:pointerover">
-            <Setter Property="Background" Value="#EFEFED" />
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:pressed">
-            <Setter Property="Background" Value="#DDDDDA" />
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:selected">
-            <Setter Property="Background" Value="#DEDEDB" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:selected:pointerover">
-            <Setter Property="Background" Value="#D5D5D1" />
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:selected:pressed">
-            <Setter Property="Background" Value="#CACAC6" />
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
 
         <!-- Glyphs are drawn as vectors rather than Segoe MDL2 Assets glyphs:
@@ -826,6 +1054,24 @@
             <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
             <Setter Property="StrokeThickness" Value="1.5" />
             <Setter Property="Fill" Value="Transparent" />
+        </Style>
+
+        <!-- Library action glyphs share one optical box. Keeping the vector
+             artwork in a fixed square prevents uneven paths from looking
+             off-centre inside otherwise centred icon buttons. -->
+        <Style Selector="Path.libraryGlyph">
+            <Setter Property="Width" Value="18" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Stretch" Value="Uniform" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="StrokeThickness" Value="1.5" />
+            <Setter Property="StrokeLineCap" Value="Round" />
+            <Setter Property="StrokeJoin" Value="Round" />
+            <Setter Property="Fill" Value="Transparent" />
+        </Style>
+        <Style Selector="Button Path.libraryGlyph">
+            <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
         </Style>
 
         <Style Selector="ListBoxItem">

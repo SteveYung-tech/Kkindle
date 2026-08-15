@@ -326,9 +326,10 @@ public partial class MainWindow
         FadeInPage(LibraryWorkspace);
         LibraryDetailPane.IsVisible = _selectedCard is not null;
         if (LibraryRoot.ColumnDefinitions.Count >= 3)
-            LibraryRoot.ColumnDefinitions[2].Width = _selectedCard is null
-                ? new GridLength(0)
-                : new GridLength(320);
+            LibraryRoot.ColumnDefinitions[2].Width = _selectedCard is not null
+                && LibraryRoot.Bounds.Width >= LibraryDetailMinimumRootWidth
+                    ? new GridLength(LibraryDetailWidth)
+                    : new GridLength(0);
         DevicePage.IsVisible = false;
         DeviceResourcePage.IsVisible = false;
         ReadingMaterialsPage.IsVisible = false;
@@ -637,9 +638,6 @@ public partial class MainWindow
     {
         DeviceStatusEjectButton.IsEnabled = enabled;
         EjectDeviceButton.IsEnabled = enabled;
-        // WinUI EjectButtonStyle: the disabled state hollows the triangle out
-        // (transparent fill, black outline stays visible).
-        DeviceEjectTriangleGlyph.Fill = enabled ? Brushes.Black : Brushes.Transparent;
         // ToolTip / automation name follow the connection state and transport,
         // exactly like the WinUI reference (WPD sessions are "stopped", USB
         // disks are "ejected").
@@ -743,8 +741,8 @@ public partial class MainWindow
         DeviceViewGridItem.IsChecked = gridView;
         DeviceViewListItem.IsChecked = !gridView;
         DeviceViewToggleIcon.Data = Geometry.Parse(gridView
-            ? "M 2,2 H 8 V 8 H 2 Z M 14,2 H 20 V 8 H 14 Z M 2,14 H 8 V 20 H 2 Z M 14,14 H 20 V 20 H 14 Z"
-            : "M 3,4 H 5 M 8,4 H 20 M 3,12 H 5 M 8,12 H 20 M 3,20 H 5 M 8,20 H 20");
+            ? LibraryGridGlyphData
+            : LibraryListGlyphData);
     }
 
     private void DeviceViewMenuItem_Click(object? sender, RoutedEventArgs e)

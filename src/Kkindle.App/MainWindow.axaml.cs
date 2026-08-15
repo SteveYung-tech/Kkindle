@@ -21,6 +21,11 @@ public partial class MainWindow : Window
     private const string RestoreGlyphData = "M 2.5,0.5 H 9.5 V 7.5 M 0.5,2.5 H 7.5 V 9.5 H 0.5 Z";
     private const string SidebarChevronDownData = "M 1,2 L 5,6 L 9,2";
     private const string SidebarChevronRightData = "M 2,1 L 6,5 L 2,9";
+    private const string LibraryGridGlyphData = "M 3,3 H 9 V 9 H 3 Z M 15,3 H 21 V 9 H 15 Z M 3,15 H 9 V 21 H 3 Z M 15,15 H 21 V 21 H 15 Z";
+    private const string LibraryListGlyphData = "M 4,6 H 6 M 10,6 H 20 M 4,12 H 6 M 10,12 H 20 M 4,18 H 6 M 10,18 H 20";
+    private const string LibraryCollectionsGlyphData = "M 3,7 H 9 L 11,9 H 21 V 20 H 3 Z";
+    private const double LibraryDetailWidth = 320;
+    private const double LibraryDetailMinimumRootWidth = 1040;
 
     private readonly AppPaths _paths;
     private readonly IBookLibraryService _library;
@@ -399,9 +404,9 @@ public partial class MainWindow : Window
         LibraryViewCollectionsItem.IsChecked = mode == LibraryViewMode.Collections;
         LibraryViewToggleIcon.Data = Geometry.Parse(mode switch
         {
-            LibraryViewMode.List => "M 3,4 H 5 M 8,4 H 20 M 3,12 H 5 M 8,12 H 20 M 3,20 H 5 M 8,20 H 20",
-            LibraryViewMode.Collections => "M 2,5 H 9 L 11,7 H 22 V 20 H 2 Z M 2,5 V 3 H 8 L 10,5",
-            _ => "M 2,2 H 8 V 8 H 2 Z M 14,2 H 20 V 8 H 14 Z M 2,14 H 8 V 20 H 2 Z M 14,14 H 20 V 20 H 14 Z"
+            LibraryViewMode.List => LibraryListGlyphData,
+            LibraryViewMode.Collections => LibraryCollectionsGlyphData,
+            _ => LibraryGridGlyphData
         });
         UpdateLibraryUi();
     }
@@ -413,7 +418,9 @@ public partial class MainWindow : Window
         LibraryDetailPane.Opacity = 0;
         Dispatcher.UIThread.Post(() => LibraryDetailPane.Opacity = 1);
         if (LibraryRoot.ColumnDefinitions.Count >= 3)
-            LibraryRoot.ColumnDefinitions[2].Width = new GridLength(320);
+            LibraryRoot.ColumnDefinitions[2].Width = LibraryRoot.Bounds.Width >= LibraryDetailMinimumRootWidth
+                ? new GridLength(LibraryDetailWidth)
+                : new GridLength(0);
         DetailCoverImage.Source = card.CoverImage;
         DetailCoverPlaceholder.IsVisible = card.CoverImage is null;
         DetailTitleText.Text = card.Title;
@@ -486,25 +493,24 @@ public partial class MainWindow : Window
 
     private void UpdateDetailActionIcons(bool isFavorite, LibraryReadingStatus readingStatus)
     {
-        // Star glyph: hollow outline when not favorite, filled when favorite
-        // (WinUI E734 / E735).
+        // Keep one minimal star silhouette; fill conveys the selected state
+        // without changing the icon's optical footprint.
         DetailFavoriteIcon.Fill = isFavorite ? Brushes.Black : Brushes.Transparent;
         var favoriteLabel = isFavorite ? "已收藏；点击取消收藏" : "未收藏；点击加入收藏";
         ToolTip.SetTip(DetailFavoriteButton, favoriteLabel);
         AutomationProperties.SetName(DetailFavoriteButton, favoriteLabel);
 
-        // Reading-state glyphs (WinUI E8A4 / E736 / E73E): a standing book for
-        // unread, an open book for reading, a check mark for finished.
+        // Closed book, open book and check share the same centred 24-unit box.
         var (data, label) = readingStatus switch
         {
             LibraryReadingStatus.Reading => (
-                "M 3,4 L 8,5.5 L 8,13 L 3,11.5 Z M 13,4 L 8,5.5 L 8,13 L 13,11.5 Z M 8,5.5 L 8,13",
+                "M 3,6 L 12,9 L 21,6 V 19 L 12,22 L 3,19 Z M 12,9 V 22",
                 "阅读中；点击标记为已读"),
             LibraryReadingStatus.Finished => (
-                "M 3,8.5 L 6.5,12 L 13,4.5",
+                "M 4,12 L 9,17 L 20,6",
                 "已读；点击重置为待读"),
             _ => (
-                "M 5,2.5 L 12,2 L 12,14 L 5,14.5 Z M 5,5 L 12,4.5 M 5,8 L 12,7.5 M 5,11 L 12,10.5",
+                "M 7,3 H 17 V 21 H 7 Z M 10,7 H 14",
                 "待读；点击标记为阅读中")
         };
         DetailReadingStatusIcon.Data = Geometry.Parse(data);
@@ -2009,6 +2015,12 @@ public partial class MainWindow : Window
                 SetLibraryViewMode(LibraryViewMode.List);
                 break;
             case "Collections":
+                if (ViewModel.CollectionFilterId is not null)
+                {
+                    ViewModel.CollectionFilterId = null;
+                    ViewModel.CollectionFilterName = null;
+                    ViewModel.RefreshView();
+                }
                 SetLibraryViewMode(LibraryViewMode.Collections);
                 break;
             default:
@@ -2529,8 +2541,8 @@ public partial class MainWindow : Window
         }
         SetGridColumnWidth(
             LibraryRoot.ColumnDefinitions[2],
-            _selectedCard is not null && width >= 1040
-                ? new GridLength(320)
+            _selectedCard is not null && width >= LibraryDetailMinimumRootWidth
+                ? new GridLength(LibraryDetailWidth)
                 : new GridLength(0));
     }
 

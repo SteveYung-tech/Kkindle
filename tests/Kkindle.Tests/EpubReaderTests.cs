@@ -268,4 +268,44 @@ public sealed class EpubReaderTests
         }
         finally { TestHelpers.TryDelete(root); }
     }
+
+    [Fact]
+    public async Task RebuildsStaleExtractionWhenReaderBridgeVersionChanges()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var epub = Path.Combine(root, "stale-cache.epub");
+            using (var archive = ZipFile.Open(epub, ZipArchiveMode.Create))
+            {
+                TestHelpers.AddZipEntry(archive, "META-INF/container.xml", """
+                    <container><rootfiles><rootfile full-path="content.opf" /></rootfiles></container>
+                    """);
+                TestHelpers.AddZipEntry(archive, "content.opf", """
+                    <package><manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml" /></manifest>
+                    <spine><itemref idref="one" /></spine></package>
+                    """);
+                TestHelpers.AddZipEntry(archive, "one.xhtml", "<html><body>original chapter</body></html>");
+            }
+
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            paths.EnsureDirectories();
+            var service = new EpubReaderPreparationService(paths);
+            var hash = new string('9', 64);
+            var first = await service.PrepareAsync(epub, hash);
+            var marker = Path.Combine(first.RootPath, ".kkindle-extracted");
+            await File.WriteAllTextAsync(first.Chapters[0], "<html><body>stale transformed chapter</body></html>");
+            await File.WriteAllTextAsync(marker, $"{hash}\n0");
+
+            var rebuilt = await service.PrepareAsync(epub, hash);
+            var html = await File.ReadAllTextAsync(rebuilt.Chapters[0]);
+            var markerText = await File.ReadAllTextAsync(marker);
+
+            Assert.Contains("original chapter", html, StringComparison.Ordinal);
+            Assert.DoesNotContain("stale transformed chapter", html, StringComparison.Ordinal);
+            Assert.Contains("data-action=\"highlight-menu\"", html, StringComparison.Ordinal);
+            Assert.False(markerText.EndsWith("\n0", StringComparison.Ordinal));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
 }

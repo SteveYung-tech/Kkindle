@@ -3,7 +3,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Media;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 
@@ -149,13 +148,7 @@ public partial class MainWindow
 
     private static void SetReaderAssistantTabState(Button button, bool selected)
     {
-        // Hollow tabs: transparent fill for both states; the selected tab is
-        // outlined with a black border instead of a filled rectangle.
-        button.Background = Brushes.Transparent;
-        button.BorderBrush = selected
-            ? Brushes.Black
-            : new SolidColorBrush(Color.FromArgb(255, 213, 213, 209));
-        button.BorderThickness = new Thickness(1);
+        button.Classes.Set("active", selected);
     }
 
     private void ReaderAiSettingsOpenButton_Click(object? sender, RoutedEventArgs e)

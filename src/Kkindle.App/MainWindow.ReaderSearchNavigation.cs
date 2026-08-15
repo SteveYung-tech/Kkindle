@@ -27,12 +27,14 @@ public partial class MainWindow
               if (!root) return 0;
               // Clear the previous whole-book hit without changing the chapter
               // text. The result list can be clicked repeatedly in one chapter.
-              document.querySelectorAll('mark.kkindle-search-hit').forEach(mark => {
+              const unwrap = mark => {
                 const parent = mark.parentNode;
                 if (!parent) return;
-                parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+                while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+                parent.removeChild(mark);
                 if (typeof parent.normalize === 'function') parent.normalize();
-              });
+              };
+              document.querySelectorAll('mark.kkindle-search-hit').forEach(unwrap);
 
               const query = ({{serializedQuery}} || '').trim();
               const foldedQuery = query.toLocaleLowerCase();
@@ -117,6 +119,7 @@ public partial class MainWindow
                 const parent = node.parentElement;
                 if (!parent
                     || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)
+                    || parent.closest?.('#kkindle-selection-bar, .kkindle-wave-sweep')
                     || (typeof parent.closest === 'function'
                         && parent.closest('mark.kkindle-search-hit'))) continue;
                 const text = node.data || '';

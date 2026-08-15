@@ -6,7 +6,6 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Media;
 using Avalonia.Threading;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
@@ -18,6 +17,12 @@ public partial class MainWindow
 {
     private int _readerWholeSearchSequence;
     private int _readerPdfSearchSequence;
+
+    private sealed record ReaderBookmarkLocation(
+        string ChapterPath,
+        int ScrollPosition,
+        int FlowMode,
+        string? Fragment);
 
     private CancellationToken ReaderToken =>
         _readerSessionCancellation?.Token ?? _lifetimeCancellation.Token;
@@ -36,43 +41,13 @@ public partial class MainWindow
         }
         if (e.Key == Key.Escape)
         {
-            // Esc closes reader overlays in priority order, matching the WinUI
-            // reference's RootGrid_KeyDown: whole-book search panel first, then
-            // the layout settings overlay, then zen mode.
-            if (ReaderSearchPanel.IsVisible)
-            {
-                e.Handled = true;
-                ShowReaderTocTab();
-                return;
-            }
-            if (ReaderLayoutSettingsOverlay.IsVisible)
-            {
-                e.Handled = true;
-                ReaderLayoutSettingsOverlay.IsVisible = false;
-                return;
-            }
-            if (_readerZenMode)
-            {
-                e.Handled = true;
-                ToggleReaderZenMode();
-            }
+            e.Handled = HandleReaderEscapeShortcut();
             return;
         }
         if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.F)
         {
             e.Handled = true;
-            if (_readerIsPdf)
-            {
-                _readerTocMinimal = false;
-                _readerTocExpanded = true;
-                ApplyReaderPanelLayout();
-                ShowReaderSearchTab();
-                ReaderTocSearchBox.Focus();
-            }
-            else
-            {
-                ReaderSearchButton_Click(sender, e);
-            }
+            OpenReaderSearchShortcut();
             return;
         }
 
@@ -88,6 +63,51 @@ public partial class MainWindow
     {
         var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
         return focused is TextBox or ComboBox;
+    }
+
+    private bool HandleReaderEscapeShortcut()
+    {
+        if (ReaderInPageSearchBar.IsVisible)
+        {
+            _ = ObserveReaderTaskAsync(ReaderInPageSearchCloseAsync());
+            return true;
+        }
+        // Esc closes reader overlays in priority order, matching the WinUI
+        // reference's RootGrid_KeyDown: whole-book search panel first, then
+        // the layout settings overlay, then zen mode.
+        if (ReaderSearchPanel.IsVisible)
+        {
+            ShowReaderTocTab();
+            return true;
+        }
+        if (ReaderLayoutSettingsOverlay.IsVisible)
+        {
+            ReaderLayoutSettingsOverlay.IsVisible = false;
+            return true;
+        }
+        if (_readerZenMode)
+        {
+            ToggleReaderZenMode();
+            return true;
+        }
+        return false;
+    }
+
+    private void OpenReaderSearchShortcut()
+    {
+        if (_readerIsPdf)
+        {
+            _readerTocMinimal = false;
+            _readerTocExpanded = true;
+            ApplyReaderPanelLayout();
+            ShowReaderSearchTab();
+            ReaderTocSearchBox.Focus();
+            return;
+        }
+
+        ReaderInPageSearchBar.IsVisible = true;
+        ReaderInPageSearchBox.Focus();
+        ReaderInPageSearchBox.SelectAll();
     }
 
     private async Task OpenPdfReaderAsync(
@@ -174,6 +194,7 @@ public partial class MainWindow
 
             ReaderStatusText.Text = $"PDF · {pages.Count} 页 · 可搜索文本已加载";
             UpdateReaderToolbar();
+            await UpdateReaderBookmarkIndicatorAsync();
             await SaveReaderProgressAsync(token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -222,6 +243,7 @@ public partial class MainWindow
                      .OrderBy(item => item.ChapterIndex)
                      .ThenBy(item => item.CreatedAt))
             ReaderBookmarks.Add(bookmark);
+        ReaderBookmarkList.IsVisible = ReaderBookmarks.Count > 0;
         ReaderBookmarkEmptyText.IsVisible = ReaderBookmarks.Count == 0;
     }
 
@@ -274,9 +296,8 @@ public partial class MainWindow
         ReaderSearchResultList.IsVisible = message is null;
     }
 
-    // Hollow tabs: transparent fill for every state; the selected tab is
-    // outlined with a black border instead of a filled rectangle (WinUI
-    // reference's ReaderTocTabsPanel visual).
+    // Flat tabs mirror the main sidebar: a slim left marker denotes the
+    // active surface while hover/press use quiet grey planes.
     private void SetReaderTocTabState(bool bookmarkTab)
     {
         if (ReaderTocTabButton is null || ReaderBookmarkTabButton is null) return;
@@ -286,9 +307,7 @@ public partial class MainWindow
 
     private static void ApplyReaderTabVisual(Button button, bool selected)
     {
-        button.Background = Brushes.Transparent;
-        button.BorderBrush = selected ? Brushes.Black : new SolidColorBrush(Color.FromArgb(255, 213, 213, 209));
-        button.BorderThickness = new Thickness(1);
+        button.Classes.Set("active", selected);
     }
 
     private void ReaderTocTabButton_Click(object? sender, RoutedEventArgs e) => ShowReaderTocTab();
@@ -322,58 +341,127 @@ public partial class MainWindow
     private async void ReaderBookmarkList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (e.AddedItems.Count > 0 && e.AddedItems[0] is ReaderBookmark bookmark)
-            await NavigateToReaderBookmarkAsync(bookmark);
+        {
+            try
+            {
+                await NavigateToReaderBookmarkAsync(bookmark);
+            }
+            catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                ReaderStatusText.Text = $"书签定位失败：{exception.Message}";
+            }
+            finally
+            {
+                // ListBox does not raise SelectionChanged when the user
+                // chooses the same item twice. Clear the transient selection
+                // after every jump so a bookmark can be opened repeatedly.
+                ReaderBookmarkList.SelectedIndex = -1;
+            }
+        }
     }
 
     private async void ReaderBookmarkDeleteButton_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: ReaderBookmark bookmark } || _readerBookFile is null) return;
-        await _readerData.DeleteBookmarkAsync(bookmark.Id, ReaderToken);
-        await RefreshReaderBookmarksAsync(ReaderToken);
-        await UpdateReaderBookmarkIndicatorAsync();
-        ShowReaderTransientStatus("书签已删除");
+        try
+        {
+            await _readerData.DeleteBookmarkAsync(bookmark.Id, ReaderToken);
+            await RefreshReaderBookmarksAsync(ReaderToken);
+            await UpdateReaderBookmarkIndicatorAsync();
+            ShowReaderTransientStatus("书签已删除");
+        }
+        catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            ReaderStatusText.Text = $"删除书签失败：{exception.Message}";
+        }
     }
 
     private async Task ToggleReaderBookmarkAsync()
     {
         if (_readerBookCard is null || _readerBookFile is null) return;
-        var currentPath = _readerIsPdf
-            ? $"pdf:page:{_readerPdfPage}"
-            : GetReaderChapterPath();
+        var location = await CaptureCurrentReaderBookmarkLocationAsync();
+        var currentPath = location?.ChapterPath ?? (_readerIsPdf
+            ? $"pdf:{_readerPdfPage}"
+            : GetReaderChapterPath());
         if (string.IsNullOrWhiteSpace(currentPath)) return;
 
-        var quote = _readerPendingSelection
-            ?? (await CaptureCurrentSectionQuoteAsync());
+        var fragment = _readerIsPdf
+            ? null
+            : location?.Fragment ?? _readerCurrentFragment;
+        var quote = _readerIsPdf
+            ? $"PDF 第 {_readerPdfPage} 页"
+            : await CaptureCurrentReaderSelectionTextAsync()
+              ?? await CaptureCurrentSectionQuoteAsync();
+        var currentPosition = location?.ScrollPosition;
+        var currentFlowMode = location?.FlowMode ?? _readerLayout.FlowMode;
         var existing = ReaderBookmarks.FirstOrDefault(bookmark =>
-            bookmark.ChapterIndex == _readerChapterIndex
-            && string.Equals(bookmark.ChapterPath, currentPath, StringComparison.OrdinalIgnoreCase)
-            && (string.IsNullOrWhiteSpace(bookmark.Quote)
-                || string.IsNullOrWhiteSpace(quote)
-                || string.Equals(bookmark.Quote, quote, StringComparison.Ordinal)));
-        if (existing is not null)
+            AreReaderBookmarkChapterPathsEqual(bookmark.ChapterPath, currentPath)
+            && string.Equals(bookmark.Fragment, fragment, StringComparison.OrdinalIgnoreCase)
+            && (bookmark.ScrollPosition is int savedPosition
+                && currentPosition is int position
+                ? Math.Abs(savedPosition - position) <= 4
+                : string.IsNullOrWhiteSpace(bookmark.Quote)
+                  || string.IsNullOrWhiteSpace(quote)
+                  || string.Equals(bookmark.Quote, quote, StringComparison.OrdinalIgnoreCase)));
+
+        try
         {
-            await _readerData.DeleteBookmarkAsync(existing.Id, ReaderToken);
-            ShowReaderTransientStatus("已取消书签");
-            ShowReaderBookmarkFeedback("已取消书签");
-        }
-        else
-        {
-            await _readerData.SaveBookmarkAsync(new ReaderBookmark
+            if (existing is not null)
             {
-                BookId = _readerBookCard.Book.Id,
-                BookFileId = _readerBookFile.Id,
-                ChapterPath = currentPath,
-                ChapterIndex = _readerChapterIndex,
-                ScrollPosition = (int)Math.Round(_readerScrollPosition),
-                FlowMode = _readerLayout.FlowMode,
-                Title = GetReaderChapterLabel(),
-                Quote = quote ?? string.Empty
-            }, ReaderToken);
-            ShowReaderTransientStatus("已添加书签");
-            ShowReaderBookmarkFeedback("已添加书签");
+                await _readerData.DeleteBookmarkAsync(existing.Id, ReaderToken);
+                ShowReaderTransientStatus("已取消书签");
+                ShowReaderBookmarkFeedback("已取消书签");
+            }
+            else
+            {
+                await _readerData.SaveBookmarkAsync(new ReaderBookmark
+                {
+                    BookId = _readerBookCard.Book.Id,
+                    BookFileId = _readerBookFile.Id,
+                    ChapterPath = currentPath,
+                    Fragment = fragment,
+                    ChapterIndex = _readerChapterIndex,
+                    ScrollPosition = currentPosition,
+                    FlowMode = currentFlowMode,
+                    Title = GetReaderChapterLabel(),
+                    Quote = quote ?? string.Empty,
+                    CreatedAt = DateTimeOffset.UtcNow
+                }, ReaderToken);
+                ShowReaderTransientStatus("已添加书签");
+                ShowReaderBookmarkFeedback("已添加书签");
+            }
+        }
+        catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            ReaderStatusText.Text = $"书签保存失败：{exception.Message}";
         }
         await RefreshReaderBookmarksAsync(ReaderToken);
         await UpdateReaderBookmarkIndicatorAsync();
+    }
+
+    private async Task<string?> CaptureCurrentReaderSelectionTextAsync()
+    {
+        if (_readerIsPdf || CurrentReaderHost is not { } host) return null;
+        try
+        {
+            var result = await host.InvokeScriptAsync(
+                "(() => { const selection = window.getSelection?.(); return selection && !selection.isCollapsed ? selection.toString().trim() : ''; })();");
+            var text = DecodeReaderScriptString(result)?.Trim() ?? string.Empty;
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private async Task<string?> CaptureCurrentSectionQuoteAsync()
@@ -382,14 +470,153 @@ public partial class MainWindow
         try
         {
             var result = await host.InvokeScriptAsync(
-                "(document.body?.innerText || document.body?.textContent || '').trim().slice(0, 40)");
-            var normalized = result?.Trim().Trim('"') ?? string.Empty;
+                """
+                (() => {
+                  const body = document.body;
+                  if (!body) return '';
+                  const isReaderOverlay = node => !!node && (
+                    node.id === 'kkindle-selection-bar'
+                    || node.classList?.contains('kkindle-wave-sweep'));
+                  const cleanBodyText = () => {
+                    const clone = body.cloneNode(true);
+                    clone.querySelectorAll?.('#kkindle-selection-bar, .kkindle-wave-sweep')
+                      .forEach(node => node.remove());
+                    return clone.innerText || clone.textContent || '';
+                  };
+
+                  let fragment = location.hash ? location.hash.slice(1) : '';
+                  try { fragment = decodeURIComponent(fragment); } catch { }
+
+                  const anchor = fragment ? document.getElementById(fragment) : null;
+                  const start = anchor?.closest('h1, h2, h3, h4, h5, h6')
+                    ?? anchor
+                    ?? Array.from(body.children).find(node => !isReaderOverlay(node));
+                  if (!start) return cleanBodyText();
+
+                  const startHeading = /^H([1-6])$/i.exec(start.tagName);
+                  const startLevel = startHeading ? Number(startHeading[1]) : 0;
+                  const pieces = [];
+                  let current = start;
+                  while (current) {
+                    if (isReaderOverlay(current)) {
+                      current = current.nextElementSibling;
+                      continue;
+                    }
+                    if (current !== start) {
+                      const heading = /^H([1-6])$/i.exec(current.tagName);
+                      if (heading && (startLevel === 0 || Number(heading[1]) <= startLevel)) break;
+                    }
+                    const value = (current.innerText || '').trim();
+                    if (value) pieces.push(value);
+                    current = current.nextElementSibling;
+                  }
+                  return pieces.join('\n\n') || start.innerText || cleanBodyText();
+                })();
+                """);
+            var normalized = NormalizeReaderBookmarkQuote(DecodeReaderScriptString(result));
             return normalized.Length <= 40 ? normalized : normalized[..40];
         }
         catch
         {
             return null;
         }
+    }
+
+    private static string NormalizeReaderBookmarkQuote(string? text) =>
+        string.Join(
+            " ",
+            (text ?? string.Empty).Split(
+                [' ', '\r', '\n', '\t'],
+                StringSplitOptions.RemoveEmptyEntries));
+
+    private async Task<ReaderBookmarkLocation?> CaptureCurrentReaderBookmarkLocationAsync()
+    {
+        if (_readerBookFile is null) return null;
+        var chapterPath = _readerIsPdf
+            ? $"pdf:{_readerPdfPage}"
+            : GetReaderChapterPath();
+        if (string.IsNullOrWhiteSpace(chapterPath)) return null;
+
+        var flowMode = _readerIsPdf ? 0 : _readerLayout.FlowMode;
+        if (_readerIsPdf)
+        {
+            return new ReaderBookmarkLocation(
+                chapterPath,
+                0,
+                flowMode,
+                null);
+        }
+
+        if (CurrentReaderHost is not { } host) return null;
+        try
+        {
+            var result = await host.InvokeScriptAsync(
+                "(() => { const el = document.scrollingElement || document.documentElement; if (!el) return null; return JSON.stringify({ left: el.scrollLeft || 0, top: el.scrollTop || 0, fragment: location.hash || '' }); })();");
+            var raw = DecodeReaderScriptString(result);
+            if (string.IsNullOrWhiteSpace(raw) || string.Equals(raw, "null", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            using var document = JsonDocument.Parse(raw);
+            var root = document.RootElement;
+            var horizontal = _readerLayout.FlowMode == 1 || _readerLayout.VerticalWriting;
+            var position = horizontal
+                ? ReadDouble(root, "left")
+                : ReadDouble(root, "top");
+            var fragment = ReadString(root, "fragment").TrimStart('#');
+            try { fragment = Uri.UnescapeDataString(fragment); } catch { }
+            return new ReaderBookmarkLocation(
+                chapterPath,
+                Math.Max(0, (int)Math.Round(position)),
+                flowMode,
+                string.IsNullOrWhiteSpace(fragment) ? _readerCurrentFragment : fragment);
+        }
+        catch
+        {
+            // The native host can be between documents while a chapter is
+            // swapping. The indicator will hide until the next scroll report;
+            // saving a bookmark still has the in-memory position as a safe
+            // fallback at the call site.
+            return null;
+        }
+    }
+
+    private static string? DecodeReaderScriptString(string? result)
+    {
+        var raw = result?.Trim();
+        if (string.IsNullOrWhiteSpace(raw) || string.Equals(raw, "null", StringComparison.OrdinalIgnoreCase))
+            return null;
+        if (raw.Length >= 2 && raw[0] == '"' && raw[^1] == '"')
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<string>(raw);
+            }
+            catch (JsonException)
+            {
+                return raw[1..^1];
+            }
+        }
+        return raw;
+    }
+
+    private static bool AreReaderBookmarkChapterPathsEqual(string? left, string? right)
+    {
+        if (string.Equals(left, right, StringComparison.OrdinalIgnoreCase)) return true;
+        return TryGetReaderPdfPage(left, out var leftPage)
+            && TryGetReaderPdfPage(right, out var rightPage)
+            && leftPage == rightPage;
+    }
+
+    private static bool TryGetReaderPdfPage(string? chapterPath, out int page)
+    {
+        page = 0;
+        if (string.IsNullOrWhiteSpace(chapterPath)
+            || !chapterPath.StartsWith("pdf:", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var value = chapterPath[4..];
+        if (value.StartsWith("page:", StringComparison.OrdinalIgnoreCase))
+            value = value[5..];
+        return int.TryParse(value, out page) && page > 0;
     }
 
     // Shows a transient ToolTip near the bookmark button so the user gets
@@ -409,36 +636,164 @@ public partial class MainWindow
             TaskScheduler.Default);
     }
 
-    private async Task UpdateReaderBookmarkIndicatorAsync()
+    private void ClearReaderBookmarkPendingLocation()
     {
-        if (ReaderBookmarkCornerMarker is null || _readerBookFile is null)
+        _readerPendingBookmarkQuote = null;
+        _readerPendingBookmarkPosition = null;
+        _readerPendingBookmarkFlowMode = 0;
+    }
+
+    private async Task ScrollToPendingReaderBookmarkAsync(
+        IReaderHost host,
+        CancellationToken cancellationToken)
+    {
+        var position = _readerPendingBookmarkPosition;
+        var savedFlowMode = _readerPendingBookmarkFlowMode;
+        _readerPendingBookmarkPosition = null;
+        _readerPendingBookmarkFlowMode = 0;
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (position is int exactPosition && savedFlowMode == _readerLayout.FlowMode)
         {
+            var horizontal = _readerLayout.FlowMode == 1 || _readerLayout.VerticalWriting;
+            var left = horizontal ? exactPosition : 0;
+            var top = horizontal ? 0 : exactPosition;
+            try
+            {
+                await host.InvokeScriptAsync(
+                    $"window.scrollTo({{ left: {left}, top: {top}, behavior: 'instant' }});");
+                _readerScrollPosition = exactPosition;
+                _readerPendingBookmarkQuote = null;
+                if (_readerLayout.FlowMode == 1)
+                    await host.InvokeScriptAsync(ReaderPaginationScripts.Snap);
+            }
+            catch
+            {
+                // A stale native host must not turn a successful bookmark
+                // navigation into an error.
+            }
             return;
         }
-        var currentPath = _readerIsPdf
-            ? $"pdf:page:{_readerPdfPage}"
+
+        var quote = _readerPendingBookmarkQuote;
+        _readerPendingBookmarkQuote = null;
+        if (string.IsNullOrWhiteSpace(quote) || quote.Trim().Length < 2) return;
+
+        var serializedQuote = JsonSerializer.Serialize(quote.Trim());
+        var script = $$"""
+            (() => {
+              const root = document.body;
+              const needle = {{serializedQuote}};
+              if (!root || !needle) return false;
+              const nodes = [];
+              const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+              while (walker.nextNode()) {
+                const node = walker.currentNode;
+                const parent = node.parentElement;
+                if (parent && (['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)
+                    || parent.closest?.('#kkindle-selection-bar, .kkindle-wave-sweep'))) continue;
+                nodes.push(node);
+              }
+
+              // Quotes are persisted with whitespace collapsed so they stay
+              // stable across EPUB formatting changes. Build the same logical
+              // stream while retaining a node for every output character;
+              // searching raw text would fail whenever the source contains a
+              // newline, tab, or repeated spaces.
+              let text = '';
+              const locations = [];
+              let pendingSpace = null;
+              for (const node of nodes) {
+                const value = node.data || '';
+                for (let offset = 0; offset < value.length; offset++) {
+                  const character = value[offset];
+                  if (/\s/.test(character)) {
+                    if (text.length > 0 && !text.endsWith(' ') && pendingSpace === null)
+                      pendingSpace = { node, offset };
+                    continue;
+                  }
+                  if (pendingSpace !== null) {
+                    text += ' ';
+                    locations.push(pendingSpace);
+                    pendingSpace = null;
+                  }
+                  text += character;
+                  locations.push({ node, offset });
+                }
+              }
+              const index = text.toLocaleLowerCase().indexOf(needle.toLocaleLowerCase());
+              const location = index >= 0 ? locations[index] : null;
+              if (!location) return false;
+              (location.node.parentElement || root).scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+              return true;
+            })();
+            """;
+        try
+        {
+            await host.InvokeScriptAsync(script);
+            if (_readerLayout.FlowMode == 1)
+                await host.InvokeScriptAsync(ReaderPaginationScripts.Snap);
+        }
+        catch
+        {
+            // Quote fallback is best-effort when a chapter is replaced while
+            // a bookmark click is still completing.
+        }
+    }
+
+    private async Task UpdateReaderBookmarkIndicatorAsync()
+    {
+        var sequence = ++_readerBookmarkIndicatorSequence;
+        if (ReaderBookmarkCornerMarker is null) return;
+        var location = await CaptureCurrentReaderBookmarkLocationAsync();
+        if (sequence != _readerBookmarkIndicatorSequence) return;
+        ApplyReaderBookmarkIndicator(location);
+    }
+
+    private void UpdateReaderBookmarkIndicatorFromTrackedLocation()
+    {
+        _readerBookmarkIndicatorSequence++;
+        var chapterPath = _readerIsPdf
+            ? $"pdf:{_readerPdfPage}"
             : GetReaderChapterPath();
-        if (string.IsNullOrWhiteSpace(currentPath))
+        var location = string.IsNullOrWhiteSpace(chapterPath)
+            ? null
+            : new ReaderBookmarkLocation(
+                chapterPath,
+                Math.Max(0, (int)Math.Round(_readerScrollPosition)),
+                _readerIsPdf ? 0 : _readerLayout.FlowMode,
+                _readerIsPdf ? null : _readerCurrentFragment);
+        ApplyReaderBookmarkIndicator(location);
+    }
+
+    private void ApplyReaderBookmarkIndicator(ReaderBookmarkLocation? location)
+    {
+        if (ReaderBookmarkCornerMarker is null) return;
+        if (location is null)
         {
             ReaderBookmarkCornerMarker.IsVisible = false;
             return;
         }
-        var tolerance = _readerLayout.FlowMode == 1 ? 8 : 4;
-        var position = (int)Math.Round(_readerScrollPosition);
+
+        var tolerance = location.FlowMode == 1 ? 8 : 4;
         var isBookmarked = ReaderBookmarks.Any(bookmark =>
-            string.Equals(bookmark.ChapterPath, currentPath, StringComparison.OrdinalIgnoreCase)
-            && (bookmark.ScrollPosition is int savedPosition
-                ? Math.Abs(savedPosition - position) <= tolerance
-                : true));
+            AreReaderBookmarkChapterPathsEqual(bookmark.ChapterPath, location.ChapterPath)
+            && bookmark.FlowMode == location.FlowMode
+            && ((bookmark.ScrollPosition is int savedPosition
+                 && Math.Abs(savedPosition - location.ScrollPosition) <= tolerance)
+                || (!string.IsNullOrWhiteSpace(bookmark.Fragment)
+                    && string.Equals(bookmark.Fragment, location.Fragment, StringComparison.OrdinalIgnoreCase))));
         ReaderBookmarkCornerMarker.IsVisible = isBookmarked;
-        await Task.CompletedTask;
     }
 
     private async Task NavigateToReaderBookmarkAsync(ReaderBookmark bookmark)
     {
         if (_readerIsPdf)
         {
-            await NavigatePdfPageAsync(bookmark.ChapterIndex + 1, ReaderToken);
+            var page = bookmark.ChapterIndex + 1;
+            if (TryGetReaderPdfPage(bookmark.ChapterPath, out var savedPage))
+                page = savedPage;
+            await NavigatePdfPageAsync(page, ReaderToken);
             await UpdateReaderBookmarkIndicatorAsync();
             return;
         }
@@ -447,21 +802,39 @@ public partial class MainWindow
             _readerDocument.RootPath,
             bookmark.ChapterPath.Replace('/', Path.DirectorySeparatorChar)));
         if (!IsPathInside(_readerDocument.RootPath, path) || !File.Exists(path)) return;
+
+        var chapterIndex = _readerDocument.Chapters
+            .Select((chapter, index) => (chapter, index))
+            .Where(item => string.Equals(
+                Path.GetFullPath(item.chapter),
+                path,
+                StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.index)
+            .DefaultIfEmpty(-1)
+            .First();
+        if (chapterIndex < 0) return;
+
+        _readerChapterIndex = chapterIndex;
+        _readerPendingBookmarkQuote = bookmark.Quote;
+        _readerPendingBookmarkPosition = bookmark.ScrollPosition;
+        _readerPendingBookmarkFlowMode = bookmark.FlowMode;
         var target = new Uri(path);
-        if (!string.IsNullOrWhiteSpace(bookmark.Fragment))
-            target = new Uri(target.AbsoluteUri + "#" + Uri.EscapeDataString(bookmark.Fragment.TrimStart('#')));
-        await NavigateToReaderItemAsync(
-            new EpubReaderNavigationItem(bookmark.Title, target.AbsoluteUri, bookmark.ChapterIndex),
-            ReaderToken,
-            ReaderNavigationIntent.Bookmark);
-        if (bookmark.ScrollPosition is { } position && CurrentReaderHost is { } host)
+        var fragment = DecodeReaderFragment(bookmark.Fragment);
+        if (!string.IsNullOrWhiteSpace(fragment))
+            target = new Uri(target.AbsoluteUri + "#" + Uri.EscapeDataString(fragment));
+
+        try
         {
-            _readerScrollPosition = Math.Max(0, position);
-            var left = _readerLayout.FlowMode == 1 ? position : 0;
-            var top = _readerLayout.FlowMode == 1 ? 0 : position;
-            await host.InvokeScriptAsync($"window.scrollTo({{ left: {left}, top: {top}, behavior: 'instant' }});");
+            await NavigateToReaderItemAsync(
+                new EpubReaderNavigationItem(bookmark.Title, target.AbsoluteUri, chapterIndex),
+                ReaderToken,
+                ReaderNavigationIntent.Bookmark);
+            await UpdateReaderBookmarkIndicatorAsync();
         }
-        await UpdateReaderBookmarkIndicatorAsync();
+        finally
+        {
+            ClearReaderBookmarkPendingLocation();
+        }
     }
 
     private async void ReaderTocSearchBox_TextChanged(object? sender, TextChangedEventArgs e)
@@ -482,30 +855,31 @@ public partial class MainWindow
     private async Task RefreshReaderWholeSearchAsync(string query, int? sequence = null)
     {
         if (sequence is not null && sequence.Value != _readerWholeSearchSequence) return;
-        ReaderSearchResults.Clear();
         if (query.Length == 0)
         {
+            ReaderSearchResults.Clear();
             ReaderWholeSearchCountText.Text = string.Empty;
             ShowReaderSearchStatus("输入关键词，实时搜索整本书。");
             return;
         }
 
+        ReaderSearchResults.Clear();
         ReaderWholeSearchCountText.Text = string.Empty;
         ShowReaderSearchStatus("正在本地搜索…");
         try
         {
+            var pendingResults = new List<ReaderSearchResultViewModel>();
             if (_readerIsPdf)
             {
                 var results = PdfTextService.Search(_readerPdfPages, query, int.MaxValue);
                 foreach (var result in results)
-                    ReaderSearchResults.Add(new ReaderSearchResultViewModel(
+                    pendingResults.Add(new ReaderSearchResultViewModel(
                         $"第 {result.PageNumber} 页",
                         result.Excerpt,
                         result.PageNumber - 1,
                         $"pdf:page:{result.PageNumber}",
                         pageNumber: result.PageNumber,
                         query: query));
-                ReaderWholeSearchCountText.Text = $"全书 {ReaderSearchResults.Count} 条结果 · PDF 本地文本索引";
             }
             else if (_readerBookCard is not null && _readerBookFile is not null && _readerDocument is not null)
             {
@@ -524,12 +898,17 @@ public partial class MainWindow
                     .DistinctBy(
                         item => $"{item.Title}\u001f{item.Excerpt}",
                         StringComparer.CurrentCultureIgnoreCase)
-                    .ToArray();
+                        .ToArray();
                 foreach (var item in distinct)
-                    ReaderSearchResults.Add(item);
-                ReaderWholeSearchCountText.Text = $"全书 {ReaderSearchResults.Count} 段结果";
+                    pendingResults.Add(item);
             }
             if (sequence is not null && sequence.Value != _readerWholeSearchSequence) return;
+            ReaderSearchResults.Clear();
+            foreach (var item in pendingResults)
+                ReaderSearchResults.Add(item);
+            ReaderWholeSearchCountText.Text = _readerIsPdf
+                ? $"全书 {ReaderSearchResults.Count} 条结果 · PDF 本地文本索引"
+                : $"全书 {ReaderSearchResults.Count} 段结果";
             ShowReaderSearchStatus(
                 ReaderSearchResults.Count == 0
                     ? (_readerIsPdf ? "没有找到匹配的内容。" : "没有找到匹配的片段。")
@@ -540,6 +919,7 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
+            if (sequence is not null && sequence.Value != _readerWholeSearchSequence) return;
             ReaderWholeSearchCountText.Text = string.Empty;
             ShowReaderSearchStatus($"搜索失败：{exception.Message}");
         }
@@ -560,16 +940,18 @@ public partial class MainWindow
         }
         if (_readerDocument is null || string.IsNullOrWhiteSpace(result.Target)) return;
         ReaderSearchStatusText.Text = "正在跳转并定位关键词…";
-        await NavigateToReaderItemAsync(
+        var navigated = await NavigateToReaderItemAsync(
             new EpubReaderNavigationItem(result.Title, result.Target, result.ChapterIndex),
             ReaderToken,
             ReaderNavigationIntent.Search);
-        if (!string.IsNullOrWhiteSpace(result.Query))
+        if (navigated && !string.IsNullOrWhiteSpace(result.Query))
         {
             var sequence = ++_readerSearchSequence;
             await ApplyReaderSearchAsync(result.Query, sequence);
         }
-        ReaderSearchStatusText.Text = $"已跳转到《{result.Title}》相关位置。";
+        ReaderSearchStatusText.Text = navigated
+            ? $"已跳转到《{result.Title}》相关位置。"
+            : "搜索结果定位失败，请重试。";
     }
 
     private async Task NavigateToReaderChunkAsync(BookContentChunk source, string query)
@@ -598,14 +980,16 @@ public partial class MainWindow
             query.Length);
 
         ReaderSearchStatusText.Text = "正在跳转并定位关键词…";
-        await NavigateToReaderItemAsync(
+        var navigated = await NavigateToReaderItemAsync(
             new EpubReaderNavigationItem(
                 source.ChapterTitle,
                 new Uri(targetPath).AbsoluteUri,
                 source.ChapterIndex),
             ReaderToken,
             ReaderNavigationIntent.Search);
-        ReaderSearchStatusText.Text = $"已跳转到《{source.ChapterTitle}》相关位置。";
+        ReaderSearchStatusText.Text = navigated
+            ? $"已跳转到《{source.ChapterTitle}》相关位置。"
+            : "搜索结果定位失败，请重试。";
     }
 
     // Mirrors the search index's whitespace handling when re-locating a
@@ -657,53 +1041,86 @@ public partial class MainWindow
 
     private async void ReaderInPageSearchBox_TextChanged(object? sender, TextChangedEventArgs e)
     {
-        var sequence = _readerIsPdf
-            ? ++_readerPdfSearchSequence
-            : ++_readerSearchSequence;
-        await Task.Delay(120);
-        if (_readerIsPdf
-            ? sequence != _readerPdfSearchSequence
-            : sequence != _readerSearchSequence)
-            return;
-        var query = ReaderInPageSearchBox.Text?.Trim() ?? string.Empty;
-        if (_readerIsPdf)
-            await ApplyReaderPdfSearchAsync(query, sequence);
-        else
-            await ApplyReaderSearchAsync(query, sequence);
-        ReaderInPageSearchCountText.Text = _readerSearchCount <= 0
-            ? "0/0"
-            : $"{_readerSearchIndex + 1}/{_readerSearchCount}";
+        try
+        {
+            var sequence = _readerIsPdf
+                ? ++_readerPdfSearchSequence
+                : ++_readerSearchSequence;
+            await Task.Delay(120);
+            if (_readerIsPdf
+                ? sequence != _readerPdfSearchSequence
+                : sequence != _readerSearchSequence)
+                return;
+            var query = ReaderInPageSearchBox.Text?.Trim() ?? string.Empty;
+            if (_readerIsPdf)
+                await ApplyReaderPdfSearchAsync(query, sequence);
+            else
+                await ApplyReaderSearchAsync(query, sequence);
+            ReaderInPageSearchCountText.Text = _readerSearchCount <= 0
+                ? "0/0"
+                : $"{_readerSearchIndex + 1}/{_readerSearchCount}";
+        }
+        catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
+        {
+        }
+        catch
+        {
+            _readerSearchCount = 0;
+            _readerSearchIndex = -1;
+            UpdateReaderSearchCount();
+        }
     }
 
     private async void ReaderInPageSearchBox_KeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape)
+        try
         {
-            e.Handled = true;
-            await ReaderInPageSearchCloseAsync();
+            if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                await ReaderInPageSearchCloseAsync();
+            }
+            else if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                await NavigateReaderSearchAsync(_readerSearchIndex + ((e.KeyModifiers & KeyModifiers.Shift) != 0 ? -1 : 1));
+                ReaderInPageSearchCountText.Text = _readerSearchCount <= 0 ? "0/0" : $"{_readerSearchIndex + 1}/{_readerSearchCount}";
+            }
         }
-        else if (e.Key == Key.Enter)
+        catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
         {
-            e.Handled = true;
-            await NavigateReaderSearchAsync(_readerSearchIndex + ((e.KeyModifiers & KeyModifiers.Shift) != 0 ? -1 : 1));
-            ReaderInPageSearchCountText.Text = _readerSearchCount <= 0 ? "0/0" : $"{_readerSearchIndex + 1}/{_readerSearchCount}";
+        }
+        catch
+        {
         }
     }
 
     private async void ReaderInPageSearchPreviousButton_Click(object? sender, RoutedEventArgs e)
     {
-        await NavigateReaderSearchAsync(_readerSearchIndex - 1);
-        ReaderInPageSearchCountText.Text = _readerSearchCount <= 0 ? "0/0" : $"{_readerSearchIndex + 1}/{_readerSearchCount}";
+        try
+        {
+            await NavigateReaderSearchAsync(_readerSearchIndex - 1);
+            ReaderInPageSearchCountText.Text = _readerSearchCount <= 0 ? "0/0" : $"{_readerSearchIndex + 1}/{_readerSearchCount}";
+        }
+        catch { }
     }
 
     private async void ReaderInPageSearchNextButton_Click(object? sender, RoutedEventArgs e)
     {
-        await NavigateReaderSearchAsync(_readerSearchIndex + 1);
-        ReaderInPageSearchCountText.Text = _readerSearchCount <= 0 ? "0/0" : $"{_readerSearchIndex + 1}/{_readerSearchCount}";
+        try
+        {
+            await NavigateReaderSearchAsync(_readerSearchIndex + 1);
+            ReaderInPageSearchCountText.Text = _readerSearchCount <= 0 ? "0/0" : $"{_readerSearchIndex + 1}/{_readerSearchCount}";
+        }
+        catch { }
     }
 
     private async void ReaderInPageSearchCloseButton_Click(object? sender, RoutedEventArgs e)
-        => await ReaderInPageSearchCloseAsync();
+    {
+        try { await ReaderInPageSearchCloseAsync(); }
+        catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested) { }
+        catch { }
+    }
 
     private async Task ReaderInPageSearchCloseAsync()
     {

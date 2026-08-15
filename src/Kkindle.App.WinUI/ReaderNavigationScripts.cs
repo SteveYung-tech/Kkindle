@@ -12,6 +12,13 @@ internal static class ReaderNavigationScripts
           const body = document.body;
           if (!body) return;
 
+          // A chapter-start jump is also a location change. Without clearing
+          // the old hash, the next scroll report resurrects a stale fragment
+          // and progress/bookmarks point at the previous section.
+          try {
+            if (location.hash) history.replaceState(null, '', location.href.split('#')[0]);
+          } catch (_) { }
+
           document.querySelectorAll('.kkindle-fragment-break, .kkindle-fragment-zeroed').forEach(el => {
             try { el.classList.remove('kkindle-fragment-break'); } catch (_) {}
             try { el.classList.remove('kkindle-fragment-zeroed'); } catch (_) {}
@@ -80,6 +87,27 @@ internal static class ReaderNavigationScripts
             }
             if (!isWrapper(child)) break;
             current = child;
+          }
+        })();
+        """;
+
+    // Updates only the browser location hash without moving the DOM. Offset-
+    // based bookmark, annotation, search and AI jumps position themselves
+    // separately but still need progress reports to carry the new fragment.
+    // `needle` is escaped for a JavaScript single-quoted string by the caller.
+    public static string CreateLocationHashUpdate(string needle) =>
+        $$"""
+        (() => {
+          let id = '{{needle}}';
+          try { id = decodeURIComponent(id); } catch { }
+          try {
+            history.replaceState(
+              null,
+              '',
+              id ? '#' + encodeURIComponent(id) : location.href.split('#')[0]);
+            return true;
+          } catch (_) {
+            return false;
           }
         })();
         """;
@@ -184,6 +212,14 @@ internal static class ReaderNavigationScripts
             }
           }
           if (!content) return { ok: false, reason: 'no-content' };
+
+          // Same-document jumps are performed by script so the native host
+          // does not reload the XHTML. Keep the document hash in sync as well;
+          // bookmarks and section quotes use it to preserve the exact anchor
+          // the reader is currently showing.
+          try {
+            if (id) history.replaceState(null, '', '#' + encodeURIComponent(id));
+          } catch (_) { }
 
           let block = content;
           if (!block.matches(blockSel)) {

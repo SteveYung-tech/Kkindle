@@ -59,7 +59,7 @@ public partial class MainWindow
         annotation.ChapterPath = chapterPath;
         annotation.Fragment = _readerIsPdf
             ? null
-            : CurrentReaderHost?.Source?.Fragment.TrimStart('#');
+            : _readerCurrentFragment;
         if (selectedText.Length > 0) annotation.SelectedText = selectedText;
         annotation.Note = note.Trim();
         annotation.Color = NormalizeReaderAnnotationColor(
@@ -122,11 +122,8 @@ public partial class MainWindow
     {
         if (_readerIsPdf)
         {
-            var prefix = "pdf:page:";
-            var pageText = annotation.ChapterPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                ? annotation.ChapterPath[prefix.Length..]
-                : "1";
-            if (int.TryParse(pageText, out var page)) await NavigatePdfPageAsync(page, ReaderToken);
+            if (TryGetReaderPdfPage(annotation.ChapterPath, out var page))
+                await NavigatePdfPageAsync(page, ReaderToken);
             return;
         }
         if (_readerDocument is null) return;
@@ -140,28 +137,55 @@ public partial class MainWindow
             .DefaultIfEmpty(-1)
             .First();
         if (chapterIndex < 0 || chapterIndex >= _readerDocument.Chapters.Count) return;
+        _readerPendingAnnotation = annotation;
         var chapterUri = new Uri(_readerDocument.Chapters[chapterIndex]);
-        if (!string.IsNullOrWhiteSpace(annotation.Fragment))
-            chapterUri = new Uri(chapterUri.AbsoluteUri + "#" + Uri.EscapeDataString(annotation.Fragment.TrimStart('#')));
-        await NavigateToReaderItemAsync(
-            new EpubReaderNavigationItem(
-                $"第 {chapterIndex + 1} 章",
-                chapterUri.AbsoluteUri,
-                chapterIndex),
-            ReaderToken,
-            ReaderNavigationIntent.Annotation);
+        var fragment = DecodeReaderFragment(annotation.Fragment);
+        if (!string.IsNullOrWhiteSpace(fragment))
+            chapterUri = new Uri(chapterUri.AbsoluteUri + "#" + Uri.EscapeDataString(fragment));
+        try
+        {
+            await NavigateToReaderItemAsync(
+                new EpubReaderNavigationItem(
+                    $"第 {chapterIndex + 1} 章",
+                    chapterUri.AbsoluteUri,
+                    chapterIndex),
+                ReaderToken,
+                ReaderNavigationIntent.Annotation);
+        }
+        finally
+        {
+            if (ReferenceEquals(_readerPendingAnnotation, annotation))
+                _readerPendingAnnotation = null;
+        }
     }
 
     private async void ReaderDeleteAnnotationButton_Click(object? sender, RoutedEventArgs e)
     {
         if (_selectedReaderAnnotation is null) return;
-        await _readerData.DeleteAnnotationAsync(_selectedReaderAnnotation.Id, ReaderToken);
-        _selectedReaderAnnotation = null;
-        await RefreshReaderAnnotationsAsync(ReaderToken);
-        ReaderAnnotationSelectionText.Text = "请先在正文中选择一段文字，再点击顶部“批注”。";
-        ReaderAnnotationNoteBox.Text = string.Empty;
-        ReaderDeleteAnnotationButton.IsEnabled = false;
-        ShowReaderTransientStatus("批注已删除");
+        try
+        {
+            await _readerData.DeleteAnnotationAsync(_selectedReaderAnnotation.Id, ReaderToken);
+            _selectedReaderAnnotation = null;
+            await RefreshReaderAnnotationsAsync(ReaderToken);
+            if (!_readerIsPdf && CurrentReaderHost is { } host)
+                await ApplySavedAnnotationsAsync(host, ReaderToken);
+            ReaderAnnotationSelectionText.Text = "请先在正文中选择一段文字，再点击顶部“批注”。";
+            ReaderAnnotationNoteBox.Text = string.Empty;
+            ReaderDeleteAnnotationButton.IsEnabled = false;
+            _readerPendingSelection = null;
+            _readerPendingSelectionStartOffset = 0;
+            _readerPendingSelectionEndOffset = 0;
+            _readerPendingSelectionPrefix = string.Empty;
+            _readerPendingSelectionSuffix = string.Empty;
+            ShowReaderTransientStatus("批注已删除");
+        }
+        catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            ReaderStatusText.Text = $"删除批注失败：{exception.Message}";
+        }
     }
 
     private async Task PerformReaderSelectionCopyAsync()
@@ -185,6 +209,11 @@ public partial class MainWindow
         }
         ReaderHighlightButton.IsVisible = false;
         ReaderAnnotateButton.IsVisible = false;
+        _readerPendingSelection = null;
+        _readerPendingSelectionStartOffset = 0;
+        _readerPendingSelectionEndOffset = 0;
+        _readerPendingSelectionPrefix = string.Empty;
+        _readerPendingSelectionSuffix = string.Empty;
         ShowReaderTransientStatus("已复制选中文字");
     }
 
@@ -223,7 +252,11 @@ public partial class MainWindow
     }
 
     private void ReaderFootnoteCloseButton_Click(object? sender, RoutedEventArgs e)
-        => ReaderFootnotePopup.IsVisible = false;
+    {
+        _readerFootnoteHoverSequence++;
+        _readerFootnotePinned = false;
+        ReaderFootnotePopup.IsVisible = false;
+    }
 
     private async void ReaderExportMarkdownButton_Click(object? sender, RoutedEventArgs e)
         => await ExportReaderAnnotationsAsync(markdown: true);
@@ -234,30 +267,40 @@ public partial class MainWindow
     private async Task ExportReaderAnnotationsAsync(bool markdown)
     {
         if (_readerBookCard is null) return;
-        var topLevel = TopLevel.GetTopLevel(this);
-        if (topLevel is null) return;
-        var extension = markdown ? "md" : "txt";
-        var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        try
         {
-            Title = markdown ? "导出 Kreader 批注 Markdown" : "导出 Kreader 批注文本",
-            SuggestedFileName = $"{_readerBookCard.Title}-批注.{extension}",
-            FileTypeChoices = [new FilePickerFileType(markdown ? "Markdown" : "文本") { Patterns = [$"*.{extension}"] }]
-        });
-        var path = file?.TryGetLocalPath();
-        if (string.IsNullOrWhiteSpace(path)) return;
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel is null) return;
+            var extension = markdown ? "md" : "txt";
+            var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = markdown ? "导出 Kreader 批注 Markdown" : "导出 Kreader 批注文本",
+                SuggestedFileName = $"{_readerBookCard.Title}-批注.{extension}",
+                FileTypeChoices = [new FilePickerFileType(markdown ? "Markdown" : "文本") { Patterns = [$"*.{extension}"] }]
+            });
+            var path = file?.TryGetLocalPath();
+            if (string.IsNullOrWhiteSpace(path)) return;
 
-        var resolver = new Func<string, string>(chapterPath =>
-            _readerDocument?.Navigation
-                .FirstOrDefault(item => string.Equals(
-                    Path.GetRelativePath(_readerDocument.RootPath, new Uri(item.Target).LocalPath).Replace('\\', '/'),
-                    chapterPath,
-                    StringComparison.OrdinalIgnoreCase))?.Title
-            ?? chapterPath);
-        var content = markdown
-            ? ReaderAnnotationExport.BuildMarkdown(_readerBookCard.Title, _readerBookCard.Authors, ReaderAnnotations, resolver)
-            : ReaderAnnotationExport.BuildPlainText(_readerBookCard.Title, _readerBookCard.Authors, ReaderAnnotations, resolver);
-        await File.WriteAllTextAsync(path, content, new UTF8Encoding(true), ReaderToken);
-        ReaderExportStatusText.Text = $"已导出 {ReaderAnnotations.Count} 条批注。";
+            var resolver = new Func<string, string>(chapterPath =>
+                _readerDocument?.Navigation
+                    .FirstOrDefault(item => string.Equals(
+                        Path.GetRelativePath(_readerDocument.RootPath, new Uri(item.Target).LocalPath).Replace('\\', '/'),
+                        chapterPath,
+                        StringComparison.OrdinalIgnoreCase))?.Title
+                ?? chapterPath);
+            var content = markdown
+                ? ReaderAnnotationExport.BuildMarkdown(_readerBookCard.Title, _readerBookCard.Authors, ReaderAnnotations, resolver)
+                : ReaderAnnotationExport.BuildPlainText(_readerBookCard.Title, _readerBookCard.Authors, ReaderAnnotations, resolver);
+            await File.WriteAllTextAsync(path, content, new UTF8Encoding(true), ReaderToken);
+            ReaderExportStatusText.Text = $"已导出 {ReaderAnnotations.Count} 条批注。";
+        }
+        catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            ReaderStatusText.Text = $"导出批注失败：{exception.Message}";
+        }
     }
 
     private static string GetReaderComboTag(ComboBox comboBox, string fallback)
