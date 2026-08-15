@@ -95,13 +95,43 @@ public sealed class BookCardViewModel : ObservableObject
     // Keep selection on the card itself. The legacy WinUI shelf did not use
     // the list control's selection fill; it drew a black outline around the
     // exact 154-DIP card footprint instead.
+    private bool _isSelected;
     private bool _isMultiSelected;
+    private bool _isHovered;
+
+    // Any selection (single click or multi-select) turns the card outline
+    // black; the check badge below is reserved for genuine multi-selection.
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (SetProperty(ref _isSelected, value))
+                OnPropertyChanged(nameof(IsFrameVisible));
+        }
+    }
 
     public bool IsMultiSelected
     {
         get => _isMultiSelected;
         set => SetProperty(ref _isMultiSelected, value);
     }
+
+    // Hovering the whole card (cover or text) shows the same thin black
+    // frame as selection, so the outline lives on the card, not on the cover
+    // image alone.
+    public bool IsHovered
+    {
+        get => _isHovered;
+        set
+        {
+            if (SetProperty(ref _isHovered, value))
+                OnPropertyChanged(nameof(IsFrameVisible));
+        }
+    }
+
+    // The black frame around the entire card appears on hover or selection.
+    public bool IsFrameVisible => IsSelected || IsHovered;
 
     // The original gallery always surfaced where a book is available. The
     // portable library starts with the authoritative local copy and changes

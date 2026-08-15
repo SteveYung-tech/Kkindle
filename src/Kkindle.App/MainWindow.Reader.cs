@@ -20,6 +20,8 @@ public partial class MainWindow
     private bool _readerShowingPreload;
     private CancellationTokenSource? _readerSessionCancellation;
     private CancellationTokenSource? _readerNavigationCancellation;
+    private readonly SemaphoreSlim _readerActiveHostNavigationGate = new(1, 1);
+    private readonly SemaphoreSlim _readerPreloadHostNavigationGate = new(1, 1);
 
     private IReaderHost? CurrentReaderHost =>
         _readerShowingPreload ? _readerPreloadHost : _readerActiveHost;
@@ -129,30 +131,48 @@ public partial class MainWindow
         Uri target,
         CancellationToken cancellationToken)
     {
-        var completion = new TaskCompletionSource<bool>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        EventHandler<ReaderNavigationCompletedEventArgs>? handler = null;
-        handler = (_, args) =>
-        {
-            if (!ReaderNavigationLocationPolicy.TargetsSameDocument(args.Request, target)
-                && !UriEquals(args.Request, target)) return;
-            completion.TrySetResult(args.IsSuccess);
-        };
-        host.NavigationCompleted += handler;
+        var gate = ReferenceEquals(host, _readerPreloadHost)
+            ? _readerPreloadHostNavigationGate
+            : _readerActiveHostNavigationGate;
+        await gate.WaitAsync(cancellationToken);
         try
         {
-            host.Navigate(target);
-            using var cancellation = cancellationToken.Register(
-                static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(),
-                completion);
-            var loaded = await completion.Task;
-            if (loaded)
+            // A TOC click can request the chapter currently being prepared by
+            // the hidden host. Serializing each host's navigations lets that
+            // preload finish first; assigning the identical URI afterwards is
+            // a WebView2 no-op that does not raise NavigationCompleted.
+            if (UriEquals(host.Source, target))
+            {
                 await ConfigureReaderHostAsync(host, cancellationToken);
-            return loaded;
+                return true;
+            }
+
+            var completion = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            EventHandler<ReaderNavigationCompletedEventArgs>? handler = null;
+            handler = (_, args) =>
+            {
+                if (!ReaderNavigationLocationPolicy.TargetsSameDocument(args.Request, target)
+                    && !UriEquals(args.Request, target)) return;
+                completion.TrySetResult(args.IsSuccess);
+            };
+            host.NavigationCompleted += handler;
+            try
+            {
+                host.Navigate(target);
+                var loaded = await completion.Task.WaitAsync(TimeSpan.FromSeconds(12), cancellationToken);
+                if (loaded)
+                    await ConfigureReaderHostAsync(host, cancellationToken);
+                return loaded;
+            }
+            finally
+            {
+                host.NavigationCompleted -= handler;
+            }
         }
         finally
         {
-            host.NavigationCompleted -= handler;
+            gate.Release();
         }
     }
 
@@ -211,7 +231,11 @@ public partial class MainWindow
             _readerChapterIndex = targetIndex;
             _readerScrollPosition = 0;
             _readerScrollRatio = 0;
-            _readerShowingPreload = !ReferenceEquals(host, CurrentReaderHost);
+            // host was picked as the hidden host, so the layer must flip
+            // unconditionally; deriving it from CurrentReaderHost would read
+            // the stale pre-swap flag and freeze the visible chapter after the
+            // first jump (TOC / next-chapter worked only once).
+            _readerShowingPreload = ReferenceEquals(host, _readerPreloadHost);
             SetReaderHostLayer();
             await ApplySavedAnnotationsAsync(host, token);
             ReaderChapterText.Text = GetReaderChapterLabel();
@@ -264,6 +288,11 @@ public partial class MainWindow
     {
         var activeSlot = _readerShowingPreload ? ReaderPreloadHostSlot : ReaderActiveHostSlot;
         var hiddenSlot = _readerShowingPreload ? ReaderActiveHostSlot : ReaderPreloadHostSlot;
+        // Native webviews are HWND-backed. Opacity and ZIndex alone only affect
+        // the Avalonia wrapper; the hidden child window can still cover the
+        // visible chapter and consume input. Toggle actual visibility as well.
+        activeSlot.IsVisible = true;
+        hiddenSlot.IsVisible = false;
         activeSlot.Opacity = 1;
         activeSlot.IsHitTestVisible = true;
         hiddenSlot.Opacity = 0;
@@ -278,10 +307,26 @@ public partial class MainWindow
     {
         if (e.Request is null) return;
         if (string.Equals(e.Request.Scheme, "about", StringComparison.OrdinalIgnoreCase)) return;
-        if (_readerDocument is null
-            || !e.Request.IsFile
-            || !IsPathInside(_readerDocument.RootPath, e.Request.LocalPath))
+        if (!e.Request.IsFile)
+        {
             e.Cancel = true;
+            return;
+        }
+
+        try
+        {
+            var target = Path.GetFullPath(e.Request.LocalPath);
+            var allowed = _readerIsPdf && !string.IsNullOrWhiteSpace(_readerPdfSourcePath)
+                ? target.Equals(Path.GetFullPath(_readerPdfSourcePath), StringComparison.OrdinalIgnoreCase)
+                : _readerDocument is not null && IsPathInside(_readerDocument.RootPath, target);
+            e.Cancel = !allowed;
+        }
+        catch (Exception) when (e.Request.IsFile)
+        {
+            // Malformed file URIs fail closed instead of escaping the active
+            // EPUB cache or the single PDF file selected for this session.
+            e.Cancel = true;
+        }
     }
 
     private void ReaderHost_NavigationCompleted(
@@ -332,7 +377,6 @@ public partial class MainWindow
         LibraryRoot.IsVisible = true;
         WindowBrandText.IsVisible = false;
         ReaderLayoutSettingsOverlay.IsVisible = false;
-        ReaderSelectionBar.IsVisible = false;
         ReaderInPageSearchBar.IsVisible = false;
         ReaderFootnotePopup.IsVisible = false;
         ReaderHighlightButton.IsVisible = false;

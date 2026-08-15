@@ -82,7 +82,6 @@ public partial class MainWindow
                 await ApplySavedAnnotationsAsync(host, ReaderToken);
             else if (_readerIsPdf)
                 await ApplySavedReaderPdfAnnotationsAsync(ReaderToken);
-            ReaderSelectionBar.IsVisible = false;
             ReaderHighlightButton.IsVisible = false;
             ReaderAnnotateButton.IsVisible = false;
             _readerPendingSelection = null;
@@ -165,13 +164,14 @@ public partial class MainWindow
         ShowReaderTransientStatus("批注已删除");
     }
 
-    private async void ReaderSelectionCopyButton_Click(object? sender, RoutedEventArgs e)
+    private async Task PerformReaderSelectionCopyAsync()
     {
         if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is not null) await clipboard.SetTextAsync(_readerPendingSelection);
         // Clear the live DOM selection so the highlighted text returns to the
-        // normal body rendering after the copy action (WinUI reference).
+        // normal body rendering after the copy action (WinUI reference); the
+        // in-page selection bar hides itself once the selection is empty.
         if (!_readerIsPdf && CurrentReaderHost is { } host)
         {
             try
@@ -183,95 +183,34 @@ public partial class MainWindow
             {
             }
         }
-        ReaderSelectionBar.IsVisible = false;
         ReaderHighlightButton.IsVisible = false;
         ReaderAnnotateButton.IsVisible = false;
         ShowReaderTransientStatus("已复制选中文字");
     }
 
-    private async void ReaderSelectionHighlightButton_Click(object? sender, RoutedEventArgs e)
-        => await SaveReaderAnnotationAsync(string.Empty);
-
-    // The "划线 ▾" button opens a style picker flyout on hover (WinUI
-    // reference's ReaderSelectionHighlightButton + ReaderTools close timer):
-    // moving into the flyout cancels the close, leaving it starts a 240 ms
-    // grace before it hides.
-    private DispatcherTimer? _readerHighlightFlyoutCloseTimer;
-
-    private void ReaderSelectionHighlightButton_PointerEntered(object? sender, PointerEventArgs e)
+    // The "划线 ▾" quick-style actions now arrive from the in-page selection
+    // bar (the webview is a native HWND island Avalonia cannot paint over);
+    // the style choice still lands in the same combo used by the notes pane.
+    private async Task ApplyReaderHighlightStyleAsync(string style)
     {
-        StopReaderHighlightFlyoutCloseTimer();
-        if (ReaderSelectionHighlightButton.Flyout is { } flyout && !flyout.IsOpen)
-            flyout.ShowAt(ReaderSelectionHighlightButton);
-    }
-
-    private void ReaderSelectionHighlightButton_PointerExited(object? sender, PointerEventArgs e)
-        => StartReaderHighlightFlyoutCloseTimer();
-
-    private void ReaderSelectionHighlightFlyoutItem_PointerEntered(object? sender, PointerEventArgs e)
-        => StopReaderHighlightFlyoutCloseTimer();
-
-    private void ReaderSelectionHighlightFlyoutItem_PointerExited(object? sender, PointerEventArgs e)
-        => StartReaderHighlightFlyoutCloseTimer();
-
-    private void ReaderSelectionHighlightFlyout_Closed(object? sender, EventArgs e)
-        => StopReaderHighlightFlyoutCloseTimer();
-
-    private void StartReaderHighlightFlyoutCloseTimer()
-    {
-        _readerHighlightFlyoutCloseTimer ??= new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(240)
-        };
-        _readerHighlightFlyoutCloseTimer.Stop();
-        _readerHighlightFlyoutCloseTimer.Tick -= ReaderHighlightFlyoutCloseTimer_Tick;
-        _readerHighlightFlyoutCloseTimer.Tick += ReaderHighlightFlyoutCloseTimer_Tick;
-        _readerHighlightFlyoutCloseTimer.Start();
-    }
-
-    private void StopReaderHighlightFlyoutCloseTimer()
-        => _readerHighlightFlyoutCloseTimer?.Stop();
-
-    private void ReaderHighlightFlyoutCloseTimer_Tick(object? sender, EventArgs e)
-    {
-        _readerHighlightFlyoutCloseTimer?.Stop();
-        if (ReaderSelectionHighlightButton.Flyout is { } flyout && flyout.IsOpen)
-            flyout.Hide();
-    }
-
-    private async void ReaderSelectionHighlightStyle_Click(object? sender, RoutedEventArgs e)
-    {
-        if (sender is not MenuItem { Tag: string style }) return;
         SelectReaderComboTag(ReaderAnnotationStyleBox, style);
-        ReaderSelectionHighlightButton.Flyout?.Hide();
         await SaveReaderAnnotationAsync(string.Empty);
+        // The WinUI reference's bar closes after saving; the in-page bar hides
+        // itself once the DOM selection is cleared (selectionchange report).
+        if (!_readerIsPdf && CurrentReaderHost is { } host)
+        {
+            try
+            {
+                await host.InvokeScriptAsync(
+                    "(() => { const s = window.getSelection(); if (s) s.removeAllRanges(); return true; })();");
+            }
+            catch
+            {
+            }
+        }
     }
 
-    private void ReaderSelectionAnnotateButton_Click(object? sender, RoutedEventArgs e)
-    {
-        ShowReaderNotesTab();
-        ReaderAnnotationNoteBox.Focus();
-    }
-
-    private async void ReaderSelectionAiExplainButton_Click(object? sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
-        ShowReaderAiTab();
-        await SendReaderAiQuestionAsync($"请解释下面这段文字的含义、上下文和隐含前提，并给出一个简单例子：\n\n{_readerPendingSelection}");
-    }
-
-    private void ReaderSelectionSearchButton_Click(object? sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
-        _readerTocMinimal = false;
-        _readerTocExpanded = true;
-        ApplyReaderPanelLayout();
-        ShowReaderSearchTab();
-        ReaderTocSearchBox.Text = _readerPendingSelection;
-        ReaderTocSearchBox.Focus();
-    }
-
-    private async void ReaderSelectionDictionaryButton_Click(object? sender, RoutedEventArgs e)
+    private async Task PerformReaderSelectionDictionaryAsync()
     {
         if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
         var term = _readerPendingSelection.Trim();

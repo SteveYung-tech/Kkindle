@@ -117,6 +117,10 @@ public partial class MainWindow
             _readerChapterIndex = 0;
             _readerScrollRatio = 0;
             _readerScrollPosition = 0;
+            // A PDF session always renders in the active host slot; clear any
+            // preload flag left over from a previous EPUB session so the layer
+            // swap below shows the right slot.
+            _readerShowingPreload = false;
 
             // The PDF surface is rendered by WebView2's built-in PDF viewer
             // (file:// URL + #page=N fragment), exactly like the WinUI

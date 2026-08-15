@@ -143,7 +143,7 @@ public partial class MainWindow
         ReaderSearchStatusText.IsVisible = true;
         ReaderSearchResultList.IsVisible = true;
         ReaderInPageSearchBar.IsVisible = false;
-        ReaderSelectionBar.IsVisible = false;
+        ReaderLayoutSettingsOverlay.IsVisible = false;
         ReaderHighlightButton.IsVisible = false;
         ReaderAnnotateButton.IsVisible = false;
         ReaderFootnotePopup.IsVisible = false;
@@ -252,21 +252,23 @@ public partial class MainWindow
         bool pagination)
     {
         var builder = new StringBuilder();
-        builder.Append("\nhtml, body { background: #FFFFFF !important; color: #000000 !important; }");
-        builder.Append($"\nbody {{ font-size: {Format(fontScale)}em !important; line-height: {Format(lineHeight)} !important; font-family: {fontStack} !important; letter-spacing: 0.012em !important; }}");
+        builder.Append($"\nhtml {{ font-size: {Format(fontScale * 100)}% !important; text-rendering: optimizeLegibility; }}");
+        builder.Append("\nhtml, body { background: #FFFFFF !important; color: #111111 !important; border: 0 !important; outline: 0 !important; box-shadow: none !important; }");
+        builder.Append($"\nbody {{ font-size: 1rem !important; line-height: {Format(lineHeight)} !important; font-family: {fontStack} !important; letter-spacing: 0.012em !important; overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal; }}");
         if (!vertical)
             builder.Append("\nbody { text-align: justify !important; }");
-        builder.Append("\n::selection { background: #000000 !important; color: #FFFFFF !important; }");
+        builder.Append("\n::selection, body *::selection { background: #000000 !important; background-color: #000000 !important; color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important; }");
         builder.Append("\na { color: #222222 !important; }");
         builder.Append("\np { margin: 0.55em 0 1.05em 0 !important; }");
-        builder.Append("\nh1, h2, h3, h4 { font-weight: bold !important; margin: 1.1em 0 0.55em 0 !important; }");
-        builder.Append("\nblockquote { border-left: 3px solid #000000 !important; margin: 0.8em 0 !important; padding: 0.2em 0 0.2em 1em !important; color: #333333 !important; }");
-        builder.Append("\nimg { max-width: 100% !important; height: auto !important; }");
+        builder.Append("\nli, blockquote { font-size: 1rem !important; line-height: 1.78 !important; }");
+        builder.Append("\nh1, h2, h3, h4 { color: #111111 !important; line-height: 1.35 !important; font-weight: bold !important; margin: 1.35em 0 0.72em 0 !important; }");
+        builder.Append("\nblockquote { border-left: 3px solid #222222 !important; margin: 1.4em 0 !important; padding: 0.2em 1.1em !important; color: #333333 !important; opacity: 0.88; }");
+        builder.Append("\nimg, svg { display: block; max-width: 100% !important; height: auto !important; margin: 1.8em auto !important; } svg image { max-width: 100% !important; }");
         if (pagination)
-            builder.Append("\nimg { max-height: 70vh !important; object-fit: contain !important; }");
-        builder.Append("\npre, table { overflow-x: auto !important; }");
-        builder.Append("\nhr { border: none !important; border-top: 1px solid #D8D8D4 !important; margin: 1.2em 0 !important; }");
-        builder.Append("\nruby rt { font-size: 0.5em !important; }");
+            builder.Append("\nimg, svg { max-height: calc(var(--kkindle-page-content-h, 100vh) - 3.6em) !important; object-fit: contain !important; } img.kkindle-cover, .kkindle-cover img, svg.kkindle-cover, .kkindle-cover svg { max-height: calc(var(--kkindle-page-content-h, 100vh) - 6em) !important; margin: 1em auto !important; }");
+        builder.Append("\npre, table { max-width: 100% !important; overflow-x: auto !important; }");
+        builder.Append("\nhr { border: 0 !important; border-top: 1px solid #222222 !important; opacity: 0.24; margin: 2em 0 !important; }");
+        builder.Append("\nruby { ruby-align: center !important; } rt { font-size: 0.5em !important; color: inherit !important; }");
         builder.Append("\n.kkindle-fragment-break { break-before: column !important; }");
         var bundledFontUri = GetBundledFontFileUri();
         if (bundledFontUri is not null)
@@ -379,7 +381,11 @@ public partial class MainWindow
             _readerChapterIndex = item.ChapterIndex;
             _readerScrollPosition = 0;
             _readerScrollRatio = 0;
-            _readerShowingPreload = !ReferenceEquals(host, CurrentReaderHost);
+            // host was picked as the hidden host, so the layer must flip
+            // unconditionally; deriving it from CurrentReaderHost would read
+            // the stale pre-swap flag and freeze the visible chapter after the
+            // first jump (TOC / next-chapter worked only once).
+            _readerShowingPreload = ReferenceEquals(host, _readerPreloadHost);
             SetReaderHostLayer();
             await ApplySavedAnnotationsAsync(host, navigationToken);
             await ApplyReaderLocationAsync(
@@ -896,16 +902,17 @@ public partial class MainWindow
                     {
                         ReaderStatusText.Text = "已选中文字，可点击“划线”保存";
                         ReaderAnnotationSelectionText.Text = _readerPendingSelection;
-                        ReaderSelectionBar.IsVisible = true;
                         ReaderHighlightButton.IsVisible = true;
                         ReaderAnnotateButton.IsVisible = true;
                     }
                     else
                     {
-                        ReaderSelectionBar.IsVisible = false;
                         ReaderHighlightButton.IsVisible = false;
                         ReaderAnnotateButton.IsVisible = false;
                     }
+                    break;
+                case "selectionAction":
+                    DispatchReaderSelectionAction(root);
                     break;
                 case "link":
                     if (root.TryGetProperty("href", out var href))
@@ -1026,6 +1033,52 @@ public partial class MainWindow
         }
         catch (JsonException)
         {
+        }
+    }
+
+    // The selection bar now lives inside the reader page (the webview is a
+    // native HWND island Avalonia cannot paint over), so its buttons arrive as
+    // bridge messages instead of XAML clicks. Each action mirrors the WinUI
+    // reference's selection-bar handlers.
+    private void DispatchReaderSelectionAction(JsonElement root)
+    {
+        if (!root.TryGetProperty("action", out var actionElement)) return;
+        switch (actionElement.GetString())
+        {
+            case "copy":
+                _ = ObserveReaderTaskAsync(PerformReaderSelectionCopyAsync());
+                break;
+            case "highlight":
+                if (root.TryGetProperty("style", out var styleElement)
+                    && styleElement.GetString() is { } style)
+                {
+                    _ = ObserveReaderTaskAsync(ApplyReaderHighlightStyleAsync(style));
+                }
+                break;
+            case "annotate":
+                ShowReaderNotesTab();
+                ReaderAnnotationNoteBox.Focus();
+                break;
+            case "ai":
+                if (!string.IsNullOrWhiteSpace(_readerPendingSelection))
+                {
+                    ShowReaderAiTab();
+                    _ = ObserveReaderTaskAsync(SendReaderAiQuestionAsync(
+                        $"请解释下面这段文字的含义、上下文和隐含前提，并给出一个简单例子：\n\n{_readerPendingSelection}"));
+                }
+                break;
+            case "search":
+                if (string.IsNullOrWhiteSpace(_readerPendingSelection)) break;
+                _readerTocMinimal = false;
+                _readerTocExpanded = true;
+                ApplyReaderPanelLayout();
+                ShowReaderSearchTab();
+                ReaderTocSearchBox.Text = _readerPendingSelection;
+                ReaderTocSearchBox.Focus();
+                break;
+            case "dictionary":
+                _ = ObserveReaderTaskAsync(PerformReaderSelectionDictionaryAsync());
+                break;
         }
     }
 

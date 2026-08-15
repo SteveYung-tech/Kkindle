@@ -75,6 +75,27 @@
         <SolidColorBrush x:Key="KkindleScrollBarArrowPointerOverBrush" Color="#FFFFFF" />
         <SolidColorBrush x:Key="KkindleScrollBarArrowPressedBrush" Color="#FFFFFF" />
         <SolidColorBrush x:Key="KkindleScrollBarArrowDisabledBrush" Color="#8A8A8A" />
+
+        <!-- Fluent draws the Slider's filled track and thumb with the accent
+             colour; the reader footer progress slider must stay monochrome.
+             Same resource-key override the WinUI reference used. The layout
+             sliders in the reader typography popup override these with darker
+             greys locally (MainWindow.axaml). -->
+        <SolidColorBrush x:Key="SliderTrackValueFill" Color="#C7C7C3" />
+        <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#B7B7B3" />
+        <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#A7A7A3" />
+        <SolidColorBrush x:Key="SliderTrackValueFillDisabled" Color="#DEDEDB" />
+        <SolidColorBrush x:Key="SliderThumbBackground" Color="#B4B4B0" />
+        <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#A4A4A0" />
+        <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#949490" />
+        <SolidColorBrush x:Key="SliderThumbBackgroundDisabled" Color="#C9C9C5" />
+        <!-- Square thumb: the product's corner language has no exception for
+             the slider grip. -->
+        <CornerRadius x:Key="SliderThumbCornerRadius">0</CornerRadius>
+
+        <!-- Fluent paints the focused TextBox border with the accent colour;
+             the reader search box and AI input must stay black-on-white. -->
+        <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="{StaticResource InkColor}" />
         </ResourceDictionary>
     </Application.Resources>
 
@@ -736,13 +757,28 @@
             <Setter Property="Padding" Value="12,8" />
             <Setter Property="CornerRadius" Value="0" />
         </Style>
+        <!-- 选中某条：黑色矩形 + 白色反色文字。子菜单箭头等矢量图形同样
+             只允许黑白两色，避免 Fluent 模板主题色渗入。 -->
         <Style Selector="MenuItem:pointerover">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
             <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
         </Style>
         <Style Selector="MenuItem:pressed">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="MenuItem:disabled">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="#999999" />
+        </Style>
+        <Style Selector="MenuItem Path">
+            <Setter Property="Fill" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="MenuItem:pointerover Path, MenuItem:pressed Path">
+            <Setter Property="Fill" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="MenuItem:disabled Path">
+            <Setter Property="Fill" Value="#999999" />
         </Style>
         <!-- Menu separators: solid black line instead of the Fluent grey. -->
         <Style Selector="Separator">
@@ -751,30 +787,25 @@
             <Setter Property="Margin" Value="8,5" />
         </Style>
 
-        <!-- Book cover hover: the grid card cover deepens its border when the
-             pointer is over it (WinUI BookCardItemStyle: outline turns black,
-             no lift or scale animation). -->
+        <!-- Book cover frames: the cover keeps a thin grey border so covers
+             read as images in the gallery. Hover and selection frames are
+             drawn by the whole-card overlay in the card template
+             (BookCardViewModel.IsFrameVisible); the cover border itself never
+             turns black. -->
         <Style Selector="Border.bookCover">
             <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
+        </Style>
+        <!-- List-view rows follow the same rule: grey at rest, black thin
+             border on hover (and black when selected via the overlay). -->
+        <Style Selector="Border.bookRow">
+            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}" />
             <Setter Property="Transitions">
                 <Transitions>
                     <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
                 </Transitions>
             </Setter>
         </Style>
-        <Style Selector="Border.bookCover:pointerover">
-            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
-        </Style>
-        <!-- Whole-card outline turns black on hover, staying 1 DIP. -->
-        <Style Selector="Border.bookOutline">
-            <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
-            <Setter Property="Transitions">
-                <Transitions>
-                    <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
-                </Transitions>
-            </Setter>
-        </Style>
-        <Style Selector="Border.bookOutline:pointerover">
+        <Style Selector="Border.bookRow:pointerover">
             <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
         </Style>
     </Application.Styles>

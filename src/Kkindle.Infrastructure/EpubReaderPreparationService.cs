@@ -17,7 +17,7 @@ public sealed record EpubReaderDocument(
 public sealed class EpubReaderPreparationService
 {
     private const string ExtractionReadyFileName = ".kkindle-extracted";
-    private const string ExtractionFormatVersion = "3";
+    private const string ExtractionFormatVersion = "5";
     private const string ContentSecurityPolicyBase =
         "default-src 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; " +
         "connect-src 'none'; form-action 'none'; img-src 'self' file:; " +
@@ -62,11 +62,12 @@ public sealed class EpubReaderPreparationService
             });
           };
 
-          const reportSelection = () => {
+          const reportSelection = contextEvent => {
             try {
               const selection = window.getSelection();
               if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !document.body) {
                 send({ type: "selection", text: "" });
+                hideSelectionBar();
                 return;
               }
               const range = selection.getRangeAt(0);
@@ -84,15 +85,155 @@ public sealed class EpubReaderPreparationService
               const startOffset = pointOffset(range.startContainer, range.startOffset) + leading;
               const endOffset = pointOffset(range.endContainer, range.endOffset) - trailing;
               const fullText = document.body.textContent || "";
+              const rect = range.getBoundingClientRect();
+              const anchorX = contextEvent ? contextEvent.clientX : rect.left;
+              const anchorY = contextEvent ? contextEvent.clientY : rect.top;
+              const anchorBottom = contextEvent ? contextEvent.clientY : rect.bottom;
               send({
                 type: "selection",
                 text: text.slice(0, 12000),
                 startOffset,
                 endOffset,
                 prefix: fullText.slice(Math.max(0, startOffset - 72), startOffset),
-                suffix: fullText.slice(endOffset, Math.min(fullText.length, endOffset + 72))
+                suffix: fullText.slice(endOffset, Math.min(fullText.length, endOffset + 72)),
+                x: anchorX,
+                y: anchorY,
+                bottom: anchorBottom,
+                viewportWidth: window.innerWidth || document.documentElement.clientWidth || 0,
+                viewportHeight: window.innerHeight || document.documentElement.clientHeight || 0,
+                contextMenu: !!contextEvent
               });
+              placeSelectionBar(
+                anchorX,
+                anchorY,
+                anchorBottom,
+                window.innerWidth || document.documentElement.clientWidth || 0,
+                window.innerHeight || document.documentElement.clientHeight || 0);
             } catch (_) { }
+          };
+
+          // In-page text-selection action bar. The webview is a native HWND
+          // island: Avalonia controls cannot render above it, so the quick
+          // actions (复制/划线/批注/AI 解释/搜索/词典) live inside the page,
+          // mirroring the WinUI reference's floating selection bar. This
+          // bridge script runs in <head>, so the bar is installed once the
+          // document is ready (document.body is still null during parse).
+          let selectionBar = null;
+          const installSelectionBar = () => {
+            if (selectionBar) return;
+            let styleElement = document.getElementById('kkindle-selection-bar-style');
+            if (!styleElement) {
+              styleElement = document.createElement('style');
+              styleElement.id = 'kkindle-selection-bar-style';
+              styleElement.textContent = `
+                #kkindle-selection-bar, #kkindle-selection-bar * {
+                  box-sizing: border-box; margin: 0; padding: 0;
+                }
+                #kkindle-selection-bar {
+                  position: fixed; display: none; z-index: 2147483647;
+                  background: #FFFFFF; border: 1px solid #000000;
+                  padding: 3px; white-space: nowrap;
+                  font-family: "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+                }
+                #kkindle-selection-bar button {
+                  background: #FFFFFF; color: #000000; border: 0; outline: 0;
+                  padding: 6px 10px; font-size: 12px; line-height: 1;
+                  font-family: inherit; cursor: pointer; border-radius: 0;
+                }
+                #kkindle-selection-bar button:hover { background: #000000; color: #FFFFFF; }
+                #kkindle-selection-bar .kk-sel-sep {
+                  display: inline-block; width: 1px; height: 18px;
+                  background: #D5D5D1; vertical-align: middle; margin: 0 2px;
+                }
+                #kkindle-selection-bar .kk-sel-styles {
+                  position: absolute; bottom: 100%; left: 0; display: none;
+                  background: #FFFFFF; border: 1px solid #000000; padding: 3px;
+                }
+                #kkindle-selection-bar .kk-sel-styles.open { display: block; }`;
+              document.head.appendChild(styleElement);
+            }
+            selectionBar = document.createElement('div');
+            selectionBar.id = 'kkindle-selection-bar';
+            selectionBar.innerHTML = `
+              <button data-action="copy">复制</button>
+              <span class="kk-sel-sep"></span>
+              <button id="kk-sel-highlight">划线 ▾</button>
+              <div class="kk-sel-styles" id="kk-sel-styles">
+                <button data-highlight="solid">直线</button>
+                <button data-highlight="double">双线</button>
+                <button data-highlight="dashed">虚线</button>
+                <button data-highlight="dotted">点线</button>
+                <button data-highlight="wavy">波浪线</button>
+                <button data-highlight="marker">荧光标记</button>
+              </div>
+              <span class="kk-sel-sep"></span>
+              <button data-action="annotate">批注</button>
+              <span class="kk-sel-sep"></span>
+              <button data-action="ai">AI 解释</button>
+              <span class="kk-sel-sep"></span>
+              <button data-action="search">搜索</button>
+              <span class="kk-sel-sep"></span>
+              <button data-action="dictionary">词典</button>`;
+            // Keep the live selection intact while interacting with the bar.
+            selectionBar.addEventListener('mousedown', event => {
+              event.preventDefault();
+              event.stopPropagation();
+            }, true);
+            selectionBar.addEventListener('click', event => {
+              const target = event.target instanceof Element ? event.target.closest('button') : null;
+              if (!target) return;
+              event.preventDefault();
+              event.stopPropagation();
+              const style = target.dataset.highlight;
+              if (style) {
+                document.getElementById('kk-sel-styles')?.classList.remove('open');
+                send({ type: 'selectionAction', action: 'highlight', style });
+                return;
+              }
+              const action = target.dataset.action;
+              if (!action) return;
+              if (action === 'highlight-menu') {
+                document.getElementById('kk-sel-styles')?.classList.toggle('open');
+                return;
+              }
+              send({ type: 'selectionAction', action });
+            }, true);
+            // Hover opens the style picker; leaving both the button and the
+            // picker closes it after a short grace (WinUI reference).
+            let styleHoverTimer = 0;
+            const openStyles = () => {
+              window.clearTimeout(styleHoverTimer);
+              document.getElementById('kk-sel-styles')?.classList.add('open');
+            };
+            const closeStyles = () => {
+              window.clearTimeout(styleHoverTimer);
+              styleHoverTimer = window.setTimeout(() => {
+                document.getElementById('kk-sel-styles')?.classList.remove('open');
+              }, 240);
+            };
+            selectionBar.querySelector('#kk-sel-highlight').addEventListener('mouseenter', openStyles);
+            selectionBar.querySelector('#kk-sel-highlight').addEventListener('mouseleave', closeStyles);
+            const stylePanel = selectionBar.querySelector('#kk-sel-styles');
+            stylePanel.addEventListener('mouseenter', openStyles);
+            stylePanel.addEventListener('mouseleave', closeStyles);
+            document.body.appendChild(selectionBar);
+          };
+          const placeSelectionBar = (x, y, bottom, viewportWidth, viewportHeight) => {
+            if (!selectionBar) return;
+            const vw = viewportWidth || window.innerWidth || document.documentElement.clientWidth || 0;
+            const vh = viewportHeight || window.innerHeight || document.documentElement.clientHeight || 0;
+            selectionBar.style.display = 'block';
+            const barWidth = selectionBar.offsetWidth || 0;
+            const barHeight = selectionBar.offsetHeight || 0;
+            const left = Math.min(Math.max(8, x - barWidth / 2), Math.max(8, vw - barWidth - 8));
+            let top = y - barHeight - 10;
+            if (top < 8) top = (bottom || y) + 12;
+            top = Math.min(Math.max(8, top), Math.max(8, vh - barHeight - 8));
+            selectionBar.style.left = left + 'px';
+            selectionBar.style.top = top + 'px';
+          };
+          const hideSelectionBar = () => {
+            if (selectionBar) selectionBar.style.display = 'none';
           };
 
           document.addEventListener("click", event => {
@@ -116,7 +257,7 @@ public sealed class EpubReaderPreparationService
               }
             } catch (_) { }
           }, true);
-          document.addEventListener("mouseup", reportSelection, true);
+          document.addEventListener("mouseup", () => reportSelection(null), true);
           let footnoteHoverTimer = 0;
           document.addEventListener("pointerover", event => {
             try {
@@ -147,12 +288,13 @@ public sealed class EpubReaderPreparationService
             if (event.key === "ArrowUp" || event.key === "ArrowDown")
               send({ type: "key", key: event.key });
           }, true);
-          // Suppress the Chromium/WebView2 default context menu (the WinUI
-          // reference disabled it via CoreWebView2 settings; the Avalonia
-          // adapter exposes no managed settings object, so the page cancels
-          // the event instead). Text actions stay in the native selection bar.
+          // Replace Chromium's default context menu with Kreader's native text
+          // actions. Right-clicking a live selection reports both its anchor and
+          // the click point so the host can place the menu beside the text.
           document.addEventListener("contextmenu", event => {
             event.preventDefault();
+            event.stopPropagation();
+            reportSelection(event);
           }, true);
           // In paginated mode the vertical wheel advances pages exactly like
           // the WinUI reference's low-level mouse hook; the host accumulates
@@ -192,6 +334,7 @@ public sealed class EpubReaderPreparationService
           }, { passive: true });
 
           const ready = () => {
+            installSelectionBar();
             send({ type: "ready" });
             queueScrollReport();
           };

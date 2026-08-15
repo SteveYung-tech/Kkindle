@@ -170,14 +170,84 @@ public partial class MainWindow
     }
 
     // Black bubble anchored above the eject button, showing connection and
-    // ejection feedback (WinUI DeviceStatusToast).
+    // ejection feedback (WinUI DeviceStatusPopup/DeviceStatusToast). The
+    // bubble floats in window coordinates and follows the eject button's
+    // triangle apex, clamped to the window like the reference.
     private void ShowDeviceStatusToast(string message)
     {
         DeviceStatusToastText.Text = message;
+        PositionDeviceStatusToast();
         DeviceStatusToast.IsVisible = true;
         DeviceStatusToast.Opacity = 1;
         _deviceStatusToastTimer.Stop();
         _deviceStatusToastTimer.Start();
+    }
+
+    private void PositionDeviceStatusToast()
+    {
+        if (DeviceStatusEjectButton is not { } anchor) return;
+        DeviceStatusToast.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var popupSize = DeviceStatusToast.DesiredSize;
+        // Both eject icons are 8-DIP upward triangles centred in their
+        // buttons; anchor to the triangle apex rather than the button bounds.
+        var apex = anchor.TranslatePoint(
+            new Point(anchor.Bounds.Width / 2, anchor.Bounds.Height / 2 - 4),
+            this);
+        if (apex is not { } apexPoint) return;
+
+        const double edgeMargin = 8;
+        const double pointerCenterFromLeft = 20;
+        const double pointerWidth = 10;
+        var maxLeft = Math.Max(edgeMargin, Width - popupSize.Width - edgeMargin);
+        var popupLeft = Math.Clamp(apexPoint.X - pointerCenterFromLeft, edgeMargin, maxLeft);
+        var popupTop = Math.Max(edgeMargin, apexPoint.Y - popupSize.Height - 2);
+        var pointerLeft = Math.Clamp(
+            apexPoint.X - popupLeft - pointerWidth / 2,
+            0,
+            Math.Max(0, popupSize.Width - pointerWidth));
+
+        DeviceStatusToastPointer.Margin = new Thickness(pointerLeft, 0, 0, 0);
+        DeviceStatusToast.Margin = new Thickness(popupLeft, popupTop, 0, 0);
+    }
+
+    // Re-anchor the bubble while it is visible so it follows the eject button
+    // when the window moves or is resized (WinUI LayoutUpdated behaviour).
+    //
+    // Layout callbacks must NOT call Measure: measuring during a layout pass
+    // invalidates layout again, so LayoutUpdated fires again, and the toast
+    // loops forever ("Infinite layout loop detected" — the device-connect
+    // bubble crashed the app exactly this way). Use the already-laid-out
+    // Bounds instead, and only assign margins when the value actually
+    // changed so the chain converges and stops.
+    private void DeviceStatusEjectButton_LayoutUpdated(object? sender, EventArgs e)
+    {
+        if (!DeviceStatusToast.IsVisible) return;
+        if (DeviceStatusEjectButton is not { } anchor) return;
+        var popupSize = DeviceStatusToast.Bounds.Size;
+        if (popupSize.Width <= 0 || popupSize.Height <= 0) return;
+
+        var apex = anchor.TranslatePoint(
+            new Point(anchor.Bounds.Width / 2, anchor.Bounds.Height / 2 - 4),
+            this);
+        if (apex is not { } apexPoint) return;
+
+        const double edgeMargin = 8;
+        const double pointerCenterFromLeft = 20;
+        const double pointerWidth = 10;
+        var maxLeft = Math.Max(edgeMargin, Width - popupSize.Width - edgeMargin);
+        var popupLeft = Math.Clamp(apexPoint.X - pointerCenterFromLeft, edgeMargin, maxLeft);
+        var popupTop = Math.Max(edgeMargin, apexPoint.Y - popupSize.Height - 2);
+        var pointerLeft = Math.Clamp(
+            apexPoint.X - popupLeft - pointerWidth / 2,
+            0,
+            Math.Max(0, popupSize.Width - pointerWidth));
+
+        var toastMargin = new Thickness(popupLeft, popupTop, 0, 0);
+        var pointerMargin = new Thickness(pointerLeft, 0, 0, 0);
+        if (DeviceStatusToast.Margin != toastMargin)
+            DeviceStatusToast.Margin = toastMargin;
+        if (DeviceStatusToastPointer.Margin != pointerMargin)
+            DeviceStatusToastPointer.Margin = pointerMargin;
     }
 
     private void HideDeviceStatusToast()
@@ -659,6 +729,11 @@ public partial class MainWindow
 
     private void UpdateDeviceBookSelectionUi()
     {
+        // 与电脑书库一致：只有真正多选（≥2 本）时卡片才显示 ✓ 徽标。
+        var multi = DeviceBooks.Count(book => book.IsSelected) > 1;
+        foreach (var book in DeviceBooks)
+            book.IsMultiSelected = book.IsSelected && multi;
+
         var selected = GetSelectedDeviceBooks();
         DeviceBookSelectionBar.IsVisible = selected.Count > 0;
         DeviceBookSelectionText.Text = selected.Count == 0 ? string.Empty : $"已选择 {selected.Count} 本书";
@@ -712,6 +787,19 @@ public partial class MainWindow
 
         UpdateDeviceBookSelectionUi();
         e.Handled = true;
+    }
+
+    // 与电脑书库一致：悬停整张卡片时显示黑色细边框。
+    private void DeviceBook_PointerEntered(object? sender, PointerEventArgs e)
+    {
+        if (sender is Control { DataContext: KindleBookCardViewModel card })
+            card.IsHovered = true;
+    }
+
+    private void DeviceBook_PointerExited(object? sender, PointerEventArgs e)
+    {
+        if (sender is Control { DataContext: KindleBookCardViewModel card })
+            card.IsHovered = false;
     }
 
     private void DeviceBook_ContextRequested(object? sender, ContextRequestedEventArgs e)
@@ -796,6 +884,15 @@ public partial class MainWindow
 
             SetEjectButtonsEnabled(false);
             DevicePageStatusText.Text = "正在安全弹出设备…";
+            // 等待正在进行的设备检测结束：3 秒轮询会打开 WPD/Shell 会话，
+            // 若不释放，Windows 会拒绝安全弹出（旧版 StopDeviceAccessAsync
+            // 行为）。书库扫描等传输任务已由上面的等待覆盖。
+            var detectionDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(8);
+            while (_isRefreshingDevices && DateTime.UtcNow < detectionDeadline)
+                await Task.Delay(50, _lifetimeCancellation.Token);
+            if (_isRefreshingDevices)
+                throw new IOException("后台 Kindle 检测未能及时停止，请稍后重试断开。");
+
             await _kindle.EjectAsync(device, _lifetimeCancellation.Token);
             foreach (var book in DeviceBooks) book.Dispose();
             DeviceBooks.Clear();
@@ -805,8 +902,8 @@ public partial class MainWindow
             _ignoredDeviceId = null;
             _manuallyDisconnectedDeviceId = device.Identity;
             var disconnectedMessage = isWpd
-                ? $"{device.Name} 已停止访问，现在可以安全移除设备"
-                : $"{device.Name} 已安全弹出，现在可以安全移除设备";
+                ? $"{device.Name} 已停止访问，现在可以安全移除你的设备"
+                : $"{device.Name} 已安全弹出，现在可以安全移除你的设备";
             SetDisconnectedDeviceUi(disconnectedMessage);
             ShowDeviceStatusToast(disconnectedMessage);
         }
@@ -1581,7 +1678,9 @@ public partial class MainWindow
         ReadingMaterialsStatusText.Text = "统一浏览本地书籍与 Kindle 的划线、笔记和批注。";
         ReadingMaterialsNotesActions.IsVisible = true;
         ReadingMaterialsExportActions.IsVisible = false;
+        ReadingMaterialsSummaryBorder.IsVisible = true;
         ReadingMaterialsExportPanel.IsVisible = false;
+        ReadingMaterialsExportSummaryBorder.IsVisible = false;
         await RefreshReadingMaterialsAsync();
     }
 
@@ -1593,7 +1692,9 @@ public partial class MainWindow
         ReadingMaterialsStatusText.Text = "先筛选要导出的阅读资料，再选择文件格式保存到电脑。";
         ReadingMaterialsNotesActions.IsVisible = false;
         ReadingMaterialsExportActions.IsVisible = true;
+        ReadingMaterialsSummaryBorder.IsVisible = false;
         ReadingMaterialsExportPanel.IsVisible = true;
+        ReadingMaterialsExportSummaryBorder.IsVisible = true;
         await RefreshReadingMaterialsAsync();
     }
 
@@ -1661,7 +1762,10 @@ public partial class MainWindow
             }
 
             ApplyReadingMaterialsFilter();
-            ReadingMaterialsStatusText.Text = $"共 {ReadingMaterials.Count} 条阅读资料。";
+            var kindleCount = _allStage3ReadingMaterials.Count(item => item.Source == ReadingMaterialSource.Kindle);
+            ReadingMaterialsStatusText.Text = _readingMaterialsExportMode
+                ? $"导出预览已准备 · Kindle {kindleCount} 条"
+                : $"本地资料已读取 · Kindle {kindleCount} 条";
         }
         catch (Exception exception)
         {
@@ -1705,11 +1809,15 @@ public partial class MainWindow
         ReadingMaterialsEmptyText.IsVisible = filtered.Length == 0;
         ReadingMaterialsEmptyText.Text = _readingMaterialsExportMode
             ? "当前筛选范围没有可导出的阅读资料。"
-            : "没有符合条件的阅读资料。";
+            : "没有符合条件的划线、笔记与批注";
+        var localCount = filtered.Count(item => item.Source == ReadingMaterialSource.Local);
+        var kindleCount = filtered.Count(item => item.Source == ReadingMaterialSource.Kindle);
+        ReadingMaterialsSummaryText.Text = _readingMaterialsExportMode
+            ? $"导出预览 · 本地 {localCount} 条 · Kindle {kindleCount} 条 · 当前将导出 {filtered.Length} 条"
+            : $"本地 {localCount} 条 · Kindle {kindleCount} 条 · 当前显示 {filtered.Length} 条";
+        ReadingMaterialsExportSummaryText.Text = $"导出预览 · 本地 {localCount} 条 · Kindle {kindleCount} 条 · 当前将导出 {filtered.Length} 条";
         ReadingMaterialsExportScopeText.Text = $"当前筛选范围：{GetReadingMaterialsSourceLabel(source)} · 共 {filtered.Length} 条记录";
-        DeleteReadingMaterialsButton.IsEnabled = !_readingMaterialsExportMode
-            && ReadingMaterials.Any(item => item.IsSelected);
-        ReadingMaterialsStatusText.Text = $"当前筛选范围：{filtered.Length} 条";
+        UpdateReadingMaterialsActionState();
     }
 
     private void ReadingMaterialsSearchBox_TextChanged(object? sender, TextChangedEventArgs e) => ApplyReadingMaterialsFilter();
@@ -1717,8 +1825,15 @@ public partial class MainWindow
 
     private void ReadingMaterialSelectionChanged(object? sender, RoutedEventArgs e)
     {
-        DeleteReadingMaterialsButton.IsEnabled = !_readingMaterialsExportMode
-            && ReadingMaterials.Any(item => item.IsSelected);
+        UpdateReadingMaterialsActionState();
+    }
+
+    private void UpdateReadingMaterialsActionState()
+    {
+        var selected = ReadingMaterials.Where(item => item.IsSelected).ToArray();
+        DeleteReadingMaterialsButton.IsEnabled = !_readingMaterialsExportMode && selected.Length > 0;
+        ReadingMaterialsLocateButton.IsEnabled = !_readingMaterialsExportMode
+            && selected.Any(item => item.LocalAnnotation is not null);
     }
 
     private void ReadingMaterialGroupToggleButton_Click(object? sender, RoutedEventArgs e)
@@ -1727,9 +1842,25 @@ public partial class MainWindow
             group.IsExpanded = !group.IsExpanded;
     }
 
+    private async void ReadingMaterialsLocateButton_Click(object? sender, RoutedEventArgs e)
+    {
+        var item = ReadingMaterials.FirstOrDefault(candidate => candidate.IsSelected);
+        if (item is null)
+        {
+            ReadingMaterialsStatusText.Text = "请先勾选一条本地批注。";
+            return;
+        }
+        await LocateReadingMaterialAsync(item);
+    }
+
     private async void ReadingMaterialEntry_DoubleTapped(object? sender, TappedEventArgs e)
     {
         if (sender is not Control { DataContext: Stage3ReadingMaterialViewModel item }) return;
+        await LocateReadingMaterialAsync(item);
+    }
+
+    private async Task LocateReadingMaterialAsync(Stage3ReadingMaterialViewModel item)
+    {
         if (item.LocalAnnotation is not { } annotation)
         {
             ReadingMaterialsStatusText.Text = "Kindle 剪贴没有可在电脑端定位的正文位置。";
@@ -1849,16 +1980,21 @@ public partial class MainWindow
         DeviceResourcePageTitle.Text = kind == KindleResourceKind.Font ? "Kindle 字体" : "Kindle 字典";
         DeviceResourcePathText.Text = kind == KindleResourceKind.Font ? @"Kindle\fonts" : @"Kindle\documents\dictionaries";
         DeviceResourceSafetyText.Text = kind == KindleResourceKind.Font
-            ? "仅读写 fonts 目录；支持 TTF、OTF。"
-            : "仅读写 documents\\dictionaries 目录；支持 AZW、AZW3、MOBI、KFX。";
+            ? "仅读写 Kindle 的 fonts 目录；支持 TTF、OTF。导入或删除后建议断开设备并重启 Kindle。"
+            : "仅读写 Kindle 的 documents\\dictionaries 目录；支持 AZW、AZW3、MOBI、KFX。删除前请确认不是当前正在使用的主词典。";
         await RefreshDeviceResourcesAsync();
     }
 
     private async Task RefreshDeviceResourcesAsync()
     {
         DeviceResources.Clear();
+        DeviceResourceList.SelectedItem = null;
+        ExportDeviceResourceButton.IsEnabled = false;
+        DeleteDeviceResourceButton.IsEnabled = false;
         if (_kindle is null || CurrentDevice is not { } device)
         {
+            DeviceResourceDeviceText.Text = "未检测到设备";
+            DeviceResourceCountText.Text = "0 个文件";
             DeviceResourceStatusText.Text = "请先连接 Kindle。";
             DeviceResourceEmptyText.IsVisible = true;
             return;
@@ -1867,14 +2003,25 @@ public partial class MainWindow
         {
             var resources = await _kindle.ScanResourcesAsync(device, _deviceResourceKind, _lifetimeCancellation.Token);
             foreach (var resource in resources) DeviceResources.Add(resource);
-            DeviceResourceStatusText.Text = $"{device.Name} · 已读取 {resources.Count} 个文件";
+            DeviceResourceDeviceText.Text = device.Name;
+            DeviceResourceCountText.Text = $"{resources.Count} 个文件";
+            DeviceResourceStatusText.Text = $"已读取 {resources.Count} 个文件";
             DeviceResourceEmptyText.IsVisible = resources.Count == 0;
         }
         catch (Exception exception)
         {
+            DeviceResourceDeviceText.Text = device.Name;
+            DeviceResourceCountText.Text = "读取失败";
             DeviceResourceStatusText.Text = $"读取失败：{exception.Message}";
             DeviceResourceEmptyText.IsVisible = true;
         }
+    }
+
+    private void DeviceResourceList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        var hasSelection = DeviceResourceList.SelectedItem is KindleDeviceResource;
+        ExportDeviceResourceButton.IsEnabled = hasSelection;
+        DeleteDeviceResourceButton.IsEnabled = hasSelection;
     }
 
     private async void FontManagementButton_Click(object? sender, RoutedEventArgs e) => await OpenDeviceResourcePageAsync(KindleResourceKind.Font);
@@ -1974,7 +2121,10 @@ public partial class MainWindow
 
     private async void ExportDeviceResourceButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: KindleDeviceResource resource } || _kindle is null || CurrentDevice is not { } device) return;
+        var resource = sender is Button { Tag: KindleDeviceResource taggedResource }
+            ? taggedResource
+            : DeviceResourceList.SelectedItem as KindleDeviceResource;
+        if (resource is null || _kindle is null || CurrentDevice is not { } device) return;
         var topLevel = TopLevel.GetTopLevel(this);
         if (topLevel is null) return;
         var extension = Path.GetExtension(resource.FileName);
@@ -2000,7 +2150,10 @@ public partial class MainWindow
 
     private async void DeleteDeviceResourceButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: KindleDeviceResource resource } || _kindle is null || CurrentDevice is not { } device) return;
+        var resource = sender is Button { Tag: KindleDeviceResource taggedResource }
+            ? taggedResource
+            : DeviceResourceList.SelectedItem as KindleDeviceResource;
+        if (resource is null || _kindle is null || CurrentDevice is not { } device) return;
         if (!await ConfirmAsync("删除 Kindle 资源", $"确定删除设备文件 {resource.RelativePath} 吗？")) return;
         await TrackDeviceOperationAsync(async () =>
         {
@@ -2030,8 +2183,11 @@ public partial class MainWindow
             DashboardBooksFinishedText.Text = $"{dashboard.BooksFinished} 本";
             DashboardTotalTimeText.Text = FormatReadingTime(dashboard.TotalSeconds);
             DashboardAverageProgressText.Text = $"{dashboard.AverageProgress:0.#}%";
-            DashboardBookmarksText.Text = dashboard.BookmarkCount.ToString(CultureInfo.InvariantCulture);
+            DashboardBookmarksText.Text = $"{dashboard.BookmarkCount.ToString(CultureInfo.InvariantCulture)} / {dashboard.AnnotationCount.ToString(CultureInfo.InvariantCulture)}";
             DashboardAnnotationsText.Text = dashboard.AnnotationCount.ToString(CultureInfo.InvariantCulture);
+            var hours = dashboard.TotalSeconds / 3600d;
+            ReadingDashboardSummaryText.Text = $"已开始 {dashboard.BooksStarted} 本 · 已读完 {dashboard.BooksFinished} 本 · 累计 {hours:0.0} 小时";
+            ReadingDashboardDetailText.Text = $"平均进度 {dashboard.AverageProgress:0}% · 书签 {dashboard.BookmarkCount} 条 · 批注 {dashboard.AnnotationCount} 条";
 
             _readingDashboardItems.Clear();
             foreach (var item in dashboard.RecentBooks)
@@ -2082,13 +2238,15 @@ public partial class MainWindow
                 ("阅读中", (double)readingCount, $"{readingCount} 本"),
                 ("已完成", (double)dashboard.BooksFinished, $"{dashboard.BooksFinished} 本")
             ]);
-            ReadingDashboardStatusText.Text = "统计本地阅读器的进度、时长、书签与标注。";
+            ReadingDashboardStatusText.Text = string.Empty;
         }
         catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
         {
         }
         catch (Exception exception)
         {
+            ReadingDashboardSummaryText.Text = "阅读数据暂时不可用";
+            ReadingDashboardDetailText.Text = exception.Message;
             ReadingDashboardStatusText.Text = $"阅读数据暂时不可用：{exception.Message}";
         }
     }
@@ -2137,6 +2295,7 @@ public partial class MainWindow
                 .AppendLine(item.UpdatedAt.ToString("O", CultureInfo.InvariantCulture));
         }
         await File.WriteAllTextAsync(path, csv.ToString(), new UTF8Encoding(true), _lifetimeCancellation.Token);
+        ReadingDashboardDetailText.Text = $"已导出 {_readingDashboardItems.Count} 条阅读数据到 {path}。";
         ReadingDashboardStatusText.Text = $"已导出 {_readingDashboardItems.Count} 条阅读数据到 {path}。";
     }
 
@@ -2861,7 +3020,7 @@ public partial class MainWindow
             _zLibraryPage = result.Page;
             _zLibraryPageCount = result.PageCount;
             ZLibraryPageText.Text = $"第 {_zLibraryPage} / {Math.Max(1, _zLibraryPageCount)} 页";
-            ZLibraryResultText.Text = result.Books.Count == 0 ? "没有找到匹配书籍。" : $"共找到 {result.Total} 本相关书籍 · 第 {_zLibraryPage} / {Math.Max(1, _zLibraryPageCount)} 页";
+            ZLibraryResultText.Text = result.Books.Count == 0 ? "没有找到匹配书籍。" : $"共找到 {result.Total} 本相关书籍";
         }
         catch (OperationCanceledException)
         {
@@ -2989,7 +3148,7 @@ public partial class MainWindow
         if (!_zLibrarySettings.IsConfigured)
         {
             SetTaskStatus("下载并发送前请先配置 Z-Library 账号。");
-            ZLibraryAccountButton_Click(null, e);
+            await ShowZLibraryAccountAsync("下载并发送前请先配置 Z-Library 账号。");
             return;
         }
 
@@ -3073,8 +3232,9 @@ public partial class MainWindow
         }
         if (!_zLibrarySettings.IsConfigured)
         {
-            item.SetStatus("请先在设置中配置账号");
-            await ShowMessageAsync("请先配置账号", "下载前请先配置 Z-Library 账号。");
+            item.SetStatus("请先配置账号");
+            SetTaskStatus("请先配置 Z-Library 账号。");
+            await ShowZLibraryAccountAsync("请先配置 Z-Library 账号。");
             return;
         }
         item.IsDownloading = true;
@@ -3112,7 +3272,10 @@ public partial class MainWindow
         }
     }
 
-    private async void ZLibraryAccountButton_Click(object? sender, RoutedEventArgs e)
+    private async void ZLibraryAccountButton_Click(object? sender, RoutedEventArgs e) =>
+        await ShowZLibraryAccountAsync();
+
+    private async Task ShowZLibraryAccountAsync(string? status = null)
     {
         _zLibrarySettings = await _zLibrarySettingsStore.LoadAsync(_lifetimeCancellation.Token);
         ZLibraryEmailBox.Text = _zLibrarySettings.Email;
@@ -3120,7 +3283,7 @@ public partial class MainWindow
         ZLibraryBaseUrlBox.Text = _zLibrarySettings.BaseUrl;
         ShowStage3Page(SettingsPage, ZLibraryAccountNavigationButton);
         ShowSettingsSection("Kindle");
-        ZLibraryAccountStatusText.Text = string.Empty;
+        ZLibraryAccountStatusText.Text = status ?? string.Empty;
         ShowSettingsPanel(ZLibraryAccountPane);
         ZLibraryEmailBox.Focus();
     }
@@ -3345,6 +3508,8 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
     private BookLibraryPresence _libraryPresence = BookLibraryPresence.KindleOnly;
     private bool _isDownloading;
     private bool _isSelected;
+    private bool _isMultiSelected;
+    private bool _isHovered;
     private double _downloadProgress;
     private string _statusMessage = string.Empty;
 
@@ -3438,8 +3603,28 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
     public bool IsSelected
     {
         get => _isSelected;
-        set => SetProperty(ref _isSelected, value);
+        set
+        {
+            if (SetProperty(ref _isSelected, value))
+                OnPropertyChanged(nameof(IsFrameVisible));
+        }
     }
+    public bool IsMultiSelected
+    {
+        get => _isMultiSelected;
+        set => SetProperty(ref _isMultiSelected, value);
+    }
+    public bool IsHovered
+    {
+        get => _isHovered;
+        set
+        {
+            if (SetProperty(ref _isHovered, value))
+                OnPropertyChanged(nameof(IsFrameVisible));
+        }
+    }
+    // 与电脑书库一致：悬停或选中时整卡显示黑色细边框。
+    public bool IsFrameVisible => IsSelected || IsHovered;
     public double DownloadProgress
     {
         get => _downloadProgress;
@@ -3503,8 +3688,13 @@ public sealed class ZLibraryBookCardViewModel : ObservableObject
     public bool IsDownloading
     {
         get => _isDownloading;
-        set => SetProperty(ref _isDownloading, value);
+        set
+        {
+            if (!SetProperty(ref _isDownloading, value)) return;
+            OnPropertyChanged(nameof(IsNotDownloading));
+        }
     }
+    public bool IsNotDownloading => !IsDownloading;
     public double DownloadProgress
     {
         get => _downloadProgress;

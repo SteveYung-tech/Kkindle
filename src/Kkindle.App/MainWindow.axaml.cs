@@ -80,6 +80,7 @@ public partial class MainWindow : Window
     private bool _rubberBandSelecting;
     private Point _rubberBandStart;
     private Point _rubberBandCurrent;
+    private bool _rubberBandPressedOnCard;
 
     public MainWindow()
         : this(CreateDefaultDependencies())
@@ -213,7 +214,11 @@ public partial class MainWindow : Window
             || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             return;
         _windowResizeEdge = edge;
-        _windowResizeStart = e.GetPosition(this);
+        // Screen-space anchor: the left/top edges move the window itself, so
+        // window-relative coordinates would drift under a stationary cursor
+        // and feed an endless resize loop (window moves -> synthetic mouse
+        // move -> window moves again) that keeps flickering while idle.
+        _windowResizeStart = e.GetPosition(null);
         _windowResizeStartSize = new Size(Width, Height);
         _windowResizeStartPosition = Position;
         e.Pointer.Capture(sender as IInputElement);
@@ -223,7 +228,7 @@ public partial class MainWindow : Window
     private void WindowResize_PointerMoved(object? sender, PointerEventArgs e)
     {
         if (_windowResizeEdge is null) return;
-        var current = e.GetPosition(this);
+        var current = e.GetPosition(null);
         var dx = current.X - _windowResizeStart.X;
         var dy = current.Y - _windowResizeStart.Y;
 
@@ -247,9 +252,13 @@ public partial class MainWindow : Window
         if (_windowResizeEdge.Contains("Bottom", StringComparison.Ordinal))
             newHeight = Math.Max(MinHeight, _windowResizeStartSize.Height + dy);
 
+        var newPosition = new PixelPoint(newX, newY);
+        if (newWidth == Width && newHeight == Height && newPosition == Position)
+            return;
+
         Width = newWidth;
         Height = newHeight;
-        Position = new PixelPoint(newX, newY);
+        Position = newPosition;
         e.Handled = true;
     }
 
@@ -952,8 +961,14 @@ public partial class MainWindow : Window
 
     private void SyncCardSelectionVisuals()
     {
+        // 单点选中的书显示黑边；只有真正多选（≥2 本）时才附带 ✓ 徽标。
+        var multi = _selectedBookIds.Count > 1;
         foreach (var card in ViewModel.Books)
-            card.IsMultiSelected = _selectedBookIds.Contains(card.Book.Id);
+        {
+            var selected = _selectedBookIds.Contains(card.Book.Id);
+            card.IsSelected = selected;
+            card.IsMultiSelected = selected && multi;
+        }
     }
 
     private ContextMenu BuildBookContextMenu(BookCardViewModel card)
@@ -2188,12 +2203,29 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    // 悬停整张卡片（封面或文字区）时显示黑色细边框，与选中态一致。
+    private void BookCard_PointerEntered(object? sender, PointerEventArgs e)
+    {
+        if (sender is Control { DataContext: BookCardViewModel card })
+            card.IsHovered = true;
+    }
+
+    private void BookCard_PointerExited(object? sender, PointerEventArgs e)
+    {
+        if (sender is Control { DataContext: BookCardViewModel card })
+            card.IsHovered = false;
+    }
+
     private void BookGrid_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (!BookGrid.IsVisible
-            || IsBookCardSource(e.Source)
             || !e.GetCurrentPoint(BookGrid).Properties.IsLeftButtonPressed)
             return;
+
+        // 按下发生在书籍卡片上时由 BookCard_PointerPressed 处理点选/多选，
+        // 松开时不得再清空选择（否则点选的黑边在松开瞬间被抹掉）。
+        _rubberBandPressedOnCard = IsBookCardSource(e.Source);
+        if (_rubberBandPressedOnCard) return;
 
         _rubberBandStart = e.GetPosition(BookGrid);
         _rubberBandCurrent = _rubberBandStart;
@@ -2207,8 +2239,9 @@ public partial class MainWindow : Window
         _rubberBandCurrent = e.GetPosition(BookGrid);
         if (!_rubberBandSelecting)
         {
-            if (Math.Abs(_rubberBandCurrent.X - _rubberBandStart.X) < 8
-                && Math.Abs(_rubberBandCurrent.Y - _rubberBandStart.Y) < 8)
+            // 多选框选只允许“从右往左”拖拽（水平向左超过 8 DIP），避免
+            // 点选时轻微晃动被误识别成多选。
+            if (_rubberBandCurrent.X >= _rubberBandStart.X - 8)
                 return;
             _rubberBandSelecting = true;
             e.Pointer.Capture(BookGrid);
@@ -2222,20 +2255,28 @@ public partial class MainWindow : Window
     {
         if (!_rubberBandSelecting)
         {
-            _selectedBookIds.Clear();
-            _multiSelectAnchor = null;
-            UpdateMultiSelectionUi();
+            // 按在卡片上松开：点选结果已由 BookCard_PointerPressed 维护。
+            // 按在空白处松开：取消全部选择。
+            if (!_rubberBandPressedOnCard)
+            {
+                _selectedBookIds.Clear();
+                _multiSelectAnchor = null;
+                UpdateMultiSelectionUi();
+            }
+            _rubberBandPressedOnCard = false;
             return;
         }
         _rubberBandCurrent = e.GetPosition(BookGrid);
         UpdateRubberBandSelection();
         FinishRubberBandSelection(e.Pointer);
+        _rubberBandPressedOnCard = false;
         e.Handled = true;
     }
 
     private void BookGrid_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
     {
         if (_rubberBandSelecting) FinishRubberBandSelection(null);
+        _rubberBandPressedOnCard = false;
     }
 
     private void BookGrid_KeyDown(object? sender, KeyEventArgs e)

@@ -19,8 +19,12 @@ namespace Kkindle;
 /// </summary>
 public sealed record ReaderTocMarker(EpubReaderNavigationItem Item, bool IsCurrent)
 {
-    private static readonly IBrush CurrentBrush = new SolidColorBrush(Color.FromArgb(255, 91, 98, 104));
-    private static readonly IBrush InactiveBrush = new SolidColorBrush(Color.FromArgb(255, 211, 213, 209));
+    // The WinUI reference's current-marker grey was blue-tinted (91,98,104)
+    // and the inactive one green-tinted (211,213,209); the reader palette is
+    // strictly black/white/grey, so both are neutralised to the same
+    // luminance.
+    private static readonly IBrush CurrentBrush = new SolidColorBrush(Color.FromArgb(255, 98, 98, 98));
+    private static readonly IBrush InactiveBrush = new SolidColorBrush(Color.FromArgb(255, 211, 211, 211));
     public static readonly IBrush HoverBrush = new SolidColorBrush(Color.FromArgb(255, 96, 96, 96));
 
     public string Title => Item.Title;
