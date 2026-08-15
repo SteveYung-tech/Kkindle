@@ -358,17 +358,17 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         <Style Selector="Button.icon:pointerover">
-            <Setter Property="Background" Value="{StaticResource InkBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="Button.icon:pressed">
-            <Setter Property="Background" Value="{StaticResource InkBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="Button.icon.active">
-            <Setter Property="Background" Value="{StaticResource InkBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
 
         <Style Selector="Button.sidebarSection">
@@ -521,14 +521,23 @@
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="RenderTransformOrigin" Value="50%,50%" />
+            <Setter Property="RenderTransform" Value="scale(1)" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.14" />
+                </Transitions>
+            </Setter>
         </Style>
         <Style Selector="Grid.libraryShell Button.quiet:pointerover">
-            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="RenderTransform" Value="scale(1.12)" />
         </Style>
         <Style Selector="Grid.libraryShell Button.quiet:pressed">
-            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="RenderTransform" Value="scale(0.96)" />
         </Style>
         <Style Selector="Grid.libraryShell Button.icon">
             <Setter Property="Background" Value="Transparent" />
@@ -537,11 +546,11 @@
             <Setter Property="BorderThickness" Value="0" />
         </Style>
         <Style Selector="Grid.libraryShell Button.icon:pointerover">
-            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="Grid.libraryShell Button.icon:pressed">
-            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="Grid.libraryShell TextBox">
@@ -876,11 +885,11 @@
             <Setter Property="BorderThickness" Value="0" />
         </Style>
         <Style Selector="Grid.readerShell Button.icon:pointerover">
-            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="Grid.readerShell Button.icon:pressed">
-            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="Grid.readerShell Button.quiet">
@@ -888,14 +897,23 @@
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="RenderTransformOrigin" Value="50%,50%" />
+            <Setter Property="RenderTransform" Value="scale(1)" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.14" />
+                </Transitions>
+            </Setter>
         </Style>
         <Style Selector="Grid.readerShell Button.quiet:pointerover">
-            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="RenderTransform" Value="scale(1.12)" />
         </Style>
         <Style Selector="Grid.readerShell Button.quiet:pressed">
-            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="RenderTransform" Value="scale(0.96)" />
         </Style>
         <Style Selector="Grid.readerShell TextBox">
             <Setter Property="Background" Value="Transparent" />
@@ -1069,9 +1087,40 @@
             <Setter Property="StrokeLineCap" Value="Round" />
             <Setter Property="StrokeJoin" Value="Round" />
             <Setter Property="Fill" Value="Transparent" />
+            <Setter Property="RenderTransformOrigin" Value="50%,50%" />
+            <Setter Property="RenderTransform" Value="scale(1)" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.14" />
+                </Transitions>
+            </Setter>
         </Style>
         <Style Selector="Button Path.libraryGlyph">
             <Setter Property="Stroke" Value="{Binding $parent[Button].Foreground}" />
+        </Style>
+        <Style Selector="Button.icon:pointerover Path.libraryGlyph">
+            <Setter Property="RenderTransform" Value="scale(1.22)" />
+        </Style>
+        <Style Selector="Button.icon:pressed Path.libraryGlyph">
+            <Setter Property="RenderTransform" Value="scale(0.92)" />
+        </Style>
+        <Style Selector="Button.icon.active Path.libraryGlyph">
+            <Setter Property="RenderTransform" Value="scale(1.22)" />
+        </Style>
+        <Style Selector="Button.icon.active:pressed Path.libraryGlyph">
+            <Setter Property="RenderTransform" Value="scale(0.92)" />
+        </Style>
+        <Style Selector="Grid.libraryPresenceGlyph">
+            <Setter Property="RenderTransformOrigin" Value="50%,50%" />
+            <Setter Property="RenderTransform" Value="scale(1)" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.14" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Grid.libraryPresenceGlyph:pointerover">
+            <Setter Property="RenderTransform" Value="scale(1.22)" />
         </Style>
 
         <Style Selector="ListBoxItem">

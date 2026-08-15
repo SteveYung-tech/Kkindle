@@ -28,7 +28,7 @@
         <!-- Minimal library-presence glyph shared by the PC grid/list and the
              Kindle cards. Every state uses the same centred optical box. -->
         <DataTemplate x:Key="LibraryPresenceGlyph" x:CompileBindings="False">
-            <Grid Width="20" Height="20" IsHitTestVisible="False">
+            <Grid Classes="libraryPresenceGlyph" Width="20" Height="20">
                 <Path Classes="libraryGlyph"
                       Data="M 4,5 H 20 V 15 H 4 Z M 2,19 H 22"
                       Stroke="{StaticResource InkBrush}"
