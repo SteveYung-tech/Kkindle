@@ -104,6 +104,9 @@
         <CornerRadius x:Key="ControlCornerRadius">0</CornerRadius>
         <CornerRadius x:Key="OverlayCornerRadius">0</CornerRadius>
         <Thickness x:Key="FlyoutBorderThemePadding">0</Thickness>
+        <!-- Let nested menu popups size to their own labels. The old WinUI
+             menu did not impose Fluent's default 96-unit flyout minimum. -->
+        <x:Double x:Key="FlyoutThemeMinWidth">0</x:Double>
 
         <x:Double x:Key="MenuFlyoutSeparatorThemeHeight">1</x:Double>
         <x:Double x:Key="MenuFlyoutThemeMinHeight">0</x:Double>
