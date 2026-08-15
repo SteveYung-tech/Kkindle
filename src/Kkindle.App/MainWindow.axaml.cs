@@ -199,75 +199,38 @@ public partial class MainWindow : Window
             WindowResizeLayer.IsVisible = !maximized;
     }
 
-    // Manual window resizing: the transparent (layered) window has no system
-    // resize border, so the eight edge/corner handles drive Width/Height and
-    // Position directly. Position is in physical pixels; size is in DIPs, so
-    // the left/top edge shifts are scaled by the window scaling factor.
-    private string? _windowResizeEdge;
-    private Point _windowResizeStart;
-    private Size _windowResizeStartSize;
-    private PixelPoint _windowResizeStartPosition;
-
+    // Let the platform own the resize gesture. Updating Width, Height and
+    // Position from PointerMoved produced several native window updates for a
+    // single mouse sample; transparent windows then flashed while Avalonia
+    // laid out the surface between those updates.
     private void WindowResize_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (sender is not Control { Tag: string edge }
             || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             return;
-        _windowResizeEdge = edge;
-        // Screen-space anchor: the left/top edges move the window itself, so
-        // window-relative coordinates would drift under a stationary cursor
-        // and feed an endless resize loop (window moves -> synthetic mouse
-        // move -> window moves again) that keeps flickering while idle.
-        _windowResizeStart = e.GetPosition(null);
-        _windowResizeStartSize = new Size(Width, Height);
-        _windowResizeStartPosition = Position;
-        e.Pointer.Capture(sender as IInputElement);
-        e.Handled = true;
-    }
-
-    private void WindowResize_PointerMoved(object? sender, PointerEventArgs e)
-    {
-        if (_windowResizeEdge is null) return;
-        var current = e.GetPosition(null);
-        var dx = current.X - _windowResizeStart.X;
-        var dy = current.Y - _windowResizeStart.Y;
-
-        var newWidth = _windowResizeStartSize.Width;
-        var newHeight = _windowResizeStartSize.Height;
-        var newX = _windowResizeStartPosition.X;
-        var newY = _windowResizeStartPosition.Y;
-
-        if (_windowResizeEdge.Contains("Left", StringComparison.Ordinal))
-        {
-            newWidth = Math.Max(MinWidth, _windowResizeStartSize.Width - dx);
-            newX = _windowResizeStartPosition.X + (int)((_windowResizeStartSize.Width - newWidth) * RenderScaling);
-        }
-        if (_windowResizeEdge.Contains("Right", StringComparison.Ordinal))
-            newWidth = Math.Max(MinWidth, _windowResizeStartSize.Width + dx);
-        if (_windowResizeEdge.Contains("Top", StringComparison.Ordinal))
-        {
-            newHeight = Math.Max(MinHeight, _windowResizeStartSize.Height - dy);
-            newY = _windowResizeStartPosition.Y + (int)((_windowResizeStartSize.Height - newHeight) * RenderScaling);
-        }
-        if (_windowResizeEdge.Contains("Bottom", StringComparison.Ordinal))
-            newHeight = Math.Max(MinHeight, _windowResizeStartSize.Height + dy);
-
-        var newPosition = new PixelPoint(newX, newY);
-        if (newWidth == Width && newHeight == Height && newPosition == Position)
+        if (!TryGetWindowEdge(edge, out var windowEdge))
             return;
 
-        Width = newWidth;
-        Height = newHeight;
-        Position = newPosition;
+        BeginResizeDrag(windowEdge, e);
         e.Handled = true;
     }
 
-    private void WindowResize_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    private static bool TryGetWindowEdge(string edge, out WindowEdge windowEdge)
     {
-        if (_windowResizeEdge is null) return;
-        _windowResizeEdge = null;
-        e.Pointer.Capture(null);
-        e.Handled = true;
+        windowEdge = edge switch
+        {
+            "Left" => WindowEdge.West,
+            "Right" => WindowEdge.East,
+            "Top" => WindowEdge.North,
+            "Bottom" => WindowEdge.South,
+            "TopLeft" => WindowEdge.NorthWest,
+            "TopRight" => WindowEdge.NorthEast,
+            "BottomLeft" => WindowEdge.SouthWest,
+            "BottomRight" => WindowEdge.SouthEast,
+            _ => default
+        };
+        return edge is "Left" or "Right" or "Top" or "Bottom"
+            or "TopLeft" or "TopRight" or "BottomLeft" or "BottomRight";
     }
 
     private static (AppPaths Paths, IBookLibraryService Library, IBookFormatConverter FormatConverter, DoubanMetadataService Douban) CreateDefaultDependencies()
@@ -2536,16 +2499,24 @@ public partial class MainWindow : Window
         // The reference keeps a 200px sidebar and reserves a 320px details
         // column only when a book is selected. Narrow windows collapse the
         // details surface so the library remains usable.
-        LibraryRoot.ColumnDefinitions[0].Width = new GridLength(200);
+        SetGridColumnWidth(LibraryRoot.ColumnDefinitions[0], new GridLength(200));
         if (_settingsPanelVisible)
         {
-            LibraryRoot.ColumnDefinitions[1].Width = new GridLength(0);
-            LibraryRoot.ColumnDefinitions[2].Width = new GridLength(1, GridUnitType.Star);
+            SetGridColumnWidth(LibraryRoot.ColumnDefinitions[1], new GridLength(0));
+            SetGridColumnWidth(LibraryRoot.ColumnDefinitions[2], new GridLength(1, GridUnitType.Star));
             return;
         }
-        LibraryRoot.ColumnDefinitions[2].Width = _selectedCard is not null && width >= 1040
-            ? new GridLength(320)
-            : new GridLength(0);
+        SetGridColumnWidth(
+            LibraryRoot.ColumnDefinitions[2],
+            _selectedCard is not null && width >= 1040
+                ? new GridLength(320)
+                : new GridLength(0));
+    }
+
+    private static void SetGridColumnWidth(ColumnDefinition column, GridLength width)
+    {
+        if (!column.Width.Equals(width))
+            column.Width = width;
     }
 
     private void SidebarSectionButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

@@ -4309,6 +4309,7 @@
                     HorizontalAlignment="Left"
                     VerticalAlignment="Top"
                     MaxWidth="360"
+                    RenderTransformOrigin="0,0"
                     IsVisible="False"
                     IsHitTestVisible="False">
             <StackPanel.Transitions>
@@ -4332,47 +4333,38 @@
                      Points="0,0 10,0 5,6"
                      Width="10"
                      Height="6"
+                     RenderTransformOrigin="0,0"
                      Fill="{StaticResource InkBrush}"
                      HorizontalAlignment="Left" />
         </StackPanel>
 
-        <!-- Invisible resize handles around the window edge. A transparent
-             (layered) window loses the system resize border, so the edges are
-             re-implemented manually: 8-DIP strips on the four sides plus
-             14-DIP corners, each dragging the window size by pointer. -->
+        <!-- Invisible resize handles around the window edge. They hand the
+             gesture to the platform so native window resizing stays atomic. -->
         <Grid x:Name="WindowResizeLayer">
             <Rectangle Fill="Transparent"
                        Width="8"
                        HorizontalAlignment="Left"
                        Cursor="SizeWestEast"
                        Tag="Left"
-                       PointerPressed="WindowResize_PointerPressed"
-                       PointerMoved="WindowResize_PointerMoved"
-                       PointerReleased="WindowResize_PointerReleased" />
+                       PointerPressed="WindowResize_PointerPressed" />
             <Rectangle Fill="Transparent"
                        Width="8"
                        HorizontalAlignment="Right"
                        Cursor="SizeWestEast"
                        Tag="Right"
-                       PointerPressed="WindowResize_PointerPressed"
-                       PointerMoved="WindowResize_PointerMoved"
-                       PointerReleased="WindowResize_PointerReleased" />
+                       PointerPressed="WindowResize_PointerPressed" />
             <Rectangle Fill="Transparent"
                        Height="8"
                        VerticalAlignment="Top"
                        Cursor="SizeNorthSouth"
                        Tag="Top"
-                       PointerPressed="WindowResize_PointerPressed"
-                       PointerMoved="WindowResize_PointerMoved"
-                       PointerReleased="WindowResize_PointerReleased" />
+                       PointerPressed="WindowResize_PointerPressed" />
             <Rectangle Fill="Transparent"
                        Height="8"
                        VerticalAlignment="Bottom"
                        Cursor="SizeNorthSouth"
                        Tag="Bottom"
-                       PointerPressed="WindowResize_PointerPressed"
-                       PointerMoved="WindowResize_PointerMoved"
-                       PointerReleased="WindowResize_PointerReleased" />
+                       PointerPressed="WindowResize_PointerPressed" />
             <Rectangle Fill="Transparent"
                        Width="14"
                        Height="14"
@@ -4380,9 +4372,7 @@
                        VerticalAlignment="Top"
                        Cursor="TopLeftCorner"
                        Tag="TopLeft"
-                       PointerPressed="WindowResize_PointerPressed"
-                       PointerMoved="WindowResize_PointerMoved"
-                       PointerReleased="WindowResize_PointerReleased" />
+                       PointerPressed="WindowResize_PointerPressed" />
             <Rectangle Fill="Transparent"
                        Width="14"
                        Height="14"
@@ -4390,9 +4380,7 @@
                        VerticalAlignment="Top"
                        Cursor="TopRightCorner"
                        Tag="TopRight"
-                       PointerPressed="WindowResize_PointerPressed"
-                       PointerMoved="WindowResize_PointerMoved"
-                       PointerReleased="WindowResize_PointerReleased" />
+                       PointerPressed="WindowResize_PointerPressed" />
             <Rectangle Fill="Transparent"
                        Width="14"
                        Height="14"
@@ -4400,9 +4388,7 @@
                        VerticalAlignment="Bottom"
                        Cursor="BottomLeftCorner"
                        Tag="BottomLeft"
-                       PointerPressed="WindowResize_PointerPressed"
-                       PointerMoved="WindowResize_PointerMoved"
-                       PointerReleased="WindowResize_PointerReleased" />
+                       PointerPressed="WindowResize_PointerPressed" />
             <Rectangle Fill="Transparent"
                        Width="14"
                        Height="14"
@@ -4410,9 +4396,7 @@
                        VerticalAlignment="Bottom"
                        Cursor="BottomRightCorner"
                        Tag="BottomRight"
-                       PointerPressed="WindowResize_PointerPressed"
-                       PointerMoved="WindowResize_PointerMoved"
-                       PointerReleased="WindowResize_PointerReleased" />
+                       PointerPressed="WindowResize_PointerPressed" />
         </Grid>
     </Grid>
 </Window>

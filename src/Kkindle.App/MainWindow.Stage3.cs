@@ -38,6 +38,8 @@ public partial class MainWindow
     private string? _manuallyDisconnectedDeviceId;
     private bool _isRefreshingDevices;
     private double _deviceUsedRatio;
+    private Point? _deviceStatusToastPosition;
+    private double? _deviceStatusToastPointerPosition;
     private TaskCompletionSource<bool>? _devicePromptCompletion;
     private bool _stage3Ready;
     private bool _deviceResourceBusy;
@@ -176,8 +178,8 @@ public partial class MainWindow
     private void ShowDeviceStatusToast(string message)
     {
         DeviceStatusToastText.Text = message;
-        PositionDeviceStatusToast();
         DeviceStatusToast.IsVisible = true;
+        PositionDeviceStatusToast();
         DeviceStatusToast.Opacity = 1;
         _deviceStatusToastTimer.Stop();
         _deviceStatusToastTimer.Start();
@@ -188,6 +190,15 @@ public partial class MainWindow
         if (DeviceStatusEjectButton is not { } anchor) return;
         DeviceStatusToast.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var popupSize = DeviceStatusToast.DesiredSize;
+        PositionDeviceStatusToast(popupSize);
+    }
+
+    private void PositionDeviceStatusToast(Size popupSize)
+    {
+        if (DeviceStatusEjectButton is not { } anchor
+            || popupSize.Width <= 0
+            || popupSize.Height <= 0)
+            return;
         // Both eject icons are 8-DIP upward triangles centred in their
         // buttons; anchor to the triangle apex rather than the button bounds.
         var apex = anchor.TranslatePoint(
@@ -207,8 +218,16 @@ public partial class MainWindow
             0,
             Math.Max(0, popupSize.Width - pointerWidth));
 
-        DeviceStatusToastPointer.Margin = new Thickness(pointerLeft, 0, 0, 0);
-        DeviceStatusToast.Margin = new Thickness(popupLeft, popupTop, 0, 0);
+        if (_deviceStatusToastPosition != new Point(popupLeft, popupTop))
+        {
+            _deviceStatusToastPosition = new Point(popupLeft, popupTop);
+            DeviceStatusToast.RenderTransform = new TranslateTransform(popupLeft, popupTop);
+        }
+        if (_deviceStatusToastPointerPosition != pointerLeft)
+        {
+            _deviceStatusToastPointerPosition = pointerLeft;
+            DeviceStatusToastPointer.RenderTransform = new TranslateTransform(pointerLeft, 0);
+        }
     }
 
     // Re-anchor the bubble while it is visible so it follows the eject button
@@ -218,38 +237,13 @@ public partial class MainWindow
     // invalidates layout again, so LayoutUpdated fires again, and the toast
     // loops forever ("Infinite layout loop detected" — the device-connect
     // bubble crashed the app exactly this way). Use the already-laid-out
-    // Bounds instead, and only assign margins when the value actually
-    // changed so the chain converges and stops.
+    // Bounds instead, and move the toast with RenderTransform so its position
+    // never participates in the layout pass.
     private void DeviceStatusEjectButton_LayoutUpdated(object? sender, EventArgs e)
     {
         if (!DeviceStatusToast.IsVisible) return;
-        if (DeviceStatusEjectButton is not { } anchor) return;
         var popupSize = DeviceStatusToast.Bounds.Size;
-        if (popupSize.Width <= 0 || popupSize.Height <= 0) return;
-
-        var apex = anchor.TranslatePoint(
-            new Point(anchor.Bounds.Width / 2, anchor.Bounds.Height / 2 - 4),
-            this);
-        if (apex is not { } apexPoint) return;
-
-        const double edgeMargin = 8;
-        const double pointerCenterFromLeft = 20;
-        const double pointerWidth = 10;
-        var windowWidth = Bounds.Width > 0 ? Bounds.Width : Width;
-        var maxLeft = Math.Max(edgeMargin, windowWidth - popupSize.Width - edgeMargin);
-        var popupLeft = Math.Clamp(apexPoint.X - pointerCenterFromLeft, edgeMargin, maxLeft);
-        var popupTop = Math.Max(edgeMargin, apexPoint.Y - popupSize.Height - 2);
-        var pointerLeft = Math.Clamp(
-            apexPoint.X - popupLeft - pointerWidth / 2,
-            0,
-            Math.Max(0, popupSize.Width - pointerWidth));
-
-        var toastMargin = new Thickness(popupLeft, popupTop, 0, 0);
-        var pointerMargin = new Thickness(pointerLeft, 0, 0, 0);
-        if (DeviceStatusToast.Margin != toastMargin)
-            DeviceStatusToast.Margin = toastMargin;
-        if (DeviceStatusToastPointer.Margin != pointerMargin)
-            DeviceStatusToastPointer.Margin = pointerMargin;
+        PositionDeviceStatusToast(popupSize);
     }
 
     private void HideDeviceStatusToast()
@@ -585,7 +579,9 @@ public partial class MainWindow
     private void UpdateDeviceStorageBar()
     {
         var availableWidth = Math.Max(0, DeviceStorageBar.Bounds.Width - 2);
-        DeviceStorageUsedBar.Width = availableWidth * _deviceUsedRatio;
+        var usedWidth = availableWidth * _deviceUsedRatio;
+        if (Math.Abs(DeviceStorageUsedBar.Width - usedWidth) > 0.01)
+            DeviceStorageUsedBar.Width = usedWidth;
     }
 
     private async Task RefreshDeviceBooksAsync(CancellationToken cancellationToken = default) =>
