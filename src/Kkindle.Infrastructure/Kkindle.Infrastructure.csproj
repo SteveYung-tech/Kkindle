@@ -14,5 +14,7 @@
          part of Infrastructure's contract. Each platform assembly that hosts a
          device service needs its own entry here. -->
     <InternalsVisibleTo Include="Kkindle.Platform.Windows" />
+    <InternalsVisibleTo Include="Kkindle.Platform.Common" />
+    <InternalsVisibleTo Include="Kkindle.Tests" />
   </ItemGroup>
 </Project>

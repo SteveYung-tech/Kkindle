@@ -21,8 +21,7 @@ public sealed partial class MainWindow
         LibraryPane.Visibility = Visibility.Collapsed;
         SettingsPane.Visibility = Visibility.Visible;
         ZLibraryPage.Visibility = Visibility.Collapsed;
-        DetailPane.Visibility = Visibility.Collapsed;
-        DetailColumn.Width = new GridLength(0);
+        HideDetailPaneInstant();
         HideSettingsPanel();
         SettingsDataPathText.Text = _paths.Data;
         ShowSettingsSection("General");
@@ -120,8 +119,7 @@ public sealed partial class MainWindow
             UpdateReaderAiHeader();
 
             _selectedBook = null;
-            DetailPane.Visibility = Visibility.Collapsed;
-            DetailColumn.Width = new GridLength(0);
+            HideDetailPaneInstant();
             HideSettingsPanel();
             await RefreshLibraryAsync();
             SetBackupStatus($"已导入 {result.BookCount} 本书、{result.FileCount} 个文件：{sourcePath}");

@@ -27,20 +27,9 @@ public sealed class BookFormatConversionService : IBookFormatConverter
     // temp-copy path itself.
     private const int MaxCalibreSourcePathLength = 240;
 
-    private static readonly string[] BundledCalibreRelativePaths =
-    [
-        Path.Combine("Calibre", "ebook-convert.exe"),
-        Path.Combine("Calibre2", "ebook-convert.exe")
-    ];
-
-    private static readonly string[] KnownCalibrePaths =
-    [
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Calibre2", "ebook-convert.exe"),
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Calibre2", "ebook-convert.exe")
-    ];
-
     private readonly SemaphoreSlim _kfxPluginGate = new(1, 1);
     private bool _kfxPluginReady;
+    private bool _useIsolatedKfxPluginConfig;
 
     public async Task ConvertAsync(
         string sourcePath,
@@ -66,7 +55,7 @@ public sealed class BookFormatConversionService : IBookFormatConverter
         var executable = LocateExecutable();
         if (executable is null)
             throw new InvalidOperationException(
-                "未找到 Calibre 转换器。请使用包含 Calibre 运行时的 Kkindle 发布包，或配置 KKINDLE_CALIBRE_CONVERT 后重试。 ");
+                "未找到 Calibre 转换器。请安装 Calibre，或在设置中指定 ebook-convert 路径后重试。 ");
 
         var isKfx = sourceFormat == "kfx";
         if (isKfx)
@@ -98,7 +87,7 @@ public sealed class BookFormatConversionService : IBookFormatConverter
                 StandardErrorEncoding = CalibreOutputEncoding
             };
 
-            ConfigureCalibreEnvironment(startInfo, executable, isKfx);
+            ConfigureCalibreEnvironment(startInfo, isKfx && _useIsolatedKfxPluginConfig);
 
             startInfo.ArgumentList.Add(source);
             startInfo.ArgumentList.Add(destination);
@@ -229,30 +218,34 @@ public sealed class BookFormatConversionService : IBookFormatConverter
 
             var calibreDirectory = Path.GetDirectoryName(ebookConvertPath)
                 ?? throw new InvalidOperationException("Calibre 路径无效。");
-            var customizer = Path.Combine(calibreDirectory, "calibre-customize.exe");
+            var customizer = Path.Combine(
+                calibreDirectory,
+                CalibreExecutableLocator.ToolName("calibre-customize", CalibreExecutableLocator.CurrentOperatingSystem()));
             if (!File.Exists(customizer))
-                throw new InvalidOperationException("当前 Calibre 运行时缺少 calibre-customize.exe，无法准备 KFX Input 插件。");
+                throw new InvalidOperationException($"当前 Calibre 安装缺少 {Path.GetFileName(customizer)}，无法检查 KFX Input 插件。");
 
-            var listed = await RunCalibreToolAsync(customizer, ["--list-plugins"], ebookConvertPath, useKfxPluginConfig: true, cancellationToken);
+            var listed = await RunCalibreToolAsync(customizer, ["--list-plugins"], useKfxPluginConfig: false, cancellationToken);
             if (ContainsKfxInputPlugin(listed.Output))
             {
+                _useIsolatedKfxPluginConfig = false;
                 _kfxPluginReady = true;
                 return;
             }
 
             var pluginPackage = LocateKfxInputPluginPackage();
             if (pluginPackage is null)
-                throw new InvalidOperationException("未找到 KFX Input 插件包。请使用包含该插件的 Kkindle 发布包，或设置 KKINDLE_KFX_INPUT_PLUGIN。");
+                throw new InvalidOperationException("Calibre 尚未安装 KFX Input 插件。请先在 Calibre 中安装，或设置 KKINDLE_KFX_INPUT_PLUGIN 指向插件包。");
 
             progress?.Report(new FormatConversionProgress(0, "正在安装 Calibre KFX Input 插件…"));
-            var installed = await RunCalibreToolAsync(customizer, ["--add-plugin", pluginPackage], ebookConvertPath, useKfxPluginConfig: true, cancellationToken);
+            var installed = await RunCalibreToolAsync(customizer, ["--add-plugin", pluginPackage], useKfxPluginConfig: true, cancellationToken);
             if (installed.ExitCode != 0)
                 throw new InvalidOperationException($"KFX Input 插件安装失败：{GetProcessFailureDetail(installed)}");
 
-            listed = await RunCalibreToolAsync(customizer, ["--list-plugins"], ebookConvertPath, useKfxPluginConfig: true, cancellationToken);
+            listed = await RunCalibreToolAsync(customizer, ["--list-plugins"], useKfxPluginConfig: true, cancellationToken);
             if (!ContainsKfxInputPlugin(listed.Output))
                 throw new InvalidOperationException("KFX Input 插件安装后未被 Calibre 识别。");
 
+            _useIsolatedKfxPluginConfig = true;
             _kfxPluginReady = true;
             progress?.Report(new FormatConversionProgress(0, "KFX Input 插件已就绪，正在启动转换…"));
         }
@@ -283,7 +276,6 @@ public sealed class BookFormatConversionService : IBookFormatConverter
     private static async Task<CalibreToolResult> RunCalibreToolAsync(
         string executable,
         IReadOnlyList<string> arguments,
-        string ebookConvertPath,
         bool useKfxPluginConfig,
         CancellationToken cancellationToken)
     {
@@ -298,7 +290,7 @@ public sealed class BookFormatConversionService : IBookFormatConverter
             StandardOutputEncoding = CalibreOutputEncoding,
             StandardErrorEncoding = CalibreOutputEncoding
         };
-        ConfigureCalibreEnvironment(startInfo, ebookConvertPath, useKfxPluginConfig);
+        ConfigureCalibreEnvironment(startInfo, useKfxPluginConfig);
         foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
 
         using var process = new Process { StartInfo = startInfo };
@@ -325,10 +317,10 @@ public sealed class BookFormatConversionService : IBookFormatConverter
         return string.IsNullOrWhiteSpace(detail) ? $"退出码 {result.ExitCode}" : detail;
     }
 
-    private static void ConfigureCalibreEnvironment(ProcessStartInfo startInfo, string ebookConvertPath, bool useKfxPluginConfig)
+    private static void ConfigureCalibreEnvironment(ProcessStartInfo startInfo, bool useKfxPluginConfig)
     {
         var configuredDirectory = Environment.GetEnvironmentVariable("KKINDLE_CALIBRE_CONFIG_DIRECTORY");
-        if (string.IsNullOrWhiteSpace(configuredDirectory) && (IsBundledExecutable(ebookConvertPath) || useKfxPluginConfig))
+        if (string.IsNullOrWhiteSpace(configuredDirectory) && useKfxPluginConfig)
         {
             configuredDirectory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -344,31 +336,15 @@ public sealed class BookFormatConversionService : IBookFormatConverter
 
     public static string? LocateExecutable()
     {
-        var overridePath = Environment.GetEnvironmentVariable("KKINDLE_CALIBRE_CONVERT");
-        if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath))
-            return Path.GetFullPath(overridePath);
-
-        var applicationDirectory = AppContext.BaseDirectory;
-        foreach (var relativePath in BundledCalibreRelativePaths)
-        {
-            var candidate = Path.Combine(applicationDirectory, relativePath);
-            if (File.Exists(candidate)) return candidate;
-        }
-
-        foreach (var path in KnownCalibrePaths)
-        {
-            if (File.Exists(path)) return path;
-        }
-
-        var pathVariable = Environment.GetEnvironmentVariable("Path");
-        if (string.IsNullOrWhiteSpace(pathVariable)) return null;
-        foreach (var directory in pathVariable.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var candidate = Path.Combine(directory.Trim(), "ebook-convert.exe");
-            if (File.Exists(candidate)) return candidate;
-        }
-
-        return null;
+        var operatingSystem = CalibreExecutableLocator.CurrentOperatingSystem();
+        return CalibreExecutableLocator.Locate(
+            AppContext.BaseDirectory,
+            Environment.GetEnvironmentVariable("KKINDLE_CALIBRE_CONVERT"),
+            Environment.GetEnvironmentVariable("PATH") ?? Environment.GetEnvironmentVariable("Path"),
+            operatingSystem,
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
     }
 
     private static async Task<string> ReadStandardOutputAsync(
@@ -454,20 +430,6 @@ public sealed class BookFormatConversionService : IBookFormatConverter
         }
 
         return builder.ToString().Trim();
-    }
-
-    private static bool IsBundledExecutable(string executable)
-    {
-        var applicationDirectory = Path.GetFullPath(AppContext.BaseDirectory)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
-        var candidate = Path.GetFullPath(executable);
-        return candidate.StartsWith(
-            applicationDirectory + "Calibre" + Path.DirectorySeparatorChar,
-            StringComparison.OrdinalIgnoreCase)
-            || candidate.StartsWith(
-                applicationDirectory + "Calibre2" + Path.DirectorySeparatorChar,
-                StringComparison.OrdinalIgnoreCase);
     }
 
     private static void TryKill(Process process)

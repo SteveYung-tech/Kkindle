@@ -7,10 +7,11 @@ public static class AppRootConfiguration
     private const string FileName = "app-root.json";
     private static string ConfigPath(string applicationDirectory) => Path.Combine(applicationDirectory, FileName);
 
-    public static string ResolveRoot(string applicationDirectory)
+    public static string ResolveRoot(string configurationDirectory, string? fallbackRoot = null)
     {
-        var fallback = Path.GetFullPath(applicationDirectory);
-        var path = ConfigPath(fallback);
+        var configurationRoot = Path.GetFullPath(configurationDirectory);
+        var fallback = Path.GetFullPath(fallbackRoot ?? configurationRoot);
+        var path = ConfigPath(configurationRoot);
         if (!File.Exists(path)) return fallback;
         try
         {
@@ -23,14 +24,15 @@ public static class AppRootConfiguration
         catch { return fallback; }
     }
 
-    public static void Save(string applicationDirectory, string root)
+    public static void Save(string configurationDirectory, string root)
     {
-        var applicationRoot = Path.GetFullPath(applicationDirectory);
+        var configurationRoot = Path.GetFullPath(configurationDirectory);
         var target = Path.GetFullPath(root);
+        Directory.CreateDirectory(configurationRoot);
         Directory.CreateDirectory(target);
-        var temporary = ConfigPath(applicationRoot) + ".tmp";
+        var temporary = ConfigPath(configurationRoot) + ".tmp";
         File.WriteAllText(temporary, JsonSerializer.Serialize(new RootConfig { Root = target }, new JsonSerializerOptions { WriteIndented = true }));
-        File.Move(temporary, ConfigPath(applicationRoot), true);
+        File.Move(temporary, ConfigPath(configurationRoot), true);
     }
 
     public static string MigrationBackupPath(string root) => Path.Combine(Path.GetFullPath(root), ".kkindle-migration.kkindle");

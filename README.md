@@ -3,7 +3,7 @@
 [![Release](https://github.com/kingstacker/Kkindle/actions/workflows/release.yml/badge.svg)](https://github.com/kingstacker/Kkindle/actions/workflows/release.yml)
 [![GitHub release](https://img.shields.io/github/v/release/kingstacker/Kkindle?display_name=tag)](https://github.com/kingstacker/Kkindle/releases/latest)
 
-Kkindle 是一款面向 Windows 11 的个人电子书与 Kindle 设备管理器。它使用 WinUI 3 构建，将本地书库、格式转换、阅读、批注、AI 辅助阅读和 Kindle 传输集中在一个简洁的灰白纸张风格界面中。
+Kkindle 是一款面向 Windows、Linux 和 macOS 的个人电子书与 Kindle 设备管理器。它使用 Avalonia 构建，将本地书库、格式转换、阅读、批注、AI 辅助阅读和 Kindle 传输集中在一个简洁的灰白纸张风格界面中。
 
 ## 界面预览
 
@@ -80,15 +80,15 @@ Kkindle 是一款面向 Windows 11 的个人电子书与 Kindle 设备管理器�
 
 - 通过 Z-Library 官方 eapi 搜索并下载书籍，支持书名/作者搜索、格式与语言筛选、分页浏览。
 - 下载完成后自动导入电脑书库，自动解析元数据与封面并去重；临时下载文件自动清理。
-- 账号凭据（邮箱与密码）使用 Windows 当前用户加密保存在本机，不写入备份包；API 服务地址可配置，便于在官方域名不可用时切换到可用镜像。
+- 账号凭据（邮箱与密码）使用当前系统用户的 DPAPI、Secret Service 或 Keychain 加密保存在本机，不写入备份包；API 服务地址可配置。
 - 下载任务在列表中实时显示状态，可随时取消，完成后自动入库。
 
 ### 格式转换
 
 - 通过 Calibre 在 EPUB、AZW3 和 PDF 之间转换，MOBI 也可作为转换源；生成的格式会自动归入原书。
-- Kindle 书籍可通过右键导出到电脑书库；KFX 会使用随发布包提供的 KFX Input 插件自动转换为 EPUB（不支持绕过 DRM）。
+- Kindle 书籍可通过右键导出到电脑书库；KFX 可使用用户在 Calibre 中安装的 KFX Input 插件转换为 EPUB（不支持绕过 DRM）。
 - 显示实时转换进度；任务可缩小到后台，并可从书籍卡片恢复查看。
-- 发布包可内置 Calibre 运行时，也可使用环境变量、系统安装目录或 PATH 中的 `ebook-convert`。
+- 三端发布包均不捆绑 Calibre；可自动发现系统安装目录或 PATH 中的 `ebook-convert`，也可在设置中手动指定，或点击按钮从 Calibre 官方源下载安装。
 
 ### Kindle 传输
 
@@ -105,14 +105,16 @@ Kkindle 是一款面向 Windows 11 的个人电子书与 Kindle 设备管理器�
 
 - 一键导出或导入 `.kkindle` 备份，迁移书库、封面和阅读记录；可启用每日自动备份与保留数量限制。
 - 可在设置中选择默认打开格式、Calibre 路径、AI/网络权限和数据目录，并通过备份包安全迁移数据目录。
-- AI API Key 使用 Windows 当前用户加密后保存在本机。
+- AI API Key 使用当前系统用户的安全存储加密后保存在本机。
 - API Key 和 SMTP 密码不会写入备份包；AI 对话仅发送相关片段，不上传整本书。
 
 ## 环境要求
 
-- Windows 11 x64
+- Windows 11 x64、主流 x64 Linux 桌面，或 macOS 12 及以上（Intel/Apple Silicon）
 - 从源码构建需要 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- 格式转换需要 Calibre；可在发布时内置，也可由用户单独安装
+- Linux 需要 WebKitGTK、Secret Service/`secret-tool`
+- 三端如需格式转换，均需用户另行安装 Calibre，或在设置中指定已有的 `ebook-convert`
+- Windows 支持 USB 磁盘和 WPD/MTP Kindle；Linux/macOS 当前支持挂载为 USB 磁盘的 Kindle
 
 ## 下载与安装
 
@@ -120,9 +122,12 @@ Kkindle 是一款面向 Windows 11 的个人电子书与 Kindle 设备管理器�
 
 - `Kkindle-X.Y.Z-win-x64-setup.exe`：推荐的安装版，支持开始菜单快捷方式、可选桌面快捷方式和卸载。
 - `Kkindle-X.Y.Z-win-x64-portable.zip`：解压即用的便携版。
-- `SHA256SUMS.txt`：安装包与便携包的 SHA-256 校验值。
+- `kkindle_X.Y.Z_amd64.deb` / `arm64.deb`：Ubuntu、Debian、Linux Mint 安装包。
+- `Kkindle-X.Y.Z-linux-x64.tar.gz` / `linux-arm64.tar.gz`：其他 Linux 发行版使用的便携包。
+- `Kkindle-X.Y.Z-osx-arm64.tar.gz` / `osx-x64.tar.gz`：macOS `.app` 包。
+- `SHA256SUMS.txt`：所有发行包的 SHA-256 校验值。
 
-两种发行包均为 Windows x64 自包含版本，并内置 Calibre 转换运行时。安装版默认安装到当前用户的 `%LOCALAPPDATA%\Programs\Kkindle`，不需要管理员权限；卸载时不会主动删除运行过程中创建的 `data`、`backups` 或 `app-root.json`。
+三端发行包均自包含 .NET 运行时且不捆绑 Calibre；应用会自动发现系统安装的 Calibre，也可在设置中指定 `ebook-convert`。Linux 数据遵循 XDG 目录，macOS 数据位于 `~/Library/Application Support/Kkindle`。
 
 ## 从源码运行
 
@@ -130,20 +135,21 @@ Kkindle 是一款面向 Windows 11 的个人电子书与 Kindle 设备管理器�
 dotnet restore Kkindle.sln
 dotnet build Kkindle.sln -p:Platform=x64
 dotnet test Kkindle.sln --no-build -p:Platform=x64
-dotnet run --project src\Kkindle.App\Kkindle.App.csproj -p:Platform=x64
+dotnet run --project src\Kkindle.Desktop.Windows\Kkindle.Desktop.Windows.csproj -p:Platform=x64
+# Linux: dotnet run --project src/Kkindle.Desktop.Linux/Kkindle.Desktop.Linux.csproj
+# macOS: dotnet run --project src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj
 ```
 
 ## 本地构建发行包
 
-安装 [Inno Setup 6](https://jrsoftware.org/isinfo.php) 和 Calibre 后运行：
+安装 [Inno Setup 6](https://jrsoftware.org/isinfo.php) 后运行：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Release.ps1 `
-  -Version 1.0.0 `
-  -CalibreRuntime "C:\Program Files\Calibre2"
+  -Version 1.0.0
 ```
 
-脚本会生成安装版 EXE、便携版 ZIP 和 `SHA256SUMS.txt`。没有 Inno Setup 时可增加 `-SkipInstaller` 仅生成便携版；省略 `-CalibreRuntime` 时不内置 Calibre，程序会依次尝试用户配置的 `KKINDLE_CALIBRE_CONVERT`、系统安装目录和 PATH。
+Windows 脚本会生成安装版 EXE、便携版 ZIP 和校验值。Linux/macOS 分别使用 `scripts/build-linux-release.sh` 与 `scripts/build-macos-release.sh`；完整命令见 [跨平台说明](docs/cross-platform.md)。
 
 发布结果位于：
 
@@ -151,11 +157,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Release.ps1 
 artifacts\release\1.0.0\
 ```
 
-应用数据默认保存在可执行文件旁的 `data` 目录，也可在设置中迁移到其他目录。自动备份位于数据根目录旁的 `backups` 目录。内置 Calibre 的许可证和源代码信息见发布目录中的 `Calibre\LICENSE` 与 `Calibre-THIRD-PARTY-NOTICE.txt`。
+Windows 应用数据默认保存在可执行文件旁；Linux 使用 XDG 数据目录，macOS 使用 `~/Library/Application Support/Kkindle`。三端均可在设置中迁移数据目录。自动备份位于数据根目录旁的 `backups` 目录。
 
 ## GitHub 自动发版
 
-`.github/workflows/release.yml` 会在推送 `vX.Y.Z` 标签时自动执行 Release 测试、构建自包含应用、内置 Calibre、生成安装版与便携版、计算校验值，并创建 GitHub Release。带后缀的标签（如 `v1.1.0-beta.1`）会发布为预发行版。
+`.github/workflows/release.yml` 会在推送 `vX.Y.Z` 标签时分别在 Windows、Ubuntu 和 macOS runner 上构建三端自包含发行包、统一计算校验值并创建 GitHub Release。带后缀的标签会发布为预发行版。
 
 ```powershell
 git tag v1.0.0
@@ -176,10 +182,12 @@ dotnet test Kkindle.sln -c Release -p:Platform=x64
 ## 项目结构
 
 ```text
-src/Kkindle.App             WinUI 3 桌面应用与界面
+src/Kkindle.App             跨平台 Avalonia 界面
 src/Kkindle.Core            领域模型、策略与服务接口
 src/Kkindle.Infrastructure  SQLite、设备、转换、备份与 AI 服务实现
-tests/Kkindle.Tests         自动化测试
+src/Kkindle.Desktop.*       Windows、Linux、macOS 启动头
+src/Kkindle.Platform.*      三端平台服务
+tests/                      可移植、公共平台及 Windows 平台测试
 ```
 
 ## 参考技术与开源项目
@@ -190,11 +198,11 @@ Kkindle 的功能设计与实现使用或参考了以下开源项目。列入本
 
 - [ZlibraryKO/zlibrary.koplugin](https://github.com/ZlibraryKO/zlibrary.koplugin)：Z-Library 登录、搜索、语言与格式筛选、服务地址发现及下载流程的实现参考。
 - [kovidgoyal/calibre](https://github.com/kovidgoyal/calibre)：通过独立的 `ebook-convert` 进程完成 EPUB、AZW3、MOBI、PDF 与 KFX 等格式的读取或转换。
-- [KFX Input](https://www.mobileread.com/forums/showthread.php?t=291290)：随内置 Calibre 提供的 KFX 输入插件，用于处理无 DRM 的 KFX 文件。
+- [KFX Input](https://www.mobileread.com/forums/showthread.php?t=291290)：用于处理无 DRM 的 KFX 文件；可由用户自行安装，也可在设置中从 Calibre 官方插件索引下载安装。
 
 ### 应用运行依赖
 
-- [microsoft/WindowsAppSDK](https://github.com/microsoft/WindowsAppSDK)：WinUI 3 桌面应用框架。
+- [AvaloniaUI/Avalonia](https://github.com/AvaloniaUI/Avalonia)：Windows、Linux、macOS 桌面 UI 与原生 WebView 基础。
 - [CommunityToolkit/dotnet](https://github.com/CommunityToolkit/dotnet)：提供 `CommunityToolkit.Mvvm` MVVM 基础设施。
 - [dotnet/efcore](https://github.com/dotnet/efcore)：`Microsoft.Data.Sqlite` 的源码项目，用于本地 SQLite 数据存储。
 - [UglyToad/PdfPig](https://github.com/UglyToad/PdfPig)：用于读取和提取 PDF 文本。

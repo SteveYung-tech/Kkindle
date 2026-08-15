@@ -20,8 +20,6 @@
     <RepositoryUrl>https://github.com/kingstacker/Kkindle</RepositoryUrl>
     <EnableDefaultApplicationDefinition>true</EnableDefaultApplicationDefinition>
     <EnableDefaultPageItems>true</EnableDefaultPageItems>
-    <!-- Set this at publish time to bundle a Calibre Portable/runtime directory. -->
-    <KkindleCalibreRuntime Condition="'$(KkindleCalibreRuntime)' == ''">$(KKINDLE_CALIBRE_RUNTIME)</KkindleCalibreRuntime>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="Assets\Kkindle.ico">
@@ -33,14 +31,6 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="Assets\Fonts\KingHwaOldSong-LICENSE.txt">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-    <Content Include="Assets\Calibre-THIRD-PARTY-NOTICE.txt">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-    <Content Include="Assets\KFX-Input-THIRD-PARTY-NOTICE.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
@@ -60,16 +50,5 @@
     </ItemGroup>
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).pri')" />
     <Copy SourceFiles="@(ApplicationXbfFiles)" DestinationFiles="@(ApplicationXbfFiles->'$(PublishDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(ProjectDir)Assets\Calibre-THIRD-PARTY-NOTICE.txt" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(ProjectDir)Assets\Calibre-THIRD-PARTY-NOTICE.txt')" />
-    <Copy SourceFiles="$(ProjectDir)Assets\KFX-Input-THIRD-PARTY-NOTICE.txt" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(ProjectDir)Assets\KFX-Input-THIRD-PARTY-NOTICE.txt')" />
-  </Target>
-  <Target Name="CopyBundledCalibreToPublish" AfterTargets="Publish" Condition="'$(KkindleCalibreRuntime)' != '' and Exists('$(KkindleCalibreRuntime)\ebook-convert.exe')">
-    <ItemGroup>
-      <BundledCalibreFiles Include="$(KkindleCalibreRuntime)\**\*" />
-    </ItemGroup>
-    <Copy
-      SourceFiles="@(BundledCalibreFiles)"
-      DestinationFiles="@(BundledCalibreFiles->'$(PublishDir)Calibre\%(RecursiveDir)%(Filename)%(Extension)')"
-      SkipUnchangedFiles="true" />
   </Target>
 </Project>

@@ -1,5 +1,7 @@
 using Avalonia.Controls;
+using Avalonia.Platform;
 using Kkindle.Core;
+using System.Runtime.InteropServices;
 
 namespace Kkindle;
 
@@ -74,7 +76,26 @@ public sealed class NativeWebViewReaderHost : IReaderHost
     private static void View_EnvironmentRequested(
         object? sender,
         WebViewEnvironmentRequestedEventArgs e)
-        => e.EnableDevTools = false;
+    {
+        e.EnableDevTools = false;
+
+        if (e is LinuxWpeWebViewEnvironmentRequestedEventArgs linux)
+        {
+            // Ubuntu 24.04 ships WebKitGTK 4.1 but not the WPE WebKit 2.0 ABI
+            // used by Avalonia's preferred Linux adapter. Keep WPE where it is
+            // available (for example on Debian 13), otherwise select the GTK
+            // adapter that is installed by the Kkindle .deb package.
+            linux.PreferWebKitGtkInstead = !CanLoadLinuxWpeWebKit();
+        }
+    }
+
+    private static bool CanLoadLinuxWpeWebKit()
+    {
+        if (!OperatingSystem.IsLinux()) return false;
+        if (!NativeLibrary.TryLoad("libWPEWebKit-2.0.so.1", out var handle)) return false;
+        NativeLibrary.Free(handle);
+        return true;
+    }
 
     private void View_NavigationStarted(
         object? sender,

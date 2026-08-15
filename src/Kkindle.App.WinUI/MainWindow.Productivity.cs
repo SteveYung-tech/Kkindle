@@ -260,8 +260,7 @@ public sealed partial class MainWindow
         DeviceResourcePage.Visibility = Visibility.Collapsed;
         ReadingMaterialsPage.Visibility = Visibility.Collapsed;
         ZLibraryPage.Visibility = Visibility.Collapsed;
-        DetailPane.Visibility = Visibility.Collapsed;
-        DetailColumn.Width = new GridLength(0);
+        HideDetailPaneInstant();
         HideSettingsPanel();
         ReadingDashboardPage.Visibility = Visibility.Visible;
         await RefreshReadingDashboardAsync();

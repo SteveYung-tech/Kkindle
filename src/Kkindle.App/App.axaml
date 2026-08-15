@@ -676,6 +676,14 @@
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="Padding" Value="{DynamicResource ComboBoxItemThemePadding}" />
         </Style>
+        <Style Selector="ComboBoxItem:pointerover">
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="ComboBoxItem:selected">
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+        </Style>
         <Style Selector="ComboBoxItem /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="CornerRadius" Value="0" />
         </Style>
@@ -786,7 +794,8 @@
         <Style Selector="Button.eject:pressed">
             <Setter Property="Background" Value="{StaticResource PressedBrush}" />
         </Style>
-        <Style Selector="Path.ejectGlyph">
+        <Style Selector="Polygon.ejectGlyph">
+            <Setter Property="Fill" Value="{StaticResource InkBrush}" />
             <Setter Property="RenderTransformOrigin" Value="50%,50%" />
             <Setter Property="RenderTransform" Value="scale(1)" />
             <Setter Property="Transitions">
@@ -795,10 +804,16 @@
                 </Transitions>
             </Setter>
         </Style>
-        <Style Selector="Button.eject:pointerover Path.ejectGlyph">
+        <Style Selector="Button.eject:disabled Polygon.ejectGlyph">
+            <Setter Property="Fill" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.eject:pointerover Polygon.ejectGlyph">
             <Setter Property="RenderTransform" Value="scale(1.22)" />
         </Style>
-        <Style Selector="Button.eject:pressed Path.ejectGlyph">
+        <Style Selector="Border.ejectHoverArea:pointerover Polygon.ejectGlyph">
+            <Setter Property="RenderTransform" Value="scale(1.22)" />
+        </Style>
+        <Style Selector="Button.eject:pressed Polygon.ejectGlyph">
             <Setter Property="RenderTransform" Value="scale(0.92)" />
         </Style>
         <Style Selector="TextBlock.kindleStatusTrigger">
@@ -813,9 +828,6 @@
         </Style>
         <Style Selector="TextBlock.kindleStatusTrigger:pointerover">
             <Setter Property="RenderTransform" Value="scale(1.12)" />
-        </Style>
-        <Style Selector="TextBlock.kindleStatusTrigger:pressed">
-            <Setter Property="RenderTransform" Value="scale(0.96)" />
         </Style>
 
         <Style Selector="ListBoxItem.bookCard">
@@ -877,6 +889,29 @@
         <Style Selector="Grid.readerShell Button.readerToolbar:pressed">
             <Setter Property="Background" Value="{StaticResource PressedBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.readerSearchResult">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="62" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="ClipToBounds" Value="True" />
+            <Setter Property="Template" Value="{StaticResource ReaderToolbarButtonTemplate}" />
+        </Style>
+        <Style Selector="Button.readerSearchResult:pointerover">
+            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+        </Style>
+        <Style Selector="Button.readerSearchResult:pressed">
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
         </Style>
         <Style Selector="Grid.readerShell Button.icon">
             <Setter Property="Background" Value="Transparent" />

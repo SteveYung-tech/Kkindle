@@ -305,10 +305,17 @@ public partial class MainWindow
     private static void SetReaderCompactMarkerWidth(Border marker, double width)
     {
         marker.Width = width;
-        // The resting marker stays centered. As the hover wave grows, shift it
-        // by half of the added width so its left edge remains fixed and only
-        // the right-hand side extends into the reading area.
-        marker.Margin = new Thickness((width - ReaderCompactMarkerMinimumWidth) / 2, 0, 0, 0);
+        if (marker.RenderTransform is not TranslateTransform translation)
+        {
+            translation = new TranslateTransform();
+            marker.RenderTransform = translation;
+        }
+
+        // The resting marker stays centered. Render translation does not take
+        // part in layout, so shifting by half of the added width precisely
+        // cancels the centered marker's leftward growth. Its left edge remains
+        // fixed and only the right half-wave extends into the reading area.
+        translation.X = (width - ReaderCompactMarkerMinimumWidth) / 2;
     }
 
     private static IEnumerable<T> FindDescendants<T>(Visual root) where T : Visual

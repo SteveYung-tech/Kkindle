@@ -3359,6 +3359,9 @@
                 Background="#FFFFFF"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="1,0,0,0">
+            <Border.RenderTransform>
+                <TranslateTransform x:Name="DetailPaneTranslate" />
+            </Border.RenderTransform>
             <Grid>
                 <ScrollViewer>
                     <StackPanel Padding="24,70,24,24" Spacing="13">

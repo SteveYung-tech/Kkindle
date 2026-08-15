@@ -37,7 +37,8 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var applicationDirectory = AppContext.BaseDirectory;
-            var paths = new AppPaths(AppRootConfiguration.ResolveRoot(applicationDirectory));
+            var paths = _services?.Paths
+                ?? new AppPaths(AppRootConfiguration.ResolveRoot(applicationDirectory));
             var library = new SqliteBookLibraryService(paths, new BookMetadataService());
             var window = new MainWindow(paths, library, services: _services);
             desktop.MainWindow = window;
@@ -67,4 +68,6 @@ public sealed record AppServices(
     ISecretProtector SecretProtector,
     Func<IntPtr, IDeviceChangeNotifier?> CreateDeviceChangeNotifier,
     IKindleDeviceService? KindleDeviceService = null,
-    Func<IReaderHost>? ReaderHostFactory = null);
+    Func<IReaderHost>? ReaderHostFactory = null,
+    AppPaths? Paths = null,
+    string? RootConfigurationDirectory = null);

@@ -1,8 +1,11 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using Avalonia;
+using Avalonia.Animation;
+using Avalonia.Animation.Easings;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -25,9 +28,15 @@ public partial class MainWindow : Window
     private const string LibraryListGlyphData = "M 4,6 H 6 M 10,6 H 20 M 4,12 H 6 M 10,12 H 20 M 4,18 H 6 M 10,18 H 20";
     private const string LibraryCollectionsGlyphData = "M 3,7 H 9 L 11,9 H 21 V 20 H 3 Z";
     private const double LibraryDetailWidth = 320;
-    private const double LibraryDetailMinimumRootWidth = 1040;
+    private const int LibraryDetailSlideDurationMs = 520;
+    // Supersedes in-flight detail-pane animations whenever a newer show/hide
+    // command arrives, so a close that was interrupted by a re-select can
+    // never collapse a freshly re-opened pane.
+    private int _detailPaneAnimationVersion;
+    private CancellationTokenSource? _detailPaneAnimationCancellation;
 
     private readonly AppPaths _paths;
+    private readonly string _rootConfigurationDirectory;
     private readonly IBookLibraryService _library;
     private readonly IBookFormatConverter _formatConverter;
     private readonly ReaderFormatCacheService _readerFormatCache;
@@ -63,6 +72,7 @@ public partial class MainWindow : Window
     private bool _updatingFilterControls;
     private bool _updatingDetails;
     private LibraryViewMode _libraryViewMode = LibraryViewMode.Grid;
+    private AnimatedWrapPanel? _bookGridPanel;
     private BookCardViewModel? _selectedCard;
     private BookCardViewModel? _multiSelectAnchor;
     private readonly HashSet<Guid> _selectedBookIds = [];
@@ -105,6 +115,7 @@ public partial class MainWindow : Window
         AppServices? services = null)
     {
         _paths = paths;
+        _rootConfigurationDirectory = services?.RootConfigurationDirectory ?? AppContext.BaseDirectory;
         _library = library;
         _formatConverter = formatConverter ?? new BookFormatConversionService();
         _readerFormatCache = new ReaderFormatCacheService(paths, _formatConverter);
@@ -131,8 +142,27 @@ public partial class MainWindow : Window
         ViewModel = new LibraryViewModel(library, paths.Data);
 
         InitializeComponent();
+        BookGrid.ItemsPanel = new FuncTemplate<Panel?>(() =>
+        {
+            _bookGridPanel = new AnimatedWrapPanel
+            {
+                Orientation = Avalonia.Layout.Orientation.Horizontal,
+                ItemWidth = 166,
+                ItemHeight = 304
+            };
+            return _bookGridPanel;
+        });
+        BookGrid.SizeChanged += (_, _) => UpdateBookGridLayout();
+        BookGrid.LayoutUpdated += (_, _) => UpdateBookGridLayout();
+        SizeChanged += (_, _) => UpdateBookGridLayout();
+        LibraryRoot.AddHandler(
+            InputElement.PointerPressedEvent,
+            LibraryRoot_PointerPressed,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
         DataContext = this;
         Closed += MainWindow_Closed;
+        Closing += MainWindow_Closing;
         UpdateMaximizeGlyph();
         UpdateWindowShadowMargin();
         SetSidebarActive(AllBooksButton);
@@ -141,6 +171,7 @@ public partial class MainWindow : Window
         ConfigureStage3Timer();
         SetEjectButtonsEnabled(false);
         Opened += (_, _) => EnsureInteractiveControlToolTips();
+        Dispatcher.UIThread.Post(UpdateBookGridLayout, DispatcherPriority.Loaded);
     }
 
     public LibraryViewModel ViewModel { get; }
@@ -252,6 +283,18 @@ public partial class MainWindow : Window
     {
         public byte[] Protect(byte[] value) => value.ToArray();
         public byte[] Unprotect(byte[] value) => value.ToArray();
+    }
+
+    // Closing the window while Kreader is open returns to the library (the
+    // reader's X / 返回书架 default) instead of exiting the whole application.
+    // A second close request on the library then exits for real. Alt+F4 and
+    // platform close requests land here too (the window draws its own title
+    // bar, so this is the only path besides CloseWindowButton_Click).
+    private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
+    {
+        if (!ReaderRoot.IsVisible) return;
+        e.Cancel = true;
+        _ = CloseReaderAsync();
     }
 
     private async void MainWindow_Closed(object? sender, EventArgs e)
@@ -414,13 +457,6 @@ public partial class MainWindow : Window
     private void SelectBook(BookCardViewModel card)
     {
         _selectedCard = card;
-        LibraryDetailPane.IsVisible = true;
-        LibraryDetailPane.Opacity = 0;
-        Dispatcher.UIThread.Post(() => LibraryDetailPane.Opacity = 1);
-        if (LibraryRoot.ColumnDefinitions.Count >= 3)
-            LibraryRoot.ColumnDefinitions[2].Width = LibraryRoot.Bounds.Width >= LibraryDetailMinimumRootWidth
-                ? new GridLength(LibraryDetailWidth)
-                : new GridLength(0);
         DetailCoverImage.Source = card.CoverImage;
         DetailCoverPlaceholder.IsVisible = card.CoverImage is null;
         DetailTitleText.Text = card.Title;
@@ -457,12 +493,174 @@ public partial class MainWindow : Window
         {
             _updatingDetails = false;
         }
+
+        ShowLibraryDetailPane();
+    }
+
+    // The pane uses one render-only translation. Its content is populated
+    // before this method runs, avoiding layout and image updates mid-slide.
+    private void ShowLibraryDetailPane()
+    {
+        var wasVisible = LibraryDetailPane.IsVisible;
+        var token = BeginDetailPaneAnimation();
+        var version = ++_detailPaneAnimationVersion;
+        if (!wasVisible)
+        {
+            var translate = new TranslateTransform(LibraryDetailWidth, 0);
+            LibraryDetailPane.RenderTransform = translate;
+            LibraryDetailPane.Opacity = 1;
+            LibraryDetailPane.IsVisible = true;
+            _ = AnimateLibraryDetailPaneInCoreAsync(version, token, translate, LibraryDetailWidth);
+        }
+        else
+        {
+            var currentX = (LibraryDetailPane.RenderTransform as TranslateTransform)?.X ?? 0;
+            LibraryDetailPane.IsVisible = true;
+            LibraryDetailPane.Opacity = 1;
+            if (Math.Abs(currentX) > 0.5)
+            {
+                var translate = new TranslateTransform(currentX, 0);
+                LibraryDetailPane.RenderTransform = translate;
+                _ = AnimateLibraryDetailPaneInCoreAsync(version, token, translate, currentX);
+            }
+            else
+            {
+                LibraryDetailPane.RenderTransform = new TranslateTransform(0, 0);
+            }
+        }
+    }
+
+    private async Task AnimateLibraryDetailPaneInCoreAsync(
+        int version,
+        CancellationToken token,
+        TranslateTransform translate,
+        double fromX)
+    {
+        try
+        {
+            // Give the newly visible pane one frame to finish measuring before
+            // movement starts, so layout work cannot interrupt the first step.
+            await Task.Delay(16, token);
+            await RunLibraryDetailPaneDoubleAnimationAsync(
+                translate,
+                TranslateTransform.XProperty,
+                fromX,
+                0,
+                LibraryDetailSlideDurationMs,
+                new CubicEaseInOut(),
+                token);
+        }
+        catch
+        {
+        }
+        if (version != _detailPaneAnimationVersion) return;
+        LibraryDetailPane.RenderTransform = new TranslateTransform(0, 0);
+        LibraryDetailPane.Opacity = 1;
     }
 
     private void ClearSelectedBook()
     {
         _selectedCard = null;
+        var token = BeginDetailPaneAnimation();
+        var version = ++_detailPaneAnimationVersion;
+        if (!LibraryDetailPane.IsVisible)
+        {
+            CompleteClearSelectedBook();
+            return;
+        }
+        var width = LibraryDetailPane.Bounds.Width > 0 ? LibraryDetailPane.Bounds.Width : LibraryDetailWidth;
+        if (width <= 0)
+        {
+            CompleteClearSelectedBook();
+            return;
+        }
+        _ = AnimateLibraryDetailPaneOutCoreAsync(version, token, width);
+    }
+
+    // Exit mirrors the entrance so speed and acceleration remain continuous.
+    private async Task AnimateLibraryDetailPaneOutCoreAsync(
+        int version,
+        CancellationToken token,
+        double width)
+    {
+        var currentX = (LibraryDetailPane.RenderTransform as TranslateTransform)?.X ?? 0;
+        var translate = new TranslateTransform(currentX, 0);
+        LibraryDetailPane.RenderTransform = translate;
+        LibraryDetailPane.Opacity = 1;
+        try
+        {
+            await RunLibraryDetailPaneDoubleAnimationAsync(
+                translate,
+                TranslateTransform.XProperty,
+                currentX,
+                width,
+                LibraryDetailSlideDurationMs,
+                new CubicEaseInOut(),
+                token);
+        }
+        catch
+        {
+        }
+        if (version != _detailPaneAnimationVersion) return;
+        CompleteClearSelectedBook();
+    }
+
+    // Cancels any in-flight detail-pane animation and hands out a fresh token
+    // for the next one, so a newer show/hide command never fights an older
+    // animation that is still running.
+    private CancellationToken BeginDetailPaneAnimation()
+    {
+        _detailPaneAnimationCancellation?.Cancel();
+        _detailPaneAnimationCancellation?.Dispose();
+        var cts = new CancellationTokenSource();
+        _detailPaneAnimationCancellation = cts;
+        return cts.Token;
+    }
+
+    private void CancelDetailPaneAnimation()
+    {
+        _detailPaneAnimationCancellation?.Cancel();
+        _detailPaneAnimationCancellation?.Dispose();
+        _detailPaneAnimationCancellation = null;
+    }
+
+    private static async Task RunLibraryDetailPaneDoubleAnimationAsync(
+        Avalonia.Animation.Animatable target,
+        AvaloniaProperty property,
+        double from,
+        double to,
+        int durationMs,
+        Easing easing,
+        CancellationToken token = default)
+    {
+        var animation = new Animation
+        {
+            Duration = TimeSpan.FromMilliseconds(durationMs),
+            Easing = easing,
+            FillMode = FillMode.Forward
+        };
+        animation.Children.Add(new KeyFrame
+        {
+            Cue = new Cue(0d),
+            Setters = { new Avalonia.Styling.Setter(property, from) }
+        });
+        animation.Children.Add(new KeyFrame
+        {
+            Cue = new Cue(1d),
+            Setters = { new Avalonia.Styling.Setter(property, to) }
+        });
+        await animation.RunAsync(target, token);
+    }
+
+    // Finishes a deselection: hides the pane, frees the column and resets the
+    // detail fields. Kept separate from ClearSelectedBook so an animated exit
+    // can run with the old content visible before this resets everything.
+    private void CompleteClearSelectedBook()
+    {
+        CancelDetailPaneAnimation();
         LibraryDetailPane.IsVisible = false;
+        LibraryDetailPane.RenderTransform = new TranslateTransform(0, 0);
+        LibraryDetailPane.Opacity = 1;
         if (LibraryRoot.ColumnDefinitions.Count >= 3)
             LibraryRoot.ColumnDefinitions[2].Width = new GridLength(0);
         DetailCoverImage.Source = null;
@@ -584,15 +782,6 @@ public partial class MainWindow : Window
                 return;
             }
             IReadOnlyDictionary<string, IReadOnlyCollection<string>>? requestedFormats = null;
-            if (_appSettings.AutoGenerateEpubAndAzw3OnImport)
-            {
-                requestedFormats = await ChooseImportFormatsAsync(inputPaths);
-                if (requestedFormats is null)
-                {
-                    SetTaskStatus("已取消导入。");
-                    return;
-                }
-            }
             SetTaskStatus($"正在导入 {inputPaths.Length} 个位置…");
             ShowTaskProgressPopup();
             TaskProgressPopupText.Text = $"正在导入 {inputPaths.Length} 个位置…";
@@ -753,15 +942,25 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void LibraryContentHost_PointerPressed(object? sender, PointerPressedEventArgs e)
+    private void LibraryRoot_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (sender is not Control host
-            || !e.GetCurrentPoint(host).Properties.IsLeftButtonPressed
+        if (!LibraryDetailPane.IsVisible
+            || !e.GetCurrentPoint(LibraryRoot).Properties.IsLeftButtonPressed
+            || IsSourceWithin(e.Source, LibraryDetailPane)
             || IsBookCardSource(e.Source))
             return;
 
-        if (LibraryDetailPane.IsVisible)
-            ClearSelectedBook();
+        ClearSelectedBook();
+    }
+
+    private static bool IsSourceWithin(object? source, Visual container)
+    {
+        for (var current = source as Visual; current is not null; current = current.GetVisualParent())
+        {
+            if (ReferenceEquals(current, container)) return true;
+        }
+
+        return false;
     }
 
     private static bool IsBookCardSource(object? source)
@@ -1991,19 +2190,7 @@ public partial class MainWindow : Window
 
     private void FilterButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (FilterPanel.IsVisible)
-        {
-            FilterPanel.IsVisible = false;
-            return;
-        }
-        FilterPanel.IsVisible = true;
-        FilterPanel.MaxHeight = 0;
-        FilterPanel.Opacity = 0;
-        Dispatcher.UIThread.Post(() =>
-        {
-            FilterPanel.MaxHeight = 80;
-            FilterPanel.Opacity = 1;
-        });
+        FilterPanel.IsVisible = !FilterPanel.IsVisible;
     }
 
     private void LibraryViewMenuItem_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -2512,8 +2699,18 @@ public partial class MainWindow : Window
     private void MaximizeWindowButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         => ToggleMaximized();
 
-    private void CloseWindowButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-        => Close();
+    // While Kreader is open the caption X acts as "close the reader" and
+    // returns to the main interface (same default as the reader's 返回书架
+    // button); only a second click on the library exits the application.
+    private async void CloseWindowButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (ReaderRoot.IsVisible)
+        {
+            await CloseReaderAsync();
+            return;
+        }
+        Close();
+    }
 
     private void ToggleMaximized()
         => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
@@ -2528,10 +2725,8 @@ public partial class MainWindow : Window
     private void LibraryRoot_SizeChanged(object? sender, SizeChangedEventArgs e)
     {
         if (LibraryRoot.ColumnDefinitions.Count < 3) return;
-        var width = e.NewSize.Width;
-        // The reference keeps a 200px sidebar and reserves a 320px details
-        // column only when a book is selected. Narrow windows collapse the
-        // details surface so the library remains usable.
+        // Book details overlay the library workspace; the third column remains
+        // available only for full-page settings surfaces.
         SetGridColumnWidth(LibraryRoot.ColumnDefinitions[0], new GridLength(200));
         if (_settingsPanelVisible)
         {
@@ -2539,11 +2734,16 @@ public partial class MainWindow : Window
             SetGridColumnWidth(LibraryRoot.ColumnDefinitions[2], new GridLength(1, GridUnitType.Star));
             return;
         }
-        SetGridColumnWidth(
-            LibraryRoot.ColumnDefinitions[2],
-            _selectedCard is not null && width >= LibraryDetailMinimumRootWidth
-                ? new GridLength(LibraryDetailWidth)
-                : new GridLength(0));
+        SetGridColumnWidth(LibraryRoot.ColumnDefinitions[1], new GridLength(1, GridUnitType.Star));
+        SetGridColumnWidth(LibraryRoot.ColumnDefinitions[2], new GridLength(0));
+    }
+
+    private void UpdateBookGridLayout()
+    {
+        if (_bookGridPanel is null) return;
+        _bookGridPanel.ItemWidth = 166;
+        _bookGridPanel.ItemHeight = 304;
+        BookGrid.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
     }
 
     private static void SetGridColumnWidth(ColumnDefinition column, GridLength width)

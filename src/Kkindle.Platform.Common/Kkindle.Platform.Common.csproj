@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Kkindle.Platform.Common</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Kkindle.Core\Kkindle.Core.csproj" />
+    <ProjectReference Include="..\Kkindle.Infrastructure\Kkindle.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

@@ -121,6 +121,8 @@ public sealed class EpubReaderTests
                       <body onload="window.pwned = true">
                         <img src="https://example.com/remote.jpg" />
                         <img class="local" src="../images/ok.jpg" />
+                        <a class="footnote" href="#note-1"><img src="https://example.com/note.png" alt="" width="24" height="24" /></a>
+                        <p id="note-1">Footnote text</p>
                         <a href="javascript:alert(1)">unsafe link</a>
                         <a href="chapter.xhtml#part">safe link</a>
                       </body>
@@ -152,6 +154,8 @@ public sealed class EpubReaderTests
             Assert.Contains("reportSelection(event)", html, StringComparison.Ordinal);
             Assert.Contains("contextMenu: !!contextEvent", html, StringComparison.Ordinal);
             Assert.Contains("../images/ok.jpg", html, StringComparison.Ordinal);
+            Assert.Contains("class=\"kkindle-footnote-marker\">注</sup>", html, StringComparison.Ordinal);
+            Assert.DoesNotContain("width=\"24\"", html, StringComparison.Ordinal);
 
             var cssPath = Path.Combine(document.RootPath, "OEBPS", "styles", "book.css");
             var css = await File.ReadAllTextAsync(cssPath);

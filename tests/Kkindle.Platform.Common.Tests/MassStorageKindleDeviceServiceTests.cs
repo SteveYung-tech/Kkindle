@@ -1,0 +1,91 @@
+using System.Security.Cryptography;
+using Kkindle.Core;
+using Kkindle.Infrastructure;
+using Kkindle.Platform.Common;
+using Xunit;
+
+namespace Kkindle.Platform.Common.Tests;
+
+public sealed class MassStorageKindleDeviceServiceTests
+{
+    [Fact]
+    public async Task DetectSendScanExportAndRemove_RoundTripsMountedKindle()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var mounts = Path.Combine(root, "mounts");
+            var kindle = Path.Combine(mounts, "Kindle");
+            Directory.CreateDirectory(Path.Combine(kindle, "documents"));
+            var service = new MassStorageKindleDeviceService(
+                new AppPaths(Path.Combine(root, "appdata")),
+                new FakeMetadataService(),
+                [mounts],
+                (_, _) => Task.CompletedTask);
+
+            var device = Assert.Single(await service.DetectDevicesAsync());
+            var source = Path.Combine(root, "sample.epub");
+            var bytes = "epub payload"u8.ToArray();
+            await File.WriteAllBytesAsync(source, bytes);
+            var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+            await service.SendBookAsync(device, new BookFile { Sha256 = hash }, source);
+            var book = Assert.Single(await service.ScanBooksAsync(device));
+            Assert.Equal("测试书籍", book.Title);
+            Assert.Equal(hash, book.Sha256);
+
+            var exportDirectory = Path.Combine(root, "export");
+            var exported = await service.ExportBookAsync(device, book, exportDirectory);
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(exported));
+
+            await service.RemoveBookAsync(device, book);
+            Assert.Empty(await service.ScanBooksAsync(device));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task RemoveBook_RejectsTraversalOutsideDocuments()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var kindle = Path.Combine(root, "Kindle");
+            Directory.CreateDirectory(Path.Combine(kindle, "documents"));
+            var service = new MassStorageKindleDeviceService(
+                new AppPaths(Path.Combine(root, "appdata")),
+                new FakeMetadataService(),
+                [root]);
+            var device = new KindleDevice { RootPath = kindle, Transport = KindleTransport.MassStorage };
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.RemoveBookAsync(device, new KindleBook { RelativePath = Path.Combine("..", "outside.epub") }));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    private sealed class FakeMetadataService : IMetadataService
+    {
+        public Task<BookMetadata> ReadMetadataAsync(string path, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new BookMetadata { Title = "测试书籍", Authors = "测试作者" });
+    }
+
+    private static string CreateTempDirectory()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "KkindlePlatformTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (Directory.Exists(path)) Directory.Delete(path, true); }
+        catch { }
+    }
+}

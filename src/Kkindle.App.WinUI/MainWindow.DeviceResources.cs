@@ -41,8 +41,7 @@ public sealed partial class MainWindow
         ReadingMaterialsPage.Visibility = Visibility.Collapsed;
         ReadingDashboardPage.Visibility = Visibility.Collapsed;
         ZLibraryPage.Visibility = Visibility.Collapsed;
-        DetailPane.Visibility = Visibility.Collapsed;
-        DetailColumn.Width = new GridLength(0);
+        HideDetailPaneInstant();
         HideSettingsPanel();
         DeviceResourcePage.Visibility = Visibility.Visible;
         DeviceResourcePageTitle.Text = kind == KindleResourceKind.Font ? "Kindle 字体" : "Kindle 字典";

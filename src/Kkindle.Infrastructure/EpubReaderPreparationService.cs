@@ -19,7 +19,7 @@ public sealed class EpubReaderPreparationService
     private const string ExtractionReadyFileName = ".kkindle-extracted";
     // Bump whenever sanitization or the injected bridge changes. Existing
     // reader caches otherwise keep the old JavaScript indefinitely.
-    private const string ExtractionFormatVersion = "7";
+    private const string ExtractionFormatVersion = "8";
     private const string ContentSecurityPolicyBase =
         "default-src 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; " +
         "connect-src 'none'; form-action 'none'; img-src 'self' file:; " +
@@ -721,6 +721,34 @@ public sealed class EpubReaderPreparationService
                 }
             }
 
+            // Some EPUBs use a remote 24x24 image as the complete label of a
+            // local footnote link. Removing the unsafe URL while keeping the
+            // now source-less <img> leaves a visible empty square in Chromium.
+            // Preserve the note action with a compact text marker; discard
+            // other source-less images instead of rendering broken placeholders.
+            if (localName == "img" && !element.Attributes().Any(attribute =>
+                    attribute.Name.LocalName is "src" or "xlink:href"
+                    && !string.IsNullOrWhiteSpace(attribute.Value)))
+            {
+                var parent = element.Parent;
+                if (parent is not null
+                    && parent.Name.LocalName == "a"
+                    && IsFootnoteReference(parent))
+                {
+                    var label = element.Attribute("alt")?.Value?.Trim();
+                    element.ReplaceWith(
+                        new XElement(
+                            namespaceName + "sup",
+                            new XAttribute("class", "kkindle-footnote-marker"),
+                            string.IsNullOrWhiteSpace(label) ? "注" : label));
+                }
+                else
+                {
+                    element.Remove();
+                }
+                continue;
+            }
+
             var styleText = element.Name.LocalName == "style" ? element.Value : null;
             if (styleText is not null)
                 element.Value = SanitizeCss(styleText, path, cacheRoot);
@@ -755,6 +783,19 @@ public sealed class EpubReaderPreparationService
                 new XCData(ReaderBridgeScript)));
 
         await WriteXmlAsync(document, path, cancellationToken);
+    }
+
+    private static bool IsFootnoteReference(XElement element)
+    {
+        var metadata = string.Join(
+            ' ',
+            element.Attributes()
+                .Where(attribute => attribute.Name.LocalName is "type" or "role" or "rel" or "class" or "id" or "href")
+                .Select(attribute => attribute.Value));
+        return Regex.IsMatch(
+            metadata,
+            @"\b(noteref|doc-noteref|footnote|endnote|note[-_]?ref|fn[-_]?ref)\b|(?:^|[#\s_-])(?:note|fn|ftn|footnote|zww?)[-_:]?\d*(?:n|ref)?(?:$|[\s#_-])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
     private static async Task SanitizeCssFileAsync(

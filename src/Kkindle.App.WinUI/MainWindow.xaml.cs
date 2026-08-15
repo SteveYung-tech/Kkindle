@@ -44,6 +44,7 @@ public sealed partial class MainWindow : Window
     private Book? _selectedBook;
     private bool _detailFavorite;
     private LibraryReadingStatus _detailReadingStatus;
+    private Storyboard? _detailPaneAnimation;
     private IReadOnlyList<KindleDevice> _devices = [];
     private string? _deviceDisplayName;
     private bool _isRefreshingDevices;
@@ -322,6 +323,10 @@ public sealed partial class MainWindow : Window
         }
         appWindow.Title = "Kkindle";
         appWindow.Changed += AppWindow_Changed;
+        // The OS caption X / Alt+F4 also follow the "close the reader first"
+        // default while Kreader is open: cancel the window close and return to
+        // the library instead of exiting the whole application.
+        appWindow.Closing += AppWindow_Closing;
 
         var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Kkindle.ico");
         if (File.Exists(iconPath)) appWindow.SetIcon(iconPath);
@@ -370,7 +375,18 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ApplySquareWindowFrame);
     }
 
-    private void CloseWindowButton_Click(object sender, RoutedEventArgs e) => Close();
+    // While Kreader is open the caption X acts as "close the reader" and
+    // returns to the main interface (same default as the reader's 返回书架
+    // button); only a second click on the library exits the application.
+    private void CloseWindowButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (ReaderPane.Visibility == Visibility.Visible)
+        {
+            if (!_readerCloseInProgress) CloseReader();
+            return;
+        }
+        Close();
+    }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
@@ -411,6 +427,13 @@ public sealed partial class MainWindow : Window
         MaximizeWindowButton.SetValue(
             Microsoft.UI.Xaml.Automation.AutomationProperties.NameProperty,
             isMaximized ? "还原" : "最大化");
+    }
+
+    private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (ReaderPane.Visibility != Visibility.Visible || _readerCloseInProgress) return;
+        args.Cancel = true;
+        CloseReader();
     }
 
     private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args)
@@ -1448,10 +1471,24 @@ public sealed partial class MainWindow : Window
                 catch { }
             }
         }
+        var wasVisible = DetailPane.Visibility == Visibility.Visible;
         DetailColumn.Width = new GridLength(ComputeGoldenDetailWidth());
         MainContentColumn.Width = new GridLength(1, GridUnitType.Star);
         DetailPane.Visibility = Visibility.Visible;
         QueueScrollbarAutoHideRefresh(DetailPane);
+        if (!wasVisible || _detailPaneAnimation is not null)
+        {
+            // First open of the details pane (or superseding an in-flight
+            // entrance/exit): slide the pane in from the right edge. Deferred
+            // so the column width is laid out before the offset is measured.
+            DispatcherQueue.TryEnqueue(AnimateDetailPaneIn);
+        }
+        else
+        {
+            // Re-selecting a book while the pane is already open (e.g. after
+            // saving edits) should not replay the entrance animation.
+            ResetDetailPaneAnimationState();
+        }
     }
 
     private async void SaveDetailsButton_Click(object sender, RoutedEventArgs e)
@@ -1598,14 +1635,151 @@ public sealed partial class MainWindow : Window
 
     private void CloseDetails()
     {
+        if (DetailPane.Visibility != Visibility.Visible)
+        {
+            HideDetailPaneInstant();
+            return;
+        }
+        AnimateDetailPaneOut();
+    }
+
+    // Slides the book-details pane in from the right edge of the window while
+    // fading it in. Plays only once per open (see SelectBook).
+    private void AnimateDetailPaneIn()
+    {
+        if (DetailPane.Visibility != Visibility.Visible) return;
+        _detailPaneAnimation?.Stop();
+        _detailPaneAnimation = null;
+
+        var offset = DetailPane.ActualWidth > 0 ? DetailPane.ActualWidth : ComputeGoldenDetailWidth();
+        if (offset <= 0)
+        {
+            ResetDetailPaneAnimationState();
+            return;
+        }
+
+        DetailPaneTranslate.X = offset;
+        DetailPane.Opacity = 0;
+
+        var duration = new Duration(TimeSpan.FromMilliseconds(220));
+        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+
+        var translate = new DoubleAnimation
+        {
+            From = offset,
+            To = 0,
+            Duration = duration,
+            EnableDependentAnimation = true,
+            EasingFunction = easing
+        };
+        Storyboard.SetTarget(translate, DetailPaneTranslate);
+        Storyboard.SetTargetProperty(translate, "X");
+
+        var opacity = new DoubleAnimation
+        {
+            From = 0,
+            To = 1,
+            Duration = duration,
+            EnableDependentAnimation = true,
+            EasingFunction = easing
+        };
+        Storyboard.SetTarget(opacity, DetailPane);
+        Storyboard.SetTargetProperty(opacity, "Opacity");
+
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(translate);
+        storyboard.Children.Add(opacity);
+        storyboard.Completed += (_, _) =>
+        {
+            // A completed storyboard still owns its animated properties; stop
+            // it before restoring the base transform/opacity.
+            _detailPaneAnimation = null;
+            storyboard.Stop();
+            ResetDetailPaneAnimationState();
+        };
+        _detailPaneAnimation = storyboard;
+        storyboard.Begin();
+    }
+
+    // Slides the book-details pane out to the right edge of the window while
+    // fading it out; the pane and its column collapse only after it has left.
+    private void AnimateDetailPaneOut()
+    {
+        var offset = DetailPane.ActualWidth > 0 ? DetailPane.ActualWidth : ComputeGoldenDetailWidth();
+        if (offset <= 0)
+        {
+            HideDetailPaneInstant();
+            return;
+        }
+
+        // Capture the current animated values before the running storyboard is
+        // stopped, so a close that interrupts an entrance continues from where
+        // the pane actually is instead of snapping to the base values.
+        var fromX = DetailPaneTranslate.X;
+        var fromOpacity = DetailPane.Opacity;
+        _detailPaneAnimation?.Stop();
+        _detailPaneAnimation = null;
+
+        var duration = new Duration(TimeSpan.FromMilliseconds(180));
+        var easing = new CubicEase { EasingMode = EasingMode.EaseIn };
+
+        var translate = new DoubleAnimation
+        {
+            From = fromX,
+            To = offset,
+            Duration = duration,
+            EnableDependentAnimation = true,
+            EasingFunction = easing
+        };
+        Storyboard.SetTarget(translate, DetailPaneTranslate);
+        Storyboard.SetTargetProperty(translate, "X");
+
+        var opacity = new DoubleAnimation
+        {
+            From = fromOpacity,
+            To = 0,
+            Duration = duration,
+            EnableDependentAnimation = true,
+            EasingFunction = easing
+        };
+        Storyboard.SetTarget(opacity, DetailPane);
+        Storyboard.SetTargetProperty(opacity, "Opacity");
+
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(translate);
+        storyboard.Children.Add(opacity);
+        storyboard.Completed += (_, _) =>
+        {
+            _detailPaneAnimation = null;
+            storyboard.Stop();
+            HideDetailPaneInstant();
+        };
+        _detailPaneAnimation = storyboard;
+        storyboard.Begin();
+    }
+
+    // Collapses the details pane immediately (no animation) and resets the
+    // animation state so the next open starts from a clean transform. Used by
+    // page switches that replace the pane, and by the exit completion handler.
+    private void HideDetailPaneInstant()
+    {
+        _detailPaneAnimation?.Stop();
+        _detailPaneAnimation = null;
         DetailPane.Visibility = Visibility.Collapsed;
         MainContentColumn.Width = new GridLength(1, GridUnitType.Star);
         DetailColumn.Width = new GridLength(0);
+        ResetDetailPaneAnimationState();
+    }
+
+    private void ResetDetailPaneAnimationState()
+    {
+        DetailPaneTranslate.X = 0;
+        DetailPane.Opacity = 1;
     }
 
     private void ShowSettingsPanel(FrameworkElement panel)
     {
-        DetailPane.Visibility = Visibility.Collapsed;
+        HideDetailPaneInstant();
         KindleEmailSettingsPane.Visibility = Visibility.Collapsed;
         ZLibraryAccountPane.Visibility = Visibility.Collapsed;
         ReaderAiSettingsPane.Visibility = Visibility.Collapsed;
@@ -1754,8 +1928,7 @@ public sealed partial class MainWindow : Window
         DeviceResourcePage.Visibility = Visibility.Collapsed;
         ReadingMaterialsPage.Visibility = Visibility.Collapsed;
         ReadingDashboardPage.Visibility = Visibility.Collapsed;
-        DetailPane.Visibility = Visibility.Collapsed;
-        DetailColumn.Width = new GridLength(0);
+        HideDetailPaneInstant();
         HideSettingsPanel();
         DevicePage.Visibility = Visibility.Visible;
     }

@@ -163,6 +163,22 @@ public sealed class ProductivityFeatureTests
     }
 
     [Fact]
+    public void RootConfigurationSupportsSeparatePlatformFallback()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var configuration = Path.Combine(root, "config");
+            var defaultData = Path.Combine(root, "data");
+            Assert.Equal(Path.GetFullPath(defaultData), AppRootConfiguration.ResolveRoot(configuration, defaultData));
+            var relocated = Path.Combine(root, "relocated");
+            AppRootConfiguration.Save(configuration, relocated);
+            Assert.Equal(Path.GetFullPath(relocated), AppRootConfiguration.ResolveRoot(configuration, defaultData));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
     public async Task LibraryPersistsProductivityAndDoubanMetadata()
     {
         var root = TestHelpers.CreateTempDirectory();

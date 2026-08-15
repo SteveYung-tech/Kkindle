@@ -70,6 +70,7 @@ public partial class MainWindow
     private bool _appSettingsAutoSaveConfigured;
     private CancellationTokenSource? _appSettingsAutoSaveCancellation;
     private int _settingsSavedStatusSequence;
+    private bool _calibreSetupBusy;
 
     public ObservableCollection<KindleBookCardViewModel> DeviceBooks { get; } = [];
     public ObservableCollection<KindleDeviceResource> DeviceResources { get; } = [];
@@ -326,10 +327,7 @@ public partial class MainWindow
         FadeInPage(LibraryWorkspace);
         LibraryDetailPane.IsVisible = _selectedCard is not null;
         if (LibraryRoot.ColumnDefinitions.Count >= 3)
-            LibraryRoot.ColumnDefinitions[2].Width = _selectedCard is not null
-                && LibraryRoot.Bounds.Width >= LibraryDetailMinimumRootWidth
-                    ? new GridLength(LibraryDetailWidth)
-                    : new GridLength(0);
+            LibraryRoot.ColumnDefinitions[2].Width = new GridLength(0);
         DevicePage.IsVisible = false;
         DeviceResourcePage.IsVisible = false;
         ReadingMaterialsPage.IsVisible = false;
@@ -932,13 +930,12 @@ public partial class MainWindow
             return;
         }
 
-        // Disconnected card: re-run detection with immediate feedback so the
-        // click is never silent.
+        // Keep the compact status card geometrically stable while detection
+        // runs; inserting a temporary second line made it flash and jump.
+        if (_isRefreshingDevices) return;
         _manuallyDisconnectedDeviceId = null;
         _ignoredDeviceId = null;
         _lastDeviceIdentity = null;
-        KindleConnectionText.Text = "正在检测设备…";
-        KindleConnectionText.IsVisible = true;
         _ = RefreshDevicesAsync(scanBooks: DevicePage.IsVisible, _lifetimeCancellation.Token);
         e.Handled = true;
     }
@@ -2713,6 +2710,71 @@ public partial class MainWindow
         if (!string.IsNullOrWhiteSpace(path)) CalibrePathBox.Text = path;
     }
 
+    private async void InstallCalibreButton_Click(object? sender, RoutedEventArgs e) =>
+        await RunCalibreSetupAsync(installPlugin: false);
+
+    private async void InstallKfxInputButton_Click(object? sender, RoutedEventArgs e) =>
+        await RunCalibreSetupAsync(installPlugin: true);
+
+    private async Task RunCalibreSetupAsync(bool installPlugin)
+    {
+        if (_calibreSetupBusy) return;
+        if (NetworkEnabledCheck.IsChecked == false)
+        {
+            CalibreSetupStatusText.Text = "请先开启“允许网络功能”。";
+            return;
+        }
+
+        _calibreSetupBusy = true;
+        InstallCalibreButton.IsEnabled = false;
+        InstallKfxInputButton.IsEnabled = false;
+        CalibreSetupProgressBar.IsVisible = true;
+        CalibreSetupProgressBar.IsIndeterminate = true;
+        var progress = new Progress<CalibreSetupProgress>(value =>
+        {
+            CalibreSetupStatusText.Text = value.Message;
+            CalibreSetupProgressBar.IsIndeterminate = value.Percentage is null;
+            if (value.Percentage is { } percentage) CalibreSetupProgressBar.Value = percentage;
+        });
+
+        try
+        {
+            using var setup = new CalibreSetupService();
+            if (installPlugin)
+            {
+                var executable = await setup.InstallKfxInputAsync(
+                    CalibrePathBox.Text,
+                    progress,
+                    _lifetimeCancellation.Token);
+                CalibrePathBox.Text = executable;
+                CalibreSetupStatusText.Text = "KFX Input 已安装，可以转换无 DRM 的 KFX 文件。";
+            }
+            else
+            {
+                var result = await setup.InstallCalibreAsync(progress, _lifetimeCancellation.Token);
+                CalibrePathBox.Text = result.ExecutablePath;
+                CalibreSetupStatusText.Text = result.Message;
+            }
+            await SaveAppSettingsCoreAsync();
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
+            CalibreSetupStatusText.Text = "安装已取消。";
+        }
+        catch (Exception exception)
+        {
+            CalibreSetupStatusText.Text = $"安装失败：{exception.Message}";
+        }
+        finally
+        {
+            _calibreSetupBusy = false;
+            InstallCalibreButton.IsEnabled = true;
+            InstallKfxInputButton.IsEnabled = true;
+            CalibreSetupProgressBar.IsVisible = false;
+            CalibreSetupProgressBar.IsIndeterminate = false;
+        }
+    }
+
     private void OpenDataDirectoryButton_Click(object? sender, RoutedEventArgs e)
     {
         try
@@ -2804,7 +2866,7 @@ public partial class MainWindow
         {
             var migrationBackup = AppRootConfiguration.MigrationBackupPath(targetRoot);
             await _backupService.ExportAsync(migrationBackup, _lifetimeCancellation.Token);
-            AppRootConfiguration.Save(AppContext.BaseDirectory, targetRoot);
+            AppRootConfiguration.Save(_rootConfigurationDirectory, targetRoot);
             ApplicationSettingsStatusText.Text = "迁移包已准备；重启 Kkindle 后自动完成迁移。";
         }
         catch (Exception exception)

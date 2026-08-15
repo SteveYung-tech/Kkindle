@@ -4,8 +4,6 @@ param(
     [ValidatePattern('^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$')]
     [string]$Version,
 
-    [string]$CalibreRuntime,
-
     [string]$OutputRoot,
 
     [switch]$SkipInstaller
@@ -41,15 +39,6 @@ $publishArguments = @(
     '-o', $publishDirectory
 )
 
-if (-not [string]::IsNullOrWhiteSpace($CalibreRuntime)) {
-    $CalibreRuntime = [System.IO.Path]::GetFullPath($CalibreRuntime)
-    $converterPath = Join-Path $CalibreRuntime 'ebook-convert.exe'
-    if (-not (Test-Path -LiteralPath $converterPath -PathType Leaf)) {
-        throw "Invalid Calibre runtime; ebook-convert.exe was not found: $converterPath"
-    }
-    $publishArguments += "-p:KkindleCalibreRuntime=$CalibreRuntime"
-}
-
 & dotnet @publishArguments
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE"
@@ -62,19 +51,6 @@ if (-not (Test-Path -LiteralPath $applicationPath -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
     throw "Published output does not contain LICENSE: $licensePath"
-}
-
-if (-not [string]::IsNullOrWhiteSpace($CalibreRuntime)) {
-    $kfxPluginDirectory = Join-Path $publishDirectory 'CalibrePlugins'
-    $kfxPluginPath = Join-Path $kfxPluginDirectory 'KFX Input.zip'
-    $kfxPluginUrl = 'https://www.mobileread.com/forums/attachment.php?attachmentid=223438&d=1779301078'
-    $kfxPluginSha256 = '6919e8cec65a92f922a14f616eedcb1b9dbb2a79dd4a261f9548e17ca208072f'
-    New-Item -ItemType Directory -Path $kfxPluginDirectory -Force | Out-Null
-    Invoke-WebRequest -Uri $kfxPluginUrl -OutFile $kfxPluginPath
-    $actualKfxPluginHash = (Get-FileHash -LiteralPath $kfxPluginPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actualKfxPluginHash -ne $kfxPluginSha256) {
-        throw "KFX Input plugin checksum mismatch. Expected $kfxPluginSha256, got $actualKfxPluginHash"
-    }
 }
 
 $portableArchive = Join-Path $OutputRoot "Kkindle-$Version-win-x64-portable.zip"

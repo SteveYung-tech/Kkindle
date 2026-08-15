@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using Kkindle.Infrastructure;
 
 namespace Kkindle.Tests;
@@ -105,6 +106,135 @@ public sealed class BookFormatConversionServiceTests
             {
                 Environment.SetEnvironmentVariable("KKINDLE_CALIBRE_CONVERT", previous);
             }
+        }
+        finally
+        {
+            TestHelpers.TryDelete(root);
+        }
+    }
+
+    [Theory]
+    [InlineData("Linux", "ebook-convert")]
+    [InlineData("MacOS", "ebook-convert")]
+    [InlineData("Windows", "ebook-convert.exe")]
+    public void CalibreLocatorAcceptsUserSelectedInstallationDirectory(string operatingSystemName, string executableName)
+    {
+        var operatingSystem = Enum.Parse<DesktopOperatingSystem>(operatingSystemName);
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var executable = Path.Combine(root, executableName);
+            File.WriteAllText(executable, "fake");
+            Assert.Equal(
+                Path.GetFullPath(executable),
+                CalibreExecutableLocator.Locate(root, root, null, operatingSystem));
+        }
+        finally
+        {
+            TestHelpers.TryDelete(root);
+        }
+    }
+
+    [Theory]
+    [InlineData("Linux", "ebook-convert")]
+    [InlineData("MacOS", "ebook-convert")]
+    [InlineData("Windows", "ebook-convert.exe")]
+    public void CalibreLocatorUsesPlatformExecutableName(string operatingSystemName, string executableName)
+    {
+        var operatingSystem = Enum.Parse<DesktopOperatingSystem>(operatingSystemName);
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var pathDirectory = Path.Combine(root, "path-entry");
+            Directory.CreateDirectory(pathDirectory);
+            var executable = Path.Combine(pathDirectory, executableName);
+            File.WriteAllText(executable, "fake");
+            Assert.Equal(
+                Path.GetFullPath(executable),
+                CalibreExecutableLocator.Locate(root, null, pathDirectory, operatingSystem));
+        }
+        finally
+        {
+            TestHelpers.TryDelete(root);
+        }
+    }
+
+    [Theory]
+    [InlineData("Linux", "ebook-convert")]
+    [InlineData("MacOS", "ebook-convert")]
+    [InlineData("Windows", "ebook-convert.exe")]
+    public void CalibreLocatorFindsApplicationLocalInstallation(string operatingSystemName, string executableName)
+    {
+        var operatingSystem = Enum.Parse<DesktopOperatingSystem>(operatingSystemName);
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var calibreDirectory = Path.Combine(root, "Calibre");
+            Directory.CreateDirectory(calibreDirectory);
+            var executable = Path.Combine(calibreDirectory, executableName);
+            File.WriteAllText(executable, "fake");
+            Assert.Equal(
+                Path.GetFullPath(executable),
+                CalibreExecutableLocator.Locate(root, null, null, operatingSystem));
+        }
+        finally
+        {
+            TestHelpers.TryDelete(root);
+        }
+    }
+
+    [Theory]
+    [InlineData("Linux", "calibre-bin/ebook-convert")]
+    [InlineData("MacOS", "Applications/calibre.app/Contents/MacOS/ebook-convert")]
+    public void CalibreLocatorFindsPerUserAutomaticInstallation(string operatingSystemName, string relativePath)
+    {
+        var operatingSystem = Enum.Parse<DesktopOperatingSystem>(operatingSystemName);
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var executable = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(executable)!);
+            File.WriteAllText(executable, "fake");
+            Assert.Equal(
+                Path.GetFullPath(executable),
+                CalibreExecutableLocator.Locate(root, null, null, operatingSystem, userProfile: root));
+        }
+        finally
+        {
+            TestHelpers.TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public void KfxPluginValidationAcceptsExpectedCalibrePluginStructure()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var path = Path.Combine(root, "KFX Input.zip");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                TestHelpers.AddZipEntry(archive, "plugin-import-name-kfx_input.txt", "kfx_input");
+                TestHelpers.AddZipEntry(archive, "__init__.py", "name = 'KFX Input'");
+            }
+            CalibreSetupService.ValidateKfxPluginPackage(path);
+        }
+        finally
+        {
+            TestHelpers.TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public void KfxPluginValidationRejectsUnrelatedZip()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var path = Path.Combine(root, "plugin.zip");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+                TestHelpers.AddZipEntry(archive, "__init__.py", "name = 'Something Else'");
+            Assert.Throws<InvalidDataException>(() => CalibreSetupService.ValidateKfxPluginPackage(path));
         }
         finally
         {

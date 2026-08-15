@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  windows:
     name: Build and publish Avalonia Windows release
     runs-on: windows-2022
     timeout-minutes: 90
@@ -60,7 +60,7 @@ jobs:
       - name: Install release toolchain
         shell: pwsh
         run: |
-          choco install calibre innosetup --yes --no-progress
+          choco install innosetup --yes --no-progress
           if ($LASTEXITCODE -ne 0) { throw "Chocolatey 安装发布工具失败：$LASTEXITCODE" }
 
       - name: Build installer and portable package
@@ -68,7 +68,6 @@ jobs:
         run: |
           .\scripts\Build-Release.ps1 `
             -Version '${{ steps.version.outputs.version }}' `
-            -CalibreRuntime 'C:\Program Files\Calibre2' `
             -OutputRoot $env:RELEASE_DIR
 
       - name: Upload workflow artifacts
@@ -78,39 +77,99 @@ jobs:
           path: |
             ${{ env.RELEASE_DIR }}/*.exe
             ${{ env.RELEASE_DIR }}/*.zip
-            ${{ env.RELEASE_DIR }}/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
 
-      - name: Create or update GitHub Release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
+  linux:
+    name: Build Linux packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - name: Resolve version
+        id: version
+        shell: bash
         run: |
-          $assets = @(
-            (Join-Path $env:RELEASE_DIR "Kkindle-${{ steps.version.outputs.version }}-win-x64-setup.exe"),
-            (Join-Path $env:RELEASE_DIR "Kkindle-${{ steps.version.outputs.version }}-win-x64-portable.zip"),
-            (Join-Path $env:RELEASE_DIR 'SHA256SUMS.txt')
-          )
-          foreach ($asset in $assets) {
-            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) { throw "缺少发布产物：$asset" }
-          }
+          [[ "$RELEASE_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?)$ ]] || exit 1
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+      - name: Build amd64 packages
+        run: bash scripts/build-linux-release.sh '${{ steps.version.outputs.version }}' artifacts/linux linux-x64
+      - name: Build arm64 packages
+        run: bash scripts/build-linux-release.sh '${{ steps.version.outputs.version }}' artifacts/linux linux-arm64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Kkindle-${{ steps.version.outputs.version }}-linux
+          path: artifacts/linux/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
 
-          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:RELEASE_TAG @assets --clobber --repo $env:GITHUB_REPOSITORY
-          }
-          else {
-            $arguments = @(
-              'release', 'create', $env:RELEASE_TAG,
-              '--repo', $env:GITHUB_REPOSITORY,
-              '--verify-tag',
-              '--title', "Kkindle $env:RELEASE_TAG",
-              '--generate-notes'
-            )
-            if ('${{ steps.version.outputs.prerelease }}' -eq 'true') { $arguments += '--prerelease' }
-            $arguments += $assets
-            gh @arguments
-          }
-          if ($LASTEXITCODE -ne 0) { throw "GitHub Release 发布失败：$LASTEXITCODE" }
+  macos:
+    name: Build macOS packages
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?)$ ]] || exit 1
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+      - name: Build Apple Silicon package
+        run: bash scripts/build-macos-release.sh '${{ steps.version.outputs.version }}' artifacts/macos osx-arm64
+      - name: Build Intel package
+        run: bash scripts/build-macos-release.sh '${{ steps.version.outputs.version }}' artifacts/macos osx-x64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Kkindle-${{ steps.version.outputs.version }}-macos
+          path: artifacts/macos/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  github-release:
+    name: Publish three-platform release
+    needs: [windows, linux, macos]
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: Kkindle-*
+          path: artifacts
+          merge-multiple: true
+      - name: Create checksums
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+      - name: Create or update GitHub Release
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#v}"
+          prerelease=()
+          [[ "$version" == *-* ]] && prerelease=(--prerelease)
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" artifacts/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" artifacts/* \
+              --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "Kkindle $RELEASE_TAG" --generate-notes "${prerelease[@]}"
+          fi
