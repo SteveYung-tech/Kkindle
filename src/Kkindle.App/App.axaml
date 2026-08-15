@@ -192,6 +192,26 @@
     <Application.Styles>
         <FluentTheme />
 
+        <!-- Tooltips use the same restrained square treatment as the other
+             popup surfaces: paper-white body, one-pixel ink outline, no
+             rounded corners and no platform shadow. -->
+        <Style Selector="ToolTip">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Padding" Value="8,5" />
+        </Style>
+        <Style Selector="ToolTip /template/ Border#PART_Border">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+
         <!-- Avalonia's ScrollBar already owns the interaction state needed for
              automatic hiding. This keeps the behavior in the control theme,
              rather than duplicating WinUI's visual-tree registration logic. -->
