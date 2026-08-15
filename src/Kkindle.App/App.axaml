@@ -901,7 +901,9 @@
             <Setter Property="Background" Value="{StaticResource PaperBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
             <Setter Property="Padding" Value="{DynamicResource MenuFlyoutItemThemePaddingNarrow}" />
+            <Setter Property="Height" Value="40" />
             <Setter Property="MinHeight" Value="40" />
+            <Setter Property="MaxHeight" Value="40" />
             <Setter Property="CornerRadius" Value="0" />
         </Style>
         <!-- 选中某条：黑色矩形 + 白色反色文字。子菜单箭头等矢量图形同样
@@ -923,6 +925,8 @@
             <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
         </Style>
         <Style Selector="MenuItem:separator">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="MaxHeight" Value="1" />
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="Padding" Value="0" />
         </Style>
