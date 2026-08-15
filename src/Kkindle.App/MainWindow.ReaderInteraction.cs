@@ -35,6 +35,9 @@ public partial class MainWindow
     private int _readerSearchSequence;
     private int _readerSearchCount;
     private int _readerSearchIndex = -1;
+    private int? _readerPendingChunkOffset;
+    private string? _readerPendingSearchQuery;
+    private string? _readerPendingSearchContext;
     private string? _readerPendingSelection;
     private int _readerPendingSelectionStartOffset;
     private int _readerPendingSelectionEndOffset;
@@ -114,6 +117,9 @@ public partial class MainWindow
         _readerClientHeight = 0;
         _readerSearchCount = 0;
         _readerSearchIndex = -1;
+        _readerPendingChunkOffset = null;
+        _readerPendingSearchQuery = null;
+        _readerPendingSearchContext = null;
         _readerSearchSequence++;
         _readerWholeSearchSequence++;
         _readerContinuousSkipDepth = 0;
@@ -141,7 +147,7 @@ public partial class MainWindow
         ReaderSearchResults.Clear();
         ReaderWholeSearchCountText.Text = string.Empty;
         ReaderSearchStatusText.IsVisible = true;
-        ReaderSearchResultList.IsVisible = true;
+        ReaderSearchResultList.IsVisible = false;
         ReaderInPageSearchBar.IsVisible = false;
         ReaderLayoutSettingsOverlay.IsVisible = false;
         ReaderHighlightButton.IsVisible = false;
@@ -209,6 +215,11 @@ public partial class MainWindow
                 document.head.appendChild(style);
               }
               style.textContent = css;
+              // FontFaceSet is asynchronous. Reset the per-document marker so
+              // the host waits for this style pass before revealing a newly
+              // navigated chapter.
+              window.__kkindleReaderFontReady = false;
+              window.__kkindleReaderFontWaitStarted = false;
               document.documentElement.style.setProperty(
                 '--kkindle-reader-page-viewport-width',
                 (window.innerWidth || document.documentElement.clientWidth || 0) + 'px');
@@ -219,6 +230,7 @@ public partial class MainWindow
             })();
             """;
         await host.InvokeScriptAsync(script);
+        await WaitForReaderFontsAsync(host, cancellationToken);
         await host.InvokeScriptAsync(ReaderPaginationScripts.PageAlignmentHelperDefinition);
         if (pagination)
             await host.InvokeScriptAsync(ReaderPaginationScripts.Snap);
@@ -274,6 +286,62 @@ public partial class MainWindow
         if (bundledFontUri is not null)
             builder.Append($"\n@font-face {{ font-family: \"{ReaderFontDefaults.BundledFamily}\"; src: url(\"{bundledFontUri}\") format(\"truetype\"); font-display: swap; }}");
         return builder.ToString();
+    }
+
+    // A WebView navigation completion only means that the document itself is
+    // ready; it does not mean a font introduced by the injected style has
+    // finished downloading. Keep the native host hidden while FontFaceSet
+    // settles so a TOC swap cannot reveal fallback text and then reflow into
+    // the bundled reading font.
+    private static async Task WaitForReaderFontsAsync(
+        IReaderHost host,
+        CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 24;
+        const int delayMilliseconds = 25;
+        const string waitScript = """
+            (() => {
+              const fonts = document.fonts;
+              if (!fonts) return 'ready';
+              if (!window.__kkindleReaderFontWaitStarted) {
+                window.__kkindleReaderFontWaitStarted = true;
+                const requests = [fonts.ready];
+                try {
+                  // Explicitly request the bundled family. It is the fallback
+                  // used by the default reader stack and this also starts the
+                  // load when the page's own CSS did not specify a font face.
+                  requests.push(fonts.load('1em "KingHwaOldSong"'));
+                } catch (_) { }
+                Promise.allSettled(requests).then(() => {
+                  window.__kkindleReaderFontReady = true;
+                });
+              }
+              return window.__kkindleReaderFontReady === true ? 'ready' : 'pending';
+            })();
+            """;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var result = await host.InvokeScriptAsync(waitScript);
+                if (string.Equals(
+                    result?.Trim().Trim('"'),
+                    "ready",
+                    StringComparison.OrdinalIgnoreCase))
+                    return;
+            }
+            catch
+            {
+                // A fixed-layout or partially initialized document may reject
+                // FontFaceSet access. The style has still been applied, so do
+                // not turn a cosmetic wait into a chapter navigation failure.
+                return;
+            }
+
+            await Task.Delay(delayMilliseconds, cancellationToken);
+        }
     }
 
     // Fallback stack for the reading font, mirroring the WinUI reference's
@@ -345,6 +413,7 @@ public partial class MainWindow
         if (item.ChapterIndex < 0 || item.ChapterIndex >= _readerDocument.Chapters.Count) return;
         if (!Uri.TryCreate(item.Target, UriKind.Absolute, out var target) || !target.IsFile) return;
         if (!IsPathInside(_readerDocument.RootPath, target.LocalPath)) return;
+        PruneReaderPendingLocations(intent);
 
         var current = CurrentReaderHost;
         if (ReaderNavigationLocationPolicy.TargetsSameDocument(current.Source, target))
@@ -424,6 +493,17 @@ public partial class MainWindow
     // targets keep the DOM untouched because their own offset-based scrolling
     // (and annotation offset math) depends on it; plain switches normalize
     // unless a breakpoint restore is pending.
+    private void PruneReaderPendingLocations(ReaderNavigationIntent intent)
+    {
+        if (!ReaderNavigationLocationPolicy.KeepsChunkOffset(intent))
+            _readerPendingChunkOffset = null;
+        if (intent != ReaderNavigationIntent.Search)
+        {
+            _readerPendingSearchQuery = null;
+            _readerPendingSearchContext = null;
+        }
+    }
+
     private async Task ApplyReaderLocationAsync(
         IReaderHost host,
         Uri target,
@@ -435,6 +515,12 @@ public partial class MainWindow
         if (ReaderNavigationLocationPolicy.ShouldNormalizeChapterStart(intent, target, hasPendingRestorePosition))
         {
             await host.InvokeScriptAsync(ReaderNavigationScripts.NormalizeChapterStart);
+            return;
+        }
+
+        if (intent is ReaderNavigationIntent.Search or ReaderNavigationIntent.AiSource)
+        {
+            await ScrollToPendingReaderChunkAsync(host, cancellationToken);
             return;
         }
 
@@ -591,12 +677,25 @@ public partial class MainWindow
                 mark.className = 'kkindle-page-find-hit';
                 mark.style.setProperty('background', '#D8D8D8', 'important');
                 mark.style.setProperty('color', '#000000', 'important');
+                mark.style.setProperty('text-decoration', 'none', 'important');
                 range.surroundContents(mark);
               }
               return matches.length;
             })();
             """;
-        var result = await host.InvokeScriptAsync(script);
+        string? result;
+        try
+        {
+            result = await host.InvokeScriptAsync(script);
+        }
+        catch
+        {
+            if (sequence != _readerSearchSequence) return;
+            _readerSearchCount = 0;
+            _readerSearchIndex = -1;
+            UpdateReaderSearchCount();
+            return;
+        }
         if (sequence != _readerSearchSequence) return;
         _readerSearchCount = ParseScriptInt(result);
         _readerSearchIndex = _readerSearchCount > 0 ? 0 : -1;
@@ -639,7 +738,15 @@ public partial class MainWindow
               return true;
             })();
             """;
-        await host.InvokeScriptAsync(script);
+        try
+        {
+            await host.InvokeScriptAsync(script);
+        }
+        catch
+        {
+            // Search navigation is best-effort when a chapter is being
+            // replaced by the other reader host.
+        }
         UpdateReaderSearchCount();
     }
 
@@ -651,16 +758,24 @@ public partial class MainWindow
         _readerSearchIndex = -1;
         if (CurrentReaderHost is { } host)
         {
-            await host.InvokeScriptAsync("""
-                (() => {
-                  for (const mark of Array.from(document.querySelectorAll('mark.kkindle-page-find-hit'))) {
-                    const parent = mark.parentNode;
-                    if (!parent) continue;
-                    parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
-                    parent.normalize?.();
-                  }
-                })();
-                """);
+            try
+            {
+                await host.InvokeScriptAsync("""
+                    (() => {
+                      for (const mark of Array.from(document.querySelectorAll('mark.kkindle-page-find-hit, mark.kkindle-search-hit'))) {
+                        const parent = mark.parentNode;
+                        if (!parent) continue;
+                        parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+                        parent.normalize?.();
+                      }
+                    })();
+                    """);
+            }
+            catch
+            {
+                // PDF's built-in viewer and a just-swapped WebView do not
+                // expose a scriptable DOM; clearing search is still complete.
+            }
         }
         UpdateReaderSearchCount();
     }

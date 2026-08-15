@@ -78,7 +78,12 @@ public partial class MainWindow
             ApplyReaderPanelLayout();
 
             await EnsureReaderHostsAsync();
-            SetReaderHostLayer();
+            // Keep the first document behind the opaque reader surface until
+            // its Kreader CSS and bundled font have been applied. Native
+            // WebView2 paints the navigated XHTML before the first script
+            // injection, so showing this slot here would expose the EPUB's
+            // original typography for a frame.
+            SetReaderHostLayer(revealActiveHost: false);
 
             var target = new Uri(document.Chapters[_readerChapterIndex]);
             var loaded = await NavigateReaderHostAndWaitAsync(
@@ -87,6 +92,8 @@ public partial class MainWindow
                 sessionToken);
             if (!loaded)
                 throw new InvalidOperationException("阅读器无法加载 EPUB 章节。");
+
+            SetReaderHostLayer();
 
             await SaveReaderProgressAsync(sessionToken);
             _ = PreloadNextReaderChapterAsync(sessionToken);
@@ -284,17 +291,17 @@ public partial class MainWindow
         return $"第 {chapterIndex + 1} 章";
     }
 
-    private void SetReaderHostLayer()
+    private void SetReaderHostLayer(bool revealActiveHost = true)
     {
         var activeSlot = _readerShowingPreload ? ReaderPreloadHostSlot : ReaderActiveHostSlot;
         var hiddenSlot = _readerShowingPreload ? ReaderActiveHostSlot : ReaderPreloadHostSlot;
         // Native webviews are HWND-backed. Opacity and ZIndex alone only affect
         // the Avalonia wrapper; the hidden child window can still cover the
         // visible chapter and consume input. Toggle actual visibility as well.
-        activeSlot.IsVisible = true;
+        activeSlot.IsVisible = revealActiveHost;
         hiddenSlot.IsVisible = false;
-        activeSlot.Opacity = 1;
-        activeSlot.IsHitTestVisible = true;
+        activeSlot.Opacity = revealActiveHost ? 1 : 0;
+        activeSlot.IsHitTestVisible = revealActiveHost;
         hiddenSlot.Opacity = 0;
         hiddenSlot.IsHitTestVisible = false;
         activeSlot.ZIndex = 1;
@@ -399,6 +406,9 @@ public partial class MainWindow
         ReaderBookmarks.Clear();
         ReaderAnnotations.Clear();
         ReaderSearchResults.Clear();
+        _readerPendingChunkOffset = null;
+        _readerPendingSearchQuery = null;
+        _readerPendingSearchContext = null;
         ReaderAiMessages.Clear();
         ReaderAiSources.Clear();
         _readerPendingSelection = null;

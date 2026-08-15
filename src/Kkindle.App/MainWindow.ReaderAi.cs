@@ -486,6 +486,9 @@ public partial class MainWindow
             _readerDocument.RootPath,
             chunk.ChapterPath.Replace('/', Path.DirectorySeparatorChar)));
         if (!IsPathInside(_readerDocument.RootPath, path)) return;
+        _readerPendingChunkOffset = Math.Max(0, chunk.StartOffset);
+        _readerPendingSearchQuery = null;
+        _readerPendingSearchContext = null;
         await NavigateToReaderItemAsync(
             new EpubReaderNavigationItem(chunk.ChapterTitle, new Uri(path).AbsoluteUri, chunk.ChapterIndex),
             ReaderToken,

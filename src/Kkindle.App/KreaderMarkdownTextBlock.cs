@@ -51,7 +51,7 @@ public sealed class KreaderMarkdownTextBlock : TextBlock
 
     private void RebuildMarkdownInlines(string? markdown)
     {
-        Inlines.Clear();
+        Inlines?.Clear();
         if (string.IsNullOrWhiteSpace(markdown)) return;
 
         var lines = markdown.Replace("\r\n", "\n").Split('\n');
@@ -145,15 +145,15 @@ public sealed class KreaderMarkdownTextBlock : TextBlock
         foreach (Match match in matches)
         {
             if (match.Index > position)
-                Inlines.Add(new Run(text[position..match.Index]));
+                Inlines?.Add(new Run(text[position..match.Index]));
             var token = match.Value;
             if (token.StartsWith("**", StringComparison.Ordinal) && token.EndsWith("**", StringComparison.Ordinal))
             {
-                Inlines.Add(new Run(token[2..^2]) { FontWeight = FontWeight.Bold });
+                Inlines?.Add(new Run(token[2..^2]) { FontWeight = FontWeight.Bold });
             }
             else if (token.StartsWith('`') && token.EndsWith('`') && token.Length >= 2)
             {
-                Inlines.Add(new Run(token[1..^1])
+                Inlines?.Add(new Run(token[1..^1])
                 {
                     FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"),
                     FontSize = FontSize - 1,
@@ -163,31 +163,31 @@ public sealed class KreaderMarkdownTextBlock : TextBlock
             }
             else if (token.StartsWith('*') && token.EndsWith('*') && token.Length >= 2)
             {
-                Inlines.Add(new Run(token[1..^1]) { FontStyle = FontStyle.Italic });
+                Inlines?.Add(new Run(token[1..^1]) { FontStyle = FontStyle.Italic });
             }
             else if (token.StartsWith('[') && token.EndsWith(')'))
             {
                 var separator = token.IndexOf("](", StringComparison.Ordinal);
                 if (separator > 1)
                 {
-                    Inlines.Add(new Run(token[1..separator])
+                    Inlines?.Add(new Run(token[1..separator])
                     {
                         TextDecorations = Avalonia.Media.TextDecorations.Underline
                     });
                 }
                 else
                 {
-                    Inlines.Add(new Run(token));
+                    Inlines?.Add(new Run(token));
                 }
             }
             else
             {
-                Inlines.Add(new Run(token));
+                Inlines?.Add(new Run(token));
             }
             position = match.Index + match.Length;
         }
         if (position < text.Length)
-            Inlines.Add(new Run(text[position..]));
+            Inlines?.Add(new Run(text[position..]));
     }
 
     private void AddHeading(string text, int level)
@@ -199,7 +199,7 @@ public sealed class KreaderMarkdownTextBlock : TextBlock
             3 => 14d,
             _ => 13d
         };
-        Inlines.Add(new Run(text)
+        Inlines?.Add(new Run(text)
         {
             FontSize = size,
             FontWeight = FontWeight.SemiBold
@@ -210,7 +210,7 @@ public sealed class KreaderMarkdownTextBlock : TextBlock
     private void AppendCodeBlock(string code)
     {
         AddLineBreak();
-        Inlines.Add(new Run(code.TrimEnd('\n'))
+        Inlines?.Add(new Run(code.TrimEnd('\n'))
         {
             FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"),
             FontSize = FontSize - 1,
@@ -222,12 +222,12 @@ public sealed class KreaderMarkdownTextBlock : TextBlock
 
     private void AddSeparator()
     {
-        Inlines.Add(new Run("――――――――")
+        Inlines?.Add(new Run("――――――――")
         {
             Foreground = new SolidColorBrush(Color.FromArgb(255, 213, 213, 209))
         });
         AddLineBreak();
     }
 
-    private void AddLineBreak() => Inlines.Add(new LineBreak());
+    private void AddLineBreak() => Inlines?.Add(new LineBreak());
 }

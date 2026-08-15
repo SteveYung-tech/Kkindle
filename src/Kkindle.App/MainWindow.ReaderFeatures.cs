@@ -10,6 +10,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
+using System.Text.RegularExpressions;
 
 namespace Kkindle;
 
@@ -266,6 +267,13 @@ public partial class MainWindow
         SetReaderTocTabState(bookmarkTab: false);
     }
 
+    private void ShowReaderSearchStatus(string? message)
+    {
+        ReaderSearchStatusText.Text = message ?? string.Empty;
+        ReaderSearchStatusText.IsVisible = message is not null;
+        ReaderSearchResultList.IsVisible = message is null;
+    }
+
     // Hollow tabs: transparent fill for every state; the selected tab is
     // outlined with a black border instead of a filled rectangle (WinUI
     // reference's ReaderTocTabsPanel visual).
@@ -298,6 +306,16 @@ public partial class MainWindow
         _readerTocExpanded = true;
         ApplyReaderPanelLayout();
         ShowReaderSearchTab();
+        if (string.IsNullOrWhiteSpace(ReaderTocSearchBox.Text))
+            ShowReaderSearchStatus("输入关键词，实时搜索整本书。");
+        else if (ReaderSearchResults.Count > 0)
+            ShowReaderSearchStatus(null);
+        else
+        {
+            ShowReaderSearchStatus("正在本地搜索…");
+            var sequence = ++_readerWholeSearchSequence;
+            _ = RefreshReaderWholeSearchAsync(ReaderTocSearchBox.Text?.Trim() ?? string.Empty, sequence);
+        }
         ReaderTocSearchBox.Focus();
     }
 
@@ -449,6 +467,13 @@ public partial class MainWindow
     private async void ReaderTocSearchBox_TextChanged(object? sender, TextChangedEventArgs e)
     {
         var sequence = ++_readerWholeSearchSequence;
+        var query = ReaderTocSearchBox.Text?.Trim() ?? string.Empty;
+        if (query.Length == 0)
+        {
+            await RefreshReaderWholeSearchAsync(query, sequence);
+            return;
+        }
+        ShowReaderSearchStatus("正在本地搜索…");
         await Task.Delay(160);
         if (sequence != _readerWholeSearchSequence) return;
         await RefreshReaderWholeSearchAsync(ReaderTocSearchBox.Text?.Trim() ?? string.Empty, sequence);
@@ -461,17 +486,14 @@ public partial class MainWindow
         if (query.Length == 0)
         {
             ReaderWholeSearchCountText.Text = string.Empty;
-            ReaderSearchStatusText.IsVisible = true;
-            ReaderSearchStatusText.Text = "输入关键词，实时搜索整本书。";
-            ReaderSearchResultList.IsVisible = false;
+            ShowReaderSearchStatus("输入关键词，实时搜索整本书。");
             return;
         }
 
+        ReaderWholeSearchCountText.Text = string.Empty;
+        ShowReaderSearchStatus("正在本地搜索…");
         try
         {
-            ReaderSearchStatusText.IsVisible = false;
-            ReaderSearchStatusText.Text = "正在本地搜索…";
-            ReaderSearchResultList.IsVisible = false;
             if (_readerIsPdf)
             {
                 var results = PdfTextService.Search(_readerPdfPages, query, int.MaxValue);
@@ -487,7 +509,6 @@ public partial class MainWindow
             }
             else if (_readerBookCard is not null && _readerBookFile is not null && _readerDocument is not null)
             {
-                ReaderAiStatusText.Text = "正在准备本地全文索引…";
                 await _bookContent.EnsureIndexedAsync(_readerBookCard.Book, _readerBookFile, _readerDocument, ReaderToken);
                 var results = await _readerData.SearchBookAsync(
                     _readerBookCard.Book.Id,
@@ -499,38 +520,28 @@ public partial class MainWindow
                 // final presentation boundary, identical title + snippet means an
                 // identical user-facing result and must only be shown once.
                 var distinct = results
-                    .Select(result => new
-                    {
-                        result,
-                        Title = result.ChapterTitle,
-                        Snippet = CreateSearchExcerpt(result.Content, query)
-                    })
+                    .Select(result => new ReaderSearchResultViewModel(result, query))
                     .DistinctBy(
-                        item => $"{item.Title}\u001f{item.Snippet}",
+                        item => $"{item.Title}\u001f{item.Excerpt}",
                         StringComparer.CurrentCultureIgnoreCase)
                     .ToArray();
                 foreach (var item in distinct)
-                    ReaderSearchResults.Add(new ReaderSearchResultViewModel(
-                        item.Title,
-                        item.Snippet,
-                        item.result.ChapterIndex,
-                        item.result.ChapterPath,
-                        new Uri(Path.GetFullPath(Path.Combine(_readerDocument.RootPath, item.result.ChapterPath.Replace('/', Path.DirectorySeparatorChar)))).AbsoluteUri,
-                        query: query));
+                    ReaderSearchResults.Add(item);
                 ReaderWholeSearchCountText.Text = $"全书 {ReaderSearchResults.Count} 段结果";
             }
-            ReaderSearchResultList.IsVisible = ReaderSearchResults.Count > 0;
-            ReaderSearchStatusText.IsVisible = ReaderSearchResults.Count == 0;
-            ReaderSearchStatusText.Text = _readerIsPdf ? "没有找到匹配的内容。" : "没有找到匹配的片段。";
+            if (sequence is not null && sequence.Value != _readerWholeSearchSequence) return;
+            ShowReaderSearchStatus(
+                ReaderSearchResults.Count == 0
+                    ? (_readerIsPdf ? "没有找到匹配的内容。" : "没有找到匹配的片段。")
+                    : null);
         }
         catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
         {
         }
         catch (Exception exception)
         {
-            ReaderWholeSearchCountText.Text = $"搜索失败：{exception.Message}";
-            ReaderSearchStatusText.IsVisible = false;
-            ReaderSearchResultList.IsVisible = false;
+            ReaderWholeSearchCountText.Text = string.Empty;
+            ShowReaderSearchStatus($"搜索失败：{exception.Message}");
         }
     }
 
@@ -540,6 +551,11 @@ public partial class MainWindow
         if (result.PageNumber is { } page)
         {
             await NavigatePdfPageAsync(page, ReaderToken);
+            return;
+        }
+        if (result.Source is { } source)
+        {
+            await NavigateToReaderChunkAsync(source, result.Query ?? string.Empty);
             return;
         }
         if (_readerDocument is null || string.IsNullOrWhiteSpace(result.Target)) return;
@@ -554,6 +570,89 @@ public partial class MainWindow
             await ApplyReaderSearchAsync(result.Query, sequence);
         }
         ReaderSearchStatusText.Text = $"已跳转到《{result.Title}》相关位置。";
+    }
+
+    private async Task NavigateToReaderChunkAsync(BookContentChunk source, string query)
+    {
+        if (_readerDocument is null)
+        {
+            ShowReaderSearchStatus("无法定位正文：书籍内容尚未准备完成。");
+            return;
+        }
+
+        var targetPath = Path.GetFullPath(Path.Combine(
+            _readerDocument.RootPath,
+            source.ChapterPath.Replace('/', Path.DirectorySeparatorChar)));
+        if (!IsPathInside(_readerDocument.RootPath, targetPath) || !File.Exists(targetPath))
+        {
+            ShowReaderSearchStatus("无法定位正文：对应章节文件不存在。");
+            return;
+        }
+
+        var matchOffset = FindReaderSearchMatchOffset(source.Content, query);
+        _readerPendingChunkOffset = source.StartOffset + Math.Max(0, matchOffset);
+        _readerPendingSearchQuery = query;
+        _readerPendingSearchContext = CreateReaderSearchContext(
+            source.Content,
+            matchOffset,
+            query.Length);
+
+        ReaderSearchStatusText.Text = "正在跳转并定位关键词…";
+        await NavigateToReaderItemAsync(
+            new EpubReaderNavigationItem(
+                source.ChapterTitle,
+                new Uri(targetPath).AbsoluteUri,
+                source.ChapterIndex),
+            ReaderToken,
+            ReaderNavigationIntent.Search);
+        ReaderSearchStatusText.Text = $"已跳转到《{source.ChapterTitle}》相关位置。";
+    }
+
+    // Mirrors the search index's whitespace handling when re-locating a
+    // result: selection queries can contain newlines while indexed chunks use
+    // normalized text. Try the exact raw query first, then the earliest term.
+    private static int FindReaderSearchMatchOffset(string content, string query)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return -1;
+        var exact = content.IndexOf(query.Trim(), StringComparison.CurrentCultureIgnoreCase);
+        if (exact >= 0) return exact;
+
+        var normalizedQuery = Regex.Replace(query.Trim(), @"\s+", " ").Trim();
+        var earliest = -1;
+        foreach (var run in normalizedQuery.Split(
+                     ' ',
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var index = content.IndexOf(run, StringComparison.CurrentCultureIgnoreCase);
+            if (index >= 0 && (earliest < 0 || index < earliest)) earliest = index;
+        }
+        return earliest;
+    }
+
+    private static string CreateReaderSearchContext(
+        string content,
+        int matchOffset,
+        int matchLength)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return string.Empty;
+        var safeMatch = Math.Clamp(matchOffset, 0, Math.Max(0, content.Length - 1));
+        var paragraphStart = content.LastIndexOf('\n', safeMatch);
+        paragraphStart = paragraphStart < 0 ? 0 : paragraphStart + 1;
+        var paragraphEnd = content.IndexOf(
+            '\n',
+            Math.Min(content.Length, safeMatch + Math.Max(1, matchLength)));
+        if (paragraphEnd < 0) paragraphEnd = content.Length;
+
+        while (paragraphStart < paragraphEnd && char.IsWhiteSpace(content[paragraphStart])) paragraphStart++;
+        while (paragraphEnd > paragraphStart && char.IsWhiteSpace(content[paragraphEnd - 1])) paragraphEnd--;
+        const int maximumContextLength = 420;
+        if (paragraphEnd - paragraphStart <= maximumContextLength)
+            return content[paragraphStart..paragraphEnd];
+
+        var contextStart = Math.Max(paragraphStart, safeMatch - 150);
+        var contextEnd = Math.Min(paragraphEnd, contextStart + maximumContextLength);
+        contextStart = Math.Max(paragraphStart, contextEnd - maximumContextLength);
+        return content[contextStart..contextEnd];
     }
 
     private async void ReaderInPageSearchBox_TextChanged(object? sender, TextChangedEventArgs e)
@@ -878,13 +977,4 @@ public partial class MainWindow
         ReaderRoot.ColumnDefinitions[2].Width = visible ? new GridLength(360) : new GridLength(0);
     }
 
-    private static string CreateSearchExcerpt(string content, string query)
-    {
-        var text = string.Join(' ', content.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        var index = text.IndexOf(query, StringComparison.CurrentCultureIgnoreCase);
-        if (index < 0) return text.Length <= 180 ? text : text[..180] + "…";
-        var start = Math.Max(0, index - 65);
-        var end = Math.Min(text.Length, index + query.Length + 115);
-        return (start > 0 ? "…" : string.Empty) + text[start..end] + (end < text.Length ? "…" : string.Empty);
-    }
 }

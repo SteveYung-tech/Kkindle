@@ -96,6 +96,96 @@
         <!-- Fluent paints the focused TextBox border with the accent colour;
              the reader search box and AI input must stay black-on-white. -->
         <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="{StaticResource InkColor}" />
+
+        <!-- Fluent's popup templates read these values through DynamicResource
+             from inside their templates. Keep the entire popup layer in the
+             same square black/white language as the WinUI reference: context
+             menus, MenuFlyouts and ComboBox dropdowns all use these keys. -->
+        <CornerRadius x:Key="ControlCornerRadius">0</CornerRadius>
+        <CornerRadius x:Key="OverlayCornerRadius">0</CornerRadius>
+        <Thickness x:Key="FlyoutBorderThemePadding">0</Thickness>
+
+        <x:Double x:Key="MenuFlyoutSeparatorThemeHeight">1</x:Double>
+        <x:Double x:Key="MenuFlyoutThemeMinHeight">0</x:Double>
+        <Thickness x:Key="MenuFlyoutPresenterThemePadding">0</Thickness>
+        <Thickness x:Key="MenuFlyoutPresenterBorderThemeThickness">1</Thickness>
+        <Thickness x:Key="MenuFlyoutItemThemePadding">11,9,11,10</Thickness>
+        <Thickness x:Key="MenuFlyoutItemThemePaddingNarrow">11,9,11,10</Thickness>
+        <Thickness x:Key="MenuFlyoutItemChevronMargin">12,0,0,0</Thickness>
+        <Thickness x:Key="MenuFlyoutSeparatorThemePadding">12,4,12,4</Thickness>
+        <Thickness x:Key="MenuFlyoutScrollerMargin">0</Thickness>
+        <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutItemBackground" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPointerOver" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPressed" Color="{StaticResource PressedColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutItemBackgroundDisabled" Color="{StaticResource SoftHoverColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutItemForeground" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutItemForegroundPressed" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutItemForegroundDisabled" Color="#8A8A8A" />
+        <SolidColorBrush x:Key="MenuFlyoutSubItemChevron" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPointerOver" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPressed" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutSubItemChevronSubMenuOpened" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutSubItemChevronDisabled" Color="#8A8A8A" />
+        <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForeground" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundPointerOver" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundPressed" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundDisabled" Color="#8A8A8A" />
+
+        <x:Double x:Key="ComboBoxThemeMinWidth">64</x:Double>
+        <Thickness x:Key="ComboBoxBorderThemeThickness">1</Thickness>
+        <Thickness x:Key="ComboBoxDropdownBorderThickness">1</Thickness>
+        <Thickness x:Key="ComboBoxDropdownBorderPadding">0</Thickness>
+        <Thickness x:Key="ComboBoxDropdownContentMargin">0</Thickness>
+        <Thickness x:Key="ComboBoxItemThemePadding">11,9,11,10</Thickness>
+        <SolidColorBrush x:Key="ComboBoxItemForeground" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundPressed" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundPointerOver" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundDisabled" Color="#8A8A8A" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundSelected" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPressed" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedPointerOver" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemForegroundSelectedDisabled" Color="#8A8A8A" />
+        <SolidColorBrush x:Key="ComboBoxItemBackground" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundPressed" Color="{StaticResource PressedColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundDisabled" Color="{StaticResource SoftHoverColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedDisabled" Color="{StaticResource SoftHoverColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBorderBrushPressed" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBorderBrushPointerOver" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBorderBrushDisabled" Color="#BFBFBF" />
+        <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelected" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelectedPressed" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelectedPointerOver" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelectedDisabled" Color="#BFBFBF" />
+        <SolidColorBrush x:Key="ComboBoxBackground" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundPressed" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundDisabled" Color="{StaticResource SoftHoverColor}" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundUnfocused" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundBorderBrushFocused" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxBackgroundBorderBrushUnfocused" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxForeground" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxForegroundDisabled" Color="#8A8A8A" />
+        <SolidColorBrush x:Key="ComboBoxForegroundFocused" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxForegroundFocusedPressed" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxPlaceHolderForeground" Color="{StaticResource MutedInkColor}" />
+        <SolidColorBrush x:Key="ComboBoxPlaceHolderForegroundFocusedPressed" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxBorderBrushPressed" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxBorderBrushDisabled" Color="#BFBFBF" />
+        <SolidColorBrush x:Key="ComboBoxDropDownGlyphForeground" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxDropDownGlyphForegroundDisabled" Color="#8A8A8A" />
+        <SolidColorBrush x:Key="ComboBoxDropDownGlyphForegroundFocused" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxDropDownGlyphForegroundFocusedPressed" Color="{StaticResource InkColor}" />
+        <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="{StaticResource PaperColor}" />
+        <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="{StaticResource InkColor}" />
         </ResourceDictionary>
     </Application.Resources>
 
@@ -408,6 +498,25 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="0" />
         </Style>
+        <Style Selector="ComboBox /template/ Border#PopupBorder">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="ComboBoxItem">
+            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Padding" Value="{DynamicResource ComboBoxItemThemePadding}" />
+        </Style>
+        <Style Selector="ComboBoxItem /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
         <Style Selector="NumericUpDown">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
@@ -517,7 +626,7 @@
             <Setter Property="Background" Value="{StaticResource PaperBrush}" />
         </Style>
         <Style Selector="Button.eject:pressed">
-            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
         </Style>
 
         <Style Selector="ListBoxItem.bookCard">
@@ -739,6 +848,8 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="WindowManagerAddShadowHint" Value="False" />
         </Style>
         <!-- Button.Flyout menus render inside a MenuFlyoutPresenter; the Fluent
              default border is grey, so the monochrome language must be applied
@@ -749,12 +860,21 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="MenuFlyoutPresenter /template/ Border#LayoutRoot">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
         </Style>
         <Style Selector="MenuItem">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
             <Setter Property="Background" Value="{StaticResource PaperBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="Padding" Value="{DynamicResource MenuFlyoutItemThemePaddingNarrow}" />
+            <Setter Property="MinHeight" Value="40" />
             <Setter Property="CornerRadius" Value="0" />
         </Style>
         <!-- 选中某条：黑色矩形 + 白色反色文字。子菜单箭头等矢量图形同样
@@ -770,6 +890,26 @@
         <Style Selector="MenuItem:disabled">
             <Setter Property="Background" Value="{StaticResource PaperBrush}" />
             <Setter Property="Foreground" Value="#999999" />
+        </Style>
+        <Style Selector="MenuItem:open">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="MenuItem:separator">
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="MenuItem /template/ Border#PART_LayoutRoot">
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="MenuItem:open /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="MenuItem:open /template/ ContentPresenter#PART_HeaderPresenter">
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="MenuItem:open /template/ Path#PART_ChevronPath">
+            <Setter Property="Fill" Value="{StaticResource PaperBrush}" />
         </Style>
         <Style Selector="MenuItem Path">
             <Setter Property="Fill" Value="{StaticResource InkBrush}" />

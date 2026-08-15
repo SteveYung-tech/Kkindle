@@ -410,65 +410,63 @@
                     <Border x:Name="DeviceStatusBox"
                             Grid.Row="2"
                             Padding="10"
-                            VerticalAlignment="Bottom"
                             Background="{StaticResource PaperBrush}"
                             BorderBrush="{StaticResource InkBrush}"
                             BorderThickness="1"
-                            PointerPressed="DeviceStatusBox_PointerPressed"
+                            CornerRadius="0"
+                            Tapped="DeviceStatusBox_Tapped"
                             ToolTip.Tip="点击选择或自定义设备型号（按串码记忆）；未连接时点击可重新检测 Kindle">
-                        <Grid>
-                            <StackPanel Spacing="5">
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                    <TextBlock x:Name="KindleStatusText"
-                                               Text="正在检查设备…"
-                                               FontWeight="Bold"
-                                               TextWrapping="Wrap"
-                                               VerticalAlignment="Center" />
-                                    <Button x:Name="DeviceStatusEjectButton"
-                                            Grid.Column="1"
-                                            Classes="eject"
-                                            Width="28"
-                                            MinWidth="28"
-                                            Height="24"
-                                            IsEnabled="False"
-                                            Tapped="DeviceStatusEjectButton_Tapped"
-                                            LayoutUpdated="DeviceStatusEjectButton_LayoutUpdated"
-                                            ToolTip.Tip="未连接设备"
-                                            AutomationProperties.Name="弹出设备"
-                                            Click="EjectDeviceButton_Click">
-                                        <Path x:Name="DeviceEjectTriangleGlyph"
-                                              Classes="ejectGlyph"
-                                              Data="M 0,9 L 8,0 L 16,9 Z"
-                                              Width="16"
-                                              Height="9"
-                                              Fill="Transparent"
-                                              Stroke="{StaticResource InkBrush}"
-                                              StrokeThickness="1.2"
-                                              HorizontalAlignment="Center"
-                                              VerticalAlignment="Center" />
-                                    </Button>
-                                </Grid>
-                                <TextBlock x:Name="KindleConnectionText" Foreground="{StaticResource MutedInkBrush}" FontSize="10" />
-                                <Grid x:Name="DeviceStorageBar"
-                                      Height="10"
-                                      Background="{StaticResource PaperBrush}"
-                                      SizeChanged="DeviceStorageBar_SizeChanged">
-                                    <Rectangle x:Name="DeviceStorageUsedBar" HorizontalAlignment="Left" Fill="{StaticResource InkBrush}" Width="0" />
-                                    <Border BorderBrush="{StaticResource InkBrush}" BorderThickness="1" />
-                                </Grid>
-                                <TextBlock x:Name="DeviceStorageText" Text="无存储信息" Foreground="{StaticResource MutedInkBrush}" FontSize="10" TextWrapping="Wrap" />
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <Rectangle Width="7" Height="7" Fill="{StaticResource InkBrush}" VerticalAlignment="Center" />
-                                        <TextBlock Text="已用" FontSize="9" Foreground="{StaticResource MutedInkBrush}" />
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <Rectangle Width="7" Height="7" Fill="{StaticResource PaperBrush}" Stroke="{StaticResource InkBrush}" StrokeThickness="1" VerticalAlignment="Center" />
-                                        <TextBlock Text="剩余" FontSize="9" Foreground="{StaticResource MutedInkBrush}" />
-                                    </StackPanel>
+                        <StackPanel Spacing="5">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                <TextBlock x:Name="KindleStatusText"
+                                           Text="正在检查设备…"
+                                           FontWeight="Bold"
+                                           TextWrapping="Wrap"
+                                           VerticalAlignment="Center" />
+                                <Button x:Name="DeviceStatusEjectButton"
+                                        Grid.Column="1"
+                                        Classes="eject"
+                                        Width="25"
+                                        MinWidth="25"
+                                        Height="23"
+                                        IsEnabled="False"
+                                        LayoutUpdated="DeviceStatusEjectButton_LayoutUpdated"
+                                        ToolTip.Tip="未连接设备"
+                                        AutomationProperties.Name="弹出设备"
+                                        Click="EjectDeviceButton_Click">
+                                    <Polygon x:Name="DeviceEjectTriangleGlyph"
+                                             Classes="ejectGlyph"
+                                             Points="0,8 7,0 14,8"
+                                             Width="14"
+                                             Height="8"
+                                             Fill="Transparent"
+                                             Stroke="{StaticResource InkBrush}"
+                                             StrokeThickness="1"
+                                             Stretch="Fill"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center" />
+                                </Button>
+                            </Grid>
+                            <TextBlock x:Name="KindleConnectionText" Foreground="{StaticResource MutedInkBrush}" FontSize="10" />
+                            <Grid x:Name="DeviceStorageBar"
+                                  Height="10"
+                                  Background="{StaticResource PaperBrush}"
+                                  SizeChanged="DeviceStorageBar_SizeChanged">
+                                <Rectangle x:Name="DeviceStorageUsedBar" HorizontalAlignment="Left" Fill="{StaticResource InkBrush}" Width="0" />
+                                <Border BorderBrush="{StaticResource InkBrush}" BorderThickness="1" />
+                            </Grid>
+                            <TextBlock x:Name="DeviceStorageText" Text="无存储信息" Foreground="{StaticResource MutedInkBrush}" FontSize="10" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <Rectangle Width="7" Height="7" Fill="{StaticResource InkBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="已用" FontSize="9" Foreground="{StaticResource MutedInkBrush}" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <Rectangle Width="7" Height="7" Fill="{StaticResource PaperBrush}" Stroke="{StaticResource InkBrush}" StrokeThickness="1" VerticalAlignment="Center" />
+                                    <TextBlock Text="剩余" FontSize="9" Foreground="{StaticResource MutedInkBrush}" />
                                 </StackPanel>
                             </StackPanel>
-                        </Grid>
+                        </StackPanel>
                     </Border>
                 </Grid>
             </Border>
@@ -2714,19 +2712,15 @@
                   Grid.ColumnSpan="3"
                   Background="#66000000"
                   IsVisible="False"
-                  ZIndex="104"
+                  ZIndex="100"
                   Focusable="True"
                   KeyDown="DevicePromptOverlay_KeyDown">
-                <Grid.Transitions>
-                    <Transitions>
-                        <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
-                    </Transitions>
-                </Grid.Transitions>
                 <Border Width="560"
                         MaxWidth="560"
                         Background="{StaticResource PaperBrush}"
                         BorderBrush="{StaticResource InkBrush}"
                         BorderThickness="2"
+                        CornerRadius="0"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
                     <Grid RowDefinitions="Auto,Auto">
@@ -2744,6 +2738,7 @@
                             </StackPanel>
                             <TextBlock x:Name="DevicePromptMessageText"
                                        FontSize="15"
+                                       LineHeight="23"
                                        TextWrapping="Wrap" />
                         </StackPanel>
                         <Grid Grid.Row="1"
@@ -2829,37 +2824,65 @@
                   Grid.ColumnSpan="3"
                   Background="#66000000"
                   IsVisible="False"
-                  ZIndex="103">
-                <Grid.Transitions>
-                    <Transitions>
-                        <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
-                    </Transitions>
-                </Grid.Transitions>
-                <Border Width="430"
-                        Padding="22"
+                  ZIndex="100">
+                <Border Width="560"
+                        MaxWidth="560"
                         Background="{StaticResource PaperBrush}"
                         BorderBrush="{StaticResource InkBrush}"
-                        BorderThickness="1"
+                        BorderThickness="2"
+                        CornerRadius="0"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
-                    <StackPanel Spacing="10">
-                        <TextBlock Text="自定义设备型号" FontSize="18" FontWeight="Bold" />
-                        <TextBlock Text="型号会按设备串码保存在本机，下次连接同一设备时自动恢复。"
-                                   FontSize="11"
-                                   Foreground="{StaticResource MutedInkBrush}"
-                                   TextWrapping="Wrap" />
-                        <TextBox x:Name="DeviceModelInputBox"
-                                 PlaceholderText="例如 Kindle Paperwhite 5"
-                                 KeyDown="DeviceModelInputBox_KeyDown" />
-                        <TextBlock x:Name="DeviceModelInputStatusText"
-                                   FontSize="11"
-                                   Foreground="{StaticResource MutedInkBrush}"
-                                   TextWrapping="Wrap" />
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="7" Margin="0,8,0,0">
-                            <Button Content="取消" Classes="quiet" Padding="13,7" Click="DeviceModelInputCancelButton_Click" />
-                            <Button Content="保存" Padding="13,7" Click="DeviceModelInputOkButton_Click" />
+                    <Grid RowDefinitions="Auto,Auto">
+                        <StackPanel Margin="28,24,28,22" Spacing="13">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Rectangle Width="10"
+                                           Height="24"
+                                           Margin="0,-2,0,0"
+                                           Fill="{StaticResource InkBrush}"
+                                           VerticalAlignment="Center" />
+                                <TextBlock x:Name="DeviceModelInputTitleText"
+                                           Text="自定义设备型号"
+                                           FontSize="24"
+                                           FontWeight="Bold"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                            <TextBlock x:Name="DeviceModelInputMessageText"
+                                       Text="输入该设备的型号名称，下次连接时会按 USB 串码自动匹配。"
+                                       FontSize="15"
+                                       LineHeight="23"
+                                       TextWrapping="Wrap" />
+                            <TextBox x:Name="DeviceModelInputBox"
+                                     FontSize="15"
+                                     Padding="10,7"
+                                     MaxLength="80"
+                                     PlaceholderText="例如 Kindle Paperwhite 11 代"
+                                     BorderBrush="{StaticResource InkBrush}"
+                                     BorderThickness="1"
+                                     KeyDown="DeviceModelInputBox_KeyDown" />
+                            <TextBlock x:Name="DeviceModelInputStatusText"
+                                       IsVisible="False"
+                                       FontSize="11"
+                                       Foreground="{StaticResource MutedInkBrush}"
+                                       TextWrapping="Wrap" />
                         </StackPanel>
-                    </StackPanel>
+                        <Grid Grid.Row="1"
+                              Margin="28,18,28,22"
+                              Background="{StaticResource PaperBrush}"
+                              ColumnDefinitions="*,12,*">
+                            <Button x:Name="DeviceModelInputOkButton"
+                                    Content="确定"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Click="DeviceModelInputOkButton_Click" />
+                            <Button Grid.Column="2"
+                                    Content="取消"
+                                    Classes="quiet"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Click="DeviceModelInputCancelButton_Click" />
+                        </Grid>
+                    </Grid>
                 </Border>
             </Grid>
 
@@ -3348,6 +3371,7 @@
                                                                                                   TextWrapping="Wrap" />
                                                             <local:ReaderSearchHighlightTextBlock Source="{Binding Excerpt}"
                                                                                                   Query="{Binding Query}"
+                                                                                                  HighlightRanges="{Binding ExcerptHighlightRanges}"
                                                                                                   FontSize="10"
                                                                                                   Foreground="{StaticResource MutedInkBrush}"
                                                                                                   TextWrapping="Wrap"
@@ -4281,36 +4305,36 @@
              pointer aligned to the sidebar eject button's triangle apex. The
              host positions it in window coordinates (PositionDeviceStatusToast)
              and it floats above the whole UI, never clipped by the sidebar. -->
-        <Border x:Name="DeviceStatusToast"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Top"
-                MaxWidth="360"
-                Padding="8,7"
-                Background="{StaticResource InkBrush}"
-                BorderBrush="{StaticResource InkBrush}"
-                BorderThickness="1"
-                IsVisible="False"
-                IsHitTestVisible="False">
-            <Border.Transitions>
+        <StackPanel x:Name="DeviceStatusToast"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Top"
+                    MaxWidth="360"
+                    IsVisible="False"
+                    IsHitTestVisible="False">
+            <StackPanel.Transitions>
                 <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.22" />
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.35" />
                 </Transitions>
-            </Border.Transitions>
-            <StackPanel>
+            </StackPanel.Transitions>
+            <Border Padding="8,7"
+                    Background="{StaticResource InkBrush}"
+                    BorderBrush="{StaticResource InkBrush}"
+                    BorderThickness="1">
                 <TextBlock x:Name="DeviceStatusToastText"
                            MaxWidth="342"
                            Text="设备已连接"
                            TextWrapping="Wrap"
+                           TextTrimming="None"
                            Foreground="{StaticResource PaperBrush}"
                            FontSize="11" />
-                <Polygon x:Name="DeviceStatusToastPointer"
-                         Points="0,0 10,0 5,6"
-                         Width="10"
-                         Height="6"
-                         Fill="{StaticResource InkBrush}"
-                         HorizontalAlignment="Left" />
-            </StackPanel>
-        </Border>
+            </Border>
+            <Polygon x:Name="DeviceStatusToastPointer"
+                     Points="0,0 10,0 5,6"
+                     Width="10"
+                     Height="6"
+                     Fill="{StaticResource InkBrush}"
+                     HorizontalAlignment="Left" />
+        </StackPanel>
 
         <!-- Invisible resize handles around the window edge. A transparent
              (layered) window loses the system resize border, so the edges are

@@ -198,7 +198,8 @@ public partial class MainWindow
         const double edgeMargin = 8;
         const double pointerCenterFromLeft = 20;
         const double pointerWidth = 10;
-        var maxLeft = Math.Max(edgeMargin, Width - popupSize.Width - edgeMargin);
+        var windowWidth = Bounds.Width > 0 ? Bounds.Width : Width;
+        var maxLeft = Math.Max(edgeMargin, windowWidth - popupSize.Width - edgeMargin);
         var popupLeft = Math.Clamp(apexPoint.X - pointerCenterFromLeft, edgeMargin, maxLeft);
         var popupTop = Math.Max(edgeMargin, apexPoint.Y - popupSize.Height - 2);
         var pointerLeft = Math.Clamp(
@@ -234,7 +235,8 @@ public partial class MainWindow
         const double edgeMargin = 8;
         const double pointerCenterFromLeft = 20;
         const double pointerWidth = 10;
-        var maxLeft = Math.Max(edgeMargin, Width - popupSize.Width - edgeMargin);
+        var windowWidth = Bounds.Width > 0 ? Bounds.Width : Width;
+        var maxLeft = Math.Max(edgeMargin, windowWidth - popupSize.Width - edgeMargin);
         var popupLeft = Math.Clamp(apexPoint.X - pointerCenterFromLeft, edgeMargin, maxLeft);
         var popupTop = Math.Max(edgeMargin, apexPoint.Y - popupSize.Height - 2);
         var pointerLeft = Math.Clamp(
@@ -254,7 +256,7 @@ public partial class MainWindow
     {
         _deviceStatusToastTimer.Stop();
         DeviceStatusToast.Opacity = 0;
-        _ = Task.Delay(250).ContinueWith(
+        _ = Task.Delay(350).ContinueWith(
             _ => Dispatcher.UIThread.Post(() =>
             {
                 if (DeviceStatusToast.Opacity < 0.5) DeviceStatusToast.IsVisible = false;
@@ -653,9 +655,6 @@ public partial class MainWindow
         ToolTip.SetTip(EjectDeviceButton, action);
         AutomationProperties.SetName(EjectDeviceButton, action);
     }
-    private void DeviceStatusEjectButton_Tapped(object? sender, TappedEventArgs e)
-        => e.Handled = true;
-
     private Task<bool> ShowDevicePromptAsync(
         string title,
         string message,
@@ -665,13 +664,14 @@ public partial class MainWindow
         if (_devicePromptCompletion is not null)
             return Task.FromResult(false);
 
+        _devicePromptCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         DevicePromptTitleText.Text = title;
         DevicePromptMessageText.Text = message;
         DevicePromptPrimaryButton.Content = primaryText;
         DevicePromptCancelButton.Content = cancelText;
-        ShowOverlay(DevicePromptOverlay);
+        DevicePromptOverlay.IsVisible = true;
+        DevicePromptOverlay.Opacity = 1;
         DevicePromptOverlay.Focus();
-        _devicePromptCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         return _devicePromptCompletion.Task;
     }
 
@@ -923,15 +923,13 @@ public partial class MainWindow
 
     // The whole lower-left device card is interactive in the reference UI:
     // connected devices open the remembered model picker, while a disconnected
-    // card starts a fresh detection pass. PointerPressed is used instead of
-    // Tapped so the interaction never gets eaten by gesture thresholds.
-    private void DeviceStatusBox_PointerPressed(object? sender, PointerPressedEventArgs e)
+    // card starts a fresh detection pass. The eject button keeps its own action.
+    private void DeviceStatusBox_Tapped(object? sender, TappedEventArgs e)
     {
-        if (e.Source is Button || ReferenceEquals(e.Source, DeviceStatusEjectButton))
+        if (IsButtonSource(e.Source))
         {
             return;
         }
-        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
 
         if (CurrentDevice is not null)
         {
@@ -943,6 +941,8 @@ public partial class MainWindow
         // Disconnected card: re-run detection with immediate feedback so the
         // click is never silent.
         _manuallyDisconnectedDeviceId = null;
+        _ignoredDeviceId = null;
+        _lastDeviceIdentity = null;
         KindleConnectionText.Text = "正在检测设备…";
         KindleConnectionText.IsVisible = true;
         _ = RefreshDevicesAsync(scanBooks: DevicePage.IsVisible, _lifetimeCancellation.Token);
@@ -953,7 +953,10 @@ public partial class MainWindow
     {
         if (CurrentDevice is null) return;
 
-        var menu = new ContextMenu();
+        var menu = new MenuFlyout
+        {
+            Placement = PlacementMode.TopEdgeAlignedLeft
+        };
         menu.Items.Add(CreateMenuItem("默认名称（设备自带）", () => ApplyDeviceModelAsync(null)));
         menu.Items.Add(new Separator());
         foreach (var vendor in DeviceModelCatalog.Vendors)
@@ -969,13 +972,14 @@ public partial class MainWindow
             ShowDeviceModelInput();
             return Task.CompletedTask;
         }));
-        menu.Open(DeviceStatusBox);
+        menu.ShowAt(DeviceStatusBox);
     }
 
     private void ShowDeviceModelInput()
     {
         DeviceModelInputBox.Text = _deviceDisplayName ?? CurrentDevice?.Name ?? string.Empty;
-        ShowOverlay(DeviceModelInputOverlay);
+        DeviceModelInputOverlay.IsVisible = true;
+        DeviceModelInputOverlay.Opacity = 1;
         DeviceModelInputBox.Focus();
         DeviceModelInputBox.SelectAll();
     }
