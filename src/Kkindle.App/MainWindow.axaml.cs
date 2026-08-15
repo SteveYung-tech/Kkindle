@@ -939,6 +939,7 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
 
         var openMenu = new MenuItem { Header = "打开书籍" };
+        ApplyLegacyMenuItemSize(openMenu);
         openMenu.Resources["FlyoutThemeMinWidth"] = 0d;
         foreach (var format in new[] { "EPUB", "PDF", "AZW3" })
         {
@@ -951,6 +952,7 @@ public partial class MainWindow : Window
                     string.Equals(file.Format, format, StringComparison.OrdinalIgnoreCase)
                     && ReaderBookSelectionPolicy.GetSupportedFiles([file]).Count > 0)
             };
+            ApplyLegacyMenuItemSize(item);
             item.Click += async (_, _) => await OpenBookFormatAsync(card, format);
             openMenu.Items.Add(item);
         }
@@ -959,6 +961,7 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
 
         var convertMenu = new MenuItem { Header = "转换为" };
+        ApplyLegacyMenuItemSize(convertMenu);
         convertMenu.Resources["FlyoutThemeMinWidth"] = 0d;
         foreach (var target in new[] { "epub", "azw3", "pdf" })
         {
@@ -969,6 +972,7 @@ public partial class MainWindow : Window
                 MinWidth = 0,
                 Tag = target
             };
+            ApplyLegacyMenuItemSize(item);
             item.Click += async (_, _) => await ConvertBookAsync(card, target);
             convertMenu.Items.Add(item);
         }
@@ -979,6 +983,7 @@ public partial class MainWindow : Window
         menu.Items.Add(CreateMenuItem("发送到 Kindle 邮箱", SendSelectedBooksByEmailAsync));
 
         var collectionMenu = new MenuItem { Header = "收藏夹" };
+        ApplyLegacyMenuItemSize(collectionMenu);
         collectionMenu.Resources["FlyoutThemeMinWidth"] = 0d;
         foreach (var folder in CollectionFolders)
         {
@@ -989,6 +994,7 @@ public partial class MainWindow : Window
                 IsChecked = card.Book.CollectionIds.Contains(folder.Collection.Id),
                 Tag = folder
             };
+            ApplyLegacyMenuItemSize(item);
             item.Click += async (_, _) => await ToggleBookCollectionAsync(card, folder);
             collectionMenu.Items.Add(item);
         }
@@ -1013,6 +1019,7 @@ public partial class MainWindow : Window
         if (CollectionFolders.Count > 0)
         {
             var deleteCollectionMenu = new MenuItem { Header = "删除收藏夹" };
+            ApplyLegacyMenuItemSize(deleteCollectionMenu);
             foreach (var folder in CollectionFolders)
                 deleteCollectionMenu.Items.Add(CreateMenuItem(folder.Name, () => DeleteCollectionAsync(folder)));
             collectionMenu.Items.Add(deleteCollectionMenu);
@@ -1021,6 +1028,7 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
 
         var deleteFormatMenu = new MenuItem { Header = "删除格式" };
+        ApplyLegacyMenuItemSize(deleteFormatMenu);
         deleteFormatMenu.Resources["FlyoutThemeMinWidth"] = 0d;
         foreach (var format in new[] { "EPUB", "PDF", "MOBI", "AZW3" })
         {
@@ -1034,6 +1042,7 @@ public partial class MainWindow : Window
                 IsEnabled = file is not null,
                 Tag = file
             };
+            ApplyLegacyMenuItemSize(item);
             item.Click += async (_, _) =>
             {
                 if (item.Tag is BookFile selectedFile)
@@ -1066,8 +1075,17 @@ public partial class MainWindow : Window
     private static MenuItem CreateMenuItem(string header, Func<Task> action)
     {
         var item = new MenuItem { Header = header };
+        ApplyLegacyMenuItemSize(item);
         item.Click += async (_, _) => await action();
         return item;
+    }
+
+    private static void ApplyLegacyMenuItemSize(MenuItem item)
+    {
+        item.Height = 40;
+        item.MinHeight = 40;
+        item.MaxHeight = 40;
+        item.Padding = new Thickness(8, 4, 8, 7);
     }
 
     private void BookCard_ContextRequested(object? sender, ContextRequestedEventArgs e)
