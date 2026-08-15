@@ -1303,6 +1303,19 @@
              turns black. -->
         <Style Selector="Border.bookCover">
             <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
+            <Setter Property="ClipToBounds" Value="True" />
+        </Style>
+        <Style Selector="Border.bookCover Image">
+            <Setter Property="RenderTransformOrigin" Value="50%,50%" />
+            <Setter Property="RenderTransform" Value="scale(1)" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.bookCover:pointerover Image">
+            <Setter Property="RenderTransform" Value="scale(1.06)" />
         </Style>
         <!-- The gallery card keeps its light-grey resting outline from the
              template. Draw a one-unit black inset frame only while hovered.
