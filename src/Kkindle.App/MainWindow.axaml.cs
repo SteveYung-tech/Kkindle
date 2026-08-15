@@ -945,7 +945,7 @@ public partial class MainWindow : Window
             var item = new MenuItem
             {
                 Header = format,
-                Width = 57,
+                Width = 55,
                 MinWidth = 0,
                 IsEnabled = card.Book.Files.Any(file =>
                     string.Equals(file.Format, format, StringComparison.OrdinalIgnoreCase)
@@ -965,7 +965,7 @@ public partial class MainWindow : Window
             var item = new MenuItem
             {
                 Header = target.ToUpperInvariant(),
-                Width = 57,
+                Width = 55,
                 MinWidth = 0,
                 Tag = target
             };
@@ -1026,7 +1026,14 @@ public partial class MainWindow : Window
         {
             var file = card.Book.Files.FirstOrDefault(candidate =>
                 string.Equals(candidate.Format, format, StringComparison.OrdinalIgnoreCase));
-            var item = new MenuItem { Header = format, IsEnabled = file is not null, Tag = file };
+            var item = new MenuItem
+            {
+                Header = format,
+                Width = 55,
+                MinWidth = 0,
+                IsEnabled = file is not null,
+                Tag = file
+            };
             item.Click += async (_, _) =>
             {
                 if (item.Tag is BookFile selectedFile)
