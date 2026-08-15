@@ -652,15 +652,26 @@ public partial class MainWindow
         {
             try
             {
-                await ApplyReaderLocationAsync(
+                var direction = item.ChapterIndex < _readerChapterIndex ? -1 : 1;
+                await RunReaderContentTransitionAsync(
                     current,
-                    target,
+                    current,
+                    direction,
+                    async () =>
+                    {
+                        await ApplyReaderLocationAsync(
+                            current,
+                            target,
+                            cancellationToken,
+                            intent,
+                            _readerRestoredProgress is not null);
+                        _readerChapterIndex = item.ChapterIndex;
+                        _readerCurrentFragment = GetReaderTargetFragment(target);
+                        await UpdateReaderScrollStateAsync(current);
+                        return true;
+                    },
                     cancellationToken,
-                    intent,
-                    _readerRestoredProgress is not null);
-                _readerChapterIndex = item.ChapterIndex;
-                _readerCurrentFragment = GetReaderTargetFragment(target);
-                await UpdateReaderScrollStateAsync(current);
+                    animate: intent != ReaderNavigationIntent.None);
                 PrimeReaderContinuousEdgeTracking();
                 SetReaderTocSelection(item);
                 ReaderChapterText.Text = GetReaderChapterLabel();
@@ -692,24 +703,35 @@ public partial class MainWindow
             var loaded = await NavigateReaderHostAndWaitAsync(host, target, navigationToken);
             if (!loaded) throw new InvalidOperationException("章节加载失败。");
 
-            _readerChapterIndex = item.ChapterIndex;
-            _readerScrollPosition = 0;
-            _readerScrollRatio = 0;
-            // host was picked as the hidden host, so the layer must flip
-            // unconditionally; deriving it from CurrentReaderHost would read
-            // the stale pre-swap flag and freeze the visible chapter after the
-            // first jump (TOC / next-chapter worked only once).
-            _readerShowingPreload = ReferenceEquals(host, _readerPreloadHost);
-            SetReaderHostLayer();
             await ApplySavedAnnotationsAsync(host, navigationToken);
-            await ApplyReaderLocationAsync(
+            var direction = item.ChapterIndex < _readerChapterIndex ? -1 : 1;
+            await RunReaderContentTransitionAsync(
+                current,
                 host,
-                target,
+                direction,
+                async () =>
+                {
+                    _readerChapterIndex = item.ChapterIndex;
+                    _readerScrollPosition = 0;
+                    _readerScrollRatio = 0;
+                    // host was picked as the hidden host, so the layer must flip
+                    // unconditionally; deriving it from CurrentReaderHost would read
+                    // the stale pre-swap flag and freeze the visible chapter after the
+                    // first jump (TOC / next-chapter worked only once).
+                    _readerShowingPreload = ReferenceEquals(host, _readerPreloadHost);
+                    SetReaderHostLayer();
+                    await ApplyReaderLocationAsync(
+                        host,
+                        target,
+                        navigationToken,
+                        intent,
+                        _readerRestoredProgress is not null);
+                    _readerCurrentFragment = GetReaderTargetFragment(target);
+                    await UpdateReaderScrollStateAsync(host);
+                    return true;
+                },
                 navigationToken,
-                intent,
-                _readerRestoredProgress is not null);
-            _readerCurrentFragment = GetReaderTargetFragment(target);
-            await UpdateReaderScrollStateAsync(host);
+                animate: intent != ReaderNavigationIntent.None);
             PrimeReaderContinuousEdgeTracking();
             SetReaderTocSelection(item);
             ReaderChapterText.Text = GetReaderChapterLabel();
@@ -2137,49 +2159,87 @@ public partial class MainWindow
         IReaderHost host,
         int direction)
     {
-        if (_readerPageAnimation == ReaderAnimationNone)
-            return await host.InvokeScriptAsync(ReaderPaginationScripts.CreateTurnScript(direction));
+        return await RunReaderContentTransitionAsync(
+            host,
+            host,
+            direction,
+            () => host.InvokeScriptAsync(ReaderPaginationScripts.CreateTurnScript(direction)),
+            ReaderToken);
+    }
 
-        var token = ReaderToken;
-        var animation = _readerPageAnimation;
+    /// <summary>
+    /// Runs the one transition pipeline used by both in-chapter page turns and
+    /// chapter/TOC navigation. With two hosts, the outgoing document animates
+    /// out and the prepared incoming document resumes from the same visual
+    /// state after the host swap.
+    /// </summary>
+    private async Task<T> RunReaderContentTransitionAsync<T>(
+        IReaderHost outgoingHost,
+        IReaderHost incomingHost,
+        int direction,
+        Func<Task<T>> changeContentAsync,
+        CancellationToken cancellationToken,
+        bool animate = true)
+    {
+        var animation = animate ? _readerPageAnimation : ReaderAnimationNone;
+        if (animation == ReaderAnimationNone)
+            return await changeContentAsync();
+
+        await TryInvokeReaderTransitionAsync(
+            outgoingHost,
+            CreateReaderTransitionScript(animation, direction, restore: false));
+
         try
         {
-            await host.InvokeScriptAsync(CreateReaderTransitionScript(animation, direction, restore: false));
-        }
-        catch
-        {
-            // A browser that rejects a cosmetic transition must not block a
-            // normal page turn.
-        }
+            await Task.Delay(GetReaderTransitionOutDuration(animation), cancellationToken);
+            if (!ReferenceEquals(outgoingHost, incomingHost))
+            {
+                await TryInvokeReaderTransitionAsync(
+                    incomingHost,
+                    CreateReaderTransitionScript(animation, direction, restore: false));
+            }
 
-        try
-        {
-            await Task.Delay(animation == ReaderAnimationWave ? 90 : 110, token);
-            var result = await host.InvokeScriptAsync(ReaderPaginationScripts.CreateTurnScript(direction));
+            var result = await changeContentAsync();
             try
             {
-                await host.InvokeScriptAsync(CreateReaderTransitionScript(animation, direction, restore: true));
-                await Task.Delay(animation == ReaderAnimationWave ? 320 : 190, token);
+                await incomingHost.InvokeScriptAsync(
+                    CreateReaderTransitionScript(animation, direction, restore: true));
+                await Task.Delay(GetReaderTransitionInDuration(animation), cancellationToken);
             }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
             }
             catch
             {
-                // The page has already turned; cleanup is best effort.
+                // Content has already changed; a cosmetic reveal failure must
+                // not turn a successful page/chapter navigation into an error.
             }
             return result;
         }
         finally
         {
-            try
-            {
-                await host.InvokeScriptAsync(CreateReaderTransitionCleanupScript());
-            }
-            catch
-            {
-            }
+            await TryInvokeReaderTransitionAsync(outgoingHost, CreateReaderTransitionCleanupScript());
+            if (!ReferenceEquals(outgoingHost, incomingHost))
+                await TryInvokeReaderTransitionAsync(incomingHost, CreateReaderTransitionCleanupScript());
+        }
+    }
+
+    private static int GetReaderTransitionOutDuration(int animation) =>
+        animation == ReaderAnimationWave ? 90 : 110;
+
+    private static int GetReaderTransitionInDuration(int animation) =>
+        animation == ReaderAnimationWave ? 320 : 190;
+
+    private static async Task TryInvokeReaderTransitionAsync(IReaderHost host, string script)
+    {
+        try
+        {
+            await host.InvokeScriptAsync(script);
+        }
+        catch
+        {
+            // Animations are decorative and must never block navigation.
         }
     }
 
@@ -2248,6 +2308,7 @@ public partial class MainWindow
           root.style.removeProperty('transform');
           root.style.removeProperty('filter');
           root.style.removeProperty('animation');
+          document.querySelectorAll('.kkindle-wave-sweep').forEach(node => node.remove());
           return true;
         })();
         """;

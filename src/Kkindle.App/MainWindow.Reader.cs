@@ -256,17 +256,27 @@ public partial class MainWindow
             var loaded = await NavigateReaderHostAndWaitAsync(host, target, token);
             if (!loaded) throw new InvalidOperationException("章节加载失败。");
 
-            _readerChapterIndex = targetIndex;
-            _readerScrollPosition = 0;
-            _readerScrollRatio = 0;
-            // host was picked as the hidden host, so the layer must flip
-            // unconditionally; deriving it from CurrentReaderHost would read
-            // the stale pre-swap flag and freeze the visible chapter after the
-            // first jump (TOC / next-chapter worked only once).
-            _readerShowingPreload = ReferenceEquals(host, _readerPreloadHost);
-            SetReaderHostLayer();
             await ApplySavedAnnotationsAsync(host, token);
-            await UpdateReaderScrollStateAsync(host);
+            var outgoingHost = CurrentReaderHost;
+            await RunReaderContentTransitionAsync(
+                outgoingHost,
+                host,
+                offset,
+                async () =>
+                {
+                    _readerChapterIndex = targetIndex;
+                    _readerScrollPosition = 0;
+                    _readerScrollRatio = 0;
+                    // host was picked as the hidden host, so the layer must flip
+                    // unconditionally; deriving it from CurrentReaderHost would read
+                    // the stale pre-swap flag and freeze the visible chapter after the
+                    // first jump (TOC / next-chapter worked only once).
+                    _readerShowingPreload = ReferenceEquals(host, _readerPreloadHost);
+                    SetReaderHostLayer();
+                    await UpdateReaderScrollStateAsync(host);
+                    return true;
+                },
+                token);
             PrimeReaderContinuousEdgeTracking();
             ReaderChapterText.Text = GetReaderChapterLabel();
             ReaderStatusText.Text = $"共 {_readerDocument.Chapters.Count} 个章节";
