@@ -262,6 +262,20 @@ public partial class MainWindow
               window.__kkindleReaderFlowMode = {{_readerLayout.FlowMode}};
               window.__kkindleReaderVertical = {{(_readerLayout.VerticalWriting ? "true" : "false")}};
               window.__kkindleReaderTwoPage = {{(_readerLayout.TwoPageMode ? "true" : "false")}};
+              // Image limits must use the body's real content box. Using
+              // 100vh without subtracting page padding makes a tall image plus
+              // its margins too large for the first column, so Chromium moves
+              // the whole image to page two and leaves page one blank.
+              const root = document.documentElement;
+              const body = document.body;
+              if (root && body) {
+                const bodyStyle = getComputedStyle(body);
+                const paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
+                const paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+                const contentHeight = body.clientHeight - paddingTop - paddingBottom;
+                if (contentHeight > 0)
+                  root.style.setProperty('--kkindle-page-content-h', contentHeight + 'px');
+              }
               return true;
             })();
             """;
@@ -269,7 +283,10 @@ public partial class MainWindow
         await WaitForReaderFontsAsync(host, cancellationToken);
         await host.InvokeScriptAsync(ReaderPaginationScripts.PageAlignmentHelperDefinition);
         if (pagination)
+        {
+            await host.InvokeScriptAsync(FitReaderCoverImageScript);
             await host.InvokeScriptAsync(ReaderPaginationScripts.Snap);
+        }
 
         if (ReferenceEquals(host, CurrentReaderHost))
         {
@@ -324,7 +341,7 @@ public partial class MainWindow
         builder.Append("\nli, blockquote { font-size: 1rem !important; line-height: 1.78 !important; }");
         builder.Append("\nh1, h2, h3, h4 { color: #111111 !important; line-height: 1.35 !important; font-weight: bold !important; margin: 1.35em 0 0.72em 0 !important; }");
         builder.Append("\nblockquote { border-left: 3px solid #222222 !important; margin: 1.4em 0 !important; padding: 0.2em 1.1em !important; color: #333333 !important; opacity: 0.88; }");
-        builder.Append("\nimg, svg { display: block; max-width: 100% !important; height: auto !important; margin: 1.8em auto !important; } svg image { max-width: 100% !important; }");
+        builder.Append("\nimg, svg { display: block; width: auto !important; max-width: 100% !important; height: auto !important; margin: 1.8em auto !important; break-inside: avoid; } svg image { max-width: 100% !important; }");
         if (pagination)
             builder.Append("\nimg, svg { max-height: calc(var(--kkindle-page-content-h, 100vh) - 3.6em) !important; object-fit: contain !important; } img.kkindle-cover, .kkindle-cover img, svg.kkindle-cover, .kkindle-cover svg { max-height: calc(var(--kkindle-page-content-h, 100vh) - 6em) !important; margin: 1em auto !important; }");
         builder.Append("\npre, table { max-width: 100% !important; overflow-x: auto !important; }");
@@ -336,6 +353,49 @@ public partial class MainWindow
             builder.Append($"\n@font-face {{ font-family: \"{ReaderFontDefaults.BundledFamily}\"; src: url(\"{bundledFontUri}\") format(\"truetype\"); font-display: swap; }}");
         return builder.ToString();
     }
+
+    // Image-only chapters and cover pages often contain a raster that is
+    // nearly as large as the WebView. Mark the first large image so the
+    // tighter cover rule keeps it on the first pagination column. Dimensions
+    // come from the media itself rather than book-specific names or classes.
+    private const string FitReaderCoverImageScript = """
+        (() => {
+          const root = document.documentElement;
+          const body = document.body;
+          if (!root || !body) return false;
+          const viewWidth = root.clientWidth || window.innerWidth || 0;
+          const viewHeight = root.clientHeight || window.innerHeight || 0;
+          if (viewWidth <= 0 || viewHeight <= 0) return false;
+
+          const bodyStyle = getComputedStyle(body);
+          const paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
+          const paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+          const contentHeight = body.clientHeight - paddingTop - paddingBottom;
+          if (contentHeight > 0)
+            root.style.setProperty('--kkindle-page-content-h', contentHeight + 'px');
+
+          const candidates = Array.from(
+            document.querySelectorAll('body img, body svg, body svg image'));
+          for (const element of candidates) {
+            const isSvgImage = element.tagName.toLowerCase() === 'image';
+            const naturalWidth = element.naturalWidth
+              || parseFloat(element.getAttribute('width')) || 0;
+            const naturalHeight = element.naturalHeight
+              || parseFloat(element.getAttribute('height')) || 0;
+            if (naturalWidth <= 0 || naturalHeight <= 0) continue;
+            const viewportArea = viewWidth * viewHeight;
+            if (naturalWidth * naturalHeight < viewportArea * 0.35
+                && !(naturalWidth >= viewWidth * 0.6
+                  && naturalHeight >= viewHeight * 0.6)) continue;
+            element.classList.add('kkindle-cover');
+            if (isSvgImage && element.parentElement
+                && /^svg$/i.test(element.parentElement.tagName))
+              element.parentElement.classList.add('kkindle-cover');
+            return true;
+          }
+          return false;
+        })();
+        """;
 
     // A WebView navigation completion only means that the document itself is
     // ready; it does not mean a font introduced by the injected style has
