@@ -946,7 +946,7 @@ public partial class MainWindow : Window
             var item = new MenuItem
             {
                 Header = format,
-                Width = 55,
+                Width = 64,
                 MinWidth = 0,
                 IsEnabled = card.Book.Files.Any(file =>
                     string.Equals(file.Format, format, StringComparison.OrdinalIgnoreCase)
@@ -968,7 +968,7 @@ public partial class MainWindow : Window
             var item = new MenuItem
             {
                 Header = target.ToUpperInvariant(),
-                Width = 55,
+                Width = 64,
                 MinWidth = 0,
                 Tag = target
             };
@@ -1037,7 +1037,7 @@ public partial class MainWindow : Window
             var item = new MenuItem
             {
                 Header = format,
-                Width = 55,
+                Width = 64,
                 MinWidth = 0,
                 IsEnabled = file is not null,
                 Tag = file
@@ -1053,7 +1053,7 @@ public partial class MainWindow : Window
         deleteFormatMenu.IsEnabled = deleteFormatMenu.Items.OfType<MenuItem>().Any(item => item.IsEnabled);
         menu.Items.Add(deleteFormatMenu);
         deleteFormatMenu.Items.Add(new Separator());
-        deleteFormatMenu.Items.Add(CreateMenuItem("删除全部格式", () => DeleteBookFromContextAsync(card)));
+        deleteFormatMenu.Items.Add(CreateMenuItem("全部", () => DeleteBookFromContextAsync(card)));
 
         return menu;
     }
@@ -1082,9 +1082,11 @@ public partial class MainWindow : Window
 
     private static void ApplyLegacyMenuItemSize(MenuItem item)
     {
-        item.Height = 40;
-        item.MinHeight = 40;
-        item.MaxHeight = 40;
+        // Avalonia uses device-independent units: 32 units become the legacy
+        // menu's 40 physical pixels on a 125%-scaled Windows display.
+        item.Height = 32;
+        item.MinHeight = 32;
+        item.MaxHeight = 32;
         item.Padding = new Thickness(8, 4, 8, 7);
     }
 
@@ -2562,20 +2564,17 @@ public partial class MainWindow : Window
         SystemChevron.Data = Geometry.Parse(
             SystemChildren.IsVisible ? SidebarChevronDownData : SidebarChevronRightData);
 
-        var ink = Application.Current?.Resources["InkBrush"] as IBrush ?? Brushes.Black;
-        var muted = Application.Current?.Resources["MutedInkBrush"] as IBrush ?? Brushes.Gray;
-        var sections = new[]
+        var sectionButtons = new[]
         {
-            (Button: BookManagementSectionButton, Chevron: BookManagementChevron),
-            (Button: DeviceManagementSectionButton, Chevron: DeviceManagementChevron),
-            (Button: ReadingSectionButton, Chevron: ReadingChevron),
-            (Button: SystemSectionButton, Chevron: SystemChevron)
+            BookManagementSectionButton,
+            DeviceManagementSectionButton,
+            ReadingSectionButton,
+            SystemSectionButton
         };
-        foreach (var section in sections)
+        foreach (var button in sectionButtons)
         {
-            var active = ReferenceEquals(section.Button, _activeNavigationSectionButton);
-            section.Button.Classes.Set("active", active);
-            section.Chevron.Stroke = active ? ink : muted;
+            var active = ReferenceEquals(button, _activeNavigationSectionButton);
+            button.Classes.Set("active", active);
         }
     }
 

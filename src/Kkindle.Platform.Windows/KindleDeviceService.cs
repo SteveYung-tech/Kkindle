@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -701,7 +702,7 @@ public sealed class KindleDeviceService : IKindleDeviceService
         cancellationToken.ThrowIfCancellationRequested();
         if (device.Transport == KindleTransport.Wpd)
             return Task.Run(() => WpdKindleAccess.CloseDeviceSession(device, cancellationToken), cancellationToken);
-        return Task.Run(() => EjectDrive(device.RootPath), cancellationToken);
+        return Task.Run(() => EjectDrive(device.RootPath, cancellationToken), cancellationToken);
     }
 
     private static string GetDocumentsRoot(KindleDevice device)
@@ -787,27 +788,82 @@ public sealed class KindleDeviceService : IKindleDeviceService
             : root.TrimEnd('\\');
     }
 
-    private static void EjectDrive(string root)
+    private static void EjectDrive(string root, CancellationToken cancellationToken)
     {
         var driveLetter = root.TrimEnd('\\').TrimEnd('/');
         if (driveLetter.Length < 2) throw new InvalidOperationException("无法确定设备盘符。");
-        var handle = CreateFile($@"\\.\{driveLetter}", 0, FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
-        if (handle == InvalidHandleValue) throw new IOException("无法打开 Kindle 设备进行安全弹出。");
+        var handle = CreateFile(
+            $@"\\.\{driveLetter}",
+            GenericRead | GenericWrite,
+            FileShareRead | FileShareWrite,
+            IntPtr.Zero,
+            OpenExisting,
+            0,
+            IntPtr.Zero);
+        if (handle == InvalidHandleValue)
+            throw CreateEjectIOException("无法打开 Kindle 卷", Marshal.GetLastWin32Error());
+
         try
         {
-            DeviceIoControl(handle, FsctlLockVolume, IntPtr.Zero, 0, IntPtr.Zero, 0, out _, IntPtr.Zero);
-            DeviceIoControl(handle, FsctlDismountVolume, IntPtr.Zero, 0, IntPtr.Zero, 0, out _, IntPtr.Zero);
+            // A volume can be briefly busy while Explorer closes enumeration
+            // handles. Locking also flushes cached writes before removal.
+            var locked = false;
+            var lockError = 0;
+            for (var attempt = 0; attempt < 8; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                locked = DeviceIoControl(
+                    handle,
+                    FsctlLockVolume,
+                    IntPtr.Zero,
+                    0,
+                    IntPtr.Zero,
+                    0,
+                    out _,
+                    IntPtr.Zero);
+                if (locked) break;
+                lockError = Marshal.GetLastWin32Error();
+                Thread.Sleep(150);
+            }
+            if (!locked)
+                throw CreateEjectIOException("Kindle 正在被程序占用，无法锁定卷", lockError);
+
+            if (!DeviceIoControl(handle, FsctlDismountVolume, IntPtr.Zero, 0, IntPtr.Zero, 0, out _, IntPtr.Zero))
+                throw CreateEjectIOException("无法卸载 Kindle 卷", Marshal.GetLastWin32Error());
+
+            // Clear any removable-media lock before asking the storage stack
+            // to eject. Some USB mass-storage drivers require this explicitly.
+            var allowRemoval = (byte)0;
+            DeviceIoControl(
+                handle,
+                IoctlStorageMediaRemoval,
+                ref allowRemoval,
+                1,
+                IntPtr.Zero,
+                0,
+                out _,
+                IntPtr.Zero);
+
             if (!DeviceIoControl(handle, IoctlStorageEjectMedia, IntPtr.Zero, 0, IntPtr.Zero, 0, out _, IntPtr.Zero))
-                throw new IOException("Windows 未允许安全弹出，请使用资源管理器手动弹出 Kindle。");
+                throw CreateEjectIOException("Windows 存储驱动拒绝弹出 Kindle", Marshal.GetLastWin32Error());
         }
         finally { CloseHandle(handle); }
     }
 
+    private static IOException CreateEjectIOException(string operation, int errorCode)
+    {
+        var detail = errorCode == 0 ? "未知 Windows 错误" : new Win32Exception(errorCode).Message;
+        return new IOException($"{operation}：{detail}（错误 {errorCode}）。");
+    }
+
+    private const uint GenericRead = 0x80000000;
+    private const uint GenericWrite = 0x40000000;
     private const uint FileShareRead = 0x00000001;
     private const uint FileShareWrite = 0x00000002;
     private const uint OpenExisting = 3;
     private const uint FsctlLockVolume = 0x00090018;
     private const uint FsctlDismountVolume = 0x00090020;
+    private const uint IoctlStorageMediaRemoval = 0x002D4804;
     private const uint IoctlStorageEjectMedia = 0x002D4808;
     private static readonly IntPtr InvalidHandleValue = new(-1);
 
@@ -819,6 +875,9 @@ public sealed class KindleDeviceService : IKindleDeviceService
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool DeviceIoControl(IntPtr device, uint controlCode, IntPtr input, uint inputSize, IntPtr output, uint outputSize, out uint bytesReturned, IntPtr overlapped);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool DeviceIoControl(IntPtr device, uint controlCode, ref byte input, uint inputSize, IntPtr output, uint outputSize, out uint bytesReturned, IntPtr overlapped);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr handle);

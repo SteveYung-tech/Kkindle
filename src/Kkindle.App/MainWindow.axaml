@@ -5,6 +5,7 @@
         xmlns:local="using:Kkindle"
         xmlns:core="using:Kkindle.Core"
         xmlns:infra="using:Kkindle.Infrastructure"
+        xmlns:converters="using:Avalonia.Data.Converters"
         mc:Ignorable="d"
         d:DesignWidth="1440"
         d:DesignHeight="900"
@@ -211,6 +212,26 @@
                     <Path Data="M 0,0 L 10,10 M 10,0 L 0,10" />
                 </Button>
             </StackPanel>
+            <!-- Modal overlays live in the content layer below this custom
+                 title bar. Mirror their visibility over the caption-button
+                 column so minimize/maximize/close are dimmed and blocked too. -->
+            <Border Grid.Column="1"
+                    Background="#66000000"
+                    ZIndex="100">
+                <Border.IsVisible>
+                    <MultiBinding Converter="{x:Static converters:BoolConverters.Or}">
+                        <Binding Path="IsVisible" ElementName="DevicePromptOverlay" />
+                        <Binding Path="IsVisible" ElementName="ConfirmationOverlay" />
+                        <Binding Path="IsVisible" ElementName="CollectionNameOverlay" />
+                        <Binding Path="IsVisible" ElementName="DeviceModelInputOverlay" />
+                        <Binding Path="IsVisible" ElementName="DoubanCandidateOverlay" />
+                        <Binding Path="IsVisible" ElementName="DoubanPreviewOverlay" />
+                        <Binding Path="IsVisible" ElementName="ImportFormatSelectionOverlay" />
+                        <Binding Path="IsVisible" ElementName="MessageOverlay" />
+                        <Binding Path="IsVisible" ElementName="ReaderLayoutSettingsOverlay" />
+                    </MultiBinding>
+                </Border.IsVisible>
+            </Border>
         </Grid>
 
         <Grid x:Name="LibraryRoot"
@@ -260,7 +281,6 @@
                                                   Data="M 1,2 L 5,6 L 9,2"
                                                   Width="10"
                                                   Height="8"
-                                                  Stroke="{StaticResource MutedInkBrush}"
                                                   StrokeThickness="1.25"
                                                   HorizontalAlignment="Right"
                                                   VerticalAlignment="Center" />
@@ -305,7 +325,6 @@
                                                   Data="M 2,1 L 6,5 L 2,9"
                                                   Width="10"
                                                   Height="10"
-                                                  Stroke="{StaticResource MutedInkBrush}"
                                                   StrokeThickness="1.25"
                                                   HorizontalAlignment="Right"
                                                   VerticalAlignment="Center" />
@@ -337,7 +356,6 @@
                                                   Data="M 1,2 L 5,6 L 9,2"
                                                   Width="10"
                                                   Height="8"
-                                                  Stroke="{StaticResource MutedInkBrush}"
                                                   StrokeThickness="1.25"
                                                   HorizontalAlignment="Right"
                                                   VerticalAlignment="Center" />
@@ -374,7 +392,6 @@
                                                   Data="M 2,1 L 6,5 L 2,9"
                                                   Width="10"
                                                   Height="10"
-                                                  Stroke="{StaticResource MutedInkBrush}"
                                                   StrokeThickness="1.25"
                                                   HorizontalAlignment="Right"
                                                   VerticalAlignment="Center" />
@@ -411,24 +428,32 @@
                             Grid.Row="2"
                             Padding="10"
                             Background="{StaticResource PaperBrush}"
-                            BorderBrush="{StaticResource InkBrush}"
-                            BorderThickness="1"
-                            CornerRadius="0"
-                            Tapped="DeviceStatusBox_Tapped"
-                            ToolTip.Tip="点击选择或自定义设备型号（按串码记忆）；未连接时点击可重新检测 Kindle">
+                            BorderBrush="{StaticResource HairlineBrush}"
+                            BorderThickness="0,1,0,0"
+                            CornerRadius="0">
                         <StackPanel Spacing="5">
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="6">
                                 <TextBlock x:Name="KindleStatusText"
+                                           Classes="kindleStatusTrigger"
                                            Text="正在检查设备…"
                                            FontWeight="Bold"
                                            TextWrapping="Wrap"
-                                           VerticalAlignment="Center" />
+                                           VerticalAlignment="Center"
+                                           Tapped="DeviceStatusBox_Tapped"
+                                           ToolTip.Tip="点击选择或自定义设备型号（按串码记忆）；未连接时点击可重新检测 Kindle" />
+                                <TextBlock x:Name="KindleConnectionText"
+                                           Grid.Row="1"
+                                           Margin="0,2,0,0"
+                                           Foreground="{StaticResource MutedInkBrush}"
+                                           FontSize="10" />
                                 <Button x:Name="DeviceStatusEjectButton"
                                         Grid.Column="1"
+                                        Grid.Row="0"
                                         Classes="eject"
                                         Width="25"
                                         MinWidth="25"
                                         Height="23"
+                                        VerticalAlignment="Center"
                                         IsEnabled="False"
                                         LayoutUpdated="DeviceStatusEjectButton_LayoutUpdated"
                                         ToolTip.Tip="未连接设备"
@@ -447,7 +472,11 @@
                                              VerticalAlignment="Center" />
                                 </Button>
                             </Grid>
-                            <TextBlock x:Name="KindleConnectionText" Foreground="{StaticResource MutedInkBrush}" FontSize="10" />
+                            <TextBlock x:Name="DeviceStorageText"
+                                       Text="无存储信息"
+                                       Foreground="{StaticResource MutedInkBrush}"
+                                       FontSize="10"
+                                       TextWrapping="Wrap" />
                             <Grid x:Name="DeviceStorageBar"
                                   Height="10"
                                   Background="{StaticResource PaperBrush}"
@@ -455,17 +484,6 @@
                                 <Rectangle x:Name="DeviceStorageUsedBar" HorizontalAlignment="Left" Fill="{StaticResource InkBrush}" Width="0" />
                                 <Border BorderBrush="{StaticResource InkBrush}" BorderThickness="1" />
                             </Grid>
-                            <TextBlock x:Name="DeviceStorageText" Text="无存储信息" Foreground="{StaticResource MutedInkBrush}" FontSize="10" TextWrapping="Wrap" />
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <Rectangle Width="7" Height="7" Fill="{StaticResource InkBrush}" VerticalAlignment="Center" />
-                                    <TextBlock Text="已用" FontSize="9" Foreground="{StaticResource MutedInkBrush}" />
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <Rectangle Width="7" Height="7" Fill="{StaticResource PaperBrush}" Stroke="{StaticResource InkBrush}" StrokeThickness="1" VerticalAlignment="Center" />
-                                    <TextBlock Text="剩余" FontSize="9" Foreground="{StaticResource MutedInkBrush}" />
-                                </StackPanel>
-                            </StackPanel>
                         </StackPanel>
                     </Border>
                 </Grid>
@@ -491,7 +509,8 @@
                     <TextBlock x:Name="LibrarySummaryText"
                                Text="{Binding ViewModel.StatusText}"
                                FontSize="12"
-                               Foreground="#666666" />
+                               Foreground="#666666"
+                               IsVisible="False" />
                 </StackPanel>
 
                 <Grid Grid.Row="1" Margin="0,22,0,18" ColumnDefinitions="420,*">
@@ -879,7 +898,12 @@
                 </Grid>
 
                 <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,10,0,0">
-                    <TextBlock x:Name="TaskStatusText" Text="准备就绪" FontSize="11" Foreground="#666666" VerticalAlignment="Center" />
+                    <TextBlock x:Name="TaskStatusText"
+                               Text="准备就绪"
+                               FontSize="11"
+                               Foreground="#666666"
+                               VerticalAlignment="Center"
+                               IsVisible="False" />
                     <ProgressBar x:Name="LibraryBusyProgress" Grid.Column="1" Width="120" Height="5" IsIndeterminate="True" IsVisible="False" />
                 </Grid>
             </Grid>
@@ -3721,58 +3745,66 @@
                         <ContentControl x:Name="ReaderPreloadHostSlot"
                                         HorizontalContentAlignment="Stretch"
                                         VerticalContentAlignment="Stretch" />
-                        <!-- Keep the native webview's fractional-DPI bottom edge
-                             hidden, matching the WinUI reader surface. -->
-                        <Border x:Name="ReaderWebViewBottomCover"
-                                Height="2"
-                                Margin="0,0,0,10"
-                                VerticalAlignment="Bottom"
-                                Background="{StaticResource PaperBrush}"
-                                IsHitTestVisible="False"
-                                ZIndex="30" />
-                        <!-- Current-page bookmark marker. -->
-                        <Path x:Name="ReaderBookmarkCornerMarker"
-                              Width="26"
-                              Height="26"
-                              HorizontalAlignment="Right"
-                              VerticalAlignment="Top"
-                              ZIndex="25"
-                              Data="M 0,0 L 26,0 L 26,26 Z"
-                              Fill="#777774"
-                              IsHitTestVisible="False"
-                              IsVisible="False" />
-                        <Border x:Name="ReaderInPageSearchBar"
-                                Width="430"
-                                Padding="10,8"
-                                Margin="0,16,24,0"
-                                HorizontalAlignment="Right"
-                                VerticalAlignment="Top"
-                                Background="{StaticResource PaperBrush}"
-                                BorderBrush="{StaticResource InkBrush}"
-                                BorderThickness="1"
-                                IsVisible="False"
-                                ZIndex="45">
-                            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6">
-                                <TextBox x:Name="ReaderInPageSearchBox"
-                                         Height="32"
-                                         Padding="8,4"
-                                         PlaceholderText="查找当前正文…"
-                                         TextChanged="ReaderInPageSearchBox_TextChanged"
-                                         KeyDown="ReaderInPageSearchBox_KeyDown" />
-                                <TextBlock x:Name="ReaderInPageSearchCountText"
-                                           Grid.Column="1"
-                                           MinWidth="48"
-                                           Text="0/0"
-                                           FontSize="11"
-                                           Foreground="{StaticResource MutedInkBrush}"
-                                           TextAlignment="Center"
-                                           VerticalAlignment="Center" />
-                                <Button Grid.Column="2" Classes="icon" Width="32" MinWidth="32" Height="32" Content="↑" Click="ReaderInPageSearchPreviousButton_Click" />
-                                <Button Grid.Column="3" Classes="icon" Width="32" MinWidth="32" Height="32" Content="↓" Click="ReaderInPageSearchNextButton_Click" />
-                                <Button Grid.Column="4" Classes="icon" Width="32" MinWidth="32" Height="32" Content="×" Click="ReaderInPageSearchCloseButton_Click" />
-                            </Grid>
-                        </Border>
                     </Grid>
+
+                    <!-- Native webviews paint over child Avalonia content. Keep
+                         these decorations as later siblings so they render on
+                         top of the active reading surface, matching WinUI. -->
+                    <Border x:Name="ReaderWebViewBottomCover"
+                            Height="2"
+                            Margin="0,0,0,10"
+                            VerticalAlignment="Bottom"
+                            Background="{StaticResource PaperBrush}"
+                            IsHitTestVisible="False"
+                            ZIndex="30" />
+                    <Path x:Name="ReaderBookmarkCornerMarker"
+                          Width="26"
+                          Height="26"
+                          Margin="0"
+                          HorizontalAlignment="Right"
+                          VerticalAlignment="Top"
+                          ZIndex="25"
+                          Data="M 0,0 L 26,0 L 26,26 Z"
+                          Fill="#777774"
+                          Stretch="None"
+                          IsHitTestVisible="False"
+                          IsVisible="False" />
+
+                    <!-- This must remain a sibling after the native WebView
+                         slots. Native child windows paint over Avalonia
+                         children, so an in-page search bar nested inside
+                         ReaderWebViewHost is not reliably visible/clickable. -->
+                    <Border x:Name="ReaderInPageSearchBar"
+                            Width="430"
+                            Padding="10,8"
+                            Margin="0,16,24,0"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Background="{StaticResource PaperBrush}"
+                            BorderBrush="{StaticResource InkBrush}"
+                            BorderThickness="1"
+                            IsVisible="False"
+                            ZIndex="45">
+                        <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6">
+                            <TextBox x:Name="ReaderInPageSearchBox"
+                                     Height="32"
+                                     Padding="8,4"
+                                     PlaceholderText="查找当前正文…"
+                                     TextChanged="ReaderInPageSearchBox_TextChanged"
+                                     KeyDown="ReaderInPageSearchBox_KeyDown" />
+                            <TextBlock x:Name="ReaderInPageSearchCountText"
+                                       Grid.Column="1"
+                                       MinWidth="48"
+                                       Text="0/0"
+                                       FontSize="11"
+                                       Foreground="{StaticResource MutedInkBrush}"
+                                       TextAlignment="Center"
+                                       VerticalAlignment="Center" />
+                            <Button Grid.Column="2" Classes="icon" Width="32" MinWidth="32" Height="32" Content="↑" Click="ReaderInPageSearchPreviousButton_Click" />
+                            <Button Grid.Column="3" Classes="icon" Width="32" MinWidth="32" Height="32" Content="↓" Click="ReaderInPageSearchNextButton_Click" />
+                            <Button Grid.Column="4" Classes="icon" Width="32" MinWidth="32" Height="32" Content="×" Click="ReaderInPageSearchCloseButton_Click" />
+                        </Grid>
+                    </Border>
 
                     <!-- Slim floating bar shown only in zen mode. -->
                     <Border x:Name="ReaderZenBar"
@@ -4300,9 +4332,9 @@
         </Grid>
     </Border>
 
-        <!-- Device connection/eject floating bubble, mirroring the WinUI
-             DeviceStatusPopup: a black toast with a 1-DIP black outline and a
-             pointer aligned to the sidebar eject button's triangle apex. The
+        <!-- Device connection/eject floating bubble: a hollow paper-white
+             toast with a 1-DIP black outline and a matching outlined pointer
+             aligned to the sidebar eject button's triangle apex. The
              host positions it in window coordinates (PositionDeviceStatusToast)
              and it floats above the whole UI, never clipped by the sidebar. -->
         <StackPanel x:Name="DeviceStatusToast"
@@ -4318,7 +4350,7 @@
                 </Transitions>
             </StackPanel.Transitions>
             <Border Padding="8,7"
-                    Background="{StaticResource InkBrush}"
+                    Background="{StaticResource PaperBrush}"
                     BorderBrush="{StaticResource InkBrush}"
                     BorderThickness="1">
                 <TextBlock x:Name="DeviceStatusToastText"
@@ -4326,16 +4358,28 @@
                            Text="设备已连接"
                            TextWrapping="Wrap"
                            TextTrimming="None"
-                           Foreground="{StaticResource PaperBrush}"
+                           Foreground="{StaticResource InkBrush}"
                            FontSize="11" />
             </Border>
-            <Polygon x:Name="DeviceStatusToastPointer"
-                     Points="0,0 10,0 5,6"
-                     Width="10"
-                     Height="6"
-                     RenderTransformOrigin="0,0"
-                     Fill="{StaticResource InkBrush}"
-                     HorizontalAlignment="Left" />
+            <!-- The filled triangle masks the bubble's bottom border, then the
+                 open path draws both sides from the exact border break points.
+                 Keeping fill and outline separate avoids erasing the joins. -->
+            <Grid x:Name="DeviceStatusToastPointer"
+                  Width="12"
+                  Height="6"
+                  Margin="0,-1,0,0"
+                  UseLayoutRounding="True"
+                  RenderTransformOrigin="0,0"
+                  HorizontalAlignment="Left">
+                <Polygon Points="0,0 12,0 6,6"
+                         Fill="{StaticResource PaperBrush}"
+                         Stretch="Fill" />
+                <Path Data="M 0,0 L 6,6 L 12,0"
+                      Stroke="{StaticResource InkBrush}"
+                      StrokeThickness="1"
+                      StrokeLineCap="Square"
+                      StrokeJoin="Miter" />
+            </Grid>
         </StackPanel>
 
         <!-- Invisible resize handles around the window edge. They hand the

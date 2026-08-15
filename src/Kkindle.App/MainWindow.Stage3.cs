@@ -208,7 +208,7 @@ public partial class MainWindow
 
         const double edgeMargin = 8;
         const double pointerCenterFromLeft = 20;
-        const double pointerWidth = 10;
+        const double pointerWidth = 12;
         var windowWidth = Bounds.Width > 0 ? Bounds.Width : Width;
         var maxLeft = Math.Max(edgeMargin, windowWidth - popupSize.Width - edgeMargin);
         var popupLeft = Math.Clamp(apexPoint.X - pointerCenterFromLeft, edgeMargin, maxLeft);
@@ -917,9 +917,9 @@ public partial class MainWindow
         }
     }
 
-    // The whole lower-left device card is interactive in the reference UI:
-    // connected devices open the remembered model picker, while a disconnected
-    // card starts a fresh detection pass. The eject button keeps its own action.
+    // Only the lower-left Kindle heading is interactive: connected devices open
+    // the remembered model picker, while a disconnected heading starts a fresh
+    // detection pass. Storage details and blank card space remain inert.
     private void DeviceStatusBox_Tapped(object? sender, TappedEventArgs e)
     {
         if (IsButtonSource(e.Source))
