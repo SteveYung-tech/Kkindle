@@ -953,6 +953,7 @@ public partial class MainWindow : Window
         }
         openMenu.IsEnabled = openMenu.Items.OfType<MenuItem>().Any(item => item.IsEnabled);
         menu.Items.Add(openMenu);
+        menu.Items.Add(new Separator());
 
         var convertMenu = new MenuItem { Header = "转换为" };
         foreach (var target in new[] { "epub", "azw3", "pdf" })
@@ -962,35 +963,26 @@ public partial class MainWindow : Window
             convertMenu.Items.Add(item);
         }
         menu.Items.Add(convertMenu);
-
         menu.Items.Add(new Separator());
-        menu.Items.Add(CreateMenuItem(
-            card.Book.IsFavorite ? "取消收藏" : "加入收藏",
-            () => ToggleFavoriteAsync(card)));
 
-        var statusMenu = new MenuItem { Header = "标记阅读状态" };
-        foreach (var status in Enum.GetValues<LibraryReadingStatus>())
-        {
-            var item = new MenuItem { Header = GetReadingStatusName(status), Tag = status };
-            item.Click += async (_, _) => await UpdateReadingStatusAsync(card, status);
-            statusMenu.Items.Add(item);
-        }
-        menu.Items.Add(statusMenu);
+        menu.Items.Add(CreateMenuItem("发送到 Kindle 设备", SendSelectedBookToKindleCoreAsync));
+        menu.Items.Add(CreateMenuItem("发送到 Kindle 邮箱", SendSelectedBooksByEmailAsync));
 
         var collectionMenu = new MenuItem { Header = "收藏夹" };
         foreach (var folder in CollectionFolders)
         {
             var item = new MenuItem
             {
-                Header = card.Book.CollectionIds.Contains(folder.Collection.Id)
-                    ? $"移出“{folder.Name}”"
-                    : $"加入“{folder.Name}”",
+                Header = folder.Name,
+                ToggleType = MenuItemToggleType.CheckBox,
+                IsChecked = card.Book.CollectionIds.Contains(folder.Collection.Id),
                 Tag = folder
             };
             item.Click += async (_, _) => await ToggleBookCollectionAsync(card, folder);
             collectionMenu.Items.Add(item);
         }
-        collectionMenu.Items.Add(new Separator());
+        if (CollectionFolders.Count > 0)
+            collectionMenu.Items.Add(new Separator());
         collectionMenu.Items.Add(CreateMenuItem("新建收藏夹…", async () =>
         {
             var name = await PromptCollectionNameAsync();
@@ -1007,17 +999,14 @@ public partial class MainWindow : Window
                 SetTaskStatus($"创建收藏夹失败：{exception.Message}");
             }
         }));
+        if (CollectionFolders.Count > 0)
+        {
+            var deleteCollectionMenu = new MenuItem { Header = "删除收藏夹" };
+            foreach (var folder in CollectionFolders)
+                deleteCollectionMenu.Items.Add(CreateMenuItem(folder.Name, () => DeleteCollectionAsync(folder)));
+            collectionMenu.Items.Add(deleteCollectionMenu);
+        }
         menu.Items.Add(collectionMenu);
-
-        menu.Items.Add(new Separator());
-        menu.Items.Add(CreateMenuItem(
-            GetSelectedCards().Count > 1 ? $"发送选中书籍到 Kindle（{GetSelectedCards().Count}）" : "发送到 Kindle",
-            SendSelectedBooksToKindleAsync));
-        menu.Items.Add(CreateMenuItem(
-            GetSelectedCards().Count > 1 ? $"邮件发送选中书籍（{GetSelectedCards().Count}）" : "邮件发送",
-            SendSelectedBooksByEmailAsync));
-
-        menu.Items.Add(CreateMenuItem("豆瓣匹配", () => MatchDoubanAsync(card)));
         menu.Items.Add(new Separator());
 
         var deleteFormatMenu = new MenuItem { Header = "删除格式" };
@@ -1035,15 +1024,8 @@ public partial class MainWindow : Window
         }
         deleteFormatMenu.IsEnabled = deleteFormatMenu.Items.OfType<MenuItem>().Any(item => item.IsEnabled);
         menu.Items.Add(deleteFormatMenu);
-        menu.Items.Add(CreateMenuItem("删除全部格式", () => DeleteBookFromContextAsync(card)));
-
-        if (GetSelectedCards().Count > 1)
-        {
-            menu.Items.Add(new Separator());
-            menu.Items.Add(CreateMenuItem(
-                $"删除所选 ({GetSelectedCards().Count})",
-                DeleteSelectedBooksAsync));
-        }
+        deleteFormatMenu.Items.Add(new Separator());
+        deleteFormatMenu.Items.Add(CreateMenuItem("删除全部格式", () => DeleteBookFromContextAsync(card)));
 
         return menu;
     }
