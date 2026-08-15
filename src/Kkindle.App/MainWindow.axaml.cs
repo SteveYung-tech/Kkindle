@@ -939,11 +939,14 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
 
         var openMenu = new MenuItem { Header = "打开书籍" };
+        openMenu.Resources["FlyoutThemeMinWidth"] = 0d;
         foreach (var format in new[] { "EPUB", "PDF", "AZW3" })
         {
             var item = new MenuItem
             {
                 Header = format,
+                Width = 57,
+                MinWidth = 0,
                 IsEnabled = card.Book.Files.Any(file =>
                     string.Equals(file.Format, format, StringComparison.OrdinalIgnoreCase)
                     && ReaderBookSelectionPolicy.GetSupportedFiles([file]).Count > 0)
@@ -956,9 +959,16 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
 
         var convertMenu = new MenuItem { Header = "转换为" };
+        convertMenu.Resources["FlyoutThemeMinWidth"] = 0d;
         foreach (var target in new[] { "epub", "azw3", "pdf" })
         {
-            var item = new MenuItem { Header = target.ToUpperInvariant(), Tag = target };
+            var item = new MenuItem
+            {
+                Header = target.ToUpperInvariant(),
+                Width = 57,
+                MinWidth = 0,
+                Tag = target
+            };
             item.Click += async (_, _) => await ConvertBookAsync(card, target);
             convertMenu.Items.Add(item);
         }
@@ -969,6 +979,7 @@ public partial class MainWindow : Window
         menu.Items.Add(CreateMenuItem("发送到 Kindle 邮箱", SendSelectedBooksByEmailAsync));
 
         var collectionMenu = new MenuItem { Header = "收藏夹" };
+        collectionMenu.Resources["FlyoutThemeMinWidth"] = 0d;
         foreach (var folder in CollectionFolders)
         {
             var item = new MenuItem
@@ -1010,6 +1021,7 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
 
         var deleteFormatMenu = new MenuItem { Header = "删除格式" };
+        deleteFormatMenu.Resources["FlyoutThemeMinWidth"] = 0d;
         foreach (var format in new[] { "EPUB", "PDF", "MOBI", "AZW3" })
         {
             var file = card.Book.Files.FirstOrDefault(candidate =>
