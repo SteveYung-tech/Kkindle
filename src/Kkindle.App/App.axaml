@@ -109,10 +109,12 @@
         <x:Double x:Key="MenuFlyoutThemeMinHeight">0</x:Double>
         <Thickness x:Key="MenuFlyoutPresenterThemePadding">0</Thickness>
         <Thickness x:Key="MenuFlyoutPresenterBorderThemeThickness">1</Thickness>
-        <Thickness x:Key="MenuFlyoutItemThemePadding">11,9,11,10</Thickness>
-        <Thickness x:Key="MenuFlyoutItemThemePaddingNarrow">11,9,11,10</Thickness>
-        <Thickness x:Key="MenuFlyoutItemChevronMargin">12,0,0,0</Thickness>
-        <Thickness x:Key="MenuFlyoutSeparatorThemePadding">12,4,12,4</Thickness>
+        <!-- Keep the menu rows tall enough to match the old WinUI build, but
+             use its tighter horizontal rhythm so popups do not grow wide. -->
+        <Thickness x:Key="MenuFlyoutItemThemePadding">8,9,8,10</Thickness>
+        <Thickness x:Key="MenuFlyoutItemThemePaddingNarrow">8,9,8,10</Thickness>
+        <Thickness x:Key="MenuFlyoutItemChevronMargin">8,0,0,0</Thickness>
+        <Thickness x:Key="MenuFlyoutSeparatorThemePadding">8,4,8,4</Thickness>
         <Thickness x:Key="MenuFlyoutScrollerMargin">0</Thickness>
         <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="{StaticResource PaperColor}" />
         <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="{StaticResource InkColor}" />
@@ -139,7 +141,7 @@
         <Thickness x:Key="ComboBoxDropdownBorderThickness">1</Thickness>
         <Thickness x:Key="ComboBoxDropdownBorderPadding">0</Thickness>
         <Thickness x:Key="ComboBoxDropdownContentMargin">0</Thickness>
-        <Thickness x:Key="ComboBoxItemThemePadding">11,9,11,10</Thickness>
+        <Thickness x:Key="ComboBoxItemThemePadding">8,9,8,10</Thickness>
         <SolidColorBrush x:Key="ComboBoxItemForeground" Color="{StaticResource InkColor}" />
         <SolidColorBrush x:Key="ComboBoxItemForegroundPressed" Color="{StaticResource InkColor}" />
         <SolidColorBrush x:Key="ComboBoxItemForegroundPointerOver" Color="{StaticResource PaperColor}" />
