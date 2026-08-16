@@ -53,6 +53,28 @@
             </Border>
         </ControlTemplate>
 
+        <!-- Search result rows keep the WinUI OutlinedListItem behaviour:
+             hovering darkens the outline to black while the fill stays
+             paper white (the bound border brush is a local value, so the
+             hover ink line is drawn as a template overlay instead). -->
+        <ControlTemplate x:Key="ReaderSearchResultButtonTemplate" TargetType="Button">
+            <Grid Background="{TemplateBinding Background}">
+                <Border Padding="{TemplateBinding Padding}">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      Foreground="{TemplateBinding Foreground}"
+                                      HorizontalAlignment="Stretch"
+                                      VerticalAlignment="Top"
+                                      HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                      VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                </Border>
+                <Border x:Name="HoverInkOutline"
+                        BorderBrush="#000000"
+                        BorderThickness="1"
+                        IsHitTestVisible="False"
+                        Opacity="0" />
+            </Grid>
+        </ControlTemplate>
+
         <!-- ScrollBarTheme.axaml intentionally uses private resource names so
              it does not depend on FluentTheme's internal palette. -->
         <x:Double x:Key="KkindleScrollBarSize">10</x:Double>
@@ -961,24 +983,6 @@
             <Setter Property="Opacity" Value="0.35" />
         </Style>
 
-        <!-- Kreader follows the library sidebar's flat visual language:
-             controls have no resting boxes, hover is a quiet grey plane,
-             inputs are underline-only, and selected tabs use a slim left
-             marker instead of an outlined capsule/card. -->
-        <Style Selector="Grid.readerShell Button.readerToolbar">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-            <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-        </Style>
-        <Style Selector="Grid.readerShell Button.readerToolbar:pointerover">
-            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-        </Style>
-        <Style Selector="Grid.readerShell Button.readerToolbar:pressed">
-            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-        </Style>
         <Style Selector="Button.readerSearchResult">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
             <Setter Property="MinWidth" Value="0" />
@@ -994,112 +998,94 @@
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="VerticalAlignment" Value="Stretch" />
             <Setter Property="ClipToBounds" Value="True" />
-            <Setter Property="Template" Value="{StaticResource ReaderToolbarButtonTemplate}" />
+            <Setter Property="Template" Value="{StaticResource ReaderSearchResultButtonTemplate}" />
         </Style>
-        <Style Selector="Button.readerSearchResult:pointerover">
-            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+        <Style Selector="Button.readerSearchResult:pointerover /template/ Border#HoverInkOutline">
+            <Setter Property="Opacity" Value="1" />
         </Style>
-        <Style Selector="Button.readerSearchResult:pressed">
-            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+        <Style Selector="Button.readerSearchResult:pressed /template/ Border#HoverInkOutline">
+            <Setter Property="Opacity" Value="1" />
         </Style>
+        <!-- Inside the reader the small icon buttons follow the WinUI
+             ReaderHeaderIconButtonStyle: no resting box, soft grey hover
+             plane, dark ink glyphs. -->
         <Style Selector="Grid.readerShell Button.icon">
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="#242424" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
         </Style>
         <Style Selector="Grid.readerShell Button.icon:pointerover">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="#ECECEA" />
         </Style>
         <Style Selector="Grid.readerShell Button.icon:pressed">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="#D9D9D5" />
         </Style>
+        <!-- Quiet buttons in the reader stay outlined white boxes with a
+             soft grey hover (WinUI QuietButtonStyle), no scale animation. -->
         <Style Selector="Grid.readerShell Button.quiet">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-            <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="RenderTransformOrigin" Value="50%,50%" />
-            <Setter Property="RenderTransform" Value="scale(1)" />
-            <Setter Property="Transitions">
-                <Transitions>
-                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.14" />
-                </Transitions>
-            </Setter>
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="Foreground" Value="#000000" />
+            <Setter Property="BorderBrush" Value="#000000" />
+            <Setter Property="BorderThickness" Value="1" />
         </Style>
         <Style Selector="Grid.readerShell Button.quiet:pointerover">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-            <Setter Property="RenderTransform" Value="scale(1.12)" />
+            <Setter Property="Background" Value="#ECECEA" />
+            <Setter Property="Foreground" Value="#000000" />
         </Style>
         <Style Selector="Grid.readerShell Button.quiet:pressed">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-            <Setter Property="RenderTransform" Value="scale(0.96)" />
+            <Setter Property="Background" Value="#D9D9D5" />
+            <Setter Property="Foreground" Value="#000000" />
         </Style>
+        <!-- Reader inputs are black-framed square boxes (WinUI App.xaml
+             TextBox/ComboBox baseline), not underline fields. -->
         <Style Selector="Grid.readerShell TextBox">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}" />
-            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="Foreground" Value="#000000" />
+            <Setter Property="BorderBrush" Value="#000000" />
+            <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="0" />
         </Style>
         <Style Selector="Grid.readerShell TextBox:focus">
-            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="#000000" />
         </Style>
         <Style Selector="Grid.readerShell ComboBox">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}" />
-            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="Foreground" Value="#000000" />
+            <Setter Property="BorderBrush" Value="#000000" />
+            <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="0" />
         </Style>
         <Style Selector="Grid.readerShell ComboBox:focus">
-            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="#000000" />
         </Style>
 
+        <!-- Hollow tabs (WinUI SetReaderTocTab): transparent fill for both
+             states; the selected tab is outlined in black, the idle tab in
+             light grey, hover is a quiet grey plane. -->
         <Style Selector="Button.readerTab">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
             <Setter Property="Height" Value="34" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource MutedInkBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource SidebarIndicatorBrush}" />
-            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="#242424" />
+            <Setter Property="BorderBrush" Value="#D5D5D1" />
+            <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="Template">
-                <ControlTemplate>
-                    <Border Background="{TemplateBinding Background}">
-                        <Grid ColumnDefinitions="3,*">
-                            <Rectangle Width="3"
-                                       Height="16"
-                                       Fill="{TemplateBinding BorderBrush}"
-                                       VerticalAlignment="Center" />
-                            <ContentPresenter Grid.Column="1"
-                                              Margin="12,0,8,0"
-                                              Content="{TemplateBinding Content}"
-                                              Foreground="{TemplateBinding Foreground}"
-                                              HorizontalAlignment="Left"
-                                              VerticalAlignment="Center" />
-                        </Grid>
-                    </Border>
-                </ControlTemplate>
-            </Setter>
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template" Value="{StaticResource ReaderToolbarButtonTemplate}" />
         </Style>
         <Style Selector="Button.readerTab:pointerover">
-            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="#ECECEA" />
         </Style>
         <Style Selector="Button.readerTab:pressed">
-            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="#D9D9D5" />
         </Style>
         <Style Selector="Button.readerTab.active">
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
-            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="BorderBrush" Value="#000000" />
         </Style>
 
         <!-- Reader header chrome buttons: stable sizes keep the reader header
@@ -1152,8 +1138,8 @@
             <Setter Property="Background" Value="#D9D9D5" />
         </Style>
 
-        <!-- TOC list items: hollow monochrome rows with a 3-DIP selection bar
-             on the left edge (WinUI reference's ReaderTocItemStyle). -->
+        <!-- TOC list items: soft grey hover/selected layers with the text
+             staying dark ink, exactly the WinUI ReaderTocItemStyle states. -->
         <Style Selector="ListBox.readerTocList ListBoxItem">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
             <Setter Property="Padding" Value="0" />
@@ -1162,89 +1148,39 @@
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="0"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:pointerover">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="Background" Value="#EFEFED" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:pressed">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="Background" Value="#DDDDDA" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:selected">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="Background" Value="#E6E6E6" />
+            <Setter Property="Foreground" Value="#000000" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:selected:pointerover">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="Background" Value="#E6E6E6" />
+            <Setter Property="Foreground" Value="#000000" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:selected:pressed">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
-        </Style>
-
-        <!-- The TOC surface is deliberately binary: white at rest and black
-             for every interactive state. No grey palette leaks into it. -->
-        <Style Selector="Border.readerTocSurface">
-            <Setter Property="Background" Value="#FFFFFF" />
-        </Style>
-        <Style Selector="Border.readerTocSurface Button.readerTab">
-            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="Background" Value="#E6E6E6" />
             <Setter Property="Foreground" Value="#000000" />
-            <Setter Property="BorderBrush" Value="#000000" />
-        </Style>
-        <Style Selector="Border.readerTocSurface Button.readerTab:pointerover">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#FFFFFF" />
-        </Style>
-        <Style Selector="Border.readerTocSurface Button.readerTab:pressed">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#FFFFFF" />
-        </Style>
-        <Style Selector="Border.readerTocSurface Button.readerTab.active">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#FFFFFF" />
-        </Style>
-        <Style Selector="Border.readerTocSurface Button.readerToolbar:pointerover">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
-        </Style>
-        <Style Selector="Border.readerTocSurface Button.readerToolbar:pressed">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
-        </Style>
-        <Style Selector="Border.readerTocSurface Button.readerSearchResult:pointerover">
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="Foreground" Value="#000000" />
-        </Style>
-        <Style Selector="Border.readerTocSurface Button.readerSearchResult:pressed">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
-        </Style>
-        <Style Selector="Border.readerTocSurface Button.icon:pointerover">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
-        </Style>
-        <Style Selector="Border.readerTocSurface Button.icon:pressed">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
-        </Style>
-        <Style Selector="Border.readerTocSurface Button.icon:pointerover /template/ ContentPresenter#PART_ContentPresenter,
-                         Border.readerTocSurface Button.icon:pressed /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="#000000" />
-            <Setter Property="Foreground" Value="#FFFFFF" />
-        </Style>
-        <Style Selector="Border.readerTocSurface TextBox">
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="Foreground" Value="#000000" />
-            <Setter Property="BorderBrush" Value="#000000" />
-        </Style>
-        <Style Selector="Border.readerTocSurface TextBox:focus">
-            <Setter Property="BorderBrush" Value="#000000" />
         </Style>
 
         <!-- Glyphs are drawn as vectors rather than Segoe MDL2 Assets glyphs:
@@ -1330,6 +1266,30 @@
         <Style Selector="ListBoxItem:selected:pointerover">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
             <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+
+        <!-- These TOC state overrides must follow the generic ListBoxItem
+             rules above. Avalonia resolves matching application styles in
+             declaration order, so placing them earlier lets the global black
+             selected background win even with the TOC-specific template. -->
+        <Style Selector="ListBox.readerTocList ListBoxItem">
+            <Setter Property="Margin" Value="0,1" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#000000" />
+        </Style>
+        <Style Selector="ListBox.readerTocList ListBoxItem:pointerover">
+            <Setter Property="Background" Value="#EFEFED" />
+            <Setter Property="Foreground" Value="#000000" />
+        </Style>
+        <Style Selector="ListBox.readerTocList ListBoxItem:pressed">
+            <Setter Property="Background" Value="#DDDDDA" />
+            <Setter Property="Foreground" Value="#000000" />
+        </Style>
+        <Style Selector="ListBox.readerTocList ListBoxItem:selected,
+                         ListBox.readerTocList ListBoxItem:selected:pointerover,
+                         ListBox.readerTocList ListBoxItem:selected:pressed">
+            <Setter Property="Background" Value="#E6E6E6" />
+            <Setter Property="Foreground" Value="#000000" />
         </Style>
 
         <!-- The WinUI shelf selects the 154-DIP card content, never the

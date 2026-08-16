@@ -357,17 +357,22 @@ public sealed class ReaderAiMessageViewModel : ObservableObject
 
     public string Role { get; }
 
-    public string RoleLabel => Role.Equals("user", StringComparison.OrdinalIgnoreCase)
-        ? "你"
-        : "Kreader AI";
+    public bool IsUser => Role.Equals("user", StringComparison.OrdinalIgnoreCase);
 
-    public IBrush BubbleBackground => Role.Equals("user", StringComparison.OrdinalIgnoreCase)
-        ? new SolidColorBrush(Color.FromRgb(242, 242, 242))
-        : Brushes.White;
+    public string RoleLabel => IsUser ? "你" : "Kreader AI";
 
-    public IBrush BorderBrush => Role.Equals("user", StringComparison.OrdinalIgnoreCase)
-        ? new SolidColorBrush(Color.FromRgb(218, 218, 218))
-        : new SolidColorBrush(Color.FromRgb(232, 232, 232));
+    // WinUI reference bubbles: the user message is a transparent box with a
+    // black ink border on the right, the assistant reply a white card with a
+    // light grey border on the left.
+    public IBrush BubbleBackground => IsUser ? Brushes.Transparent : Brushes.White;
+
+    public IBrush BorderBrush => IsUser
+        ? new SolidColorBrush(Color.FromRgb(0, 0, 0))
+        : new SolidColorBrush(Color.FromRgb(218, 218, 214));
+
+    public Avalonia.Layout.HorizontalAlignment BubbleAlignment => IsUser
+        ? Avalonia.Layout.HorizontalAlignment.Right
+        : Avalonia.Layout.HorizontalAlignment.Left;
 
     public IBrush RoleBrush => Role.Equals("user", StringComparison.OrdinalIgnoreCase)
         ? new SolidColorBrush(Color.FromRgb(75, 75, 75))
