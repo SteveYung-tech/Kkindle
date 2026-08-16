@@ -449,7 +449,8 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="10,0,0,0">
                         <Button x:Name="FilterButton" Classes="icon" ToolTip.Tip="显示或隐藏筛选条件" Click="FilterButton_Click" AutomationProperties.Name="筛选">
                             <Path Classes="libraryGlyph"
-                                  Data="M 4,5 H 20 L 14,12 V 19 L 10,21 V 12 Z" />
+                                  UseLayoutRounding="True"
+                                  Data="M 5,5.4 H 19 L 14.2,11 V 17.6 L 9.8,19.8 V 11 Z" />
                         </Button>
                         <Button x:Name="LibraryViewToggleButton"
                                 Classes="icon"
@@ -459,18 +460,15 @@
                                 <MenuFlyout>
                                     <MenuItem x:Name="LibraryViewGridItem"
                                               Header="网格视图"
-                                              ToggleType="Radio"
                                               IsChecked="True"
                                               Tag="Grid"
                                               Click="LibraryViewMenuItem_Click" />
                                     <MenuItem x:Name="LibraryViewListItem"
                                               Header="列表视图"
-                                              ToggleType="Radio"
                                               Tag="List"
                                               Click="LibraryViewMenuItem_Click" />
                                     <MenuItem x:Name="LibraryViewCollectionsItem"
                                               Header="收藏夹视图"
-                                              ToggleType="Radio"
                                               Tag="Collections"
                                               Click="LibraryViewMenuItem_Click" />
                                 </MenuFlyout>
@@ -483,6 +481,15 @@
                             <Path Classes="libraryGlyph"
                                   Data="M 12,3 V 16 M 7,11 L 12,16 L 17,11 M 4,21 H 20" />
                         </Button>
+                        <Button x:Name="DoubanBatchMatchButton"
+                                Classes="icon"
+                                ToolTip.Tip="一键豆瓣匹配：用书名和作者自动补全书籍的评分、简介与封面"
+                                Click="DoubanBatchMatchButton_Click"
+                                AutomationProperties.Name="一键豆瓣匹配">
+                            <Path Classes="libraryGlyph"
+                                  UseLayoutRounding="True"
+                                  Data="M 11,4.5 L 12.6,9.4 L 17.5,11 L 12.6,12.6 L 11,17.5 L 9.4,12.6 L 4.5,11 L 9.4,9.4 Z M 18.5,15.5 L 19.3,17.7 L 21.5,18.5 L 19.3,19.3 L 18.5,21.5 L 17.7,19.3 L 15.5,18.5 L 17.7,17.7 Z" />
+                        </Button>
                     </StackPanel>
                 </Grid>
 
@@ -492,13 +499,14 @@
                         Margin="0,0,0,12"
                         Padding="10"
                         IsVisible="False">
-                    <Grid ColumnDefinitions="125,125,105,125,125,125,Auto,Auto" ColumnSpacing="8">
-                        <ComboBox x:Name="AuthorFilterBox" PlaceholderText="作者" SelectionChanged="FilterComboBox_SelectionChanged" />
-                        <ComboBox x:Name="TagFilterBox" Grid.Column="1" PlaceholderText="标签" SelectionChanged="FilterComboBox_SelectionChanged" />
-                        <ComboBox x:Name="FormatFilterBox" Grid.Column="2" PlaceholderText="格式" SelectionChanged="FilterComboBox_SelectionChanged" />
-                        <ComboBox x:Name="CategoryFilterBox" Grid.Column="3" PlaceholderText="分类" SelectionChanged="FilterComboBox_SelectionChanged" />
-                        <ComboBox x:Name="ReadingStatusFilterBox" Grid.Column="4" PlaceholderText="阅读状态" SelectionChanged="FilterComboBox_SelectionChanged" />
-                        <ComboBox x:Name="LibrarySortBox" Grid.Column="5" PlaceholderText="排序" SelectionChanged="FilterComboBox_SelectionChanged" />
+                    <!-- Keep the filter chips tight so the bar reads as one row of controls. -->
+                    <Grid ColumnDefinitions="112,112,112,112,112,100,Auto,Auto" ColumnSpacing="4">
+                        <ComboBox x:Name="AuthorFilterBox" Classes="filterCombo" PlaceholderText="全部作者" SelectionChanged="FilterComboBox_SelectionChanged" />
+                        <ComboBox x:Name="TagFilterBox" Classes="filterCombo" Grid.Column="1" PlaceholderText="全部标签" SelectionChanged="FilterComboBox_SelectionChanged" />
+                        <ComboBox x:Name="FormatFilterBox" Classes="filterCombo" Grid.Column="2" PlaceholderText="全部格式" SelectionChanged="FilterComboBox_SelectionChanged" />
+                        <ComboBox x:Name="CategoryFilterBox" Classes="filterCombo" Grid.Column="3" PlaceholderText="全部分类" SelectionChanged="FilterComboBox_SelectionChanged" />
+                        <ComboBox x:Name="ReadingStatusFilterBox" Classes="filterCombo" Grid.Column="4" PlaceholderText="全部状态" SelectionChanged="FilterComboBox_SelectionChanged" />
+                        <ComboBox x:Name="LibrarySortBox" Classes="filterCombo" Grid.Column="5" PlaceholderText="排序" SelectionChanged="FilterComboBox_SelectionChanged" />
                         <CheckBox x:Name="FavoritesOnlyCheckBox" Grid.Column="6" Content="收藏" VerticalAlignment="Center" Click="FavoritesOnlyCheckBox_Click" />
                         <Button Grid.Column="7" Classes="quiet" Content="清除筛选" Click="ClearFiltersButton_Click" />
                     </Grid>
@@ -530,7 +538,7 @@
                     </Border>
 
                     <Grid Grid.Row="1">
-                        <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.Books}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="292"                                           Margin="6"                                           RowDefinitions="214,78"                                           PointerPressed="BookCard_PointerPressed"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped">                                         <Border Grid.Row="0"                                                 Classes="bookCover"                                                 Background="#D9D9D9"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{StaticResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Image Source="{Binding CoverImage}" Stretch="UniformToFill" />                                             </Grid>                                         </Border>                                         <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,30" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">                                             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding Title}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{StaticResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="2" Text="{Binding FormatLabel}" FontSize="10" LineHeight="12" Foreground="#777777" TextTrimming="CharacterEllipsis" />                                         </Grid>                                         <ContentControl Grid.RowSpan="2"                                                 Width="24"                                                 Height="24"                                                 Margin="0,0,5,5"                                                 HorizontalAlignment="Right"                                                 VerticalAlignment="Bottom"                                                 Content="{Binding}"                                                 Padding="0"                                                 HorizontalContentAlignment="Center"                                                 VerticalContentAlignment="Center"                                                 ContentTemplate="{StaticResource LibraryPresenceGlyph}"                                                 ToolTip.Tip="{Binding PresenceLabel}"                                                 AutomationProperties.Name="{Binding PresenceLabel}"                                                 IsVisible="{Binding PresenceVisibility}" />                                         <!-- 格式转换进度徽标：点击可恢复转换弹窗 -->                                         <Border Grid.Row="0"                                                 Width="68"                                                 Height="25"                                                 Margin="0,0,5,38"                                                 HorizontalAlignment="Right"                                                 VerticalAlignment="Bottom"                                                 Background="{StaticResource PaperBrush}"                                                 BorderBrush="{StaticResource InkBrush}"                                                 BorderThickness="1"                                                 Tapped="BookConversionProgressIndicator_Tapped"                                                 AutomationProperties.Name="打开格式转换进度"                                                 ToolTip.Tip="格式转换进行中，点击恢复进度窗口"                                                 IsVisible="{Binding ConversionProgressVisibility}">                                             <Grid Width="66" Height="23">                                                 <ProgressBar Minimum="0"                                                              Maximum="100"                                                              Value="{Binding ConversionProgress}"                                                              Height="5"                                                              Margin="5,0,5,3"                                                              VerticalAlignment="Bottom"                                                              Background="{StaticResource PaperBrush}" />                                                 <TextBlock Text="{Binding ConversionProgressLabel}"                                                            FontSize="10"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center" />                                             </Grid>                                         </Border>                                         <Border Grid.RowSpan="2"                                                 Classes="bookOutline"                                                 BorderBrush="{StaticResource CardBorderBrush}"                                                 BorderThickness="1"                                                 IsHitTestVisible="False" />                                         <Border Grid.RowSpan="2"                                                 BorderBrush="{StaticResource InkBrush}"                                                 BorderThickness="3"                                                 IsVisible="{Binding IsMultiSelected}"                                                 IsHitTestVisible="False">                                             <Border Width="22"                                                     Height="22"                                                     Margin="6"                                                     HorizontalAlignment="Left"                                                     VerticalAlignment="Top"                                                     Background="{StaticResource InkBrush}">                                                 <TextBlock Text="✓"                                                            Foreground="{StaticResource PaperBrush}"                                                            FontSize="14"                                                            FontWeight="Bold"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center" />                                             </Border>                                         </Border>                                     </Grid>                                 </DataTemplate>                             </ListBox.ItemTemplate>
+                        <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.Books}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="{Binding CardHeight}"                                           Margin="6"                                           RowDefinitions="214,Auto"                                           PointerPressed="BookCard_PointerPressed"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped">                                         <Border Grid.Row="0"                                                 Classes="bookCover"                                                 Background="#D9D9D9"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{StaticResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Image Source="{Binding CoverImage}" Stretch="UniformToFill" />                                             </Grid>                                         </Border>                                         <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,30" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">                                             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding Title}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{StaticResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="2" Text="{Binding FormatLabel}" FontSize="10" LineHeight="12" Foreground="#777777" TextTrimming="CharacterEllipsis" />                                         </Grid>                                         <ContentControl Grid.RowSpan="2"                                                 Width="24"                                                 Height="24"                                                 Margin="0,0,5,5"                                                 HorizontalAlignment="Right"                                                 VerticalAlignment="Bottom"                                                 Content="{Binding}"                                                 Padding="0"                                                 HorizontalContentAlignment="Center"                                                 VerticalContentAlignment="Center"                                                 ContentTemplate="{StaticResource LibraryPresenceGlyph}"                                                 ToolTip.Tip="{Binding PresenceLabel}"                                                 AutomationProperties.Name="{Binding PresenceLabel}"                                                 IsVisible="{Binding PresenceVisibility}" />                                         <!-- 格式转换进度徽标：点击可恢复转换弹窗 -->                                         <Border Grid.Row="0"                                                 Width="68"                                                 Height="25"                                                 Margin="0,0,5,38"                                                 HorizontalAlignment="Right"                                                 VerticalAlignment="Bottom"                                                 Background="{StaticResource PaperBrush}"                                                 BorderBrush="{StaticResource InkBrush}"                                                 BorderThickness="1"                                                 Tapped="BookConversionProgressIndicator_Tapped"                                                 AutomationProperties.Name="打开格式转换进度"                                                 ToolTip.Tip="格式转换进行中，点击恢复进度窗口"                                                 IsVisible="{Binding ConversionProgressVisibility}">                                             <Grid Width="66" Height="23">                                                 <ProgressBar Minimum="0"                                                              Maximum="100"                                                              Value="{Binding ConversionProgress}"                                                              Height="5"                                                              Margin="5,0,5,3"                                                              VerticalAlignment="Bottom"                                                              Background="{StaticResource PaperBrush}" />                                                 <TextBlock Text="{Binding ConversionProgressLabel}"                                                            FontSize="10"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center" />                                             </Grid>                                         </Border>                                         <Border Grid.RowSpan="2"                                                 Classes="bookOutline"                                                 BorderBrush="{StaticResource CardBorderBrush}"                                                 BorderThickness="1"                                                 IsHitTestVisible="False" />                                         <Border Grid.RowSpan="2"                                                 BorderBrush="{StaticResource InkBrush}"                                                 BorderThickness="1.5"                                                 IsVisible="{Binding IsMultiSelected}"                                                 IsHitTestVisible="False">                                             <Border Width="22"                                                     Height="22"                                                     Margin="6"                                                     HorizontalAlignment="Left"                                                     VerticalAlignment="Top"                                                     Background="{StaticResource InkBrush}">                                                 <TextBlock Text="✓"                                                            Foreground="{StaticResource PaperBrush}"                                                            FontSize="14"                                                            FontWeight="Bold"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center" />                                             </Border>                                         </Border>                                     </Grid></DataTemplate>                             </ListBox.ItemTemplate>
                         </ListBox>
 
                         <Canvas IsHitTestVisible="False" ZIndex="25">
@@ -600,8 +608,7 @@
                                                        HorizontalContentAlignment="Center"
                                                        VerticalContentAlignment="Center"
                                                        ContentTemplate="{StaticResource LibraryPresenceGlyph}" />
-</Border>
-                                                    <Button Tag="{Binding}" Content="打开" Padding="10,5" Click="OpenCardButton_Click" />
+                                                    </Border>
                                                 </StackPanel>
                                             </StackPanel>
                                             <Border Grid.ColumnSpan="5"
@@ -722,14 +729,16 @@
                                     Spacing="10"
                                     IsVisible="False"
                                     IsHitTestVisible="False">
-                            <Path Data="M 3,6 L 12,9 L 21,6 V 19 L 12,22 L 3,19 Z M 12,9 V 22"
+                            <Path Data="M 3.5,6.5 C 6.5,5.4 9.9,5.9 12,7.8 C 14.1,5.9 17.5,5.4 20.5,6.5 V 18.2 C 17.5,17.1 14.1,17.6 12,19.4 C 9.9,17.6 6.5,17.1 3.5,18.2 Z M 12,7.8 V 19.4"
                                   Width="48"
                                   Height="48"
                                   Margin="0,0,0,4"
                                   HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
+                                  UseLayoutRounding="True"
                                   Stretch="Uniform"
                                   Stroke="{StaticResource InkBrush}"
-                                  StrokeThickness="1.25"
+                                  StrokeThickness="1.5"
                                   StrokeLineCap="Round"
                                   StrokeJoin="Round"
                                   Fill="Transparent" />
@@ -766,26 +775,27 @@
                                            HorizontalAlignment="Center" />
                             </StackPanel>
                         </Border>
-                    </Grid>
 
-                    <Border x:Name="MultiSelectionBar"
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Bottom"
-                            Margin="0,0,0,16"
-                            Padding="14,8"
-                            Background="{StaticResource PaperBrush}"
-                            BorderBrush="{StaticResource InkBrush}"
-                            BorderThickness="1"
-                            IsVisible="False"
-                            ZIndex="20">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <TextBlock x:Name="MultiSelectionText" VerticalAlignment="Center" FontWeight="SemiBold" />
-                            <Button Content="发送到 Kindle" Padding="12,6" Click="SendSelectedBooksToKindleBatchButton_Click" />
-                            <Button Content="邮件发送" Padding="12,6" Click="SendSelectedBooksByEmailBatchButton_Click" />
-                            <Button x:Name="DeleteSelectedBooksButton" Content="删除所选" Padding="12,6" Click="DeleteSelectedBooksButton_Click" />
-                            <Button Content="取消选择" Padding="12,6" Click="ClearMultiSelectionButton_Click" />
-                        </StackPanel>
-                    </Border>
+                        <Border x:Name="MultiSelectionBar"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Bottom"
+                                Margin="0,0,0,16"
+                                Padding="14,8"
+                                Background="{StaticResource PaperBrush}"
+                                BorderBrush="{StaticResource InkBrush}"
+                                BorderThickness="1"
+                                BoxShadow="0 6 16 0 #22000000"
+                                IsVisible="False"
+                                ZIndex="20">
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <TextBlock x:Name="MultiSelectionText" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <Button Content="发送到 Kindle" Padding="12,6" Click="SendSelectedBooksToKindleBatchButton_Click" />
+                                <Button Content="邮件发送" Padding="12,6" Click="SendSelectedBooksByEmailBatchButton_Click" />
+                                <Button x:Name="DeleteSelectedBooksButton" Content="删除所选" Padding="12,6" Click="DeleteSelectedBooksButton_Click" />
+                                <Button Content="取消选择" Padding="12,6" Click="ClearMultiSelectionButton_Click" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
                 </Grid>
 
                 <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,10,0,0">
@@ -840,6 +850,8 @@
                                             MinWidth="0"
                                             Height="34"
                                             Padding="0"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
                                             HorizontalContentAlignment="Center"
                                             VerticalContentAlignment="Center"
                                             AutomationProperties.Name="从豆瓣匹配书籍信息"
@@ -856,6 +868,8 @@
                                             MinWidth="0"
                                             Height="34"
                                             Padding="0"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
                                             HorizontalContentAlignment="Center"
                                             VerticalContentAlignment="Center"
                                             AutomationProperties.Name="收藏状态"
@@ -872,6 +886,8 @@
                                             MinWidth="0"
                                             Height="34"
                                             Padding="0"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
                                             HorizontalContentAlignment="Center"
                                             VerticalContentAlignment="Center"
                                             AutomationProperties.Name="阅读状态"
@@ -879,7 +895,7 @@
                                             Click="DetailReadingStatusButton_Click">
                                         <Path x:Name="DetailReadingStatusIcon"
                                               Classes="libraryGlyph"
-                                              Data="M 7,3 H 17 V 21 H 7 Z M 10,7 H 14" />
+                                              Data="M 12,4 A 8,8 0 1 0 12,20 A 8,8 0 1 0 12,4" />
                                     </Button>
                                 </Grid>
                             </Grid>
@@ -946,6 +962,7 @@
                             <Rectangle Height="1" Fill="{StaticResource HairlineBrush}" Margin="0,8,0,2" />
                             <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
                                 <Button x:Name="SaveDetailsButton"
+                                        Classes="detailSave"
                                         Content="保存修改"
                                         HorizontalAlignment="Stretch"
                                         HorizontalContentAlignment="Center"
@@ -990,20 +1007,20 @@
                   Grid.Column="1"
                   Margin="30,24,30,18"
                   IsVisible="False"
-                  RowDefinitions="Auto,*,Auto">
+                  RowDefinitions="Auto,Auto,Auto,*">
                   <Grid.Transitions>
                       <Transitions>
                           <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
                       </Transitions>
                   </Grid.Transitions>
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                    <StackPanel Spacing="3">
-                        <StackPanel Orientation="Horizontal" Spacing="9">
-                            <Border Background="{StaticResource InkBrush}" Padding="7,3" VerticalAlignment="Center">
-                                <TextBlock Text="设备" Foreground="{StaticResource PaperBrush}" FontSize="11" FontWeight="Bold" />
-                            </Border>
-                            <TextBlock Text="Kindle书库" FontSize="28" FontWeight="Bold" />
-                        </StackPanel>
+                <StackPanel Spacing="3">
+                    <StackPanel Orientation="Horizontal" Spacing="9">
+                        <Border Background="{StaticResource InkBrush}" Padding="7,3" VerticalAlignment="Center">
+                            <TextBlock Text="设备" Foreground="{StaticResource PaperBrush}" FontSize="11" FontWeight="Bold" />
+                        </Border>
+                        <TextBlock Text="Kindle书库" FontSize="28" FontWeight="Bold" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="False">
                         <Button x:Name="DeviceNameButton"
                                 Classes="quiet"
                                 Padding="6,3"
@@ -1013,140 +1030,162 @@
                                 ToolTip.Tip="点击选择设备型号"
                                 Click="DeviceNameButton_Click">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock x:Name="DevicePageDeviceText"
-                                           Text="未检测到设备"
-                                           Foreground="{StaticResource MutedInkBrush}"
-                                           VerticalAlignment="Center" />
-                                <Path Data="M 1,2 L 5,6 L 9,2"
-                                      Width="10"
-                                      Height="8"
-                                      Stroke="{StaticResource MutedInkBrush}"
-                                      StrokeThickness="1.25"
-                                      VerticalAlignment="Center" />
+                                <TextBlock x:Name="DevicePageDeviceText" Text="未检测到设备" Foreground="{StaticResource MutedInkBrush}" VerticalAlignment="Center" />
+                                <Path Data="M 1,2 L 5,6 L 9,2" Width="10" Height="8" Stroke="{StaticResource MutedInkBrush}" StrokeThickness="1.25" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
-                        <TextBlock x:Name="DevicePageStatusText" Text="正在检查设备…" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Name="DevicePageStatusText" Text="正在检查设备…" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
-                        <Button Classes="quiet"
-                                Width="38"
-                                MinWidth="38"
-                                Height="38"
-                                Padding="0"
-                                ToolTip.Tip="刷新设备"
-                                AutomationProperties.Name="刷新设备"
-                                Click="RefreshDevicesButton_Click">
-                            <Path Classes="libraryGlyph"
-                                  Data="M 20,8 A 9,9 0 1,0 20,16 M 20,8 V 3 M 20,8 H 15" />
+                </StackPanel>
+
+                <Grid Grid.Row="1" Margin="0,22,0,18" ColumnDefinitions="420,*">
+                    <TextBox x:Name="DeviceBookSearchBox"
+                             Height="38"
+                             Padding="13,7"
+                             PlaceholderText="搜索标题或作者"
+                             TextChanged="DeviceBookSearchBox_TextChanged" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="10,0,0,0">
+                        <Button x:Name="DeviceBookFilterButton" Classes="icon" ToolTip.Tip="显示或隐藏筛选条件" Click="DeviceBookFilterButton_Click" AutomationProperties.Name="筛选">
+                            <Path Classes="libraryGlyph" UseLayoutRounding="True" Data="M 5,5.4 H 19 L 14.2,11 V 17.6 L 9.8,19.8 V 11 Z" />
                         </Button>
-                        <Button x:Name="DeviceViewToggleButton"
-                                Classes="quiet"
-                                Width="38"
-                                MinWidth="38"
-                                Height="38"
-                                Padding="0"
-                                ToolTip.Tip="网格 / 列表视图"
-                                AutomationProperties.Name="切换视图">
+                        <Button x:Name="DeviceViewToggleButton" Classes="icon" ToolTip.Tip="网格 / 列表视图" AutomationProperties.Name="切换视图">
                             <Button.Flyout>
                                 <MenuFlyout>
-                                    <MenuItem x:Name="DeviceViewGridItem"
-                                              Header="网格视图"
-                                              ToggleType="Radio"
-                                              IsChecked="True"
-                                              Tag="Grid"
-                                              Click="DeviceViewMenuItem_Click" />
-                                    <MenuItem x:Name="DeviceViewListItem"
-                                              Header="列表视图"
-                                              ToggleType="Radio"
-                                              Tag="List"
-                                              Click="DeviceViewMenuItem_Click" />
+                                    <MenuItem x:Name="DeviceViewGridItem" Header="网格视图" IsChecked="True" Tag="Grid" Click="DeviceViewMenuItem_Click" />
+                                    <MenuItem x:Name="DeviceViewListItem" Header="列表视图" Tag="List" Click="DeviceViewMenuItem_Click" />
                                 </MenuFlyout>
                             </Button.Flyout>
-                            <Path x:Name="DeviceViewToggleIcon"
-                                  Classes="libraryGlyph"
-                                  Data="M 3,3 H 9 V 9 H 3 Z M 15,3 H 21 V 9 H 15 Z M 3,15 H 9 V 21 H 3 Z M 15,15 H 21 V 21 H 15 Z" />
+                            <Path x:Name="DeviceViewToggleIcon" Classes="libraryGlyph" Data="M 3,3 H 9 V 9 H 3 Z M 15,3 H 21 V 9 H 15 Z M 3,15 H 9 V 21 H 3 Z M 15,15 H 21 V 21 H 15 Z" />
                         </Button>
-                        <Button x:Name="EjectDeviceButton"
-                                Classes="quiet"
-                                Width="38"
-                                MinWidth="38"
-                                Height="38"
-                                Padding="0"
-                                Click="EjectDeviceButton_Click"
-                                IsEnabled="False">
-                            <Path Classes="libraryGlyph"
-                                  Data="M 6,15 L 12,9 L 18,15 M 6,20 H 18" />
+                        <Button Classes="icon" ToolTip.Tip="刷新设备书库" AutomationProperties.Name="刷新设备书库" Click="RefreshDevicesButton_Click">
+                            <Path Classes="libraryGlyph" Data="M 20,8 A 9,9 0 1,0 20,16 M 20,8 V 3 M 20,8 H 15" />
+                        </Button>
+                        <Button x:Name="EjectDeviceButton" Classes="icon" ToolTip.Tip="安全弹出设备" AutomationProperties.Name="安全弹出设备" Click="EjectDeviceButton_Click" IsEnabled="False">
+                            <Path Classes="libraryGlyph" Data="M 6,15 L 12,9 L 18,15 M 6,20 H 18" />
                         </Button>
                     </StackPanel>
                 </Grid>
-                <ScrollViewer x:Name="DeviceBookGridScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding DeviceBooks}" HorizontalAlignment="Stretch">
+
+                <Border x:Name="DeviceBookFilterPanel" Classes="flatSubsection" Grid.Row="2" Margin="0,0,0,12" Padding="10" IsVisible="False">
+                    <Grid ColumnDefinitions="128,150,150,Auto" ColumnSpacing="8">
+                        <ComboBox x:Name="DeviceBookFormatFilterBox" Classes="filterCombo" PlaceholderText="全部格式" SelectionChanged="DeviceBookFilter_SelectionChanged">
+                            <ComboBoxItem Content="全部格式" Tag="" />
+                            <ComboBoxItem Content="EPUB" Tag="epub" />
+                            <ComboBoxItem Content="PDF" Tag="pdf" />
+                            <ComboBoxItem Content="MOBI" Tag="mobi" />
+                            <ComboBoxItem Content="AZW3" Tag="azw3" />
+                            <ComboBoxItem Content="AZW" Tag="azw" />
+                            <ComboBoxItem Content="KFX" Tag="kfx" />
+                        </ComboBox>
+                        <ComboBox x:Name="DeviceBookPresenceFilterBox" Classes="filterCombo" Grid.Column="1" PlaceholderText="全部所在书库" SelectionChanged="DeviceBookFilter_SelectionChanged">
+                            <ComboBoxItem Content="全部所在书库" Tag="" />
+                            <ComboBoxItem Content="仅 Kindle" Tag="kindle" />
+                            <ComboBoxItem Content="电脑与 Kindle" Tag="both" />
+                        </ComboBox>
+                        <ComboBox x:Name="DeviceBookSortBox" Classes="filterCombo" Grid.Column="2" PlaceholderText="排序" SelectionChanged="DeviceBookFilter_SelectionChanged">
+                            <ComboBoxItem Content="标题" Tag="title" />
+                            <ComboBoxItem Content="作者" Tag="author" />
+                            <ComboBoxItem Content="最近修改" Tag="modified" />
+                            <ComboBoxItem Content="文件大小" Tag="size" />
+                        </ComboBox>
+                        <Button Grid.Column="3" Classes="quiet" Content="清除筛选" Click="ClearDeviceBookFiltersButton_Click" />
+                    </Grid>
+                </Border>
+                <ScrollViewer x:Name="DeviceBookGridScroll"
+                              Grid.Row="3"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              PointerPressed="DeviceBookGrid_PointerPressed"
+                              PointerMoved="DeviceBookGrid_PointerMoved"
+                              PointerReleased="DeviceBookGrid_PointerReleased"
+                              PointerCaptureLost="DeviceBookGrid_PointerCaptureLost">
+                    <ItemsControl x:Name="DeviceBookGridItems" ItemsSource="{Binding VisibleDeviceBooks}" HorizontalAlignment="Stretch">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <WrapPanel Orientation="Horizontal" ItemWidth="154" />
+                                <WrapPanel Orientation="Horizontal" ItemWidth="166" />
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="local:KindleBookCardViewModel">
                                 <Grid Width="154"
-                                      Margin="0,0,20,24"
+                                      Height="{Binding CardHeight}"
+                                      Margin="6"
+                                      RowDefinitions="214,Auto"
                                       PointerPressed="DeviceBook_PointerPressed"
                                       PointerEntered="DeviceBook_PointerEntered"
                                       PointerExited="DeviceBook_PointerExited"
                                       DoubleTapped="DeviceBook_DoubleTapped"
                                       ContextRequested="DeviceBook_ContextRequested">
-                                    <Grid RowDefinitions="214,Auto">
-                                        <Border Classes="bookCover" Background="#D9D9D9" BorderThickness="1">
-                                            <ToolTip.Tip>
-                                                <ToolTip>
-                                                    <StackPanel MaxWidth="360" Spacing="4">
-                                                        <TextBlock Text="{Binding Title}" FontWeight="Bold" TextWrapping="Wrap" />
-                                                        <TextBlock Text="{Binding Authors}" TextWrapping="Wrap" />
-                                                        <TextBlock Text="{Binding RelativePath}" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
-                                                    </StackPanel>
-                                                </ToolTip>
-                                            </ToolTip.Tip>
-                                            <Grid>
-                                                <TextBlock Text="KINDLE" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#777777" FontSize="13" />
-                                                <Image Source="{Binding CoverImage}" Stretch="UniformToFill" />
-                                                <Border Height="4" VerticalAlignment="Top" Background="{StaticResource InkBrush}" />
-                                            </Grid>
-                                        </Border>
-                                        <StackPanel Grid.Row="1" Margin="2,9,2,0" Spacing="2" IsVisible="{Binding GalleryTextVisibility}">
-                                            <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxLines="2" />
-                                            <TextBlock Text="{Binding Authors}" FontSize="11" Foreground="#666666" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding InfoLabel}" FontSize="10" Foreground="#777777" />
-                                        </StackPanel>
-                                        <!-- 与电脑书库一致：悬停或选中时整卡黑色细边框，
-                                             多选时左上角附加 ✓ 徽标。 -->
-                                        <Border Grid.RowSpan="2" BorderBrush="{StaticResource InkBrush}" BorderThickness="1" IsVisible="{Binding IsFrameVisible}" IsHitTestVisible="False">
-                                            <Border Width="22" Height="22" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top" Background="{StaticResource InkBrush}" IsVisible="{Binding IsMultiSelected}">
-                                                <TextBlock Text="✓" Foreground="{StaticResource PaperBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                            </Border>
-                                        </Border>
-                                        <Border Width="28" Height="28" Margin="0,5,5,0" HorizontalAlignment="Right" VerticalAlignment="Top" Background="{StaticResource PaperBrush}" BorderBrush="{StaticResource InkBrush}" BorderThickness="1" ToolTip.Tip="{Binding PresenceLabel}" AutomationProperties.Name="{Binding PresenceLabel}">
-                                            <ContentControl Content="{Binding}"
-                                                Padding="0"
-                                                HorizontalAlignment="Center"
-                                                VerticalAlignment="Center"
-                                                HorizontalContentAlignment="Center"
-                                                VerticalContentAlignment="Center"
-                                                ContentTemplate="{StaticResource LibraryPresenceGlyph}" />
-</Border>
+                                    <Border Grid.Row="0" Classes="bookCover" Background="#D9D9D9" BorderThickness="1">
+                                        <ToolTip.Tip>
+                                            <ToolTip>
+                                                <StackPanel MaxWidth="360" Spacing="4">
+                                                    <TextBlock Text="{Binding Title}" FontWeight="Bold" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding Authors}" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding RelativePath}" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </ToolTip>
+                                        </ToolTip.Tip>
+                                        <Grid Background="Transparent">
+                                            <TextBlock Text="BOOK" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource MutedInkBrush}" FontSize="17" IsHitTestVisible="False" />
+                                            <Image Source="{Binding CoverImage}" Stretch="UniformToFill" />
+                                        </Grid>
+                                    </Border>
+                                    <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,30" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">
+                                        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding Title}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{StaticResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="2" Text="{Binding FormatLabel}" FontSize="10" LineHeight="12" Foreground="#777777" TextTrimming="CharacterEllipsis" />
                                     </Grid>
+                                    <ContentControl Grid.RowSpan="2"
+                                                    Width="24"
+                                                    Height="24"
+                                                    Margin="0,0,5,5"
+                                                    HorizontalAlignment="Right"
+                                                    VerticalAlignment="Bottom"
+                                                    Content="{Binding}"
+                                                    Padding="0"
+                                                    HorizontalContentAlignment="Center"
+                                                    VerticalContentAlignment="Center"
+                                                    ContentTemplate="{StaticResource LibraryPresenceGlyph}"
+                                                    ToolTip.Tip="{Binding PresenceLabel}"
+                                                    AutomationProperties.Name="{Binding PresenceLabel}"
+                                                    IsVisible="{Binding PresenceVisibility}" />
+                                    <Border Grid.RowSpan="2"
+                                            Classes="bookOutline"
+                                            BorderBrush="{StaticResource CardBorderBrush}"
+                                            BorderThickness="1"
+                                            IsHitTestVisible="False" />
+                                    <Border Grid.RowSpan="2"
+                                            BorderBrush="{StaticResource InkBrush}"
+                                            BorderThickness="1.5"
+                                            IsVisible="{Binding IsMultiSelected}"
+                                            IsHitTestVisible="False">
+                                        <Border Width="22" Height="22" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top" Background="{StaticResource InkBrush}">
+                                            <TextBlock Text="✓" Foreground="{StaticResource PaperBrush}" FontSize="14" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                    </Border>
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </ScrollViewer>
-                <ScrollViewer x:Name="DeviceBookListScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" IsVisible="False">
-                    <ItemsControl ItemsSource="{Binding DeviceBooks}">
+                <Canvas Grid.Row="3" IsHitTestVisible="False" ZIndex="25">
+                    <Border x:Name="DeviceRubberBandRectangle"
+                            Background="#33000000"
+                            BorderBrush="{StaticResource InkBrush}"
+                            BorderThickness="1"
+                            IsVisible="False" />
+                </Canvas>
+                <ScrollViewer x:Name="DeviceBookListScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsVisible="False">
+                    <ItemsControl ItemsSource="{Binding VisibleDeviceBooks}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="local:KindleBookCardViewModel">
                                 <Border BorderBrush="{StaticResource HairlineBrush}"
                                         BorderThickness="0,0,0,1"
                                         Padding="8,9"
                                         PointerPressed="DeviceBook_PointerPressed"
+                                        PointerEntered="DeviceBook_PointerEntered"
+                                        PointerExited="DeviceBook_PointerExited"
                                         DoubleTapped="DeviceBook_DoubleTapped"
                                         ContextRequested="DeviceBook_ContextRequested">
                                     <Grid ColumnDefinitions="54,2*,*,180" ColumnSpacing="10" MinHeight="72">
@@ -1191,7 +1230,7 @@
                                             <TextBlock Text="{Binding RelativePath}" Foreground="#777777" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" ToolTip.Tip="{Binding RelativePath}" />
                                             <TextBlock Text="{Binding HashLabel}" Foreground="#999999" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" />
                                         </StackPanel>
-                                        <Border Grid.ColumnSpan="4" BorderBrush="{StaticResource InkBrush}" BorderThickness="1" IsVisible="{Binding IsSelected}" IsHitTestVisible="False" />
+                                        <Border Grid.ColumnSpan="4" BorderBrush="{StaticResource InkBrush}" BorderThickness="1" IsVisible="{Binding IsFrameVisible}" IsHitTestVisible="False" />
                                     </Grid>
                                 </Border>
                             </DataTemplate>
@@ -1199,24 +1238,31 @@
                     </ItemsControl>
                 </ScrollViewer>
                 <Border x:Name="DeviceBookSelectionBar"
-                        Grid.Row="1"
+                        Grid.Row="3"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Bottom"
                         Margin="0,0,0,16"
-                        Padding="12,8"
+                        Padding="14,8"
                         Background="{StaticResource PaperBrush}"
                         BorderBrush="{StaticResource InkBrush}"
                         BorderThickness="1"
+                        BoxShadow="0 6 16 0 #22000000"
                         IsVisible="False"
                         ZIndex="20">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
                         <TextBlock x:Name="DeviceBookSelectionText" VerticalAlignment="Center" FontWeight="SemiBold" />
                         <Button Content="导出到电脑书库" Padding="11,6" Click="ExportSelectedDeviceBooksButton_Click" />
                         <Button Content="删除所选" Padding="11,6" Click="DeleteSelectedDeviceBooksButton_Click" />
                         <Button Content="取消选择" Padding="11,6" Click="ClearDeviceBookSelectionButton_Click" />
                     </StackPanel>
                 </Border>
-                <TextBlock Grid.Row="2" x:Name="DeviceBookEmptyText" Text="连接 Kindle 后扫描书籍。" Foreground="#666666" Margin="0,10,0,0" />
+                <Border x:Name="DeviceBookEmptyState" Grid.Row="3" Background="{StaticResource PaperBrush}" IsVisible="True" ZIndex="10">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" IsHitTestVisible="False">
+                        <Path Width="46" Height="46" Stretch="Uniform" Stroke="{StaticResource InkBrush}" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent"
+                              Data="M 3.5,6.5 C 6.5,5.4 9.9,5.9 12,7.8 C 14.1,5.9 17.5,5.4 20.5,6.5 V 18.2 C 17.5,17.1 14.1,17.6 12,19.4 C 9.9,17.6 6.5,17.1 3.5,18.2 Z M 12,7.8 V 19.4" />
+                        <TextBlock x:Name="DeviceBookEmptyText" Text="连接 Kindle 后扫描书籍。" Foreground="{StaticResource MutedInkBrush}" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="420" />
+                    </StackPanel>
+                </Border>
             </Grid>
 
             <!-- Stage 3: fonts and dictionaries on the connected Kindle. -->
@@ -1668,15 +1714,11 @@
                         <ComboBoxItem Content="西班牙文" Tag="spanish" />
                     </ComboBox>
                     <Button x:Name="ZLibrarySearchButton"
+                            Classes="icon"
                             Grid.Column="3"
                             Width="38"
                             Height="38"
                             Padding="0"
-                            Background="{StaticResource InkBrush}"
-                            Foreground="{StaticResource PaperBrush}"
-                            BorderBrush="{StaticResource InkBrush}"
-                            BorderThickness="1"
-                            CornerRadius="0"
                             AutomationProperties.Name="搜索"
                             ToolTip.Tip="搜索"
                             Click="ZLibrarySearchButton_Click">
@@ -1866,37 +1908,50 @@
                                    FontSize="10"
                                    Foreground="{StaticResource MutedInkBrush}"
                                    Margin="2,0,0,6" />
-                        <Button x:Name="SettingsGeneralButton"
-                                Classes="settingsCategory active"
-                                Content="常规"
-                                Tag="General"
-                                Click="SettingsCategoryButton_Click" />
-                        <Button x:Name="SettingsLibraryButton"
-                                Classes="settingsCategory"
-                                Content="书库"
-                                Tag="Library"
-                                Click="SettingsCategoryButton_Click" />
-                        <Button x:Name="SettingsKindleButton"
-                                Classes="settingsCategory"
-                                Content="Kindle"
-                                Tag="Kindle"
-                                Click="SettingsCategoryButton_Click" />
-                        <Button x:Name="SettingsReadingButton"
-                                Classes="settingsCategory"
-                                Content="阅读"
-                                Tag="Reading"
-                                Click="SettingsCategoryButton_Click" />
-                        <Button x:Name="SettingsBackupButton"
-                                Classes="settingsCategory"
-                                Content="备份"
-                                Tag="Backup"
-                                Click="SettingsCategoryButton_Click" />
-                        <Button x:Name="SettingsAboutButton"
-                                Classes="settingsCategory"
-                                Content="关于"
-                                Tag="About"
-                                Click="SettingsCategoryButton_Click" />
+                        <StackPanel x:Name="SettingsCategoryButtons" Spacing="2">
+                            <Button x:Name="SettingsGeneralButton"
+                                    Classes="settingsCategory active"
+                                    Content="常规"
+                                    Tag="General"
+                                    Click="SettingsCategoryButton_Click" />
+                            <Button x:Name="SettingsLibraryButton"
+                                    Classes="settingsCategory"
+                                    Content="书库"
+                                    Tag="Library"
+                                    Click="SettingsCategoryButton_Click" />
+                            <Button x:Name="SettingsKindleButton"
+                                    Classes="settingsCategory"
+                                    Content="Kindle"
+                                    Tag="Kindle"
+                                    Click="SettingsCategoryButton_Click" />
+                            <Button x:Name="SettingsReadingButton"
+                                    Classes="settingsCategory"
+                                    Content="阅读"
+                                    Tag="Reading"
+                                    Click="SettingsCategoryButton_Click" />
+                            <Button x:Name="SettingsBackupButton"
+                                    Classes="settingsCategory"
+                                    Content="备份"
+                                    Tag="Backup"
+                                    Click="SettingsCategoryButton_Click" />
+                            <Button x:Name="SettingsAboutButton"
+                                    Classes="settingsCategory"
+                                    Content="关于"
+                                    Tag="About"
+                                    Click="SettingsCategoryButton_Click" />
+                        </StackPanel>
                     </StackPanel>
+
+                    <Rectangle Grid.Row="0"
+                               Grid.Column="1"
+                               Width="1"
+                               Height="{Binding Bounds.Height, ElementName=SettingsCategoryButtons}"
+                               Margin="0,20,0,0"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Top"
+                               Fill="{StaticResource InkBrush}"
+                               IsHitTestVisible="False"
+                               ZIndex="1" />
 
                     <ScrollViewer x:Name="SettingsScrollViewer"
                                   Grid.Row="0"
@@ -1906,6 +1961,7 @@
                         <StackPanel Spacing="16">
                 <Border x:Name="SettingsGeneralSection"
                         Classes="flatPanel"
+                        BorderThickness="0"
                         Padding="18,18,18,32"
                         Background="{StaticResource PaperBrush}">
                                 <StackPanel Spacing="14">
@@ -1929,6 +1985,10 @@
                                             <ToggleSwitch x:Name="NetworkEnabledCheck" Grid.Column="1" OnContent="开" OffContent="关" VerticalAlignment="Center" ToolTip.Tip="关闭后豆瓣匹配、Z-Library、邮件发送与工具下载安装等联网功能不可用" />
                                         </Grid>
                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                            <TextBlock Text="导入时自动豆瓣匹配" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                            <ToggleSwitch x:Name="AutoDoubanMatchCheck" Grid.Column="1" OnContent="开" OffContent="关" VerticalAlignment="Center" ToolTip.Tip="导入完成后自动按书名和作者在豆瓣搜索，置信度高的直接补全评分、简介与封面" />
+                                        </Grid>
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                             <TextBlock Text="收藏夹互斥" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" />
                                             <ToggleSwitch x:Name="CollectionsMutuallyExclusiveCheck" Grid.Column="1" OnContent="开" OffContent="关" VerticalAlignment="Center" />
                                         </Grid>
@@ -1942,13 +2002,23 @@
 
                 <Border x:Name="SettingsLibrarySection"
                         Classes="flatPanel"
+                        BorderThickness="0"
                         IsVisible="False"
                         Padding="18,18,18,32"
                         Background="{StaticResource PaperBrush}">
                                 <StackPanel Spacing="14">
                                     <TextBlock Text="书库" FontSize="18" FontWeight="SemiBold" />
                                     <StackPanel Spacing="5">
-                                        <TextBlock Text="Calibre ebook-convert 路径" FontSize="11" Foreground="{StaticResource MutedInkBrush}" />
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="Calibre ebook-convert 路径" FontSize="11" Foreground="{StaticResource MutedInkBrush}" />
+                                            <Ellipse x:Name="CalibreDetectionStatusDot"
+                                                     Width="7"
+                                                     Height="7"
+                                                     VerticalAlignment="Center"
+                                                     Fill="#D6A100"
+                                                     ToolTip.Tip="未检测到 Calibre"
+                                                     AutomationProperties.Name="未检测到 Calibre" />
+                                        </StackPanel>
                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                             <TextBox x:Name="CalibrePathBox" PlaceholderText="留空时自动查找" />
                                             <Button Grid.Column="1" Content="浏览" Classes="quiet" Click="BrowseCalibreButton_Click" />
@@ -1992,6 +2062,7 @@
 
                 <Border x:Name="SettingsKindleSection"
                         Classes="flatPanel"
+                        BorderThickness="0"
                         IsVisible="False"
                         Padding="18"
                         Background="{StaticResource PaperBrush}">
@@ -2022,6 +2093,7 @@
 
                 <Border x:Name="SettingsReadingSection"
                         Classes="flatPanel"
+                        BorderThickness="0"
                         IsVisible="False"
                         Padding="18"
                         Background="{StaticResource PaperBrush}">
@@ -2124,6 +2196,7 @@
 
                 <Border x:Name="SettingsBackupSection"
                         Classes="flatPanel"
+                        BorderThickness="0"
                         IsVisible="False"
                         Padding="18"
                         Background="{StaticResource PaperBrush}">
@@ -2157,6 +2230,7 @@
                                         IsVisible="False"
                                         Spacing="16">
                                 <Border Classes="flatPanel"
+                                        BorderThickness="0"
                                         Padding="18"
                                         Background="{StaticResource PaperBrush}">
                                     <StackPanel Spacing="8">
@@ -2177,6 +2251,7 @@
                                 </Border>
 
                                 <Border Classes="flatPanel"
+                                        BorderThickness="0"
                                         Padding="18"
                                         Background="{StaticResource PaperBrush}">
                                     <StackPanel Spacing="14">
@@ -2751,8 +2826,6 @@
                                      Padding="10,7"
                                      MaxLength="80"
                                      PlaceholderText="例如 Kindle Paperwhite 11 代"
-                                     BorderBrush="{StaticResource InkBrush}"
-                                     BorderThickness="1"
                                      KeyDown="DeviceModelInputBox_KeyDown" />
                             <TextBlock x:Name="DeviceModelInputStatusText"
                                        IsVisible="False"
@@ -3055,7 +3128,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="286" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="360" />
+                <ColumnDefinition Width="0" />
             </Grid.ColumnDefinitions>
 
             <!-- Opaque transition cover used when leaving zen mode: the reader
@@ -3071,9 +3144,20 @@
 
             <!-- Table of contents and reading progress. -->
             <Border x:Name="ReaderTocPanel"
+                    Classes="readerTocSurface"
                     Grid.Column="0"
                     Margin="0,38,0,0"
                     Background="{StaticResource PaperBrush}">
+                <Border.Resources>
+                    <SolidColorBrush x:Key="KkindleScrollBarBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="KkindleScrollBarExpandedBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="KkindleScrollBarBorderBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="KkindleScrollBarThumbBrush" Color="#000000" />
+                    <SolidColorBrush x:Key="KkindleScrollBarThumbPointerOverBrush" Color="#000000" />
+                    <SolidColorBrush x:Key="KkindleScrollBarThumbPressedBrush" Color="#000000" />
+                    <SolidColorBrush x:Key="KkindleScrollBarThumbDisabledBrush" Color="#000000" />
+                    <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#000000" />
+                </Border.Resources>
                 <Grid RowDefinitions="52,Auto,Auto,*,Auto,50">
                     <!-- Start the divider below the shared header rule. Keep it
                          above search content so it remains continuous. -->
@@ -3081,12 +3165,12 @@
                                Grid.RowSpan="5"
                                Width="1"
                                HorizontalAlignment="Right"
-                               Fill="#EEEEEA"
+                               Fill="#000000"
                                IsHitTestVisible="False"
                                ZIndex="100" />
 
                     <Border Padding="14,8"
-                            BorderBrush="#EEEEEA"
+                            BorderBrush="#000000"
                             BorderThickness="0,0,0,1">
                         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
                             <TextBlock x:Name="ReaderBookInfoText"
@@ -3107,7 +3191,6 @@
                             <Path Width="14"
                                   Height="14"
                                   Data="M 1,3 L 2.5,3 M 5,3 L 13,3 M 1,7 L 2.5,7 M 5,7 L 13,7 M 1,11 L 2.5,11 M 5,11 L 13,11"
-                                  Stroke="{StaticResource InkBrush}"
                                   StrokeThickness="1.25"
                                   StrokeLineCap="Square"
                                   IsHitTestVisible="False" />
@@ -3123,7 +3206,6 @@
                             <Path Width="12"
                                   Height="12"
                                   Data="M 3,1.5 L 9,6 L 3,10.5"
-                                  Stroke="{StaticResource InkBrush}"
                                   StrokeThickness="1.35"
                                   StrokeLineCap="Square"
                                   StrokeJoin="Miter"
@@ -3158,7 +3240,7 @@
                                 <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="infra:EpubReaderNavigationItem">
                                         <Grid ColumnDefinitions="3,*">
-                                            <Rectangle Fill="#606060"
+                                            <Rectangle Fill="#FFFFFF"
                                                        IsVisible="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" />
                                             <TextBlock Grid.Column="1"
                                                        Margin="13,9,11,9"
@@ -3173,7 +3255,7 @@
                                        Margin="20"
                                        Text="此文档没有可用目录。"
                                        FontSize="12"
-                                       Foreground="{StaticResource MutedInkBrush}"
+                                       Foreground="#000000"
                                        TextWrapping="Wrap"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center"
@@ -3197,12 +3279,10 @@
                                                            MaxHeight="34" />
                                                 <TextBlock Text="{Binding DisplayQuote}"
                                                            FontSize="10"
-                                                           Foreground="{StaticResource MutedInkBrush}"
                                                            TextWrapping="Wrap"
                                                            MaxHeight="34" />
                                                 <TextBlock Text="{Binding DisplayTime}"
-                                                           FontSize="9"
-                                                           Foreground="{StaticResource MutedInkBrush}" />
+                                                           FontSize="9" />
                                             </StackPanel>
                                             <Button Grid.Column="1"
                                                     Classes="icon"
@@ -3221,7 +3301,7 @@
                                        Margin="20"
                                        Text="还没有书签。阅读时按 Ctrl+B 或点击顶部“书签”按钮添加。"
                                        FontSize="12"
-                                       Foreground="{StaticResource MutedInkBrush}"
+                                       Foreground="#000000"
                                        TextWrapping="Wrap"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center" />
@@ -3241,7 +3321,7 @@
                                            Grid.Row="1"
                                            Margin="14,0,14,8"
                                            FontSize="10"
-                                           Foreground="#5E5E5E" />
+                                           Foreground="#000000" />
                                 <Grid Grid.Row="2">
                                     <ScrollViewer Margin="14,0,0,0" VerticalScrollBarVisibility="Auto">
                                         <ItemsControl x:Name="ReaderSearchResultList"
@@ -3249,27 +3329,33 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="local:ReaderSearchResultViewModel">
                                                     <Button Classes="readerSearchResult"
-                                                            Margin="0,0,14,2"
+                                                            Margin="0,0,14,6"
+                                                            Padding="0"
+                                                            BorderBrush="{Binding ResultBorderBrush}"
+                                                            BorderThickness="{Binding ResultBorderThickness}"
+                                                            Background="#FFFFFF"
                                                             Tag="{Binding}"
                                                             Click="ReaderSearchResultButton_Click">
-                                                        <StackPanel Spacing="4" HorizontalAlignment="Stretch">
+                                                        <Border Padding="14,9,14,9">
+                                                            <StackPanel Spacing="3"
+                                                                        HorizontalAlignment="Stretch">
                                                             <local:ReaderSearchHighlightTextBlock Source="{Binding Title}"
                                                                                                   Query="{Binding Query}"
                                                                                                   FontSize="12"
                                                                                                   FontWeight="SemiBold"
-                                                                                                  TextWrapping="NoWrap"
+                                                                                                  TextWrapping="Wrap"
                                                                                                   TextTrimming="CharacterEllipsis"
-                                                                                                  MaxLines="1" />
+                                                                                                  MaxLines="2" />
                                                             <local:ReaderSearchHighlightTextBlock Source="{Binding Excerpt}"
                                                                                                   Query="{Binding Query}"
                                                                                                   HighlightRanges="{Binding ExcerptHighlightRanges}"
                                                                                                   FontSize="10"
                                                                                                   LineHeight="15"
-                                                                                                  Foreground="{StaticResource MutedInkBrush}"
                                                                                                   TextWrapping="Wrap"
                                                                                                   TextTrimming="CharacterEllipsis"
-                                                                                                  MaxLines="2" />
-                                                        </StackPanel>
+                                                                                                  MaxLines="4" />
+                                                            </StackPanel>
+                                                        </Border>
                                                     </Button>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
@@ -3280,7 +3366,7 @@
                                                Text="输入关键词，实时搜索整本书。"
                                                TextAlignment="Center"
                                                FontSize="11"
-                                               Foreground="#5E5E5E"
+                                               Foreground="#000000"
                                                TextWrapping="Wrap"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center" />
@@ -3297,23 +3383,23 @@
                             <TextBlock x:Name="ReaderReadingProgressText"
                                        Text="准备阅读"
                                        FontSize="11"
-                                       Foreground="#5E5E5E"
+                                       Foreground="#000000"
                                        HorizontalAlignment="Left" />
                             <TextBlock x:Name="ReaderProgressPercentText"
                                        Grid.Column="1"
                                        Text="0%"
                                        FontSize="11"
-                                       Foreground="#5E5E5E"
+                                       Foreground="#000000"
                                        HorizontalAlignment="Left" />
                         </Grid>
                         <TextBlock x:Name="ReaderStatsText"
                                    FontSize="10"
-                                   Foreground="#5E5E5E"
+                                   Foreground="#000000"
                                    TextWrapping="Wrap" />
                     </StackPanel>
 
                     <Border Grid.Row="5"
-                            BorderBrush="{StaticResource HairlineBrush}"
+                            BorderBrush="#000000"
                             BorderThickness="0,1,0,0"
                             CornerRadius="0">
                         <Button Content="返回书架"
@@ -3331,11 +3417,12 @@
             <!-- Minimal TOC rail (极简目录): a 52-DIP marker rail that keeps the
                  chapter map visible without taking the reading column away. -->
             <Border x:Name="ReaderTocCompactPanel"
+                    Classes="readerTocSurface"
                     Grid.Column="0"
                     Width="52"
                     Margin="0,38,0,0"
                     Background="{StaticResource PaperBrush}"
-                    BorderBrush="#D8D8D4"
+                    BorderBrush="#000000"
                     BorderThickness="0,0,1,0"
                     Loaded="ReaderTocCompactPanel_Loaded"
                     IsVisible="False">
@@ -3357,7 +3444,6 @@
                             <Path Width="14"
                                   Height="14"
                                   Data="M 1,3 L 2.5,3 M 5,3 L 13,3 M 1,7 L 2.5,7 M 5,7 L 13,7 M 1,11 L 2.5,11 M 5,11 L 13,11"
-                                  Stroke="{StaticResource InkBrush}"
                                   StrokeThickness="1.25"
                                   StrokeLineCap="Square"
                                   IsHitTestVisible="False" />
@@ -3402,9 +3488,10 @@
                                             AutomationProperties.Name="{Binding Title}"
                                             IsTabStop="False">
                                         <Border Width="8"
-                                                Height="2"
+                                                Height="3"
                                                 Background="{Binding Fill}"
-                                                BorderThickness="0"
+                                                BorderBrush="#000000"
+                                                BorderThickness="1"
                                                 IsHitTestVisible="False"
                                                 HorizontalAlignment="Center"
                                                 VerticalAlignment="Center" />
@@ -3432,14 +3519,14 @@
                     HorizontalAlignment="Left"
                     VerticalAlignment="Top"
                     Background="{StaticResource PaperBrush}"
-                    BorderBrush="{StaticResource HairlineBrush}"
+                    BorderBrush="#000000"
                     BorderThickness="1"
                     ZIndex="90"
                     IsHitTestVisible="False"
                     IsVisible="False">
                 <TextBlock x:Name="ReaderTocCompactHoverLabelText"
                            MaxWidth="320"
-                           Foreground="#555555"
+                           Foreground="#000000"
                            FontSize="12"
                            TextAlignment="Center"
                            TextWrapping="Wrap" />
@@ -3777,6 +3864,7 @@
             <Border x:Name="ReaderAssistantPanel"
                     Grid.Column="2"
                     Margin="0,38,0,0"
+                    IsVisible="False"
                     Background="{StaticResource PaperBrush}">
                 <Grid RowDefinitions="52,42,*,Auto">
                     <!-- Long separator below the assistant header. -->
@@ -3921,10 +4009,10 @@
                                             <TextBlock Text="划线颜色（淡色覆盖正文）" FontSize="9" Foreground="{StaticResource MutedInkBrush}" />
                                             <ComboBox x:Name="ReaderAnnotationColorBox" SelectedIndex="0" MinHeight="32" FontSize="10">
                                                 <ComboBoxItem Content="黑色" Tag="#000000" />
-                                                <ComboBoxItem Content="深灰" Tag="#555555" />
-                                                <ComboBoxItem Content="中灰" Tag="#999999" />
-                                                <ComboBoxItem Content="浅灰" Tag="#CCCCCC" />
-                                                <ComboBoxItem Content="淡灰" Tag="#E6E6E6" />
+                                                <ComboBoxItem Content="黄色" Tag="#F1C40F" />
+                                                <ComboBoxItem Content="蓝色" Tag="#4A90E2" />
+                                                <ComboBoxItem Content="绿色" Tag="#38A169" />
+                                                <ComboBoxItem Content="红色" Tag="#D95F76" />
                                             </ComboBox>
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Spacing="3">
@@ -3935,7 +4023,7 @@
                                                 <ComboBoxItem Content="虚线" Tag="dashed" />
                                                 <ComboBoxItem Content="点线" Tag="dotted" />
                                                 <ComboBoxItem Content="波浪线" Tag="wavy" />
-                                                <ComboBoxItem Content="荧光标记" Tag="marker" />
+                                                <ComboBoxItem Content="荧光标记（黑白反色）" Tag="marker" />
                                             </ComboBox>
                                         </StackPanel>
                                     </Grid>

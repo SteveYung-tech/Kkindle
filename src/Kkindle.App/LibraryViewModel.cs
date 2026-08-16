@@ -168,9 +168,15 @@ public sealed class BookCardViewModel : ObservableObject
         _ => "仅电脑书库有"
     };
 
-    public bool PresenceVisibility => _isLibraryPresenceVisible;
+    // The presence badge sits in the card's text footer; when gallery mode
+    // hides the footer the badge must go with it so only the cover remains.
+    public bool PresenceVisibility => _isLibraryPresenceVisible && _isGalleryTextVisible;
 
     public bool GalleryTextVisibility => _isGalleryTextVisible;
+
+    // Gallery mode trims the card to the cover alone so no blank text block
+    // remains under the image.
+    public double CardHeight => _isGalleryTextVisible ? 292 : 214;
 
     public void SetLibraryPresence(BookLibraryPresence presence) => LibraryPresence = presence;
 
@@ -186,6 +192,8 @@ public sealed class BookCardViewModel : ObservableObject
         if (_isGalleryTextVisible == visible) return;
         _isGalleryTextVisible = visible;
         OnPropertyChanged(nameof(GalleryTextVisibility));
+        OnPropertyChanged(nameof(PresenceVisibility));
+        OnPropertyChanged(nameof(CardHeight));
     }
 
     // Format conversion progress shown on the book card while the conversion

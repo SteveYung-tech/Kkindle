@@ -146,7 +146,7 @@
         <Thickness x:Key="ComboBoxDropdownBorderThickness">1</Thickness>
         <Thickness x:Key="ComboBoxDropdownBorderPadding">0</Thickness>
         <Thickness x:Key="ComboBoxDropdownContentMargin">0</Thickness>
-        <Thickness x:Key="ComboBoxItemThemePadding">11,9,11,10</Thickness>
+        <Thickness x:Key="ComboBoxItemThemePadding">7,4,7,5</Thickness>
         <SolidColorBrush x:Key="ComboBoxItemForeground" Color="{StaticResource InkColor}" />
         <SolidColorBrush x:Key="ComboBoxItemForegroundPressed" Color="{StaticResource InkColor}" />
         <SolidColorBrush x:Key="ComboBoxItemForegroundPointerOver" Color="{StaticResource PaperColor}" />
@@ -264,10 +264,19 @@
         <Style Selector="TextBox">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
             <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="TextBox:focus">
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+        </Style>
+        <!-- Fluent replaces the template border thickness on focus. Override
+             that inner state as well so typing never draws a rectangle. -->
+        <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
         </Style>
 
         <!-- Caption buttons invert to black-on-white on hover, which is the
@@ -327,17 +336,46 @@
 
         <!-- Destructive action: the detail-pane delete button uses the
              WinUI reference's red outline language (#B3261E). -->
+        <!-- Book-library scrollbar auto-collapse: the thumb is invisible while
+             idle, appears while scrolling (the .scrolling class is toggled from
+             code with a short idle delay) and stays visible while the pointer
+             rests on the bar itself (IsExpanded). -->
+        <Style Selector="ScrollViewer.bookScroll:not(.scrolling) /template/ ScrollBar /template/ Grid#Root Thumb">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector="ScrollViewer.bookScroll /template/ ScrollBar[IsExpanded=true] /template/ Grid#Root Thumb">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <!-- The detail pane's save button rests grey (a secondary action next to
+             the destructive delete) and turns ink-black on hover. Fluent paints
+             hover on the template's ContentPresenter, so the overrides must
+             target that part or the theme's light-grey hover wins. -->
+        <Style Selector="Button.detailSave">
+            <Setter Property="Background" Value="{StaticResource HairlineBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.detailSave:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.detailSave:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#333333" />
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="#333333" />
+        </Style>
         <Style Selector="Button.detailDelete">
             <Setter Property="Background" Value="{StaticResource PaperBrush}" />
             <Setter Property="Foreground" Value="#B3261E" />
             <Setter Property="BorderBrush" Value="#B3261E" />
         </Style>
-        <Style Selector="Button.detailDelete:pointerover">
+        <Style Selector="Button.detailDelete:pointerover /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="#B3261E" />
             <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
             <Setter Property="BorderBrush" Value="#B3261E" />
         </Style>
-        <Style Selector="Button.detailDelete:pressed">
+        <Style Selector="Button.detailDelete:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="#8F1D17" />
             <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
             <Setter Property="BorderBrush" Value="#8F1D17" />
@@ -660,12 +698,28 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="0" />
         </Style>
+        <!-- Long selected text (e.g. author names in a 112px filter box) must
+             trim instead of pushing the dropdown chevron out of the border. -->
+        <Style Selector="ComboBox /template/ ContentControl#ContentPresenter TextBlock">
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
         <Style Selector="ComboBox /template/ Border#PopupBorder">
             <Setter Property="Background" Value="{StaticResource PaperBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <!-- An auto-hiding popup scrollbar makes the dropdown widen/narrow while
+             scrolling. Keep it permanently visible so the popup width is stable. -->
+        <Style Selector="ComboBox.filterCombo">
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Visible" />
+        </Style>
+        <!-- Filter popups can be wider than their ComboBox. Let the popup draw
+             its complete top edge and suppress the control underline while open. -->
+        <Style Selector="ComboBox.filterCombo:dropdownopen /template/ Border#Background,
+                         ComboBox.filterCombo:dropdownopen /template/ Border#HighlightBackground">
+            <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
         <Style Selector="ComboBoxItem">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
@@ -675,17 +729,51 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="Padding" Value="{DynamicResource ComboBoxItemThemePadding}" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}">
+                        <TextBlock Text="{TemplateBinding Content}"
+                                   FontFamily="{TemplateBinding FontFamily}"
+                                   FontSize="{TemplateBinding FontSize}"
+                                   FontStretch="{TemplateBinding FontStretch}"
+                                   FontStyle="{TemplateBinding FontStyle}"
+                                   FontWeight="{TemplateBinding FontWeight}"
+                                   Foreground="{TemplateBinding Foreground}"
+                                   HorizontalAlignment="Stretch"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   TextTrimming="None" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
         </Style>
         <Style Selector="ComboBoxItem:pointerover">
             <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="ComboBoxItem:selected">
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="ComboBoxItem:selected:pointerover">
             <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
         </Style>
-        <Style Selector="ComboBoxItem /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="CornerRadius" Value="0" />
+        <!-- Fluent paints the ProgressBar fill with the accent colour; keep
+             every progress bar (import, transfer, conversion) ink-on-paper. -->
+        <Style Selector="ProgressBar">
+            <Style.Resources>
+                <SolidColorBrush x:Key="SystemControlHighlightAccentBrush" Color="{StaticResource InkColor}" />
+                <SolidColorBrush x:Key="SystemControlForegroundBaseHighBrush" Color="{StaticResource InkColor}" />
+                <SolidColorBrush x:Key="SystemControlHighlightTransparentBrush" Color="#00FFFFFF" />
+                <SolidColorBrush x:Key="SystemControlBackgroundBaseLowBrush" Color="{StaticResource HairlineColor}" />
+            </Style.Resources>
         </Style>
         <Style Selector="NumericUpDown">
             <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
@@ -716,13 +804,14 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="1"
-                                CornerRadius="0">
+                                CornerRadius="12">
                             <Grid x:Name="PART_MovingKnobs">
                                 <Border x:Name="SwitchThumb"
                                         Width="18"
                                         Height="18"
                                         Margin="2"
                                         Background="{StaticResource InkBrush}"
+                                        CornerRadius="9"
                                         HorizontalAlignment="Left"
                                         VerticalAlignment="Center" />
                             </Grid>
@@ -1075,22 +1164,87 @@
             <Setter Property="CornerRadius" Value="0" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:pointerover">
-            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:pressed">
-            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:selected">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:selected:pointerover">
-            <Setter Property="Background" Value="{StaticResource SoftHoverBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
         </Style>
         <Style Selector="ListBox.readerTocList ListBoxItem:selected:pressed">
-            <Setter Property="Background" Value="{StaticResource PressedBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+        </Style>
+
+        <!-- The TOC surface is deliberately binary: white at rest and black
+             for every interactive state. No grey palette leaks into it. -->
+        <Style Selector="Border.readerTocSurface">
+            <Setter Property="Background" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="Border.readerTocSurface Button.readerTab">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="Foreground" Value="#000000" />
+            <Setter Property="BorderBrush" Value="#000000" />
+        </Style>
+        <Style Selector="Border.readerTocSurface Button.readerTab:pointerover">
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="Border.readerTocSurface Button.readerTab:pressed">
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="Border.readerTocSurface Button.readerTab.active">
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="Border.readerTocSurface Button.readerToolbar:pointerover">
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="Border.readerTocSurface Button.readerToolbar:pressed">
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="Border.readerTocSurface Button.readerSearchResult:pointerover">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="Foreground" Value="#000000" />
+        </Style>
+        <Style Selector="Border.readerTocSurface Button.readerSearchResult:pressed">
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="Border.readerTocSurface Button.icon:pointerover">
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="Border.readerTocSurface Button.icon:pressed">
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="Border.readerTocSurface Button.icon:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Border.readerTocSurface Button.icon:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#000000" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="Border.readerTocSurface TextBox">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="Foreground" Value="#000000" />
+            <Setter Property="BorderBrush" Value="#000000" />
+        </Style>
+        <Style Selector="Border.readerTocSurface TextBox:focus">
+            <Setter Property="BorderBrush" Value="#000000" />
         </Style>
 
         <!-- Glyphs are drawn as vectors rather than Segoe MDL2 Assets glyphs:
@@ -1115,6 +1269,7 @@
         <Style Selector="Path.libraryGlyph">
             <Setter Property="Width" Value="18" />
             <Setter Property="Height" Value="18" />
+            <Setter Property="UseLayoutRounding" Value="True" />
             <Setter Property="Stretch" Value="Uniform" />
             <Setter Property="HorizontalAlignment" Value="Center" />
             <Setter Property="VerticalAlignment" Value="Center" />
@@ -1180,7 +1335,8 @@
         <!-- The WinUI shelf selects the 154-DIP card content, never the
              172-DIP wrap slot around it. Keep the ListBox container visually
              transparent so the outline inside the card stays flush with the
-             cover's left and right edges. -->
+             cover's left and right edges. Cards keep their fixed size; the
+             WrapPanel slot width below just decides how many fit per row. -->
         <Style Selector="ListBox.bookGrid ListBoxItem">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
@@ -1207,6 +1363,12 @@
         <Style Selector="ListBox.bookGrid ListBoxItem:selected:pointerover">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="ListBox.bookGrid /template/ ItemsPresenter">
+            <Setter Property="VerticalAlignment" Value="Top" />
+        </Style>
+        <Style Selector="ListBox.bookList /template/ ItemsPresenter">
+            <Setter Property="VerticalAlignment" Value="Top" />
         </Style>
         <Style Selector="ListBox.bookList ListBoxItem">
             <Setter Property="Background" Value="Transparent" />
@@ -1268,6 +1430,9 @@
             <Setter Property="Background" Value="{StaticResource PaperBrush}" />
             <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
             <Setter Property="Padding" Value="{DynamicResource MenuFlyoutItemThemePaddingNarrow}" />
+            <Setter Property="Transitions">
+                <Transitions />
+            </Setter>
             <!-- Avalonia sizes are device-independent units. At the common
                  Windows 125% scale, 32 units render as the 40 px rows in the
                  WinUI reference screenshot. -->
@@ -1291,6 +1456,10 @@
             <Setter Property="Foreground" Value="#999999" />
         </Style>
         <Style Selector="MenuItem:open">
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="MenuItem.instantMenuHover">
             <Setter Property="Background" Value="{StaticResource InkBrush}" />
             <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
         </Style>
@@ -1302,14 +1471,26 @@
         </Style>
         <Style Selector="MenuItem /template/ Border#PART_LayoutRoot">
             <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions />
+            </Setter>
         </Style>
         <Style Selector="MenuItem:open /template/ Border#PART_LayoutRoot">
-            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Background" Value="{StaticResource PaperBrush}" />
         </Style>
         <Style Selector="MenuItem:open /template/ ContentPresenter#PART_HeaderPresenter">
-            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="MenuItem:open /template/ Path#PART_ChevronPath">
+            <Setter Property="Fill" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="MenuItem.instantMenuHover /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+        </Style>
+        <Style Selector="MenuItem.instantMenuHover /template/ ContentPresenter#PART_HeaderPresenter">
+            <Setter Property="Foreground" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="MenuItem.instantMenuHover /template/ Path#PART_ChevronPath">
             <Setter Property="Fill" Value="{StaticResource PaperBrush}" />
         </Style>
         <!-- Keep vector colours scoped to each MenuItem's own template.
@@ -1319,6 +1500,9 @@
             <Setter Property="Fill" Value="{StaticResource InkBrush}" />
         </Style>
         <Style Selector="MenuItem:pointerover /template/ Path, MenuItem:pressed /template/ Path">
+            <Setter Property="Fill" Value="{StaticResource PaperBrush}" />
+        </Style>
+        <Style Selector="MenuItem.instantMenuHover /template/ Path">
             <Setter Property="Fill" Value="{StaticResource PaperBrush}" />
         </Style>
         <Style Selector="MenuItem:disabled /template/ Path">

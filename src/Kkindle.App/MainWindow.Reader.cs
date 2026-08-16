@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 
@@ -103,6 +104,7 @@ public partial class MainWindow
                 throw new InvalidOperationException("阅读器无法加载 EPUB 章节。");
 
             SetReaderHostLayer();
+            FocusCurrentReaderHost();
             SetReaderTocSelectionForChapter(_readerChapterIndex);
             await UpdateReaderScrollStateAsync(CurrentReaderHost!);
             PrimeReaderContinuousEdgeTracking();
@@ -257,6 +259,7 @@ public partial class MainWindow
             if (!loaded) throw new InvalidOperationException("章节加载失败。");
 
             await ApplySavedAnnotationsAsync(host, token);
+            await PositionReaderChapterBoundaryAsync(host, moveToEnd: offset < 0, token);
             var outgoingHost = CurrentReaderHost;
             await RunReaderContentTransitionAsync(
                 outgoingHost,
@@ -265,8 +268,6 @@ public partial class MainWindow
                 async () =>
                 {
                     _readerChapterIndex = targetIndex;
-                    _readerScrollPosition = 0;
-                    _readerScrollRatio = 0;
                     // host was picked as the hidden host, so the layer must flip
                     // unconditionally; deriving it from CurrentReaderHost would read
                     // the stale pre-swap flag and freeze the visible chapter after the
@@ -304,6 +305,20 @@ public partial class MainWindow
         }
     }
 
+    private async Task PositionReaderChapterBoundaryAsync(
+        IReaderHost host,
+        bool moveToEnd,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var horizontal = _readerLayout.FlowMode == 1 || _readerLayout.VerticalWriting;
+        await host.InvokeScriptAsync(
+            ReaderPaginationScripts.CreateChapterBoundaryScript(moveToEnd, horizontal));
+        if (_readerLayout.FlowMode == 1)
+            await host.InvokeScriptAsync(ReaderPaginationScripts.Snap);
+        await UpdateReaderScrollStateAsync(host);
+    }
+
     private string GetReaderChapterLabel() => _readerIsPdf
         ? $"{_readerPdfPage} / {Math.Max(1, _readerPdfPages.Count)} · 第 {_readerPdfPage} 页"
         : _readerDocument is null
@@ -339,6 +354,18 @@ public partial class MainWindow
         hiddenSlot.IsHitTestVisible = false;
         activeSlot.ZIndex = 1;
         hiddenSlot.ZIndex = 0;
+    }
+
+    private void FocusCurrentReaderHost()
+    {
+        if (CurrentReaderHost?.View is not Control readerControl) return;
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                if (ReaderRoot.IsVisible && ReferenceEquals(CurrentReaderHost?.View, readerControl))
+                    readerControl.Focus();
+            },
+            DispatcherPriority.Input);
     }
 
     private void ReaderHost_NavigationStarting(
@@ -434,14 +461,14 @@ public partial class MainWindow
         ReaderTocCompactPanel.IsVisible = false;
         ReaderTocCompactHoverLabel.IsVisible = false;
         ClearReaderCompactNavigationItems();
-        ReaderAssistantPanel.IsVisible = true;
-        ReaderRoot.ColumnDefinitions[2].Width = new GridLength(360);
+        ReaderAssistantPanel.IsVisible = false;
+        ReaderRoot.ColumnDefinitions[2].Width = new GridLength(0);
         ReaderContentPanel.RowDefinitions[0].Height = new GridLength(52);
         ReaderHeaderBar.IsVisible = true;
         ReaderContentPanel.RowDefinitions[2].Height = new GridLength(50);
         ReaderFooterBar.IsVisible = true;
         ReaderTransitionCover.Opacity = 0;
-        _readerAssistantVisibleBeforeZen = true;
+        _readerAssistantVisibleBeforeZen = false;
         _readerIsPdf = false;
         _readerPdfPages = [];
         _readerPdfSourcePath = null;

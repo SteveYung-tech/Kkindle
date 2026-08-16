@@ -10,6 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Kkindle.Core\Kkindle.Core.csproj" />
     <ProjectReference Include="..\..\src\Kkindle.Infrastructure\Kkindle.Infrastructure.csproj" />
+    <Compile Include="..\..\src\Kkindle.App.WinUI\ReaderPaginationScripts.cs" Link="ReaderPaginationScripts.cs" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2">

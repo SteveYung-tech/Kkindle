@@ -17,6 +17,13 @@ public partial class MainWindow
 {
     private int _readerWholeSearchSequence;
     private int _readerPdfSearchSequence;
+    private bool _readerSearchVisible;
+    private bool _readerSearchLayoutCaptured;
+    private bool _readerSearchPreviousTocExpanded;
+    private bool _readerSearchPreviousTocMinimal;
+    private bool _readerSearchPreviousBookmarkTabActive;
+    private string _readerSearchQuery = string.Empty;
+    private ReaderSearchResultViewModel? _selectedReaderSearchResult;
 
     private sealed record ReaderBookmarkLocation(
         string ChapterPath,
@@ -75,9 +82,9 @@ public partial class MainWindow
         // Esc closes reader overlays in priority order, matching the WinUI
         // reference's RootGrid_KeyDown: whole-book search panel first, then
         // the layout settings overlay, then zen mode.
-        if (ReaderSearchPanel.IsVisible)
+        if (_readerSearchVisible)
         {
-            ShowReaderTocTab();
+            HideReaderSearchPanel();
             return true;
         }
         if (ReaderLayoutSettingsOverlay.IsVisible)
@@ -97,11 +104,7 @@ public partial class MainWindow
     {
         if (_readerIsPdf)
         {
-            _readerTocMinimal = false;
-            _readerTocExpanded = true;
-            ApplyReaderPanelLayout();
-            ShowReaderSearchTab();
-            ReaderTocSearchBox.Focus();
+            ShowReaderSearchPanel();
             return;
         }
 
@@ -180,11 +183,12 @@ public partial class MainWindow
             ReaderAiView.IsVisible = true;
             ReaderNotesView.IsVisible = false;
             ReaderAiComposer.IsVisible = true;
-            ReaderAssistantPanel.IsVisible = true;
-            ReaderRoot.ColumnDefinitions[2].Width = new GridLength(360);
+            ReaderAssistantPanel.IsVisible = false;
+            ReaderRoot.ColumnDefinitions[2].Width = new GridLength(0);
 
             await EnsureReaderHostsAsync();
             SetReaderHostLayer();
+            FocusCurrentReaderHost();
             var pdfSource = new Uri(path).AbsoluteUri + $"#page={_readerPdfPage}";
             if (CurrentReaderHost is not { } host
                 || !await NavigateReaderHostAndWaitAsync(host, new Uri(pdfSource), token))
@@ -316,26 +320,60 @@ public partial class MainWindow
 
     private void ReaderSearchToolbarButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (ReaderSearchPanel.IsVisible)
+        if (_readerSearchVisible)
+            HideReaderSearchPanel();
+        else
+            ShowReaderSearchPanel();
+    }
+
+    private void ShowReaderSearchPanel()
+    {
+        if (!_readerSearchVisible)
         {
-            ShowReaderTocTab();
-            return;
+            _readerSearchPreviousTocExpanded = _readerTocExpanded;
+            _readerSearchPreviousTocMinimal = _readerTocMinimal;
+            _readerSearchPreviousBookmarkTabActive = ReaderBookmarkPane.IsVisible;
+            _readerSearchLayoutCaptured = true;
+            _readerTocExpanded = true;
+            _readerTocMinimal = false;
+            _readerSearchVisible = true;
         }
-        _readerTocMinimal = false;
-        _readerTocExpanded = true;
+
         ApplyReaderPanelLayout();
         ShowReaderSearchTab();
-        if (string.IsNullOrWhiteSpace(ReaderTocSearchBox.Text))
-            ShowReaderSearchStatus("输入关键词，实时搜索整本书。");
-        else if (ReaderSearchResults.Count > 0)
-            ShowReaderSearchStatus(null);
-        else
-        {
-            ShowReaderSearchStatus("正在本地搜索…");
-            var sequence = ++_readerWholeSearchSequence;
-            _ = RefreshReaderWholeSearchAsync(ReaderTocSearchBox.Text?.Trim() ?? string.Empty, sequence);
-        }
+        ReaderTocSearchBox.PlaceholderText = "搜索整本书…";
+        ReaderTocSearchBox.Text = _readerSearchQuery;
+        ShowReaderSearchStatus(string.IsNullOrWhiteSpace(_readerSearchQuery)
+            ? "输入关键词，实时搜索整本书。"
+            : ReaderSearchResults.Count > 0 ? null : "正在本地搜索…");
         ReaderTocSearchBox.Focus();
+        if (!string.IsNullOrWhiteSpace(_readerSearchQuery) && ReaderSearchResults.Count == 0)
+        {
+            var sequence = ++_readerWholeSearchSequence;
+            _ = RefreshReaderWholeSearchAsync(_readerSearchQuery, sequence);
+        }
+    }
+
+    private void HideReaderSearchPanel(bool restorePreviousLayout = true)
+    {
+        if (_readerSearchVisible)
+            _readerSearchQuery = ReaderTocSearchBox.Text?.Trim() ?? string.Empty;
+        _readerSearchVisible = false;
+        _readerWholeSearchSequence++;
+        ReaderSearchPanel.IsVisible = false;
+        ReaderTocSearchBox.Text = string.Empty;
+        if (_readerSearchPreviousBookmarkTabActive && restorePreviousLayout)
+            ShowReaderBookmarkTab();
+        else
+            ShowReaderTocTab();
+
+        if (_readerSearchLayoutCaptured)
+        {
+            _readerTocExpanded = restorePreviousLayout && _readerSearchPreviousTocExpanded;
+            _readerTocMinimal = restorePreviousLayout && _readerSearchPreviousTocMinimal;
+            _readerSearchLayoutCaptured = false;
+            ApplyReaderPanelLayout();
+        }
     }
 
     private async void ReaderBookmarkList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -839,15 +877,17 @@ public partial class MainWindow
 
     private async void ReaderTocSearchBox_TextChanged(object? sender, TextChangedEventArgs e)
     {
+        if (!_readerSearchVisible) return;
         var sequence = ++_readerWholeSearchSequence;
         var query = ReaderTocSearchBox.Text?.Trim() ?? string.Empty;
+        _readerSearchQuery = query;
         if (query.Length == 0)
         {
             await RefreshReaderWholeSearchAsync(query, sequence);
             return;
         }
         ShowReaderSearchStatus("正在本地搜索…");
-        await Task.Delay(160);
+        await Task.Delay(180);
         if (sequence != _readerWholeSearchSequence) return;
         await RefreshReaderWholeSearchAsync(ReaderTocSearchBox.Text?.Trim() ?? string.Empty, sequence);
     }
@@ -857,6 +897,7 @@ public partial class MainWindow
         if (sequence is not null && sequence.Value != _readerWholeSearchSequence) return;
         if (query.Length == 0)
         {
+            ClearReaderSearchResultSelection();
             ReaderSearchResults.Clear();
             ReaderWholeSearchCountText.Text = string.Empty;
             ShowReaderSearchStatus("输入关键词，实时搜索整本书。");
@@ -864,6 +905,7 @@ public partial class MainWindow
         }
 
         ReaderSearchResults.Clear();
+        ClearReaderSearchResultSelection();
         ReaderWholeSearchCountText.Text = string.Empty;
         ShowReaderSearchStatus("正在本地搜索…");
         try
@@ -925,9 +967,23 @@ public partial class MainWindow
         }
     }
 
+    private void ClearReaderSearchResultSelection()
+    {
+        if (_selectedReaderSearchResult is not null)
+            _selectedReaderSearchResult.IsSelected = false;
+        _selectedReaderSearchResult = null;
+    }
+
     private async void ReaderSearchResultButton_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: ReaderSearchResultViewModel result }) return;
+        if (!ReferenceEquals(_selectedReaderSearchResult, result))
+        {
+            if (_selectedReaderSearchResult is not null)
+                _selectedReaderSearchResult.IsSelected = false;
+            _selectedReaderSearchResult = result;
+            result.IsSelected = true;
+        }
         if (result.PageNumber is { } page)
         {
             await NavigatePdfPageAsync(page, ReaderToken);

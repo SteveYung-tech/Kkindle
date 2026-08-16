@@ -10,8 +10,11 @@ namespace Kkindle;
 
 public sealed record ReaderSearchHighlightRange(int Start, int Length);
 
-public sealed class ReaderSearchResultViewModel
+public sealed class ReaderSearchResultViewModel : ObservableObject
 {
+    private static readonly IBrush SearchResultBorderBrush = new SolidColorBrush(Colors.Black);
+    private bool _isSelected;
+
     public ReaderSearchResultViewModel(
         string title,
         string excerpt,
@@ -59,6 +62,20 @@ public sealed class ReaderSearchResultViewModel
     public string? Query { get; }
     public BookContentChunk? Source { get; }
     public IReadOnlyList<ReaderSearchHighlightRange> ExcerptHighlightRanges { get; }
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (!SetProperty(ref _isSelected, value)) return;
+            OnPropertyChanged(nameof(ResultBorderThickness));
+        }
+    }
+
+    public IBrush ResultBorderBrush => SearchResultBorderBrush;
+
+    public double ResultBorderThickness => IsSelected ? 2 : 1;
 }
 
 internal static class ReaderSearchPresentation

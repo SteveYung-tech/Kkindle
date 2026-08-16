@@ -36,6 +36,10 @@ public partial class MainWindow
     private string? _acceptedDeviceId;
     private string? _ignoredDeviceId;
     private string? _manuallyDisconnectedDeviceId;
+    // Set after a send mutates the device library while the device page is
+    // closed; OpenKindlePageAsync then rescans instead of showing the stale
+    // list (its Count == 0 fast path would skip the rescan).
+    private bool _deviceBooksDirty;
     private bool _isRefreshingDevices;
     private double _deviceUsedRatio;
     private Point? _deviceStatusToastPosition;
@@ -53,6 +57,11 @@ public partial class MainWindow
     private bool _settingsPanelVisible;
     private bool _deviceGridView = true;
     private KindleBookCardViewModel? _deviceMultiSelectAnchor;
+    private bool _deviceRubberBandSelecting;
+    private bool _deviceRubberBandPressedOnCard;
+    private bool _deviceRubberBandPointerSequenceHandled;
+    private Point _deviceRubberBandStart;
+    private Point _deviceRubberBandCurrent;
     private ZLibraryBookCardViewModel? _selectedZLibraryBook;
     private bool _zLibraryEmailSending;
 
@@ -73,6 +82,7 @@ public partial class MainWindow
     private bool _calibreSetupBusy;
 
     public ObservableCollection<KindleBookCardViewModel> DeviceBooks { get; } = [];
+    public ObservableCollection<KindleBookCardViewModel> VisibleDeviceBooks { get; } = [];
     public ObservableCollection<KindleDeviceResource> DeviceResources { get; } = [];
     public ObservableCollection<Stage3ReadingMaterialViewModel> ReadingMaterials { get; } = [];
     public ObservableCollection<Stage3ReadingMaterialGroupViewModel> ReadingMaterialGroups { get; } = [];
@@ -302,11 +312,7 @@ public partial class MainWindow
         await _readerData.InitializeAsync(cancellationToken);
         await _deviceModelStore.InitializeAsync(cancellationToken);
         _appSettings = await _appSettingsStore.LoadAsync(cancellationToken);
-        if (!string.IsNullOrWhiteSpace(_appSettings.CalibrePath))
-            Environment.SetEnvironmentVariable(
-                "KKINDLE_CALIBRE_CONVERT",
-                _appSettings.CalibrePath,
-                EnvironmentVariableTarget.Process);
+        await DetectCalibreAtStartupAsync(cancellationToken);
         _zLibrarySettings = await _zLibrarySettingsStore.LoadAsync(cancellationToken);
         _kindleEmailSettings = await _kindleEmailSettingsStore.LoadAsync(cancellationToken);
         PopulateSettingsControls();
@@ -558,8 +564,9 @@ public partial class MainWindow
         foreach (var book in DeviceBooks) book.Dispose();
         DeviceBooks.Clear();
         DeviceBookCountText.Text = "0";
-        UpdateDeviceBookSelectionUi();
         _devices = [];
+        ApplyDeviceBookFilter();
+        UpdateDeviceBookSelectionUi();
         _deviceDisplayName = null;
         DevicePageDeviceText.Text = "未检测到设备";
         DeviceNameButton.IsEnabled = false;
@@ -592,6 +599,7 @@ public partial class MainWindow
 
         DevicePageStatusText.Text = "正在扫描 Kindle 书籍…";
         DeviceBookEmptyText.Text = "正在读取设备书库…";
+        DeviceBookEmptyState.IsVisible = true;
         try
         {
             var books = await _kindle.ScanBooksAsync(device, cancellationToken);
@@ -619,7 +627,7 @@ public partial class MainWindow
                 card.SetLibraryPresence(presence);
             }
 
-            DeviceBookEmptyText.Text = books.Count == 0 ? "设备中没有可识别的书籍。" : $"已读取 {books.Count} 本书。";
+            ApplyDeviceBookFilter();
             DevicePageStatusText.Text = $"已读取 {books.Count} 本书 · {device.ConnectionLabel}";
         }
         catch (OperationCanceledException)
@@ -628,6 +636,7 @@ public partial class MainWindow
         catch (Exception exception)
         {
             DeviceBookEmptyText.Text = $"扫描失败：{exception.Message}";
+            DeviceBookEmptyState.IsVisible = true;
             DevicePageStatusText.Text = "Kindle 书库扫描失败。";
         }
     }
@@ -700,8 +709,11 @@ public partial class MainWindow
     {
         ShowStage3Page(DevicePage);
         await RefreshDevicesAsync(scanBooks: true);
-        if (CurrentDevice is not null && DeviceBooks.Count == 0)
+        if (CurrentDevice is not null && (DeviceBooks.Count == 0 || _deviceBooksDirty))
+        {
+            _deviceBooksDirty = false;
             await RefreshDeviceBooksAsync();
+        }
     }
 
     private async void KindleBooksButton_Click(object? sender, RoutedEventArgs e) => await OpenKindlePageAsync();
@@ -727,7 +739,7 @@ public partial class MainWindow
             book.IsMultiSelected = book.IsSelected && multi;
 
         var selected = GetSelectedDeviceBooks();
-        DeviceBookSelectionBar.IsVisible = selected.Count > 0;
+        DeviceBookSelectionBar.IsVisible = selected.Count > 1;
         DeviceBookSelectionText.Text = selected.Count == 0 ? string.Empty : $"已选择 {selected.Count} 本书";
     }
 
@@ -749,11 +761,104 @@ public partial class MainWindow
             SetDeviceBookView(tag == "List" ? false : true);
     }
 
+    private void DeviceBookSearchBox_TextChanged(object? sender, TextChangedEventArgs e)
+    {
+        ClearDeviceBookSelection();
+        ApplyDeviceBookFilter();
+    }
+
+    private void DeviceBookFilterButton_Click(object? sender, RoutedEventArgs e) =>
+        DeviceBookFilterPanel.IsVisible = !DeviceBookFilterPanel.IsVisible;
+
+    private void DeviceBookFilter_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        ClearDeviceBookSelection();
+        ApplyDeviceBookFilter();
+    }
+
+    private void ClearDeviceBookFiltersButton_Click(object? sender, RoutedEventArgs e)
+    {
+        DeviceBookSearchBox.Text = string.Empty;
+        DeviceBookFormatFilterBox.SelectedIndex = 0;
+        DeviceBookPresenceFilterBox.SelectedIndex = 0;
+        DeviceBookSortBox.SelectedIndex = 0;
+        ClearDeviceBookSelection();
+        ApplyDeviceBookFilter();
+    }
+
+    private void ApplyDeviceBookFilter()
+    {
+        var query = DeviceBookSearchBox.Text?.Trim() ?? string.Empty;
+        var format = (DeviceBookFormatFilterBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty;
+        var presence = (DeviceBookPresenceFilterBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? string.Empty;
+        var sort = (DeviceBookSortBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "title";
+
+        IEnumerable<KindleBookCardViewModel> filtered = DeviceBooks;
+        if (query.Length > 0)
+        {
+            filtered = filtered.Where(card =>
+                card.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+                || card.Authors.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+                || card.FileName.Contains(query, StringComparison.CurrentCultureIgnoreCase));
+        }
+        if (format.Length > 0)
+            filtered = filtered.Where(card => card.Book.Format.Equals(format, StringComparison.OrdinalIgnoreCase));
+        if (presence == "kindle")
+            filtered = filtered.Where(card => card.LibraryPresence == BookLibraryPresence.KindleOnly);
+        else if (presence == "both")
+            filtered = filtered.Where(card => card.LibraryPresence == BookLibraryPresence.Both);
+
+        filtered = sort switch
+        {
+            "author" => filtered.OrderBy(card => card.Authors, StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(card => card.Title, StringComparer.CurrentCultureIgnoreCase),
+            "modified" => filtered.OrderByDescending(card => card.Book.ModifiedAt)
+                .ThenBy(card => card.Title, StringComparer.CurrentCultureIgnoreCase),
+            "size" => filtered.OrderByDescending(card => card.Book.Size)
+                .ThenBy(card => card.Title, StringComparer.CurrentCultureIgnoreCase),
+            _ => filtered.OrderBy(card => card.Title, StringComparer.CurrentCultureIgnoreCase)
+        };
+
+        VisibleDeviceBooks.Clear();
+        foreach (var card in filtered)
+            VisibleDeviceBooks.Add(card);
+        UpdateDeviceBookEmptyState();
+    }
+
+    private void UpdateDeviceBookEmptyState()
+    {
+        DeviceBookEmptyState.IsVisible = VisibleDeviceBooks.Count == 0;
+        if (VisibleDeviceBooks.Count > 0) return;
+        DeviceBookEmptyText.Text = DeviceBooks.Count > 0
+            ? "没有符合当前搜索或筛选条件的书籍。"
+            : CurrentDevice is null
+                ? "连接 Kindle 后扫描书籍。"
+                : "设备中没有可识别的书籍。";
+    }
+
+    private void ClearDeviceBookSelection()
+    {
+        foreach (var book in DeviceBooks)
+            book.IsSelected = false;
+        _deviceMultiSelectAnchor = null;
+        UpdateDeviceBookSelectionUi();
+    }
+
     private void DeviceBook_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (sender is not Control { DataContext: KindleBookCardViewModel card } control
             || !e.GetCurrentPoint(control).Properties.IsLeftButtonPressed)
             return;
+
+        if (_deviceGridView)
+        {
+            _deviceRubberBandStart = e.GetPosition(DeviceBookGridScroll);
+            _deviceRubberBandCurrent = _deviceRubberBandStart;
+            _deviceRubberBandSelecting = false;
+            _deviceRubberBandPressedOnCard = true;
+            _deviceRubberBandPointerSequenceHandled = false;
+            e.Pointer.Capture(control);
+        }
 
         if ((e.KeyModifiers & KeyModifiers.Control) != 0)
         {
@@ -762,7 +867,7 @@ public partial class MainWindow
         }
         else if ((e.KeyModifiers & KeyModifiers.Shift) != 0)
         {
-            var cards = DeviceBooks.ToList();
+            var cards = VisibleDeviceBooks.ToList();
             var clickedIndex = cards.IndexOf(card);
             var anchorIndex = _deviceMultiSelectAnchor is null ? -1 : cards.IndexOf(_deviceMultiSelectAnchor);
             foreach (var candidate in cards) candidate.IsSelected = false;
@@ -779,6 +884,112 @@ public partial class MainWindow
 
         UpdateDeviceBookSelectionUi();
         e.Handled = true;
+    }
+
+    private void DeviceBookGrid_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!_deviceGridView
+            || !e.GetCurrentPoint(DeviceBookGridScroll).Properties.IsLeftButtonPressed)
+            return;
+        _deviceRubberBandPressedOnCard = IsDeviceBookCardSource(e.Source);
+        if (_deviceRubberBandPressedOnCard) return;
+
+        _deviceRubberBandStart = e.GetPosition(DeviceBookGridScroll);
+        _deviceRubberBandCurrent = _deviceRubberBandStart;
+        _deviceRubberBandSelecting = false;
+        _deviceRubberBandPointerSequenceHandled = false;
+        e.Pointer.Capture(DeviceBookGridScroll);
+        DeviceBookGridScroll.Focus();
+    }
+
+    private void DeviceBookGrid_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_deviceGridView
+            || !e.GetCurrentPoint(DeviceBookGridScroll).Properties.IsLeftButtonPressed)
+            return;
+        _deviceRubberBandCurrent = e.GetPosition(DeviceBookGridScroll);
+        if (!_deviceRubberBandSelecting)
+        {
+            var deltaX = _deviceRubberBandCurrent.X - _deviceRubberBandStart.X;
+            var deltaY = _deviceRubberBandCurrent.Y - _deviceRubberBandStart.Y;
+            if (Math.Max(Math.Abs(deltaX), Math.Abs(deltaY)) < RubberBandDragThreshold)
+                return;
+            _deviceRubberBandSelecting = true;
+            e.Pointer.Capture(DeviceBookGridScroll);
+            DeviceRubberBandRectangle.IsVisible = true;
+        }
+        UpdateDeviceRubberBandSelection();
+        e.Handled = true;
+    }
+
+    private void DeviceBookGrid_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_deviceRubberBandPointerSequenceHandled) return;
+        _deviceRubberBandPointerSequenceHandled = true;
+        if (!_deviceRubberBandSelecting)
+        {
+            if (!_deviceRubberBandPressedOnCard)
+                ClearDeviceBookSelection();
+            _deviceRubberBandPressedOnCard = false;
+            return;
+        }
+        _deviceRubberBandCurrent = e.GetPosition(DeviceBookGridScroll);
+        UpdateDeviceRubberBandSelection();
+        FinishDeviceRubberBandSelection(e.Pointer);
+        _deviceRubberBandPressedOnCard = false;
+        e.Handled = true;
+    }
+
+    private void DeviceBookGrid_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        if (_deviceRubberBandSelecting
+            && !ReferenceEquals(e.Pointer.Captured, DeviceBookGridScroll))
+            FinishDeviceRubberBandSelection(null);
+        _deviceRubberBandPressedOnCard = false;
+    }
+
+    private void UpdateDeviceRubberBandSelection()
+    {
+        var left = Math.Min(_deviceRubberBandStart.X, _deviceRubberBandCurrent.X);
+        var top = Math.Min(_deviceRubberBandStart.Y, _deviceRubberBandCurrent.Y);
+        var width = Math.Abs(_deviceRubberBandCurrent.X - _deviceRubberBandStart.X);
+        var height = Math.Abs(_deviceRubberBandCurrent.Y - _deviceRubberBandStart.Y);
+        Canvas.SetLeft(DeviceRubberBandRectangle, left);
+        Canvas.SetTop(DeviceRubberBandRectangle, top);
+        DeviceRubberBandRectangle.Width = width;
+        DeviceRubberBandRectangle.Height = height;
+
+        var selection = new Rect(left, top, width, height);
+        foreach (var card in DeviceBooks) card.IsSelected = false;
+        foreach (var card in VisibleDeviceBooks)
+        {
+            if (DeviceBookGridItems.ContainerFromItem(card) is not Control container) continue;
+            var origin = container.TranslatePoint(default, DeviceBookGridScroll);
+            if (origin is not { } point) continue;
+            if (new Rect(point, container.Bounds.Size).Intersects(selection))
+                card.IsSelected = true;
+        }
+        _deviceMultiSelectAnchor = VisibleDeviceBooks.FirstOrDefault(card => card.IsSelected);
+        UpdateDeviceBookSelectionUi();
+    }
+
+    private void FinishDeviceRubberBandSelection(IPointer? pointer)
+    {
+        _deviceRubberBandSelecting = false;
+        _deviceRubberBandPointerSequenceHandled = true;
+        pointer?.Capture(null);
+        DeviceRubberBandRectangle.IsVisible = false;
+        UpdateDeviceBookSelectionUi();
+    }
+
+    private static bool IsDeviceBookCardSource(object? source)
+    {
+        for (var current = source as Visual; current is not null; current = current.GetVisualParent())
+        {
+            if (current is Control { DataContext: KindleBookCardViewModel })
+                return true;
+        }
+        return false;
     }
 
     // 与电脑书库一致：悬停整张卡片时显示黑色细边框。
@@ -828,12 +1039,7 @@ public partial class MainWindow
         UpdateDeviceBookSelectionUi();
 
     private void ClearDeviceBookSelectionButton_Click(object? sender, RoutedEventArgs e)
-    {
-        foreach (var book in DeviceBooks)
-            book.IsSelected = false;
-        _deviceMultiSelectAnchor = null;
-        UpdateDeviceBookSelectionUi();
-    }
+        => ClearDeviceBookSelection();
 
     private async void EjectDeviceButton_Click(object? sender, RoutedEventArgs e)
     {
@@ -889,6 +1095,7 @@ public partial class MainWindow
             foreach (var book in DeviceBooks) book.Dispose();
             DeviceBooks.Clear();
             DeviceBookCountText.Text = "0";
+            ApplyDeviceBookFilter();
             UpdateDeviceBookSelectionUi();
             _acceptedDeviceId = null;
             _ignoredDeviceId = null;
@@ -1118,15 +1325,33 @@ public partial class MainWindow
                     value.RoundedPercentage,
                     100,
                     $"正在生成 Kindle 兼容版本 · {value.RoundedPercentage}%")));
-            await _formatConverter.ConvertAsync(sourcePath, destinationPath, conversionProgress, cancellationToken);
+            try
+            {
+                await _formatConverter.ConvertAsync(sourcePath, destinationPath, conversionProgress, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                // Some hand-built EPUBs trip a Calibre bug in mobi_output's
+                // remove_html_cover (KeyError on a manifest path). Round-tripping
+                // through a normalized EPUB repairs the manifest and the second
+                // pass then converts cleanly.
+                var normalized = Path.Combine(
+                    temporaryDirectory,
+                    KindleTransferPolicy.CreateSafeFileName(book.Title, ".epub"));
+                await _formatConverter.ConvertAsync(sourcePath, normalized, conversionProgress, cancellationToken);
+                await _formatConverter.ConvertAsync(normalized, destinationPath, conversionProgress, cancellationToken);
+            }
 
             var output = new FileInfo(destinationPath);
             if (!output.Exists || output.Length < 1024)
                 throw new InvalidDataException("Kindle 兼容版本生成失败：输出文件为空。");
 
-            var metadata = await new BookMetadataService().ReadMetadataAsync(destinationPath, cancellationToken);
-            if (metadata.CoverBytes is not { Length: > 0 })
-                throw new InvalidDataException("Kindle 兼容版本未包含可识别的封面，已停止发送。");
+            // A missing cover is not fatal: the Kindle falls back to its
+            // default thumbnail, so send anyway instead of blocking the book.
 
             var preparedFile = new BookFile
             {
@@ -1195,7 +1420,6 @@ public partial class MainWindow
         ShowTaskProgressPopup();
         ShowTransferToast("发送到 Kindle 设备", $"正在发送 {cards.Count} 本书…", progress: 0);
         var acceptProgressUpdates = true;
-        var hideCompletionToastWithTaskPopup = false;
         try
         {
             var progress = new Progress<TransferProgress>(value =>
@@ -1238,9 +1462,8 @@ public partial class MainWindow
             var completionMessage = skipped > 0
                 ? $"发送完成：成功 {sent} 本，失败 {skipped} 本。"
                 : $"已发送 {sent} 本书到 {device.Name}。";
-            ShowTransferToast("发送到 Kindle 设备", completionMessage, progress: 100);
+            ShowTransferToast("发送到 Kindle 设备", completionMessage, progress: 100, autoHide: true);
             SetTaskStatus(completionMessage);
-            hideCompletionToastWithTaskPopup = true;
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -1249,6 +1472,7 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
+            LogSendDiagnostic("SendSelectedBooksToKindleCoreAsync", exception);
             SetTaskStatus($"发送失败：{exception.Message}");
             ShowTransferToast("发送到 Kindle 设备", $"发送失败：{exception.Message}", autoHide: true);
         }
@@ -1258,9 +1482,10 @@ public partial class MainWindow
             if (ReferenceEquals(_transferCancellation, cancellation)) _transferCancellation = null;
             cancellation.Dispose();
             HideTaskProgressPopup();
-            if (hideCompletionToastWithTaskPopup) HideTransferToast();
             if (DevicePage.IsVisible)
                 await RefreshDeviceBooksAsync(_lifetimeCancellation.Token);
+            else
+                _deviceBooksDirty = true;
         }
     }
 
@@ -1337,9 +1562,27 @@ public partial class MainWindow
     private async void SendSelectedBookToKindleButton_Click(object? sender, RoutedEventArgs e) =>
         await TrackDeviceOperationAsync(SendSelectedBookToKindleCoreAsync);
 
+    private void LogSendDiagnostic(string source, Exception exception)
+    {
+        try
+        {
+            Directory.CreateDirectory(_paths.Logs);
+            File.AppendAllText(
+                Path.Combine(_paths.Logs, "send-diagnostic.log"),
+                $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] {source}{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Diagnostics must never mask the original failure.
+        }
+    }
+
     private async Task SendSelectedBookToKindleCoreAsync()
     {
-        if (_selectedCard is null)
+        // Snapshot the card: awaits below (device refresh, confirm dialog) can
+        // re-enter UI handlers that clear _selectedCard, which previously
+        // crashed the send with a NullReferenceException.
+        if (_selectedCard is not { } card)
         {
             SetTaskStatus("请先选择一本书。");
             return;
@@ -1365,7 +1608,7 @@ public partial class MainWindow
 
         try
         {
-            if (!await ConfirmAsync("发送到 Kindle", $"将《{_selectedCard.Title}》发送到 {device.Name}？EPUB/MOBI 会先转换为 AZW3。"))
+            if (!await ConfirmAsync("发送到 Kindle", $"将《{card.Title}》发送到 {device.Name}？EPUB/MOBI 会先转换为 AZW3。"))
                 return;
             _isTransferring = true;
             _transferCancellation?.Dispose();
@@ -1373,7 +1616,7 @@ public partial class MainWindow
             var cancellation = _transferCancellation;
             TaskProgressPopupBar.Value = 0;
             ShowTaskProgressPopup();
-            ShowTransferToast("发送到 Kindle 设备", $"正在发送《{_selectedCard.Title}》…", progress: 0);
+            ShowTransferToast("发送到 Kindle 设备", $"正在发送《{card.Title}》…", progress: 0);
             try
             {
                 var progress = new Progress<TransferProgress>(value =>
@@ -1382,15 +1625,15 @@ public partial class MainWindow
                     TaskProgressPopupText.Text = value.Message;
                     ShowTransferToast("发送到 Kindle 设备", value.Message, progress: value.Percentage);
                 });
-                using var prepared = await PrepareKindleTransferAsync(_selectedCard.Book, progress, cancellation.Token);
+                using var prepared = await PrepareKindleTransferAsync(card.Book, progress, cancellation.Token);
                 await _kindle.SendBookAsync(
                     device,
                     prepared.File,
                     prepared.SourcePath,
                     progress,
                     cancellation.Token);
-                ShowTransferToast("发送到 Kindle 设备", $"已发送《{_selectedCard.Title}》到 {device.Name}。", progress: 100);
-                SetTaskStatus($"已发送《{_selectedCard.Title}》到 {device.Name}。");
+                ShowTransferToast("发送到 Kindle 设备", $"已发送《{card.Title}》到 {device.Name}。", progress: 100, autoHide: true);
+                SetTaskStatus($"已发送《{card.Title}》到 {device.Name}。");
             }
             finally
             {
@@ -1398,16 +1641,18 @@ public partial class MainWindow
                 cancellation.Dispose();
                 _isTransferring = false;
                 HideTaskProgressPopup();
-                HideTransferToast();
             }
             if (DevicePage.IsVisible)
                 await RefreshDeviceBooksAsync(_lifetimeCancellation.Token);
+            else
+                _deviceBooksDirty = true;
         }
         catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
         {
         }
         catch (Exception exception)
         {
+            LogSendDiagnostic("SendSelectedBookToKindleCoreAsync", exception);
             SetTaskStatus($"发送到 Kindle 失败：{exception.Message}");
             await ShowMessageAsync("发送失败", exception.Message);
         }
@@ -1464,6 +1709,7 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
+            LogSendDiagnostic("SendSelectedBookByEmailButton_Click", exception);
             SetTaskStatus($"邮件发送失败：{exception.Message}");
             await ShowMessageAsync("发送失败", exception.Message);
         }
@@ -1632,6 +1878,7 @@ public partial class MainWindow
                 firstFailure ??= exception.Message;
             }
         }
+        ApplyDeviceBookFilter();
         UpdateDeviceBookSelectionUi();
         var completionMessage = $"已从 Kindle 删除 {removed} 本书。";
         DevicePageStatusText.Text = completionMessage;
@@ -1654,6 +1901,7 @@ public partial class MainWindow
                 DeviceBooks.Remove(card);
                 card.Dispose();
                 DeviceBookCountText.Text = DeviceBooks.Count.ToString();
+                ApplyDeviceBookFilter();
                 UpdateDeviceBookSelectionUi();
                 DevicePageStatusText.Text = $"已从 Kindle 删除《{card.Title}》。";
                 ShowTransferToast("从 Kindle 删除书籍", $"已从 Kindle 删除《{card.Title}》。", progress: 100, autoHide: true);
@@ -2475,12 +2723,14 @@ public partial class MainWindow
                 _ => 0
             };
             CalibrePathBox.Text = _appSettings.CalibrePath;
+            UpdateCalibreDetectionStatus();
             AiEnabledCheck.IsChecked = _appSettings.AiEnabled;
             AutoBackupCheck.IsChecked = _appSettings.AutoBackupEnabled;
             AutoBackupRetentionBox.Value = _appSettings.AutoBackupRetention;
             AutoGenerateReaderFormatsCheck.IsChecked = _appSettings.AutoGenerateEpubAndAzw3OnImport;
             CollectionsMutuallyExclusiveCheck.IsChecked = _appSettings.CollectionsMutuallyExclusive;
             NetworkEnabledCheck.IsChecked = _appSettings.NetworkEnabled;
+            AutoDoubanMatchCheck.IsChecked = _appSettings.AutoDoubanMatchOnImport;
             AutoConnectDeviceCheck.IsChecked = _appSettings.AutoConnectDevice;
             CompareKindleLibraryCheck.IsChecked = _appSettings.CompareKindleLibraryEnabled;
             GridGalleryDisplayCheck.IsChecked = _appSettings.GridGalleryDisplay;
@@ -2522,6 +2772,7 @@ public partial class MainWindow
         _appSettingsAutoSaveConfigured = true;
         AiEnabledCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
         NetworkEnabledCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
+        AutoDoubanMatchCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
         CollectionsMutuallyExclusiveCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
         ReadingMaterialsCollapsedByDefaultCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
         AutoGenerateReaderFormatsCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
@@ -2537,7 +2788,44 @@ public partial class MainWindow
         DefaultLineHeightBox.ValueChanged += (_, _) => ScheduleAppSettingsAutoSave();
         DefaultMaxWidthBox.ValueChanged += (_, _) => ScheduleAppSettingsAutoSave();
         DefaultBodyPaddingBox.ValueChanged += (_, _) => ScheduleAppSettingsAutoSave();
-        CalibrePathBox.TextChanged += (_, _) => ScheduleAppSettingsAutoSave();
+        CalibrePathBox.TextChanged += (_, _) =>
+        {
+            UpdateCalibreDetectionStatus();
+            ScheduleAppSettingsAutoSave();
+        };
+    }
+
+    private async Task DetectCalibreAtStartupAsync(CancellationToken cancellationToken)
+    {
+        using var setup = new CalibreSetupService();
+        var detectedPath = setup.LocateCalibre(_appSettings.CalibrePath);
+        if (string.IsNullOrWhiteSpace(detectedPath))
+        {
+            Environment.SetEnvironmentVariable(
+                "KKINDLE_CALIBRE_CONVERT",
+                null,
+                EnvironmentVariableTarget.Process);
+            return;
+        }
+
+        Environment.SetEnvironmentVariable(
+            "KKINDLE_CALIBRE_CONVERT",
+            detectedPath,
+            EnvironmentVariableTarget.Process);
+        if (string.Equals(_appSettings.CalibrePath, detectedPath, StringComparison.OrdinalIgnoreCase)) return;
+
+        _appSettings = AppSettings.Normalize(_appSettings with { CalibrePath = detectedPath });
+        await _appSettingsStore.SaveAsync(_appSettings, cancellationToken);
+    }
+
+    private void UpdateCalibreDetectionStatus()
+    {
+        var configuredPath = (CalibrePathBox.Text ?? string.Empty).Trim().Trim('"');
+        var isDetected = !string.IsNullOrWhiteSpace(configuredPath) && File.Exists(configuredPath);
+        var status = isDetected ? "已检测到 Calibre" : "未检测到 Calibre";
+        CalibreDetectionStatusDot.Fill = new SolidColorBrush(Color.Parse(isDetected ? "#2E8B57" : "#D6A100"));
+        ToolTip.SetTip(CalibreDetectionStatusDot, status);
+        AutomationProperties.SetName(CalibreDetectionStatusDot, status);
     }
 
     private void ScheduleAppSettingsAutoSave()
@@ -2803,6 +3091,7 @@ public partial class MainWindow
             CollectionsMutuallyExclusive = CollectionsMutuallyExclusiveCheck.IsChecked != false,
             AiEnabled = AiEnabledCheck.IsChecked != false,
             NetworkEnabled = NetworkEnabledCheck.IsChecked != false,
+            AutoDoubanMatchOnImport = AutoDoubanMatchCheck.IsChecked == true,
             AutoConnectDevice = AutoConnectDeviceCheck.IsChecked != false,
             CompareKindleLibraryEnabled = CompareKindleLibraryCheck.IsChecked != false,
             GridGalleryDisplay = GridGalleryDisplayCheck.IsChecked == true,
@@ -2821,8 +3110,10 @@ public partial class MainWindow
         try
         {
             await _appSettingsStore.SaveAsync(_appSettings, _lifetimeCancellation.Token);
-            if (!string.IsNullOrWhiteSpace(_appSettings.CalibrePath))
-                Environment.SetEnvironmentVariable("KKINDLE_CALIBRE_CONVERT", _appSettings.CalibrePath, EnvironmentVariableTarget.Process);
+            Environment.SetEnvironmentVariable(
+                "KKINDLE_CALIBRE_CONVERT",
+                string.IsNullOrWhiteSpace(_appSettings.CalibrePath) ? null : _appSettings.CalibrePath,
+                EnvironmentVariableTarget.Process);
             foreach (var group in ReadingMaterialGroups)
                 group.IsExpanded = !_appSettings.ReadingMaterialsCollapsedByDefault;
             UpdateLibraryUi();
@@ -3614,6 +3905,7 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
         get => _galleryTextVisible;
         private set => SetProperty(ref _galleryTextVisible, value);
     }
+    public double CardHeight => _galleryTextVisible ? 292 : 214;
 
     public void SetGalleryTextVisible(bool visible)
     {
@@ -3621,6 +3913,7 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
         _galleryTextVisible = visible;
         OnPropertyChanged(nameof(GalleryTextVisibility));
         OnPropertyChanged(nameof(PresenceVisibility));
+        OnPropertyChanged(nameof(CardHeight));
     }
 
     public bool PresenceVisibility

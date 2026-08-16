@@ -12,7 +12,10 @@ namespace Kkindle;
 
 public partial class MainWindow
 {
-    private async Task SaveReaderAnnotationAsync(string note)
+    private async Task SaveReaderAnnotationAsync(
+        string note,
+        bool preserveExistingNote = false,
+        string? underlineStyle = null)
     {
         if (_readerBookCard is null || _readerBookFile is null) return;
         var selectedText = (_readerPendingSelection ?? string.Empty).Trim();
@@ -27,7 +30,13 @@ public partial class MainWindow
             : GetReaderChapterPath();
         if (string.IsNullOrWhiteSpace(chapterPath)) return;
 
-        var annotation = _selectedReaderAnnotation ?? new ReaderAnnotation
+        var exact = selectedText.Length > 0
+            ? ReaderAnnotations.FirstOrDefault(item =>
+                string.Equals(item.ChapterPath, chapterPath, StringComparison.OrdinalIgnoreCase)
+                && item.StartOffset == _readerPendingSelectionStartOffset
+                && item.EndOffset == _readerPendingSelectionEndOffset)
+            : null;
+        var annotation = _selectedReaderAnnotation ?? exact ?? new ReaderAnnotation
         {
             BookId = _readerBookCard.Book.Id,
             BookFileId = _readerBookFile.Id,
@@ -40,10 +49,6 @@ public partial class MainWindow
         // editing the exact annotation being saved (mirrors the WinUI guard).
         if (selectedText.Length > 0 && _selectedReaderAnnotation is null)
         {
-            var exact = ReaderAnnotations.FirstOrDefault(item =>
-                string.Equals(item.ChapterPath, chapterPath, StringComparison.OrdinalIgnoreCase)
-                && item.StartOffset == _readerPendingSelectionStartOffset
-                && item.EndOffset == _readerPendingSelectionEndOffset);
             var overlaps = ReaderAnnotations.Any(item =>
                 item.Id != exact?.Id
                 && string.Equals(item.ChapterPath, chapterPath, StringComparison.OrdinalIgnoreCase)
@@ -61,10 +66,17 @@ public partial class MainWindow
             ? null
             : _readerCurrentFragment;
         if (selectedText.Length > 0) annotation.SelectedText = selectedText;
-        annotation.Note = note.Trim();
-        annotation.Color = NormalizeReaderAnnotationColor(
-            GetReaderComboTag(ReaderAnnotationColorBox, "#000000"));
-        annotation.UnderlineStyle = GetReaderComboTag(ReaderAnnotationStyleBox, "solid");
+        var normalizedStyle = NormalizeReaderAnnotationStyle(
+            underlineStyle ?? GetReaderComboTag(ReaderAnnotationStyleBox, "solid"));
+        annotation.Note = preserveExistingNote
+            && string.IsNullOrWhiteSpace(note)
+            && exact is not null
+                ? exact.Note
+                : note.Trim();
+        annotation.Color = normalizedStyle == "marker"
+            ? "#000000"
+            : NormalizeReaderAnnotationColor(GetReaderComboTag(ReaderAnnotationColorBox, "#000000"));
+        annotation.UnderlineStyle = normalizedStyle;
         annotation.StartOffset = _readerPendingSelectionStartOffset;
         annotation.EndOffset = _readerPendingSelectionEndOffset > _readerPendingSelectionStartOffset
             ? _readerPendingSelectionEndOffset
@@ -79,7 +91,10 @@ public partial class MainWindow
             await RefreshReaderAnnotationsAsync(ReaderToken);
             _selectedReaderAnnotation = ReaderAnnotations.FirstOrDefault(item => item.Id == annotation.Id);
             if (!_readerIsPdf && CurrentReaderHost is { } host)
+            {
                 await ApplySavedAnnotationsAsync(host, ReaderToken);
+                await ClearCurrentReaderSelectionAsync(host);
+            }
             else if (_readerIsPdf)
                 await ApplySavedReaderPdfAnnotationsAsync(ReaderToken);
             ReaderHighlightButton.IsVisible = false;
@@ -99,7 +114,9 @@ public partial class MainWindow
     }
 
     private async void ReaderAnnotationSaveButton_Click(object? sender, RoutedEventArgs e)
-        => await SaveReaderAnnotationAsync(ReaderAnnotationNoteBox.Text ?? string.Empty);
+        => await SaveReaderAnnotationAsync(
+            ReaderAnnotationNoteBox.Text ?? string.Empty,
+            preserveExistingNote: false);
 
     private async void ReaderAnnotationItemButton_Click(object? sender, RoutedEventArgs e)
     {
@@ -223,21 +240,34 @@ public partial class MainWindow
     private async Task ApplyReaderHighlightStyleAsync(string style)
     {
         SelectReaderComboTag(ReaderAnnotationStyleBox, style);
-        await SaveReaderAnnotationAsync(string.Empty);
-        // The WinUI reference's bar closes after saving; the in-page bar hides
-        // itself once the DOM selection is cleared (selectionchange report).
-        if (!_readerIsPdf && CurrentReaderHost is { } host)
+        await SaveReaderAnnotationAsync(
+            string.Empty,
+            preserveExistingNote: true,
+            underlineStyle: style);
+    }
+
+    private static async Task ClearCurrentReaderSelectionAsync(IReaderHost host)
+    {
+        try
         {
-            try
-            {
-                await host.InvokeScriptAsync(
-                    "(() => { const s = window.getSelection(); if (s) s.removeAllRanges(); return true; })();");
-            }
-            catch
-            {
-            }
+            await host.InvokeScriptAsync(
+                "(() => { const s = window.getSelection(); if (s) s.removeAllRanges(); return true; })();");
+        }
+        catch
+        {
         }
     }
+
+    private static string NormalizeReaderAnnotationStyle(string? style) =>
+        style?.Trim().ToLowerInvariant() switch
+        {
+            "double" => "double",
+            "dashed" => "dashed",
+            "dotted" => "dotted",
+            "wavy" => "wavy",
+            "marker" => "marker",
+            _ => "solid"
+        };
 
     private async Task PerformReaderSelectionDictionaryAsync()
     {

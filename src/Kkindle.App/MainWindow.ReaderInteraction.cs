@@ -30,6 +30,7 @@ public partial class MainWindow
 
     private ReaderLayoutSettings _readerLayout = ReaderLayoutDefaults.Normalize(new ReaderLayoutSettings());
     private int _readerPageAnimation = ReaderAnimationFade;
+    private readonly SemaphoreSlim _readerPageTurnGate = new(1, 1);
     private IReadOnlyList<EpubReaderNavigationItem> _readerTocItems = [];
     private ReaderProgressRow? _readerRestoredProgress;
     private int _readerSearchSequence;
@@ -150,6 +151,10 @@ public partial class MainWindow
         _readerPendingSearchContext = null;
         _readerSearchSequence++;
         _readerWholeSearchSequence++;
+        _readerSearchVisible = false;
+        _readerSearchLayoutCaptured = false;
+        _readerSearchQuery = string.Empty;
+        ClearReaderSearchResultSelection();
         _readerContinuousSkipDepth = 0;
         _readerContinuousLocked = false;
         _readerContinuousDirection = 0;
@@ -195,8 +200,8 @@ public partial class MainWindow
         ReaderNotesView.IsVisible = false;
         ReaderAiSettingsView.IsVisible = false;
         ReaderAiComposer.IsVisible = true;
-        ReaderAssistantPanel.IsVisible = true;
-        ReaderRoot.ColumnDefinitions[2].Width = new GridLength(360);
+        ReaderAssistantPanel.IsVisible = false;
+        ReaderRoot.ColumnDefinitions[2].Width = new GridLength(0);
         SetReaderCompactNavigationItems(_readerTocItems);
         SetReaderCompactSelectedItem(
             _readerTocItems.FirstOrDefault(item => item.ChapterIndex == _readerChapterIndex));
@@ -1029,7 +1034,7 @@ public partial class MainWindow
         CancellationToken cancellationToken)
     {
         if (_readerBookFile is null || _readerDocument is null) return;
-        var chapterPath = GetReaderChapterPath();
+        var chapterPath = GetReaderChapterPath(host);
         if (chapterPath is null) return;
         var annotations = await _readerData.GetAnnotationsAsync(_readerBookFile.Id, cancellationToken);
         var marks = annotations
@@ -1038,13 +1043,16 @@ public partial class MainWindow
             .Select(item => new
             {
                 Id = item.Id.ToString("N"),
+                StartOffset = item.StartOffset,
+                EndOffset = item.EndOffset,
                 Quote = item.SelectedText.Trim(),
                 Prefix = item.Prefix,
                 Suffix = item.Suffix,
+                Note = item.Note,
                 Color = NormalizeReaderAnnotationColor(item.Color),
-                Style = item.UnderlineStyle
+                Style = NormalizeReaderAnnotationStyle(item.UnderlineStyle)
             })
-            .Take(80)
+            .OrderByDescending(item => item.StartOffset)
             .ToArray();
 
         var serialized = JsonSerializer.Serialize(marks);
@@ -1070,14 +1078,14 @@ public partial class MainWindow
                 parent.removeChild(mark);
                 parent.normalize?.();
               };
-              for (const oldMark of Array.from(document.querySelectorAll('mark.kkindle-saved-annotation'))) {
+              for (const oldMark of Array.from(document.querySelectorAll('.kkindle-saved-annotation'))) {
                 unwrap(oldMark);
               }
               const ignored = node => {
                 const parent = node?.parentElement;
                 return !parent
                   || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)
-                  || !!parent.closest?.('#kkindle-selection-bar, .kkindle-wave-sweep, mark.kkindle-saved-annotation');
+                  || !!parent.closest?.('#kkindle-selection-bar, .kkindle-wave-sweep');
               };
               const collectNodes = () => {
                 const nodes = [];
@@ -1111,14 +1119,26 @@ public partial class MainWindow
               const styleMark = (mark, annotation) => {
                 mark.className = 'kkindle-saved-annotation';
                 if (annotation.Id) mark.setAttribute('data-kkindle-annotation', annotation.Id);
-                const color = /^#[0-9a-f]{6}$/i.test(annotation.Color || '') ? annotation.Color : '#E6E6E6';
-                if ((annotation.Style || 'solid') === 'marker') {
-                  mark.style.setProperty('background', color, 'important');
+                const color = /^#[0-9a-f]{6}$/i.test(annotation.Color || '') ? annotation.Color : '#000000';
+                const style = ['solid', 'double', 'dashed', 'dotted', 'wavy', 'marker'].includes(annotation.Style)
+                  ? annotation.Style
+                  : 'solid';
+                const marker = style === 'marker';
+                mark.style.setProperty('background-color', marker ? '#000000' : 'transparent', 'important');
+                if (marker) {
+                  mark.style.setProperty('color', '#FFFFFF', 'important');
+                  mark.style.setProperty('text-decoration-line', 'none', 'important');
                 } else {
-                  mark.style.setProperty('background', 'transparent', 'important');
-                  mark.style.setProperty('text-decoration', `underline 2px ${color} ${annotation.Style || 'solid'}`, 'important');
+                  mark.style.setProperty('text-decoration-line', 'underline', 'important');
+                  mark.style.setProperty('text-decoration-color', color, 'important');
+                  mark.style.setProperty('text-decoration-style', style, 'important');
+                  mark.style.setProperty('text-decoration-thickness', '2px', 'important');
+                  mark.style.setProperty('text-underline-offset', '3px', 'important');
+                  mark.style.setProperty('text-decoration-skip-ink', 'none', 'important');
                 }
-                mark.style.setProperty('color', '#000000', 'important');
+                mark.style.setProperty('display', 'inline', 'important');
+                mark.style.cursor = 'pointer';
+                if (annotation.Note) mark.title = annotation.Note;
               };
               const wrapSegments = (segments, annotation) => {
                 for (let index = segments.length - 1; index >= 0; index--) {
@@ -1127,7 +1147,7 @@ public partial class MainWindow
                   const range = document.createRange();
                   range.setStart(segment.node, Math.min(segment.start, segment.node.data.length));
                   range.setEnd(segment.node, Math.min(segment.end, segment.node.data.length));
-                  const mark = document.createElement('mark');
+                  const mark = document.createElement('span');
                   styleMark(mark, annotation);
                   try {
                     range.surroundContents(mark);
@@ -1151,7 +1171,12 @@ public partial class MainWindow
                 const suffix = (annotation.Suffix || '').slice(0, 72).toLocaleLowerCase();
                 let bestAt = -1;
                 let bestScore = -1;
-                let at = foldedText.indexOf(foldedQuote);
+                const context = prefix + foldedQuote + suffix;
+                const contextAt = context.length > foldedQuote.length
+                  ? foldedText.indexOf(context)
+                  : -1;
+                if (contextAt >= 0) bestAt = contextAt + prefix.length;
+                let at = bestAt >= 0 ? -1 : foldedText.indexOf(foldedQuote);
                 while (at >= 0) {
                   const before = text.slice(Math.max(0, at - 72), at).toLocaleLowerCase();
                   const after = text.slice(at + quote.length, at + quote.length + 72).toLocaleLowerCase();
@@ -1162,8 +1187,18 @@ public partial class MainWindow
                   }
                   at = foldedText.indexOf(foldedQuote, at + Math.max(1, foldedQuote.length));
                 }
+                if (bestAt < 0) {
+                  const storedStart = Math.max(0, Number(annotation.StartOffset) || 0);
+                  const storedEnd = Math.max(storedStart, Number(annotation.EndOffset) || storedStart);
+                  if (storedEnd > storedStart && storedEnd <= text.length) {
+                    bestAt = storedStart;
+                  }
+                }
                 if (bestAt < 0) continue;
-                wrapSegments(segmentsFor(nodes, bestAt, bestAt + quote.length), annotation);
+                const length = quote.length > 0
+                  ? quote.length
+                  : Math.max(0, (Number(annotation.EndOffset) || 0) - (Number(annotation.StartOffset) || 0));
+                wrapSegments(segmentsFor(nodes, bestAt, bestAt + length), annotation);
               }
               return true;
             })();
@@ -1693,6 +1728,8 @@ public partial class MainWindow
                     _readerPendingSelectionSuffix = ReadString(root, "suffix");
                     if (!string.IsNullOrWhiteSpace(_readerPendingSelection))
                     {
+                        _selectedReaderAnnotation = null;
+                        ReaderDeleteAnnotationButton.IsEnabled = false;
                         ReaderStatusText.Text = "已选中文字，可点击“划线”保存";
                         ReaderAnnotationSelectionText.Text = _readerPendingSelection;
                         ReaderHighlightButton.IsVisible = true;
@@ -1869,6 +1906,9 @@ public partial class MainWindow
                 }
                 break;
             case "annotate":
+                _selectedReaderAnnotation = null;
+                ReaderDeleteAnnotationButton.IsEnabled = false;
+                ReaderAnnotationNoteBox.Text = string.Empty;
                 ShowReaderNotesTab();
                 ReaderAnnotationNoteBox.Focus();
                 break;
@@ -1882,10 +1922,7 @@ public partial class MainWindow
                 break;
             case "search":
                 if (string.IsNullOrWhiteSpace(_readerPendingSelection)) break;
-                _readerTocMinimal = false;
-                _readerTocExpanded = true;
-                ApplyReaderPanelLayout();
-                ShowReaderSearchTab();
+                ShowReaderSearchPanel();
                 ReaderTocSearchBox.Text = _readerPendingSelection;
                 ReaderTocSearchBox.Focus();
                 break;
@@ -2135,23 +2172,45 @@ public partial class MainWindow
 
     private async Task TurnReaderPageAsync(int direction)
     {
-        if (_readerIsPdf)
+        if (!await _readerPageTurnGate.WaitAsync(0)) return;
+        try
         {
-            await NavigatePdfPageAsync(_readerPdfPage + direction, ReaderToken);
-            return;
+            if (_readerIsPdf)
+            {
+                await NavigatePdfPageAsync(_readerPdfPage + direction, ReaderToken);
+                return;
+            }
+            if (CurrentReaderHost is not { } host) return;
+
+            // Decide which content change is needed before starting the visual
+            // transition. At a chapter edge the old path animated a failed DOM
+            // turn and then animated the chapter swap, producing two different
+            // beats for what should feel like one continuous page turn.
+            var canTurnResult = await host.InvokeScriptAsync(
+                ReaderPaginationScripts.CreateCanTurnScript(direction));
+            var canTurnWithinChapter = string.Equals(
+                canTurnResult?.Trim(),
+                "true",
+                StringComparison.OrdinalIgnoreCase);
+            if (canTurnWithinChapter)
+            {
+                await TurnReaderPageWithAnimationAsync(host, direction);
+                return;
+            }
+
+            if (direction > 0 && _readerDocument is not null
+                && _readerChapterIndex < _readerDocument.Chapters.Count - 1)
+            {
+                await MoveReaderChapterAsync(1);
+            }
+            else if (direction < 0 && _readerChapterIndex > 0)
+            {
+                await MoveReaderChapterAsync(-1);
+            }
         }
-        if (CurrentReaderHost is not { } host) return;
-        var result = await TurnReaderPageWithAnimationAsync(host, direction);
-        if (string.Equals(result?.Trim(), "false", StringComparison.OrdinalIgnoreCase)
-            && direction > 0 && _readerDocument is not null
-            && _readerChapterIndex < _readerDocument.Chapters.Count - 1)
+        finally
         {
-            await MoveReaderChapterAsync(1);
-        }
-        else if (string.Equals(result?.Trim(), "false", StringComparison.OrdinalIgnoreCase)
-            && direction < 0 && _readerChapterIndex > 0)
-        {
-            await MoveReaderChapterAsync(-1);
+            _readerPageTurnGate.Release();
         }
     }
 
@@ -2163,7 +2222,12 @@ public partial class MainWindow
             host,
             host,
             direction,
-            () => host.InvokeScriptAsync(ReaderPaginationScripts.CreateTurnScript(direction)),
+            // The transition pipeline already animates the visual change. The
+            // DOM position must land synchronously on the target page; a second
+            // smooth scroll here can still be mid-flight when alignment runs,
+            // making the next click finish the previous turn.
+            () => host.InvokeScriptAsync(
+                ReaderPaginationScripts.CreateTurnScript(direction, smooth: false)),
             ReaderToken);
     }
 
@@ -2315,6 +2379,14 @@ public partial class MainWindow
 
     private void ReaderTocButton_Click(object? sender, RoutedEventArgs e)
     {
+        if (_readerSearchVisible)
+        {
+            HideReaderSearchPanel(restorePreviousLayout: false);
+            _readerTocExpanded = true;
+            _readerTocMinimal = false;
+            ApplyReaderPanelLayout();
+            return;
+        }
         if (_readerTocMinimal)
         {
             _readerTocMinimal = false;
@@ -2463,7 +2535,7 @@ public partial class MainWindow
 
     private async void ReaderHighlightButton_Click(object? sender, RoutedEventArgs e)
     {
-        await SaveReaderAnnotationAsync(string.Empty);
+        await SaveReaderAnnotationAsync(string.Empty, preserveExistingNote: true);
     }
 
     private async void ToggleReaderZenMode()
@@ -2737,9 +2809,19 @@ public partial class MainWindow
             ? FindReaderTocIndex(item)
             : -1;
 
-    private string? GetReaderChapterPath()
+    private string? GetReaderChapterPath(IReaderHost? host = null)
     {
-        if (_readerDocument is null || _readerChapterIndex < 0 || _readerChapterIndex >= _readerDocument.Chapters.Count)
+        if (_readerDocument is null) return null;
+        if (host?.Source is { IsFile: true } source)
+        {
+            var sourcePath = Path.GetFullPath(source.LocalPath);
+            if (IsPathInside(_readerDocument.RootPath, sourcePath))
+            {
+                return Path.GetRelativePath(_readerDocument.RootPath, sourcePath)
+                    .Replace('\\', '/');
+            }
+        }
+        if (_readerChapterIndex < 0 || _readerChapterIndex >= _readerDocument.Chapters.Count)
             return null;
         return Path.GetRelativePath(
                 _readerDocument.RootPath,
@@ -2776,25 +2858,18 @@ public partial class MainWindow
             ? element.GetString() ?? string.Empty
             : string.Empty;
 
-    /// <summary>
-    /// The reader's custom visual language is intentionally monochrome. Older
-    /// databases may still contain the colored annotation values from the
-    /// WinUI prototype, so normalize them at the UI boundary before they are
-    /// injected into the native webview.
-    /// </summary>
     private static string NormalizeReaderAnnotationColor(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value)) return "#D8D8D8";
+        if (string.IsNullOrWhiteSpace(value)) return "#000000";
         var normalized = value.Trim();
-        if (normalized.Length != 7 || normalized[0] != '#') return "#D8D8D8";
-        if (!int.TryParse(normalized.AsSpan(1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var rgb))
-            return "#D8D8D8";
-
-        var red = (rgb >> 16) & 0xFF;
-        var green = (rgb >> 8) & 0xFF;
-        var blue = rgb & 0xFF;
-        var gray = Math.Clamp((red * 299 + green * 587 + blue * 114 + 500) / 1000, 0, 255);
-        return $"#{gray:X2}{gray:X2}{gray:X2}";
+        if (normalized.Length != 7 || normalized[0] != '#') return "#000000";
+        return int.TryParse(
+            normalized.AsSpan(1),
+            NumberStyles.HexNumber,
+            CultureInfo.InvariantCulture,
+            out _)
+                ? normalized.ToUpperInvariant()
+                : "#000000";
     }
 
     private static int ParseScriptInt(string? result)

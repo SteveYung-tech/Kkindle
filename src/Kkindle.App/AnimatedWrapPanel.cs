@@ -1,136 +1,96 @@
 using Avalonia;
-using Avalonia.Animation;
-using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Media;
 
 namespace Kkindle;
 
 /// <summary>
-/// Smooths the discrete row changes produced by WrapPanel when its available
-/// width changes.
+/// Fixed-slot wrap panel for the library shelf.
 /// </summary>
 public sealed class AnimatedWrapPanel : WrapPanel
 {
-    private const double MovementThreshold = 0.5;
-    private static readonly TimeSpan RepositionDuration = TimeSpan.FromMilliseconds(420);
+    private const double LayoutThreshold = 0.5;
+    private double _viewportWidth;
 
-    private readonly HashSet<Control> _arrangedChildren = [];
-    private readonly Dictionary<Control, CancellationTokenSource> _animations = [];
+    public double ViewportWidth
+    {
+        get => _viewportWidth;
+        set
+        {
+            var width = Math.Max(0, value);
+            if (Math.Abs(_viewportWidth - width) <= LayoutThreshold) return;
+            _viewportWidth = width;
+            InvalidateMeasure();
+            InvalidateArrange();
+        }
+    }
+
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        if (Orientation != Avalonia.Layout.Orientation.Horizontal)
+            return base.MeasureOverride(availableSize);
+
+        var slotWidth = ResolveSlotWidth();
+        var slotHeight = ResolveSlotHeight();
+        if (slotWidth <= 0 || slotHeight <= 0)
+            return base.MeasureOverride(availableSize);
+
+        foreach (var child in Children)
+        {
+            child.RenderTransform = new TranslateTransform();
+            child.Measure(new Size(slotWidth, slotHeight));
+        }
+
+        var shelfWidth = ResolveShelfWidth(availableSize.Width, slotWidth);
+        var rows = CalculateRowCount(Children.Count, shelfWidth, slotWidth);
+        return new Size(shelfWidth, rows * slotHeight);
+    }
 
     protected override Size ArrangeOverride(Size finalSize)
     {
-        var previousPositions = new Dictionary<Control, Point>();
-        var previousOffsets = new Dictionary<Control, Vector>();
+        if (Orientation != Avalonia.Layout.Orientation.Horizontal)
+            return base.ArrangeOverride(finalSize);
 
-        foreach (var child in Children)
+        var slotWidth = ResolveSlotWidth();
+        var slotHeight = ResolveSlotHeight();
+        if (slotWidth <= 0 || slotHeight <= 0)
+            return base.ArrangeOverride(finalSize);
+
+        var shelfWidth = ResolveShelfWidth(finalSize.Width, slotWidth);
+        var columns = CalculateColumnCount(shelfWidth, slotWidth);
+
+        for (var index = 0; index < Children.Count; index++)
         {
-            if (!_arrangedChildren.Contains(child)) continue;
-
-            previousPositions[child] = child.Bounds.Position;
-            previousOffsets[child] = child.RenderTransform is TranslateTransform translate
-                ? new Vector(translate.X, translate.Y)
-                : default;
-        }
-
-        var arrangedSize = base.ArrangeOverride(finalSize);
-        var liveChildren = Children.ToHashSet();
-
-        foreach (var removedChild in _arrangedChildren.Where(child => !liveChildren.Contains(child)).ToList())
-        {
-            CancelAnimation(removedChild);
-            _arrangedChildren.Remove(removedChild);
-        }
-
-        foreach (var child in Children)
-        {
-            if (previousPositions.TryGetValue(child, out var previousPosition))
-            {
-                var currentPosition = child.Bounds.Position;
-                var targetChanged = Math.Abs(previousPosition.X - currentPosition.X) > MovementThreshold
-                    || Math.Abs(previousPosition.Y - currentPosition.Y) > MovementThreshold;
-
-                if (targetChanged)
-                {
-                    var previousOffset = previousOffsets[child];
-                    StartRepositionAnimation(
-                        child,
-                        previousPosition.X + previousOffset.X - currentPosition.X,
-                        previousPosition.Y + previousOffset.Y - currentPosition.Y);
-                }
-            }
-
-            _arrangedChildren.Add(child);
-        }
-
-        return arrangedSize;
-    }
-
-    private void StartRepositionAnimation(Control child, double fromX, double fromY)
-    {
-        CancelAnimation(child);
-
-        var cancellation = new CancellationTokenSource();
-        _animations[child] = cancellation;
-        var translate = new TranslateTransform(fromX, fromY);
-        child.RenderTransform = translate;
-        _ = AnimateToRestAsync(child, translate, cancellation);
-    }
-
-    private async Task AnimateToRestAsync(
-        Control child,
-        TranslateTransform translate,
-        CancellationTokenSource cancellation)
-    {
-        try
-        {
-            await Task.WhenAll(
-                RunAnimationAsync(translate, TranslateTransform.XProperty, translate.X, cancellation.Token),
-                RunAnimationAsync(translate, TranslateTransform.YProperty, translate.Y, cancellation.Token));
-        }
-        catch (OperationCanceledException)
-        {
-        }
-
-        if (cancellation.IsCancellationRequested
-            || !_animations.TryGetValue(child, out var active)
-            || !ReferenceEquals(active, cancellation)) return;
-
-        _animations.Remove(child);
-        cancellation.Dispose();
-        if (ReferenceEquals(child.RenderTransform, translate))
+            var child = Children[index];
             child.RenderTransform = new TranslateTransform();
+            var column = index % columns;
+            var row = index / columns;
+            child.Arrange(new Rect(column * slotWidth, row * slotHeight, slotWidth, slotHeight));
+        }
+
+        var rows = CalculateRowCount(Children.Count, shelfWidth, slotWidth);
+        return new Size(shelfWidth, rows * slotHeight);
     }
 
-    private static Task RunAnimationAsync(
-        TranslateTransform target,
-        AvaloniaProperty property,
-        double from,
-        CancellationToken token)
+    private double ResolveShelfWidth(double layoutWidth, double slotWidth)
     {
-        var animation = new Animation
-        {
-            Duration = RepositionDuration,
-            Easing = new CubicEaseOut(),
-            FillMode = FillMode.Forward
-        };
-        animation.Children.Add(new KeyFrame
-        {
-            Cue = new Cue(0d),
-            Setters = { new Avalonia.Styling.Setter(property, from) }
-        });
-        animation.Children.Add(new KeyFrame
-        {
-            Cue = new Cue(1d),
-            Setters = { new Avalonia.Styling.Setter(property, 0d) }
-        });
-        return animation.RunAsync(target, token);
+        if (_viewportWidth > 0) return _viewportWidth;
+        if (!double.IsInfinity(layoutWidth) && !double.IsNaN(layoutWidth) && layoutWidth > 0) return layoutWidth;
+        return Math.Max(slotWidth, Children.Count * slotWidth);
     }
 
-    private void CancelAnimation(Control child)
+    private double ResolveSlotWidth()
+        => Orientation == Avalonia.Layout.Orientation.Horizontal ? ItemWidth : ItemHeight;
+
+    private double ResolveSlotHeight()
+        => Orientation == Avalonia.Layout.Orientation.Horizontal ? ItemHeight : ItemWidth;
+
+    private static int CalculateColumnCount(double shelfWidth, double slotWidth)
+        => Math.Max(1, (int)Math.Floor((shelfWidth + LayoutThreshold) / slotWidth));
+
+    private static int CalculateRowCount(int itemCount, double shelfWidth, double slotWidth)
     {
-        if (!_animations.Remove(child, out var cancellation)) return;
-        cancellation.Cancel();
-        cancellation.Dispose();
+        if (itemCount <= 0) return 0;
+        return (int)Math.Ceiling(itemCount / (double)CalculateColumnCount(shelfWidth, slotWidth));
     }
 }

@@ -5,12 +5,14 @@ using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Kkindle.Core;
@@ -28,11 +30,19 @@ public partial class MainWindow : Window
     private const string LibraryListGlyphData = "M 4,6 H 6 M 10,6 H 20 M 4,12 H 6 M 10,12 H 20 M 4,18 H 6 M 10,18 H 20";
     private const string LibraryCollectionsGlyphData = "M 3,7 H 9 L 11,9 H 21 V 20 H 3 Z";
     private const double LibraryDetailWidth = 320;
+    private const double BookGridSlotWidth = 166;
+    private const double RubberBandDragThreshold = 8;
+    // Gallery mode trims the card to its cover, so the wrap-panel slot shrinks
+    // with it (cover 214 + card margin 12) instead of leaving a blank strip.
+    private double BookGridSlotHeight => _appSettings.GridGalleryDisplay ? 226 : 304;
+    private const string InstantMenuHoverClass = "instantMenuHover";
     private const int LibraryDetailSlideDurationMs = 520;
     // Supersedes in-flight detail-pane animations whenever a newer show/hide
     // command arrives, so a close that was interrupted by a re-select can
     // never collapse a freshly re-opened pane.
     private int _detailPaneAnimationVersion;
+    private double _authorPopupWidth = double.NaN;
+    private DispatcherTimer? _dropOverlayHideTimer;
     private CancellationTokenSource? _detailPaneAnimationCancellation;
 
     private readonly AppPaths _paths;
@@ -93,6 +103,7 @@ public partial class MainWindow : Window
     private TaskCompletionSource<IReadOnlyDictionary<string, IReadOnlyCollection<string>>?>? _importFormatSelectionCompletion;
     private readonly List<(string FilePath, ToggleSwitch Toggle)> _importFormatSelectionRows = [];
     private bool _rubberBandSelecting;
+    private bool _rubberBandPointerSequenceHandled;
     private Point _rubberBandStart;
     private Point _rubberBandCurrent;
     private bool _rubberBandPressedOnCard;
@@ -147,17 +158,57 @@ public partial class MainWindow : Window
             _bookGridPanel = new AnimatedWrapPanel
             {
                 Orientation = Avalonia.Layout.Orientation.Horizontal,
-                ItemWidth = 166,
-                ItemHeight = 304
+                ItemWidth = BookGridSlotWidth,
+                ItemHeight = BookGridSlotHeight
             };
             return _bookGridPanel;
         });
         BookGrid.SizeChanged += (_, _) => UpdateBookGridLayout();
         BookGrid.LayoutUpdated += (_, _) => UpdateBookGridLayout();
+        LibraryContentHost.SizeChanged += (_, _) => UpdateBookGridLayout();
+        LibraryWorkspace.SizeChanged += (_, _) => UpdateBookGridLayout();
         SizeChanged += (_, _) => UpdateBookGridLayout();
         LibraryRoot.AddHandler(
             InputElement.PointerPressedEvent,
             LibraryRoot_PointerPressed,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        // ListBoxItem and its ScrollViewer handle pointer movement/release while
+        // dragging. Listen after handled events as well, otherwise a drag that
+        // crosses cards can lose the rubber-band update in one direction.
+        BookGrid.AddHandler(
+            InputElement.PointerPressedEvent,
+            BookGrid_PointerPressed,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        BookGrid.AddHandler(
+            InputElement.PointerMovedEvent,
+            BookGrid_PointerMoved,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        BookGrid.AddHandler(
+            InputElement.PointerReleasedEvent,
+            BookGrid_PointerReleased,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        BookGrid.AddHandler(
+            InputElement.PointerCaptureLostEvent,
+            BookGrid_PointerCaptureLost,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        DeviceBookGridScroll.AddHandler(
+            InputElement.PointerMovedEvent,
+            DeviceBookGrid_PointerMoved,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        DeviceBookGridScroll.AddHandler(
+            InputElement.PointerReleasedEvent,
+            DeviceBookGrid_PointerReleased,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        DeviceBookGridScroll.AddHandler(
+            InputElement.PointerCaptureLostEvent,
+            DeviceBookGrid_PointerCaptureLost,
             RoutingStrategies.Bubble,
             handledEventsToo: true);
         DataContext = this;
@@ -171,7 +222,43 @@ public partial class MainWindow : Window
         ConfigureStage3Timer();
         SetEjectButtonsEnabled(false);
         Opened += (_, _) => EnsureInteractiveControlToolTips();
+        // The author dropdown must keep one constant popup width; assign it on
+        // every open because ApplyTemplate can rebuild the PART_Popup instance.
+        AuthorFilterBox.DropDownOpened += (_, _) =>
+        {
+            if (AuthorFilterBox.GetTemplateChildren()
+                    .FirstOrDefault(c => c.Name == "PART_Popup") is Popup { } popup)
+                popup.Width = _authorPopupWidth;
+        };
         Dispatcher.UIThread.Post(UpdateBookGridLayout, DispatcherPriority.Loaded);
+        AttachBookGridAutoHideScrollbar();
+    }
+
+    // Marks the book grid's ScrollViewer with the bookScroll/.scrolling classes
+    // the App.axaml auto-hide styles key on. Re-runs on TemplateApplied because
+    // the ListBox rebuilds its template ScrollViewer.
+    private void AttachBookGridAutoHideScrollbar()
+    {
+        if (BookGrid.GetTemplateChildren().OfType<ScrollViewer>().FirstOrDefault() is not { } viewer)
+        {
+            BookGrid.TemplateApplied += (_, _) => AttachBookGridAutoHideScrollbar();
+            return;
+        }
+        if (viewer.Classes.Contains("bookScroll")) return;
+        viewer.Classes.Add("bookScroll");
+        viewer.Classes.Add("scrolling");
+        var idleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+        idleTimer.Tick += (_, _) =>
+        {
+            idleTimer.Stop();
+            viewer.Classes.Remove("scrolling");
+        };
+        viewer.ScrollChanged += (_, _) =>
+        {
+            viewer.Classes.Add("scrolling");
+            idleTimer.Stop();
+            idleTimer.Start();
+        };
     }
 
     public LibraryViewModel ViewModel { get; }
@@ -184,6 +271,32 @@ public partial class MainWindow : Window
         Grid,
         List,
         Collections
+    }
+
+    private async Task RunSendDiagnosticAsync()
+    {
+        try
+        {
+            await Task.Delay(1500);
+            foreach (var card in ViewModel.Books)
+            {
+                try
+                {
+                    using var prepared = await PrepareKindleTransferAsync(card.Book, null, CancellationToken.None);
+                    Console.WriteLine($"[senddiag] prepare ok 《{card.Title}》 ({prepared.File.Format})");
+                }
+                catch (Exception exception)
+                {
+                    Console.WriteLine($"[senddiag] PREPARE FAILED 《{card.Title}》: {exception.Message}");
+                    LogSendDiagnostic($"Prepare 《{card.Title}》", exception);
+                }
+            }
+            Console.WriteLine("[senddiag] prepare sweep done");
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"[senddiag] outer failure: {exception}");
+        }
     }
 
     public async Task InitializeLibraryAsync()
@@ -199,6 +312,11 @@ public partial class MainWindow : Window
             _filterControlsReady = true;
             UpdateLibraryUi();
             SetTaskStatus(ViewModel.StatusText);
+            if (Environment.GetEnvironmentVariable("KKINDLE_SEND_DIAG") == "1" && ViewModel.Books.Count > 0)
+            {
+                _selectedCard = ViewModel.Books[0];
+                _ = RunSendDiagnosticAsync();
+            }
         }
         catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
         {
@@ -329,6 +447,7 @@ public partial class MainWindow : Window
         _lifetimeCancellation.Cancel();
         _lifetimeCancellation.Dispose();
         _douban.Dispose();
+        _doubanBatchService?.Dispose();
         _zLibraryService.Dispose();
         _aiChatClient.Dispose();
         _readerNavigationCancellation?.Dispose();
@@ -350,18 +469,25 @@ public partial class MainWindow : Window
         _updatingFilterControls = true;
         try
         {
-            AuthorFilterBox.ItemsSource = new[] { "全部作者" }.Concat(ViewModel.AvailableAuthors).ToArray();
-            TagFilterBox.ItemsSource = new[] { "全部标签" }.Concat(ViewModel.AvailableTags).ToArray();
-            FormatFilterBox.ItemsSource = new[] { "全部格式" }.Concat(ViewModel.AvailableFormats).ToArray();
-            CategoryFilterBox.ItemsSource = new[] { "全部分类" }.Concat(ViewModel.AvailableCategories).ToArray();
-            ReadingStatusFilterBox.ItemsSource = new[] { "全部状态", "待读", "阅读中", "已读" };
+            // The empty selection is represented by each ComboBox's placeholder;
+            // keep the "全部..." labels out of the popup item list.
+            var authors = ViewModel.AvailableAuthors.ToArray();
+            AuthorFilterBox.ItemsSource = authors;
+            // The popup resizes itself to the currently realized items, so its
+            // width follows whatever author names are on screen while scrolling.
+            // Pin the popup to one fixed width, sized by the longest author name.
+            _authorPopupWidth = Math.Ceiling(MeasureWidestFilterText(AuthorFilterBox, authors)) + 6;
+            TagFilterBox.ItemsSource = ViewModel.AvailableTags.ToArray();
+            FormatFilterBox.ItemsSource = ViewModel.AvailableFormats.ToArray();
+            CategoryFilterBox.ItemsSource = ViewModel.AvailableCategories.ToArray();
+            ReadingStatusFilterBox.ItemsSource = new[] { "待读", "阅读中", "已读" };
             LibrarySortBox.ItemsSource = new[] { "最近更新", "标题升序", "作者升序", "创建时间", "进度优先" };
 
-            AuthorFilterBox.SelectedIndex = 0;
-            TagFilterBox.SelectedIndex = 0;
-            FormatFilterBox.SelectedIndex = 0;
-            CategoryFilterBox.SelectedIndex = 0;
-            ReadingStatusFilterBox.SelectedIndex = 0;
+            AuthorFilterBox.SelectedIndex = -1;
+            TagFilterBox.SelectedIndex = -1;
+            FormatFilterBox.SelectedIndex = -1;
+            CategoryFilterBox.SelectedIndex = -1;
+            ReadingStatusFilterBox.SelectedIndex = -1;
             LibrarySortBox.SelectedIndex = (int)ViewModel.SortMode;
             FavoritesOnlyCheckBox.IsChecked = ViewModel.FavoritesOnly;
         }
@@ -369,6 +495,29 @@ public partial class MainWindow : Window
         {
             _updatingFilterControls = false;
         }
+    }
+
+    private static double MeasureWidestFilterText(ComboBox comboBox, IEnumerable<string> labels)
+    {
+        var probe = new TextBlock
+        {
+            FontFamily = comboBox.FontFamily,
+            FontSize = comboBox.FontSize,
+            FontStretch = comboBox.FontStretch,
+            FontStyle = comboBox.FontStyle,
+            FontWeight = comboBox.FontWeight
+        };
+        var widestText = 0d;
+        foreach (var label in labels)
+        {
+            probe.Text = label;
+            probe.Measure(Size.Infinity);
+            widestText = Math.Max(widestText, probe.DesiredSize.Width);
+        }
+
+        // ComboBoxItemThemePadding is 7px per side and the popup reserves a
+        // 12px scrollbar lane, so both belong in the fixed item width.
+        return widestText + 14 + 12;
     }
 
     private void UpdateLibraryUi()
@@ -708,7 +857,7 @@ public partial class MainWindow : Window
                 "M 4,12 L 9,17 L 20,6",
                 "已读；点击重置为待读"),
             _ => (
-                "M 7,3 H 17 V 21 H 7 Z M 10,7 H 14",
+                "M 12,4 A 8,8 0 1 0 12,20 A 8,8 0 1 0 12,4",
                 "待读；点击标记为阅读中")
         };
         DetailReadingStatusIcon.Data = Geometry.Parse(data);
@@ -802,6 +951,18 @@ public partial class MainWindow : Window
             HideTaskProgressPopup();
             await RefreshCollectionsAsync();
             UpdateLibraryUi();
+            if (_appSettings.AutoDoubanMatchOnImport)
+            {
+                var importedIds = result.Items
+                    .Where(item => item.Succeeded && item.Added && item.Book is not null)
+                    .Select(item => item.Book!.Id)
+                    .ToHashSet();
+                var importedCards = ViewModel.Books
+                    .Where(card => card.Book is not null && importedIds.Contains(card.Book.Id))
+                    .ToArray();
+                if (importedCards.Length > 0)
+                    await RunDoubanBatchMatchAsync(importedCards);
+            }
             var automaticSuffix = automaticFormats.Failures.Count > 0
                 ? $"；格式补齐失败 {automaticFormats.Failures.Count} 项"
                 : automaticFormats.GeneratedCount > 0
@@ -930,6 +1091,7 @@ public partial class MainWindow : Window
 
     private void LibraryPane_DragOver(object? sender, DragEventArgs e)
     {
+        _dropOverlayHideTimer?.Stop();
         var paths = GetDraggedPaths(e);
         e.DragEffects = paths.Length > 0 ? DragDropEffects.Copy : DragDropEffects.None;
         LibraryDropOverlay.IsVisible = paths.Length > 0;
@@ -938,8 +1100,25 @@ public partial class MainWindow : Window
 
     private void LibraryPane_DragLeave(object? sender, RoutedEventArgs e)
     {
-        LibraryDropOverlay.IsVisible = false;
+        // Crossing child element boundaries fires DragLeave immediately
+        // followed by DragOver again; hiding instantly makes the overlay
+        // flicker while the drag moves across the book grid. Defer the hide
+        // and cancel it if another DragOver arrives within the delay.
+        _dropOverlayHideTimer ??= CreateDropOverlayHideTimer();
+        _dropOverlayHideTimer.Stop();
+        _dropOverlayHideTimer.Start();
         e.Handled = true;
+    }
+
+    private DispatcherTimer CreateDropOverlayHideTimer()
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            LibraryDropOverlay.IsVisible = false;
+        };
+        return timer;
     }
 
     private void LibraryRoot_PointerPressed(object? sender, PointerPressedEventArgs e)
@@ -978,6 +1157,7 @@ public partial class MainWindow : Window
 
     private async void LibraryPane_Drop(object? sender, DragEventArgs e)
     {
+        _dropOverlayHideTimer?.Stop();
         var paths = GetDraggedPaths(e);
         LibraryDropOverlay.IsVisible = false;
         e.Handled = true;
@@ -1260,6 +1440,7 @@ public partial class MainWindow : Window
         deleteFormatMenu.Items.Add(new Separator());
         deleteFormatMenu.Items.Add(CreateMenuItem("全部", () => DeleteBookFromContextAsync(card)));
 
+        AttachInstantMenuHover(menu);
         return menu;
     }
 
@@ -1295,23 +1476,95 @@ public partial class MainWindow : Window
         item.Padding = new Thickness(8, 4, 8, 7);
     }
 
+    private static void AttachInstantMenuHover(ContextMenu menu)
+    {
+        foreach (var item in EnumerateMenuItems(menu.Items))
+            item.PointerEntered += (_, _) => ActivateInstantMenuBranch(menu.Items, item);
+
+        menu.Closed += (_, _) => ClearInstantMenuHover(menu.Items);
+    }
+
+    private static IEnumerable<MenuItem> EnumerateMenuItems(IEnumerable<object?> items)
+    {
+        foreach (var item in items.OfType<MenuItem>())
+        {
+            yield return item;
+            foreach (var child in EnumerateMenuItems(item.Items))
+                yield return child;
+        }
+    }
+
+    private static bool ActivateInstantMenuBranch(IEnumerable<object?> items, MenuItem activeItem)
+    {
+        var containsActiveItem = false;
+        foreach (var item in items.OfType<MenuItem>())
+        {
+            var activeChild = ActivateInstantMenuBranch(item.Items, activeItem);
+            var isActiveBranch = ReferenceEquals(item, activeItem) || activeChild;
+            SetInstantMenuHover(item, isActiveBranch);
+
+            if (!isActiveBranch && item.IsSubMenuOpen)
+                item.IsSubMenuOpen = false;
+
+            containsActiveItem |= isActiveBranch;
+        }
+
+        return containsActiveItem;
+    }
+
+    private static void ClearInstantMenuHover(IEnumerable<object?> items)
+    {
+        foreach (var item in items.OfType<MenuItem>())
+        {
+            SetInstantMenuHover(item, false);
+            ClearInstantMenuHover(item.Items);
+        }
+    }
+
+    private static void SetInstantMenuHover(MenuItem item, bool isActive)
+    {
+        if (isActive)
+            item.Classes.Add(InstantMenuHoverClass);
+        else
+            item.Classes.Remove(InstantMenuHoverClass);
+    }
+
+    // 右键菜单流程会同步 ListBox 选中项，但 SelectionChanged 处理器里的
+    // SelectBook 会弹出详情页；用该标志在右键期间抑制弹窗行为。
+    private bool _suppressSelectionPane;
+    // ListBox 原生「右键按下即选中」在我们收到 ContextRequested 之前就会
+    // 触发一次 SelectionChanged；此标志把随之而来的弹面板抑制掉。
+    private bool _suppressNextSelectionPane;
+
     private void BookCard_ContextRequested(object? sender, ContextRequestedEventArgs e)
     {
         if (sender is not Control control || control.DataContext is not BookCardViewModel card) return;
-        if (!_selectedBookIds.Contains(card.Book.Id))
+        _suppressSelectionPane = true;
+        try
         {
-            _selectedBookIds.Clear();
-            _selectedBookIds.Add(card.Book.Id);
-            var activeList = BookGrid.IsVisible ? BookGrid : BookList;
-            activeList.SelectedItems?.Clear();
-            activeList.SelectedItems?.Add(card);
+            if (!_selectedBookIds.Contains(card.Book.Id))
+            {
+                _selectedBookIds.Clear();
+                _selectedBookIds.Add(card.Book.Id);
+                var activeList = BookGrid.IsVisible ? BookGrid : BookList;
+                activeList.SelectedItems?.Clear();
+                activeList.SelectedItems?.Add(card);
+            }
+        }
+        finally
+        {
+            _suppressSelectionPane = false;
         }
         _selectedCard = card;
         _multiSelectAnchor = card;
-        SelectBook(card);
+        // 右键只更新选中与菜单目标，不主动弹出详情页；若详情页已经打开，
+        // 顺手把内容切到当前书籍，避免面板与菜单目标不一致。
+        if (LibraryDetailPane.IsVisible)
+            SelectBook(card);
         UpdateMultiSelectionUi();
         var menu = BuildBookContextMenu(card);
         menu.Open(control);
+        _suppressNextSelectionPane = false;
         e.Handled = true;
     }
 
@@ -2013,6 +2266,7 @@ public partial class MainWindow : Window
 
     private async Task<bool> ConfirmAsync(string title, string message)
     {
+        if (Environment.GetEnvironmentVariable("KKINDLE_SEND_DIAG") == "1") return true;
         if (_confirmationCompletion is not null) return false;
         ConfirmationTitleText.Text = title;
         ConfirmationMessageText.Text = message;
@@ -2238,11 +2492,6 @@ public partial class MainWindow : Window
         importFolder.Click += ImportFolderButton_Click;
         menu.Items.Add(importFolder);
 
-        menu.Items.Add(new Separator());
-        var importBackup = new MenuItem { Header = "导入备份" };
-        importBackup.Click += ImportBackupButton_Click;
-        menu.Items.Add(importBackup);
-
         menu.Open(ImportButton);
     }
 
@@ -2288,13 +2537,13 @@ public partial class MainWindow : Window
     private void FilterComboBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (!_filterControlsReady || _updatingFilterControls) return;
-        ViewModel.AuthorFilter = AuthorFilterBox.SelectedIndex <= 0 ? null : AuthorFilterBox.SelectedItem as string;
-        ViewModel.TagFilter = TagFilterBox.SelectedIndex <= 0 ? null : TagFilterBox.SelectedItem as string;
-        ViewModel.FormatFilter = FormatFilterBox.SelectedIndex <= 0 ? null : FormatFilterBox.SelectedItem as string;
-        ViewModel.CategoryFilter = CategoryFilterBox.SelectedIndex <= 0 ? null : CategoryFilterBox.SelectedItem as string;
-        ViewModel.ReadingStatusFilter = ReadingStatusFilterBox.SelectedIndex <= 0
+        ViewModel.AuthorFilter = AuthorFilterBox.SelectedIndex < 0 ? null : AuthorFilterBox.SelectedItem as string;
+        ViewModel.TagFilter = TagFilterBox.SelectedIndex < 0 ? null : TagFilterBox.SelectedItem as string;
+        ViewModel.FormatFilter = FormatFilterBox.SelectedIndex < 0 ? null : FormatFilterBox.SelectedItem as string;
+        ViewModel.CategoryFilter = CategoryFilterBox.SelectedIndex < 0 ? null : CategoryFilterBox.SelectedItem as string;
+        ViewModel.ReadingStatusFilter = ReadingStatusFilterBox.SelectedIndex < 0
             ? null
-            : (LibraryReadingStatus)(ReadingStatusFilterBox.SelectedIndex - 1);
+            : (LibraryReadingStatus)ReadingStatusFilterBox.SelectedIndex;
         ViewModel.SortMode = LibrarySortBox.SelectedIndex < 0
             ? LibrarySortMode.UpdatedDescending
             : (LibrarySortMode)LibrarySortBox.SelectedIndex;
@@ -2326,11 +2575,11 @@ public partial class MainWindow : Window
             ViewModel.CollectionFilterName = null;
             ViewModel.SortMode = LibrarySortMode.UpdatedDescending;
             SearchBox.Text = string.Empty;
-            AuthorFilterBox.SelectedIndex = 0;
-            TagFilterBox.SelectedIndex = 0;
-            FormatFilterBox.SelectedIndex = 0;
-            CategoryFilterBox.SelectedIndex = 0;
-            ReadingStatusFilterBox.SelectedIndex = 0;
+            AuthorFilterBox.SelectedIndex = -1;
+            TagFilterBox.SelectedIndex = -1;
+            FormatFilterBox.SelectedIndex = -1;
+            CategoryFilterBox.SelectedIndex = -1;
+            ReadingStatusFilterBox.SelectedIndex = -1;
             LibrarySortBox.SelectedIndex = 0;
             FavoritesOnlyCheckBox.IsChecked = false;
             ViewModel.RefreshView();
@@ -2349,7 +2598,13 @@ public partial class MainWindow : Window
         foreach (var card in e.AddedItems.OfType<BookCardViewModel>())
             _selectedBookIds.Add(card.Book.Id);
         var selectedCard = e.AddedItems.OfType<BookCardViewModel>().FirstOrDefault();
-        if (selectedCard is not null) SelectBook(selectedCard);
+        if (selectedCard is not null)
+        {
+            if (_suppressSelectionPane || _suppressNextSelectionPane)
+                _suppressNextSelectionPane = false;
+            else
+                SelectBook(selectedCard);
+        }
         UpdateMultiSelectionUi();
     }
 
@@ -2357,8 +2612,23 @@ public partial class MainWindow : Window
     {
         if (sender is not Control control || control.DataContext is not BookCardViewModel card)
             return;
-        if (!e.GetCurrentPoint(control).Properties.IsLeftButtonPressed)
+        var pointerProperties = e.GetCurrentPoint(control).Properties;
+        // 右键按下会先触发 ListBox 的原生选中（早于 ContextRequested），
+        // 标记并抑制那一次 SelectionChanged 里的弹详情页。
+        _suppressNextSelectionPane = pointerProperties.IsRightButtonPressed;
+        if (!pointerProperties.IsLeftButtonPressed)
             return;
+
+        // 记录框选起点：网格左侧没有空白（卡片从视口左缘开始），从左往右
+        // 框选必须允许起点落在卡片上，拖动超过阈值后同样进入框选。
+        _rubberBandStart = e.GetPosition(BookGrid);
+        _rubberBandCurrent = _rubberBandStart;
+        _rubberBandSelecting = false;
+        _rubberBandPointerSequenceHandled = false;
+        _rubberBandPressedOnCard = true;
+        // Keep the initial gesture on the card so ListBoxItem/ScrollViewer
+        // cannot steal movement before the drag crosses the threshold.
+        e.Pointer.Capture(control);
 
         if ((e.KeyModifiers & KeyModifiers.Control) != 0)
         {
@@ -2413,6 +2683,8 @@ public partial class MainWindow : Window
         _rubberBandStart = e.GetPosition(BookGrid);
         _rubberBandCurrent = _rubberBandStart;
         _rubberBandSelecting = false;
+        _rubberBandPointerSequenceHandled = false;
+        e.Pointer.Capture(BookGrid);
         BookGrid.Focus();
     }
 
@@ -2422,13 +2694,19 @@ public partial class MainWindow : Window
         _rubberBandCurrent = e.GetPosition(BookGrid);
         if (!_rubberBandSelecting)
         {
-            // 多选框选只允许“从右往左”拖拽（水平向左超过 8 DIP），避免
-            // 点选时轻微晃动被误识别成多选。
-            if (_rubberBandCurrent.X >= _rubberBandStart.X - 8)
+            // 框选支持任意方向：任一轴拖拽超过阈值就启动，避免点选时
+            // 轻微晃动被误识别成多选；对角线拖动不需要额外的距离。
+            var deltaX = _rubberBandCurrent.X - _rubberBandStart.X;
+            var deltaY = _rubberBandCurrent.Y - _rubberBandStart.Y;
+            if (Math.Max(Math.Abs(deltaX), Math.Abs(deltaY)) < RubberBandDragThreshold)
                 return;
             _rubberBandSelecting = true;
             e.Pointer.Capture(BookGrid);
             RubberBandRectangle.IsVisible = true;
+            // 框选从卡片上起步时，按下那一刻已弹出详情页；进入框选即收起，
+            // 避免面板挡住右侧被圈选的书籍。
+            if (_rubberBandPressedOnCard && LibraryDetailPane.IsVisible)
+                ClearSelectedBook();
         }
         UpdateRubberBandSelection();
         e.Handled = true;
@@ -2436,6 +2714,8 @@ public partial class MainWindow : Window
 
     private void BookGrid_PointerReleased(object? sender, PointerReleasedEventArgs e)
     {
+        if (_rubberBandPointerSequenceHandled) return;
+        _rubberBandPointerSequenceHandled = true;
         if (!_rubberBandSelecting)
         {
             // 按在卡片上松开：点选结果已由 BookCard_PointerPressed 维护。
@@ -2458,7 +2738,8 @@ public partial class MainWindow : Window
 
     private void BookGrid_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
     {
-        if (_rubberBandSelecting) FinishRubberBandSelection(null);
+        if (_rubberBandSelecting && !ReferenceEquals(e.Pointer.Captured, BookGrid))
+            FinishRubberBandSelection(null);
         _rubberBandPressedOnCard = false;
     }
 
@@ -2500,6 +2781,7 @@ public partial class MainWindow : Window
     private void FinishRubberBandSelection(IPointer? pointer)
     {
         _rubberBandSelecting = false;
+        _rubberBandPointerSequenceHandled = true;
         pointer?.Capture(null);
         RubberBandRectangle.IsVisible = false;
         UpdateMultiSelectionUi();
@@ -2536,15 +2818,6 @@ public partial class MainWindow : Window
         UpdateMultiSelectionUi();
         SelectBook(card);
         await OpenBookAsync(card);
-    }
-
-    private async void OpenCardButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if ((sender as Button)?.Tag is BookCardViewModel card)
-        {
-            SelectBook(card);
-            await OpenBookAsync(card);
-        }
     }
 
     private void CollectionFolder_Tapped(object? sender, TappedEventArgs e)
@@ -2738,12 +3011,29 @@ public partial class MainWindow : Window
         SetGridColumnWidth(LibraryRoot.ColumnDefinitions[2], new GridLength(0));
     }
 
+    // Cards keep their fixed 166x304 wrap slot. The panel's minimum width
+    // follows the viewport so Avalonia measures row breaks from the visible
+    // shelf width instead of holding onto an old six-card desired width.
     private void UpdateBookGridLayout()
     {
         if (_bookGridPanel is null) return;
-        _bookGridPanel.ItemWidth = 166;
-        _bookGridPanel.ItemHeight = 304;
+        _bookGridPanel.ItemWidth = BookGridSlotWidth;
+        _bookGridPanel.ItemHeight = BookGridSlotHeight;
         BookGrid.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+
+        var viewportWidth = LibraryContentHost.Bounds.Width > 0
+            ? LibraryContentHost.Bounds.Width
+            : LibraryWorkspace.Bounds.Width > 0
+                ? LibraryWorkspace.Bounds.Width
+                : BookGrid.Bounds.Width;
+        if (viewportWidth > 0 && Math.Abs(_bookGridPanel.ViewportWidth - viewportWidth) > 0.5)
+        {
+            BookGrid.Width = viewportWidth;
+            BookGrid.MinWidth = 0;
+            _bookGridPanel.ViewportWidth = viewportWidth;
+            _bookGridPanel.Width = viewportWidth;
+            _bookGridPanel.MinWidth = 0;
+        }
     }
 
     private static void SetGridColumnWidth(ColumnDefinition column, GridLength width)

@@ -161,7 +161,7 @@ internal static class ReaderPaginationScripts
             """;
     }
 
-    public static string CreateTurnScript(int direction, bool smooth = true)
+    public static string CreateTurnScript(int direction, bool smooth = false)
     {
         var safeDirection = direction < 0 ? -1 : 1;
         var tolerance = Format(ReaderPaginationDefaults.SnapTolerance);
@@ -214,6 +214,20 @@ internal static class ReaderPaginationScripts
             })();
             """;
     }
+
+    public static string CreateChapterBoundaryScript(bool moveToEnd, bool horizontal) =>
+        $$"""
+        (() => {
+          const el = document.scrollingElement || document.documentElement;
+          if (!el) return false;
+          const moveToEnd = {{(moveToEnd ? "true" : "false")}};
+          const horizontal = {{(horizontal ? "true" : "false")}};
+          window.scrollTo(horizontal
+            ? { left: moveToEnd ? el.scrollWidth : 0, top: 0, behavior: 'instant' }
+            : { left: 0, top: moveToEnd ? el.scrollHeight : 0, behavior: 'instant' });
+          return true;
+        })();
+        """;
 
     private static string Format(double value) =>
         value.ToString("0.##", CultureInfo.InvariantCulture);

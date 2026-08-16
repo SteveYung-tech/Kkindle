@@ -308,6 +308,11 @@ public sealed class EpubReaderTests
             Assert.Contains("original chapter", html, StringComparison.Ordinal);
             Assert.DoesNotContain("stale transformed chapter", html, StringComparison.Ordinal);
             Assert.Contains("data-action=\"highlight-menu\"", html, StringComparison.Ordinal);
+            Assert.Contains("荧光标记（黑白反色）  ▰", html, StringComparison.Ordinal);
+            Assert.Contains(".kk-sel-styles.above", html, StringComparison.Ordinal);
+            Assert.Contains("dismissedSelectionText", html, StringComparison.Ordinal);
+            Assert.Contains("document.addEventListener(\"pointerup\"", html, StringComparison.Ordinal);
+            Assert.Contains("direction: x < width / 3 ? -1 : 1", html, StringComparison.Ordinal);
             Assert.False(markerText.EndsWith("\n0", StringComparison.Ordinal));
         }
         finally { TestHelpers.TryDelete(root); }

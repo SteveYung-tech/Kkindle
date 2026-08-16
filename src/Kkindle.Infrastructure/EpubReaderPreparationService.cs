@@ -19,7 +19,7 @@ public sealed class EpubReaderPreparationService
     private const string ExtractionReadyFileName = ".kkindle-extracted";
     // Bump whenever sanitization or the injected bridge changes. Existing
     // reader caches otherwise keep the old JavaScript indefinitely.
-    private const string ExtractionFormatVersion = "8";
+    private const string ExtractionFormatVersion = "10";
     private const string ContentSecurityPolicyBase =
         "default-src 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; " +
         "connect-src 'none'; form-action 'none'; img-src 'self' file:; " +
@@ -65,10 +65,12 @@ public sealed class EpubReaderPreparationService
             });
           };
 
+          let dismissedSelectionText = "";
           const reportSelection = contextEvent => {
             try {
               const selection = window.getSelection();
               if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !document.body) {
+                dismissedSelectionText = "";
                 send({ type: "selection", text: "" });
                 hideSelectionBar();
                 return;
@@ -91,6 +93,11 @@ public sealed class EpubReaderPreparationService
               const leading = rawText.length - rawText.trimStart().length;
               const trailing = rawText.length - rawText.trimEnd().length;
               const text = rawText.trim();
+              if (dismissedSelectionText && text === dismissedSelectionText) {
+                hideSelectionBar();
+                return;
+              }
+              if (text !== dismissedSelectionText) dismissedSelectionText = "";
               const startOffset = pointOffset(range.startContainer, range.startOffset) + leading;
               const endOffset = pointOffset(range.endContainer, range.endOffset) - trailing;
               const textClone = removeNonReaderText(document.body.cloneNode(true));
@@ -141,13 +148,15 @@ public sealed class EpubReaderPreparationService
                 }
                 #kkindle-selection-bar {
                   position: fixed; display: none; z-index: 2147483647;
-                  background: #FFFFFF; border: 1px solid #E2E2E2;
+                  background: #FFFFFF; border: 1px solid #000000;
                   padding: 3px; white-space: nowrap;
+                  font-size: 0;
                   font-family: "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
                 }
                 #kkindle-selection-bar button {
                   background: #FFFFFF; color: #000000; border: 0; outline: 0;
-                  padding: 6px 10px; font-size: 12px; line-height: 1;
+                  min-width: 52px; height: 30px; padding: 3px 8px;
+                  font-size: 12px; line-height: 1;
                   font-family: inherit; cursor: pointer; border-radius: 0;
                 }
                 #kkindle-selection-bar button:hover { background: #F2F2F2; color: #000000; }
@@ -156,11 +165,26 @@ public sealed class EpubReaderPreparationService
                   display: inline-block; width: 1px; height: 18px;
                   background: #D5D5D1; vertical-align: middle; margin: 0 2px;
                 }
-                #kkindle-selection-bar .kk-sel-styles {
-                  position: absolute; bottom: 100%; left: 0; display: none;
-                  background: #FFFFFF; border: 1px solid #E2E2E2; padding: 3px;
+                #kkindle-selection-bar .kk-sel-highlight-wrap {
+                  position: relative; display: inline-block; vertical-align: middle;
                 }
-                #kkindle-selection-bar .kk-sel-styles.open { display: block; }`;
+                #kkindle-selection-bar .kk-sel-styles {
+                  position: absolute; top: calc(100% + 4px); left: 0; display: none;
+                  min-width: 230px; background: #FFFFFF; border: 1px solid #000000;
+                  padding: 3px; z-index: 2;
+                }
+                #kkindle-selection-bar .kk-sel-styles.open { display: block; }
+                #kkindle-selection-bar .kk-sel-styles.above {
+                  top: auto; bottom: calc(100% + 4px);
+                }
+                #kkindle-selection-bar .kk-sel-styles button {
+                  display: block; width: 100%; min-width: 0; text-align: left;
+                  white-space: pre; padding: 3px 10px;
+                }
+                #kkindle-selection-bar .kk-sel-menu-sep {
+                  display: block; height: 1px; margin: 3px 6px;
+                  background: #D5D5D1;
+                }`;
               document.head.appendChild(styleElement);
             }
             selectionBar = document.createElement('div');
@@ -168,15 +192,18 @@ public sealed class EpubReaderPreparationService
             selectionBar.innerHTML = `
               <button data-action="copy">复制</button>
               <span class="kk-sel-sep"></span>
-              <button id="kk-sel-highlight" data-action="highlight-menu">划线 ▾</button>
-              <div class="kk-sel-styles" id="kk-sel-styles">
-                <button data-highlight="solid">直线</button>
-                <button data-highlight="double">双线</button>
-                <button data-highlight="dashed">虚线</button>
-                <button data-highlight="dotted">点线</button>
-                <button data-highlight="wavy">波浪线</button>
-                <button data-highlight="marker">荧光标记</button>
-              </div>
+              <span class="kk-sel-highlight-wrap">
+                <button id="kk-sel-highlight" data-action="highlight-menu">划线 ▾</button>
+                <span class="kk-sel-styles" id="kk-sel-styles">
+                  <button data-highlight="solid">直线  ───</button>
+                  <button data-highlight="double">双线  ═══</button>
+                  <button data-highlight="dashed">虚线  ┄┄┄</button>
+                  <button data-highlight="dotted">点线  ···</button>
+                  <button data-highlight="wavy">波浪线  ﹏﹏</button>
+                  <span class="kk-sel-menu-sep"></span>
+                  <button data-highlight="marker">荧光标记（黑白反色）  ▰</button>
+                </span>
+              </span>
               <span class="kk-sel-sep"></span>
               <button data-action="annotate">批注</button>
               <span class="kk-sel-sep"></span>
@@ -198,6 +225,8 @@ public sealed class EpubReaderPreparationService
               const style = target.dataset.highlight;
               if (style) {
                 document.getElementById('kk-sel-styles')?.classList.remove('open');
+                dismissedSelectionText = (window.getSelection?.().toString() || '').trim();
+                hideSelectionBar();
                 send({ type: 'selectionAction', action: 'highlight', style });
                 return;
               }
@@ -207,6 +236,8 @@ public sealed class EpubReaderPreparationService
                 document.getElementById('kk-sel-styles')?.classList.toggle('open');
                 return;
               }
+              dismissedSelectionText = (window.getSelection?.().toString() || '').trim();
+              hideSelectionBar();
               send({ type: 'selectionAction', action });
             }, true);
             // Hover opens the style picker; leaving both the button and the
@@ -214,7 +245,15 @@ public sealed class EpubReaderPreparationService
             let styleHoverTimer = 0;
             const openStyles = () => {
               window.clearTimeout(styleHoverTimer);
-              document.getElementById('kk-sel-styles')?.classList.add('open');
+              const panel = document.getElementById('kk-sel-styles');
+              if (!panel) return;
+              panel.classList.add('open');
+              panel.classList.remove('above');
+              const barRect = selectionBar.getBoundingClientRect();
+              const panelRect = panel.getBoundingClientRect();
+              const roomBelow = (window.innerHeight || 0) - barRect.bottom;
+              if (roomBelow < panelRect.height + 8 && barRect.top > roomBelow)
+                panel.classList.add('above');
             };
             const closeStyles = () => {
               window.clearTimeout(styleHoverTimer);
@@ -244,7 +283,9 @@ public sealed class EpubReaderPreparationService
             selectionBar.style.top = top + 'px';
           };
           const hideSelectionBar = () => {
-            if (selectionBar) selectionBar.style.display = 'none';
+            if (!selectionBar) return;
+            selectionBar.style.display = 'none';
+            selectionBar.querySelector('#kk-sel-styles')?.classList.remove('open', 'above');
           };
 
           const isFootnoteLink = element => {
@@ -262,6 +303,45 @@ public sealed class EpubReaderPreparationService
               || (!!(element.closest('sup') || element.querySelector('sup'))
                   && /^(?:\[?\d{1,3}\]?|[＊*†‡])$/.test(label));
           };
+          // Turn on the completed primary-pointer gesture instead of waiting
+          // for Chromium to synthesize a click. This also matches the WinUI
+          // reader's mouse-up handling, so the first click after the native
+          // webview receives focus is not lost. A small movement guard keeps
+          // text selection from becoming a page turn.
+          let pagePointerDown = null;
+          document.addEventListener("pointerdown", event => {
+            if (event.button !== 0 || event.isPrimary === false) return;
+            pagePointerDown = {
+              id: event.pointerId,
+              x: event.clientX || 0,
+              y: event.clientY || 0
+            };
+          }, true);
+          document.addEventListener("pointercancel", () => {
+            pagePointerDown = null;
+          }, true);
+          document.addEventListener("pointerup", event => {
+            try {
+              const start = pagePointerDown;
+              pagePointerDown = null;
+              if (!start || start.id !== event.pointerId
+                  || event.button !== 0 || event.isPrimary === false
+                  || window.__kkindleReaderFlowMode !== 1) return;
+              const moved = Math.abs((event.clientX || 0) - start.x)
+                + Math.abs((event.clientY || 0) - start.y);
+              if (moved > 12) return;
+              const control = event.target instanceof Element
+                ? event.target.closest("a, button, input, textarea, select, [contenteditable]")
+                : null;
+              if (control) return;
+              const selection = window.getSelection ? window.getSelection() : null;
+              if (selection && !selection.isCollapsed && selection.toString()) return;
+              const width = window.innerWidth || document.documentElement.clientWidth || 0;
+              if (width <= 0) return;
+              const x = event.clientX || 0;
+              send({ type: "page", direction: x < width / 3 ? -1 : 1 });
+            } catch (_) { }
+          }, true);
           document.addEventListener("click", event => {
             try {
               const element = event.target instanceof Element
@@ -272,15 +352,6 @@ public sealed class EpubReaderPreparationService
                 const footnote = isFootnoteLink(element);
                 send({ type: "link", href: element.href, target: element.target || "", footnote });
                 return;
-              }
-              if (window.__kkindleReaderFlowMode === 1) {
-                const width = window.innerWidth || document.documentElement.clientWidth || 0;
-                const x = event.clientX || 0;
-                if (width > 0 && x <= width * 0.28) {
-                  send({ type: "page", direction: -1 });
-                } else if (width > 0 && x >= width * 0.72) {
-                  send({ type: "page", direction: 1 });
-                }
               }
             } catch (_) { }
           }, true);
