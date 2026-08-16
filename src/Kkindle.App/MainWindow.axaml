@@ -4343,12 +4343,13 @@
             </Grid>
         </StackPanel>
 
-        <!-- Draw the window frame above every reader surface so content cannot
-             cover an edge while preserving the native resize hit targets. -->
-        <Border Margin="4"
-                Background="Transparent"
-                BorderBrush="#000000"
-                BorderThickness="1"
+        <!-- The WebView-backed reader can cover the host's right stroke. Draw
+             only that edge above reader content; the other three remain the
+             WindowShadowHost border so the frame is never doubled. -->
+        <Rectangle Width="1"
+                Margin="0,4,4,4"
+                HorizontalAlignment="Right"
+                Fill="#000000"
                 IsHitTestVisible="False"
                 ZIndex="1000" />
 
