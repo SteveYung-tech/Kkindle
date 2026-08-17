@@ -5,17 +5,14 @@ namespace Kkindle;
 
 internal static class ReaderPaginationScripts
 {
-    public const string ViewportWidthVariable = "--kkindle-reader-page-viewport-width";
-    // Pagination CSS and every navigation path must use the exact same page
-    // width. visualViewport/clientWidth can briefly describe the unclipped
-    // WebView while WinUI side panes are being laid out, which makes a
-    // fragment jump land one body inset before the real column boundary.
+    // Chromium lays out multicolumn pages against the scrolling element's
+    // integer CSS-pixel width. Always read that live width at the point of
+    // navigation; an Avalonia host width can be fractional and becomes stale
+    // while native side panes are resizing the WebView.
     public const string PageStepExpression =
-        "parseFloat(getComputedStyle(document.documentElement).getPropertyValue('"
-        + ViewportWidthVariable
-        + "')) || window.visualViewport?.width || window.innerWidth"
+        "document.scrollingElement?.clientWidth"
         + " || document.documentElement.clientWidth"
-        + " || document.scrollingElement?.clientWidth || 0";
+        + " || window.innerWidth || window.visualViewport?.width || 0";
 
     public static string CreateFlowCss(
         bool pagination,
@@ -52,10 +49,17 @@ internal static class ReaderPaginationScripts
         // inter-column gap as the adjoining right + left page margins. Grow
         // that gap when the viewport is wider than the requested text width;
         // this centers a capped text column without changing the page step.
-        var minimumColumnGap = Format(safeHorizontalPadding * 2);
+        // A fixed 68 px book preference consumes too much of the text column
+        // when TOC and assistant panes are both open. Keep the configured
+        // value as the upper bound, but reduce it responsively down to 24 px
+        // as the actual WebView narrows.
+        var responsiveSidePadding =
+            $"min({horizontalPaddingCss}px, max({Format(ReaderLayoutDefaults.MinBodyPadding)}px, 5vw))";
+        var minimumColumnGap =
+            $"calc({responsiveSidePadding} + {responsiveSidePadding})";
         var columnGap = twoPage
-            ? $"max({minimumColumnGap}px, calc((var({ViewportWidthVariable}, 100vw) - {Format(safeMaxContentWidth * 2)}px) / 2))"
-            : $"max({minimumColumnGap}px, calc(var({ViewportWidthVariable}, 100vw) - {maxContentWidthCss}px))";
+            ? $"max({minimumColumnGap}, calc((100vw - {Format(safeMaxContentWidth * 2)}px) / 2))"
+            : $"max({minimumColumnGap}, calc(100vw - {maxContentWidthCss}px))";
         // Pin the number of visible columns instead of asking Chromium to
         // infer it from a calculated column-width. Under WebView DPI scaling,
         // innerWidth can briefly differ from the CSS layout viewport; the
@@ -68,9 +72,9 @@ internal static class ReaderPaginationScripts
             var verticalColumnHeight = $"calc(100vh - {Format(ReaderPaginationDefaults.TopPadding + ReaderPaginationDefaults.BottomPadding)}px)";
             return $"html {{ width: 100%; height: 100%; overflow: hidden !important; }}"
                 + $" body {{ width: 100% !important; height: 100% !important; margin: 0 !important; overflow: visible !important;"
-                + $" padding: {topPadding}px {horizontalPaddingCss}px {bottomPadding}px !important; box-sizing: border-box !important;"
+                + $" padding: {topPadding}px {responsiveSidePadding} {bottomPadding}px !important; box-sizing: border-box !important;"
                 + $" writing-mode: vertical-rl !important; text-orientation: mixed !important; column-width: {verticalColumnHeight} !important;"
-                + $" column-gap: {minimumColumnGap}px !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
+                + $" column-gap: {minimumColumnGap} !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
         }
         return $"html {{ height: 100%; overflow: hidden !important; writing-mode: horizontal-tb !important; }}"
             + $" body {{ --kkindle-page-column-gap: {columnGap}; width: 100% !important; min-width: 0 !important; height: 100% !important; margin: 0 !important; overflow: visible !important; padding: {topPadding}px calc(var(--kkindle-page-column-gap) / 2) {bottomPadding}px !important; box-sizing: border-box !important;"
@@ -86,8 +90,8 @@ internal static class ReaderPaginationScripts
     }
 
     // Page boundaries start at scroll origin 0; body padding stays inside
-    // each viewport. The step comes from the same CSS variable that sizes the
-    // multicolumn layout so side panes and DPI changes cannot desynchronise it.
+    // each viewport. The step is the live scrolling viewport width so native
+    // side-pane and DPI changes cannot leave a stale page boundary behind.
     public static string Snap => CreateSnapScript();
 
     private static string CreateSnapScript()

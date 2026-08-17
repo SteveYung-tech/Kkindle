@@ -89,10 +89,10 @@ public static class ReaderFontDefaults
 }
 
 public sealed record ReaderLayoutSettings(
-    double FontScale = 1.0,
-    double LineHeight = 1.88,
-    double MaxWidth = 800,
-    double BodyPadding = 68,
+    double FontScale = 1.2,
+    double LineHeight = 1.8,
+    double MaxWidth = 1200,
+    double BodyPadding = 24,
     string FontFamily = ReaderFontDefaults.DefaultFamily,
     int FlowMode = 1,
     bool VerticalWriting = false,
@@ -108,10 +108,10 @@ public sealed record ReaderLayoutSettings(
 
 public static class ReaderLayoutDefaults
 {
-    public const double DefaultFontScale = 1.0;
-    public const double DefaultLineHeight = 1.88;
-    public const double DefaultMaxWidth = 800;
-    public const double DefaultBodyPadding = 68;
+    public const double DefaultFontScale = 1.2;
+    public const double DefaultLineHeight = 1.8;
+    public const double DefaultMaxWidth = 1200;
+    public const double DefaultBodyPadding = 24;
     public const double MinFontScale = 0.8;
     public const double MaxFontScale = 1.8;
     public const double MinLineHeight = 1.3;

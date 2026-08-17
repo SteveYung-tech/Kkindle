@@ -554,6 +554,11 @@ public partial class MainWindow
         _readerLayoutApplyCancellation?.Cancel();
         _readerLayoutApplyCancellation?.Dispose();
         _readerLayoutApplyCancellation = null;
+        _readerRelayoutCancellation?.Cancel();
+        _readerRelayoutCancellation?.Dispose();
+        _readerRelayoutCancellation = null;
+        _readerPendingRelayoutHost = null;
+        _readerPendingRelayoutState = null;
         _readerAiCancellation?.Cancel();
         _readerAiCancellation?.Dispose();
         _readerAiCancellation = null;

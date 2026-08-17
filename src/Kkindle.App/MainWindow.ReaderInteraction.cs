@@ -34,6 +34,10 @@ public partial class MainWindow
     private ReaderLayoutSettings _readerLayout = ReaderLayoutDefaults.Normalize(new ReaderLayoutSettings());
     private int _readerPageAnimation = ReaderAnimationFade;
     private readonly SemaphoreSlim _readerPageTurnGate = new(1, 1);
+    private readonly SemaphoreSlim _readerLayoutGate = new(1, 1);
+    private CancellationTokenSource? _readerRelayoutCancellation;
+    private IReaderHost? _readerPendingRelayoutHost;
+    private ReaderScrollState? _readerPendingRelayoutState;
     private int _readerPendingKeyboardNavigation;
     private IReadOnlyList<EpubReaderNavigationItem> _readerTocItems = [];
     private ReaderProgressRow? _readerRestoredProgress;
@@ -317,9 +321,6 @@ public partial class MainWindow
               // navigated chapter.
               window.__kkindleReaderFontReady = false;
               window.__kkindleReaderFontWaitStarted = false;
-              document.documentElement.style.setProperty(
-                '--kkindle-reader-page-viewport-width',
-                (window.innerWidth || document.documentElement.clientWidth || 0) + 'px');
               window.__kkindleReaderFlowMode = {{_readerLayout.FlowMode}};
               window.__kkindleReaderVertical = {{(_readerLayout.VerticalWriting ? "true" : "false")}};
               window.__kkindleReaderTwoPage = {{(_readerLayout.TwoPageMode ? "true" : "false")}};
@@ -347,6 +348,7 @@ public partial class MainWindow
             await host.InvokeScriptAsync(FitReaderCoverImageScript);
             await host.InvokeScriptAsync(ReaderPaginationScripts.Snap);
         }
+        await WriteReaderLayoutDiagnosticsAsync("configure", host);
 
         if (ReferenceEquals(host, CurrentReaderHost))
         {
@@ -652,47 +654,311 @@ public partial class MainWindow
 
     private async Task ApplyReaderLayoutToHostsAsync(CancellationToken cancellationToken)
     {
-        ResetReaderContinuousEdgeTracking();
-        var currentHost = CurrentReaderHost;
-        var scrollState = currentHost is not null
-            ? await CaptureReaderScrollStateAsync(currentHost)
-            : null;
-        var hosts = new[] { _readerActiveHost, _readerPreloadHost }
-            .Where(host => host is not null)
-            .Cast<IReaderHost>()
-            .Distinct()
-            .ToArray();
-        await Task.WhenAll(hosts.Select(host => ConfigureReaderHostAsync(host, cancellationToken)));
-        if (scrollState is not null
-            && currentHost is not null
-            && ReferenceEquals(CurrentReaderHost, currentHost))
+        await _readerLayoutGate.WaitAsync(cancellationToken);
+        try
         {
-            await RestoreReaderScrollStateAsync(currentHost, scrollState, cancellationToken);
-        }
-        if (currentHost is not null && ReferenceEquals(CurrentReaderHost, currentHost))
-        {
-            await UpdateReaderScrollStateAsync(currentHost);
-            PrimeReaderContinuousEdgeTracking();
-        }
-        if (!_readerIsPdf
-            && currentHost is not null
-            && ReferenceEquals(CurrentReaderHost, currentHost)
-            && ReaderInPageSearchBar.IsVisible
-            && !string.IsNullOrWhiteSpace(ReaderInPageSearchBox.Text))
-        {
-            var previousSearchIndex = _readerSearchIndex;
-            var searchSequence = ++_readerSearchSequence;
-            await ApplyReaderSearchAsync(
-                ReaderInPageSearchBox.Text.Trim(),
-                searchSequence,
-                navigate: false);
-            if (_readerSearchCount > 0)
+            ResetReaderContinuousEdgeTracking();
+            var currentHost = CurrentReaderHost;
+            var scrollState = currentHost is not null
+                ? await CaptureReaderScrollStateAsync(currentHost)
+                : null;
+            var hosts = new[] { _readerActiveHost, _readerPreloadHost }
+                .Where(host => host is not null)
+                .Cast<IReaderHost>()
+                .Distinct()
+                .ToArray();
+            await Task.WhenAll(hosts.Select(host => ConfigureReaderHostAsync(host, cancellationToken)));
+            if (scrollState is not null
+                && currentHost is not null
+                && ReferenceEquals(CurrentReaderHost, currentHost))
             {
-                _readerSearchIndex = Math.Clamp(previousSearchIndex, 0, _readerSearchCount - 1);
-                await NavigateReaderSearchAsync(_readerSearchIndex, searchSequence);
+                await RestoreReaderScrollStateAsync(currentHost, scrollState, cancellationToken);
+            }
+            if (currentHost is not null && ReferenceEquals(CurrentReaderHost, currentHost))
+            {
+                await UpdateReaderScrollStateAsync(currentHost);
+                PrimeReaderContinuousEdgeTracking();
+            }
+            if (!_readerIsPdf
+                && currentHost is not null
+                && ReferenceEquals(CurrentReaderHost, currentHost)
+                && ReaderInPageSearchBar.IsVisible
+                && !string.IsNullOrWhiteSpace(ReaderInPageSearchBox.Text))
+            {
+                var previousSearchIndex = _readerSearchIndex;
+                var searchSequence = ++_readerSearchSequence;
+                await ApplyReaderSearchAsync(
+                    ReaderInPageSearchBox.Text.Trim(),
+                    searchSequence,
+                    navigate: false);
+                if (_readerSearchCount > 0)
+                {
+                    _readerSearchIndex = Math.Clamp(previousSearchIndex, 0, _readerSearchCount - 1);
+                    await NavigateReaderSearchAsync(_readerSearchIndex, searchSequence);
+                }
+            }
+            UpdateReaderToolbar();
+        }
+        finally
+        {
+            _readerLayoutGate.Release();
+        }
+    }
+
+    private void ReaderWebViewHost_SizeChanged(object? sender, SizeChangedEventArgs e)
+        => ScheduleReaderRelayout();
+
+    // A native webview can trail Avalonia's Grid by several compositor frames
+    // while a TOC/assistant column or zen mode changes size. Reflow only after
+    // Chromium reports the same viewport as its host, then restore the reading
+    // position captured before the resize reports can overwrite it.
+    private void ScheduleReaderRelayout()
+    {
+        if (_readerIsPdf
+            || !ReaderRoot.IsVisible
+            || _readerNavigationCancellation is not null
+            || CurrentReaderHost is not { } currentHost)
+            return;
+
+        if (!ReferenceEquals(_readerPendingRelayoutHost, currentHost))
+        {
+            _readerPendingRelayoutHost = currentHost;
+            _readerPendingRelayoutState = CreateTrackedReaderScrollState();
+        }
+        else if (_readerPendingRelayoutState is null)
+        {
+            _readerPendingRelayoutState = CreateTrackedReaderScrollState();
+        }
+
+        _readerRelayoutCancellation?.Cancel();
+        _readerRelayoutCancellation?.Dispose();
+        _readerRelayoutCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            _readerSessionCancellation?.Token ?? CancellationToken.None);
+        var cancellation = _readerRelayoutCancellation;
+        var token = cancellation.Token;
+        _ = ObserveReaderTaskAsync(RunScheduledReaderRelayoutAsync(cancellation, token));
+    }
+
+    private ReaderScrollState? CreateTrackedReaderScrollState()
+    {
+        if (_readerClientWidth <= 0 || _readerClientHeight <= 0) return null;
+        return new ReaderScrollState(
+            Math.Max(0, _readerScrollPosition),
+            Math.Clamp(_readerScrollRatio, 0, 1),
+            Math.Max(0, _readerScrollWidth),
+            Math.Max(0, _readerScrollHeight),
+            _readerClientWidth,
+            _readerClientHeight);
+    }
+
+    private async Task RunScheduledReaderRelayoutAsync(
+        CancellationTokenSource cancellation,
+        CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(120, token);
+            var host = _readerPendingRelayoutHost;
+            var state = _readerPendingRelayoutState;
+            if (host is null || !ReferenceEquals(CurrentReaderHost, host)) return;
+
+            var converged = await WaitForReaderViewportToMatchHostAsync(host, token);
+            token.ThrowIfCancellationRequested();
+            await ApplyReaderViewportToHostsAsync(token, host, state);
+
+            // Some WebView2 builds settle after the bounded first wait. A
+            // second pass is required only when the native viewport lagged.
+            if (!converged)
+            {
+                await Task.Delay(200, token);
+                if (await WaitForReaderViewportToMatchHostAsync(host, token))
+                {
+                    token.ThrowIfCancellationRequested();
+                    await ApplyReaderViewportToHostsAsync(token, host, state);
+                }
             }
         }
-        UpdateReaderToolbar();
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(_readerRelayoutCancellation, cancellation))
+            {
+                _readerPendingRelayoutHost = null;
+                _readerPendingRelayoutState = null;
+            }
+        }
+    }
+
+    private async Task ApplyReaderViewportToHostsAsync(
+        CancellationToken cancellationToken,
+        IReaderHost capturedHost,
+        ReaderScrollState? capturedState)
+    {
+        await _readerLayoutGate.WaitAsync(cancellationToken);
+        try
+        {
+            var currentHost = CurrentReaderHost;
+            if (!ReferenceEquals(currentHost, capturedHost)) return;
+            if (ReaderWebViewHost.Bounds.Width <= 0) return;
+
+            var script = $$"""
+                (() => {
+                  const root = document.documentElement;
+                  const body = document.body;
+                  if (!root || !body) return false;
+                  const bodyStyle = getComputedStyle(body);
+                  const paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
+                  const paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+                  const contentHeight = body.clientHeight - paddingTop - paddingBottom;
+                  if (contentHeight > 0)
+                    root.style.setProperty('--kkindle-page-content-h', contentHeight + 'px');
+                  return true;
+                })();
+                """;
+            var hosts = new[] { _readerActiveHost, _readerPreloadHost }
+                .Where(host => host is not null)
+                .Cast<IReaderHost>()
+                .Distinct()
+                .ToArray();
+            foreach (var host in hosts)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    await host.InvokeScriptAsync(script);
+                    if (_readerLayout.FlowMode == 1)
+                        await host.InvokeScriptAsync(ReaderPaginationScripts.Snap);
+                }
+                catch
+                {
+                    // The preload document can be between navigations. Its
+                    // normal configuration pass will pick up the final width.
+                }
+            }
+
+            if (capturedState is not null
+                && ReferenceEquals(CurrentReaderHost, capturedHost))
+            {
+                await RestoreReaderScrollStateAsync(
+                    capturedHost,
+                    capturedState,
+                    cancellationToken);
+            }
+            if (ReferenceEquals(CurrentReaderHost, capturedHost))
+            {
+                await UpdateReaderScrollStateAsync(capturedHost);
+                PrimeReaderContinuousEdgeTracking();
+                UpdateReaderToolbar();
+                await WriteReaderLayoutDiagnosticsAsync("viewport-relayout", capturedHost);
+            }
+        }
+        finally
+        {
+            _readerLayoutGate.Release();
+        }
+    }
+
+    private async Task<bool> WaitForReaderViewportToMatchHostAsync(
+        IReaderHost host,
+        CancellationToken token)
+    {
+        const int maximumAttempts = 10;
+        const double tolerance = 2;
+        for (var attempt = 0; attempt < maximumAttempts; attempt++)
+        {
+            token.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(CurrentReaderHost, host)) return false;
+            var expectedWidth = ReaderWebViewHost.Bounds.Width;
+            var expectedHeight = ReaderWebViewHost.Bounds.Height;
+            if (expectedWidth <= 0 || expectedHeight <= 0) return false;
+
+            try
+            {
+                var result = await host.InvokeScriptAsync(
+                    "(() => JSON.stringify({ width: window.innerWidth || document.documentElement.clientWidth || 0, height: window.innerHeight || document.documentElement.clientHeight || 0 }))();");
+                var raw = DecodeReaderScriptString(result);
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    using var document = JsonDocument.Parse(raw);
+                    var root = document.RootElement;
+                    var viewportWidth = ReadDouble(root, "width");
+                    var viewportHeight = ReadDouble(root, "height");
+                    if (Math.Abs(viewportWidth - expectedWidth) <= tolerance
+                        && Math.Abs(viewportHeight - expectedHeight) <= tolerance)
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                // Navigation can briefly make the document unavailable.
+            }
+
+            await Task.Delay(40, token);
+        }
+
+        return false;
+    }
+
+    private async Task WriteReaderLayoutDiagnosticsAsync(string stage, IReaderHost host)
+    {
+#if DEBUG
+        if (_readerIsPdf) return;
+        try
+        {
+            var result = await host.InvokeScriptAsync(
+                $$"""
+                (() => {
+                  const root = document.documentElement;
+                  const body = document.body;
+                  const el = document.scrollingElement || root;
+                  if (!root || !body || !el) return null;
+                  const rootStyle = getComputedStyle(root);
+                  const bodyStyle = getComputedStyle(body);
+                  return JSON.stringify({
+                    innerWidth: window.innerWidth || 0,
+                    visualWidth: window.visualViewport?.width || 0,
+                    rootClientWidth: root.clientWidth || 0,
+                    clientWidth: el.clientWidth || 0,
+                    scrollWidth: el.scrollWidth || 0,
+                    scrollLeft: el.scrollLeft || 0,
+                    pageStep: el.clientWidth || root.clientWidth || 0,
+                    columnCount: bodyStyle.columnCount,
+                    columnWidth: bodyStyle.columnWidth,
+                    columnGap: bodyStyle.columnGap,
+                    paddingLeft: bodyStyle.paddingLeft,
+                    paddingRight: bodyStyle.paddingRight
+                  });
+                })();
+                """);
+            var raw = DecodeReaderScriptString(result);
+            Directory.CreateDirectory(_paths.Logs);
+            var entry = JsonSerializer.Serialize(new
+            {
+                timestamp = DateTimeOffset.Now,
+                stage,
+                chapter = _readerChapterIndex,
+                flowMode = _readerLayout.FlowMode,
+                twoPage = _readerLayout.TwoPageMode,
+                hostWidth = ReaderWebViewHost.Bounds.Width,
+                hostHeight = ReaderWebViewHost.Bounds.Height,
+                renderScaling = TopLevel.GetTopLevel(ReaderWebViewHost)?.RenderScaling ?? 1d,
+                dom = raw
+            });
+            await File.AppendAllTextAsync(
+                Path.Combine(_paths.Logs, "reader-layout-debug.log"),
+                entry + Environment.NewLine);
+        }
+        catch
+        {
+            // Diagnostics must never affect reading or navigation.
+        }
+#else
+        await Task.CompletedTask;
+#endif
     }
 
     private async Task<bool> NavigateToReaderItemAsync(
@@ -2148,8 +2414,7 @@ public partial class MainWindow
                         HideReaderFootnotePopup();
                     break;
                 case "resize":
-                    _ = ObserveReaderTaskAsync(
-                        ApplyReaderLayoutToHostsAsync(_readerSessionCancellation?.Token ?? CancellationToken.None));
+                    ScheduleReaderRelayout();
                     break;
                 case "wheel":
                     // Paginated EPUB pages and the PDF text view translate the
@@ -2635,30 +2900,45 @@ public partial class MainWindow
         }
         if (CurrentReaderHost is not { } host) return;
 
-        // Decide which content change is needed before starting the visual
-        // transition. At a chapter edge the old path animated a failed DOM
-        // turn and then animated the chapter swap, producing two different
-        // beats for what should feel like one continuous page turn.
-        var canTurnResult = await host.InvokeScriptAsync(
-            ReaderPaginationScripts.CreateCanTurnScript(direction));
-        var canTurnWithinChapter = string.Equals(
-            canTurnResult?.Trim(),
-            "true",
-            StringComparison.OrdinalIgnoreCase);
-        if (canTurnWithinChapter)
+        // A side-panel resize temporarily rebuilds the multicolumn layout.
+        // Never inspect scrollWidth during that pass: Chromium briefly reports
+        // one viewport and a normal next-page turn would be mistaken for a
+        // chapter boundary.
+        await _readerLayoutGate.WaitAsync(ReaderToken);
+        try
         {
-            await TurnReaderPageWithAnimationAsync(host, direction);
-            return;
-        }
+            if (!ReferenceEquals(CurrentReaderHost, host)) return;
+            await WriteReaderLayoutDiagnosticsAsync("before-page-turn", host);
 
-        if (direction > 0 && _readerDocument is not null
-            && _readerChapterIndex < _readerDocument.Chapters.Count - 1)
-        {
-            await MoveReaderChapterAsync(1);
+            // Decide which content change is needed before starting the visual
+            // transition. At a chapter edge the old path animated a failed DOM
+            // turn and then animated the chapter swap, producing two different
+            // beats for what should feel like one continuous page turn.
+            var canTurnResult = await host.InvokeScriptAsync(
+                ReaderPaginationScripts.CreateCanTurnScript(direction));
+            var canTurnWithinChapter = string.Equals(
+                canTurnResult?.Trim(),
+                "true",
+                StringComparison.OrdinalIgnoreCase);
+            if (canTurnWithinChapter)
+            {
+                await TurnReaderPageWithAnimationAsync(host, direction);
+                return;
+            }
+
+            if (direction > 0 && _readerDocument is not null
+                && _readerChapterIndex < _readerDocument.Chapters.Count - 1)
+            {
+                await MoveReaderChapterAsync(1);
+            }
+            else if (direction < 0 && _readerChapterIndex > 0)
+            {
+                await MoveReaderChapterAsync(-1);
+            }
         }
-        else if (direction < 0 && _readerChapterIndex > 0)
+        finally
         {
-            await MoveReaderChapterAsync(-1);
+            _readerLayoutGate.Release();
         }
     }
 

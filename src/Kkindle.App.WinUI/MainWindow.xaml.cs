@@ -4607,9 +4607,6 @@ public sealed partial class MainWindow : Window
         const string foreground = "#111111";
         const string link = "#222222";
         var fontPercent = (int)Math.Round(_readerLayout.FontScale * 100);
-        var hostViewportWidth = ReaderWebViewHost.ActualWidth.ToString(
-            "0.###",
-            System.Globalization.CultureInfo.InvariantCulture);
         // Vertical writing is supported in both continuous and paginated flow.
         // The pagination CSS keeps the viewport horizontal while Chromium lays
         // out vertical-rl columns from right to left.
@@ -4716,28 +4713,8 @@ public sealed partial class MainWindow : Window
               // this point; measuring root.clientWidth before html overflow is
               // hidden would make the pagination columns narrower than the
               // actual reading surface and expose a clipped right edge.
-              const kkScroller = document.scrollingElement || root;
-              // visualViewport is the actual visible WebView width. During a
-              // multicolumn reflow, documentElement.getBoundingClientRect()
-              // can transiently describe the laid-out content width and make
-              // the right column extend underneath the assistant panel.
-              const hostViewportWidth = {{hostViewportWidth}};
-              // Chromium lays the multicolumns out in CSS pixels
-              // (100vw = window.innerWidth), which at non-100% DPI scaling is
-              // WIDER than the DIP-based XAML host width. The page step and
-              // the actual column pitch must use the SAME unit or every page
-              // drifts and the right boundary gets clipped. The WebView's own
-              // viewport is therefore the source of truth; the DIP host width
-              // is only a fallback while the document is not measurable.
-              const inPageWidth = window.visualViewport?.width || window.innerWidth || 0;
-              const viewportWidth = inPageWidth > 0
-                ? inPageWidth
-                : (hostViewportWidth > 0
-                  ? hostViewportWidth
-                  : (root?.clientWidth || kkScroller?.clientWidth || 0));
-              if (root && viewportWidth > 0) {
-                root.style.setProperty('{{ReaderPaginationScripts.ViewportWidthVariable}}', viewportWidth + 'px');
-              }
+              // CSS page geometry uses 100vw and navigation reads the live
+              // scrolling clientWidth, so no host-side width is injected.
               window.__kkindleReaderTwoPage = {{(_readerLayout.TwoPageMode ? "true" : "false")}};
               // Expose the real body content box (WebView viewport minus the
               // body's top/bottom padding) so image max-heights target the

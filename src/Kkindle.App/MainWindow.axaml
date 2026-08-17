@@ -3723,7 +3723,8 @@
                 <Grid Grid.Row="1" Background="{StaticResource PaperBrush}">
                     <Grid x:Name="ReaderWebViewHost"
                           Margin="0,12,2,10"
-                          Background="{StaticResource PaperBrush}">
+                          Background="{StaticResource PaperBrush}"
+                          SizeChanged="ReaderWebViewHost_SizeChanged">
                         <ContentControl x:Name="ReaderActiveHostSlot"
                                         HorizontalContentAlignment="Stretch"
                                         VerticalContentAlignment="Stretch" />

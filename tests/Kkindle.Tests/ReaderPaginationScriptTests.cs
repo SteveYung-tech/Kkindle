@@ -19,6 +19,49 @@ public sealed class ReaderPaginationScriptTests
     }
 
     [Fact]
+    public void FlowCssReducesConfiguredMarginsForNarrowReaderViewports()
+    {
+        var css = ReaderPaginationScripts.CreateFlowCss(
+            pagination: true,
+            vertical: false,
+            horizontalPadding: 68);
+
+        Assert.Contains("min(68px, max(24px, 5vw))", css, StringComparison.Ordinal);
+        Assert.Contains(
+            "calc(min(68px, max(24px, 5vw)) + min(68px, max(24px, 5vw)))",
+            css,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(")px", css, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FlowCssUsesTheLiveCssViewportForColumnGeometry(bool twoPage)
+    {
+        var css = ReaderPaginationScripts.CreateFlowCss(
+            pagination: true,
+            vertical: false,
+            twoPage: twoPage);
+
+        Assert.Contains("100vw", css, StringComparison.Ordinal);
+        Assert.DoesNotContain("--kkindle-reader-page-viewport-width", css, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PageStepPrioritizesTheLiveScrollingViewport()
+    {
+        Assert.StartsWith(
+            "document.scrollingElement?.clientWidth",
+            ReaderPaginationScripts.PageStepExpression,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "--kkindle-reader-page-viewport-width",
+            ReaderPaginationScripts.PageStepExpression,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TurnScriptDefaultsToInstantScrolling()
     {
         var script = ReaderPaginationScripts.CreateTurnScript(direction: 1);
