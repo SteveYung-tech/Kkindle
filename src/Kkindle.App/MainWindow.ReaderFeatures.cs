@@ -68,7 +68,6 @@ public partial class MainWindow
             && CurrentReaderHost?.View is Control)
         {
             var chapterDirection = !_readerIsPdf
-                && !_readerLayout.TwoPageMode
                 ? e.Key == Key.Up
                     ? -1
                     : e.Key == Key.Down
@@ -240,7 +239,7 @@ public partial class MainWindow
             _readerChapterIndex = _readerPdfPage - 1;
 
             ReaderBookInfoText.Text = $"{card.Title} · PDF";
-            ReaderChapterText.Text = GetReaderChapterLabel();
+            ReaderChapterText.Text = GetReaderChapterPositionLabel();
             ReaderStatusText.Text = $"PDF · {pages.Count} 页 · 正在加载";
             ReaderRoot.IsVisible = true;
             LibraryRoot.IsVisible = false;
@@ -299,7 +298,7 @@ public partial class MainWindow
         // the pending navigation and the host state is already final.
         var source = new Uri(_readerPdfSourcePath).AbsoluteUri + $"#page={_readerPdfPage}";
         host.Navigate(new Uri(source));
-        ReaderChapterText.Text = GetReaderChapterLabel();
+        ReaderChapterText.Text = GetReaderChapterPositionLabel();
         UpdateReaderToolbar();
         await UpdateReaderBookmarkIndicatorAsync();
         if (saveProgress) await SaveReaderProgressAsync(cancellationToken);
@@ -1268,54 +1267,117 @@ public partial class MainWindow
     private void ReaderProgressSlider_ValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
         if (_readerProgressSliderUpdating || !IsInitialized) return;
-        if (_readerSliderDragging) UpdateReaderSliderToolTip();
+        if (_readerSliderDragging || _readerSliderPreviewVisible)
+            UpdateReaderSliderPreview(GetReaderProgressThumb());
         _ = ObserveReaderTaskAsync(NavigateReaderProgressAsync(e.NewValue));
     }
 
-    // The footer slider shows a drag tooltip "{current} / {total} · 章节名"
-    // (PDF: "第 N 页"), mirroring the WinUI reference's
-    // ReaderProgressToolTipValueConverter wiring.
+    // The footer thumb and compact TOC share the same in-app chapter preview;
+    // binding hover directly to Thumb keeps the track itself passive.
     private bool _readerSliderDragging;
+    private bool _readerSliderPreviewVisible;
+    private Thumb? _readerProgressHoverThumb;
+
+    private void ReaderProgressSlider_Loaded(object? sender, RoutedEventArgs e)
+    {
+        Dispatcher.UIThread.Post(AttachReaderProgressThumbHover, DispatcherPriority.Background);
+    }
+
+    private void AttachReaderProgressThumbHover()
+    {
+        var thumb = GetReaderProgressThumb();
+        if (thumb is null || ReferenceEquals(thumb, _readerProgressHoverThumb)) return;
+        if (_readerProgressHoverThumb is not null)
+        {
+            _readerProgressHoverThumb.PointerEntered -= ReaderProgressThumb_PointerEntered;
+            _readerProgressHoverThumb.PointerExited -= ReaderProgressThumb_PointerExited;
+        }
+
+        _readerProgressHoverThumb = thumb;
+        thumb.PointerEntered += ReaderProgressThumb_PointerEntered;
+        thumb.PointerExited += ReaderProgressThumb_PointerExited;
+    }
+
+    private void ReaderProgressThumb_PointerEntered(object? sender, PointerEventArgs e)
+    {
+        UpdateReaderSliderPreview(sender as Thumb);
+    }
+
+    private void ReaderProgressThumb_PointerExited(object? sender, PointerEventArgs e)
+    {
+        if (!_readerSliderDragging) CloseReaderSliderPreview();
+    }
 
     private void ReaderProgressSlider_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (e.GetCurrentPoint(ReaderProgressSlider).Properties.IsLeftButtonPressed)
         {
             _readerSliderDragging = true;
-            UpdateReaderSliderToolTip();
+            UpdateReaderSliderPreview(GetReaderProgressThumb());
         }
     }
 
     private void ReaderProgressSlider_PointerMoved(object? sender, PointerEventArgs e)
     {
-        if (_readerSliderDragging) UpdateReaderSliderToolTip();
+        var thumb = GetReaderProgressThumb();
+        if (_readerSliderDragging || IsPointerOverReaderProgressThumb(e, thumb))
+        {
+            UpdateReaderSliderPreview(thumb);
+            return;
+        }
+
+        CloseReaderSliderPreview();
     }
 
     private void ReaderProgressSlider_PointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         _readerSliderDragging = false;
-        if (ReaderProgressSlider is not null)
-            ToolTip.SetIsOpen(ReaderProgressSlider, false);
+        var thumb = GetReaderProgressThumb();
+        if (IsPointerOverReaderProgressThumb(e, thumb))
+            UpdateReaderSliderPreview(thumb);
+        else
+            CloseReaderSliderPreview();
     }
 
-    private void UpdateReaderSliderToolTip()
+    private void ReaderProgressSlider_PointerExited(object? sender, PointerEventArgs e)
+    {
+        if (!_readerSliderDragging) CloseReaderSliderPreview();
+    }
+
+    private Thumb? GetReaderProgressThumb() =>
+        ReaderProgressSlider is null
+            ? null
+            : FindDescendants<Thumb>(ReaderProgressSlider).FirstOrDefault();
+
+    private static bool IsPointerOverReaderProgressThumb(PointerEventArgs e, Thumb? thumb)
+    {
+        if (thumb is null || thumb.Bounds.Width <= 0 || thumb.Bounds.Height <= 0) return false;
+        var point = e.GetPosition(thumb);
+        return point.X >= 0
+            && point.X <= thumb.Bounds.Width
+            && point.Y >= 0
+            && point.Y <= thumb.Bounds.Height;
+    }
+
+    private void UpdateReaderSliderPreview(Thumb? thumb)
     {
         if (ReaderProgressSlider is null) return;
-        ToolTip.SetTip(ReaderProgressSlider, GetReaderProgressSliderLabel());
-        ToolTip.SetIsOpen(ReaderProgressSlider, true);
+        thumb ??= GetReaderProgressThumb();
+        if (thumb is null) return;
+        _readerSliderPreviewVisible = true;
+        var index = _readerIsPdf
+            ? Math.Clamp((int)Math.Round(ReaderProgressSlider.Value), 1, Math.Max(1, _readerPdfPages.Count)) - 1
+            : Math.Clamp((int)Math.Round(ReaderProgressSlider.Value) - 1, 0, Math.Max(0, _readerTocItems.Count - 1));
+        ShowReaderChapterPreview(thumb, index, placeAbove: true);
     }
 
-    private string GetReaderProgressSliderLabel()
+    private void CloseReaderSliderPreview()
     {
-        var value = ReaderProgressSlider?.Value ?? 1;
-        if (_readerIsPdf)
-        {
-            var pageCount = Math.Max(1, _readerPdfPages.Count);
-            return $"第 {Math.Clamp((int)Math.Round(value), 1, pageCount)} 页";
-        }
-        if (_readerTocItems.Count == 0) return string.Empty;
-        var index = Math.Clamp((int)Math.Round(value) - 1, 0, _readerTocItems.Count - 1);
-        return $"{index + 1} / {_readerTocItems.Count} · {_readerTocItems[index].Title}";
+        _readerSliderPreviewVisible = false;
+        if (ReaderTocCompactPanel is not null && ReaderTocCompactPanel.IsVisible)
+            UpdateReaderCompactMarkerWave();
+        else
+            HideReaderCompactHoverLabel();
     }
 
     // EPUB uses the visible TOC sequence so fragment subchapters are reachable;

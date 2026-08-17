@@ -20,7 +20,7 @@ public sealed class EpubReaderPreparationService
     private const string ExtractionReadyFileName = ".kkindle-extracted";
     // Bump whenever sanitization or the injected bridge changes. Existing
     // reader caches otherwise keep the old JavaScript indefinitely.
-    private const string ExtractionFormatVersion = "13";
+    private const string ExtractionFormatVersion = "15";
     private const string ReaderBridgeFileName = ".kkindle-reader-bridge.js";
     private const string ContentSecurityPolicyBase =
         "default-src 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; " +
@@ -65,6 +65,45 @@ public sealed class EpubReaderPreparationService
               scrollQueued = false;
               reportScroll();
             });
+          };
+
+          // Publisher styles can make Chromium expose a viewport-sized
+          // document.scrollingElement even though body content still extends
+          // below it. Use the largest DOM extent for edge decisions so a
+          // normal wheel at the top of a long chapter is never mistaken for
+          // an overscroll at the bottom.
+          const getContinuousScrollMetrics = horizontal => {
+            const root = document.documentElement;
+            const body = document.body;
+            const element = document.scrollingElement || root || body;
+            const position = horizontal
+              ? Math.max(
+                  Math.abs(window.scrollX || 0),
+                  Math.abs(element?.scrollLeft || 0),
+                  Math.abs(root?.scrollLeft || 0),
+                  Math.abs(body?.scrollLeft || 0))
+              : Math.max(
+                  window.scrollY || 0,
+                  element?.scrollTop || 0,
+                  root?.scrollTop || 0,
+                  body?.scrollTop || 0);
+            const viewport = horizontal
+              ? (window.innerWidth || root?.clientWidth || element?.clientWidth || 0)
+              : (window.innerHeight || root?.clientHeight || element?.clientHeight || 0);
+            const extent = horizontal
+              ? Math.max(
+                  element?.scrollWidth || 0,
+                  root?.scrollWidth || 0,
+                  body?.scrollWidth || 0,
+                  root?.offsetWidth || 0,
+                  body?.offsetWidth || 0)
+              : Math.max(
+                  element?.scrollHeight || 0,
+                  root?.scrollHeight || 0,
+                  body?.scrollHeight || 0,
+                  root?.offsetHeight || 0,
+                  body?.offsetHeight || 0);
+            return { position, viewport, extent };
           };
 
           let dismissedSelectionText = "";
@@ -441,11 +480,8 @@ public sealed class EpubReaderPreparationService
                 : key === 'ArrowDown' || key === 'PageDown' ? 1 : 0)
               : 0;
             if (continuousDirection !== 0) {
-              const el = document.scrollingElement || document.documentElement;
               const horizontal = window.__kkindleReaderVertical === true;
-              const position = horizontal ? Math.abs(el?.scrollLeft || 0) : (el?.scrollTop || 0);
-              const viewport = horizontal ? (el?.clientWidth || 0) : (el?.clientHeight || 0);
-              const extent = horizontal ? (el?.scrollWidth || 0) : (el?.scrollHeight || 0);
+              const { position, viewport, extent } = getContinuousScrollMetrics(horizontal);
               const atEdge = continuousDirection < 0
                 ? position <= 4
                 : extent > 0 && position + viewport >= extent - 4;
@@ -477,22 +513,32 @@ public sealed class EpubReaderPreparationService
           }, true);
           // In paginated mode the vertical wheel advances pages exactly like
           // the WinUI reference's low-level mouse hook; the host accumulates
-          // the deltas. Continuous mode is left to native scrolling.
+          // the deltas. Continuous mode is left to native scrolling until a
+          // separate wheel gesture starts while the document is already at an
+          // edge. This keeps a fast wheel/trackpad gesture from scrolling to
+          // the edge and changing chapters in the same gesture.
+          let continuousWheelDirection = 0;
+          let continuousWheelLastAt = 0;
+          const continuousWheelGestureGap = 180;
           document.addEventListener("wheel", event => {
             if (window.__kkindleReaderFlowMode !== 1) {
               const direction = Math.sign(event.deltaY || 0);
               if (direction === 0) return;
-              const el = document.scrollingElement || document.documentElement;
+              const now = performance.now();
+              const startsNewGesture = continuousWheelLastAt > 0
+                && (direction !== continuousWheelDirection
+                  || now - continuousWheelLastAt >= continuousWheelGestureGap);
+              continuousWheelDirection = direction;
+              continuousWheelLastAt = now;
               const horizontal = window.__kkindleReaderVertical === true;
-              const position = horizontal ? Math.abs(el?.scrollLeft || 0) : (el?.scrollTop || 0);
-              const viewport = horizontal ? (el?.clientWidth || 0) : (el?.clientHeight || 0);
-              const extent = horizontal ? (el?.scrollWidth || 0) : (el?.scrollHeight || 0);
+              const { position, viewport, extent } = getContinuousScrollMetrics(horizontal);
               const atEdge = direction < 0
                 ? position <= 4
                 : extent > 0 && position + viewport >= extent - 4;
               if (atEdge) {
                 event.preventDefault();
-                send({ type: 'continuousEdge', direction });
+                if (startsNewGesture)
+                  send({ type: 'continuousEdge', direction });
               }
               return;
             }

@@ -3186,16 +3186,11 @@
                                 Width="38"
                                 MinWidth="38"
                                 Height="34"
+                                Content="≡"
+                                FontSize="13"
                                 AutomationProperties.Name="切换极简目录"
                                 ToolTip.Tip="切换极简目录"
-                                Click="ReaderTocMinimalToggleButton_Click">
-                            <Path Width="14"
-                                  Height="14"
-                                  Data="M 1,3 L 2.5,3 M 5,3 L 13,3 M 1,7 L 2.5,7 M 5,7 L 13,7 M 1,11 L 2.5,11 M 5,11 L 13,11"
-                                  StrokeThickness="1.25"
-                                  StrokeLineCap="Square"
-                                  IsHitTestVisible="False" />
-                        </Button>
+                                Click="ReaderTocMinimalToggleButton_Click" />
                         <Button Grid.Column="2"
                                 Classes="icon"
                                 Width="38"
@@ -3246,9 +3241,12 @@
                                        IsVisible="False" />
                         </Grid>
 
-                        <Grid x:Name="ReaderBookmarkPane" IsVisible="False">
+                        <Grid x:Name="ReaderBookmarkPane"
+                              Background="#FFFFFF"
+                              IsVisible="False">
                             <ListBox x:Name="ReaderBookmarkList"
                                      Classes="readerTocList"
+                                     Background="#FFFFFF"
                                      ItemsSource="{Binding ReaderBookmarks}"
                                      SelectionMode="Single"
                                      SelectionChanged="ReaderBookmarkList_SelectionChanged">
@@ -3421,16 +3419,11 @@
                                 MinWidth="28"
                                 Height="34"
                                 Padding="0"
+                                Content="≡"
+                                FontSize="13"
                                 AutomationProperties.Name="展开完整目录"
                                 ToolTip.Tip="展开完整目录"
-                                Click="ReaderTocCompactExpandButton_Click">
-                            <Path Width="14"
-                                  Height="14"
-                                  Data="M 1,3 L 2.5,3 M 5,3 L 13,3 M 1,7 L 2.5,7 M 5,7 L 13,7 M 1,11 L 2.5,11 M 5,11 L 13,11"
-                                  StrokeThickness="1.25"
-                                  StrokeLineCap="Square"
-                                  IsHitTestVisible="False" />
-                        </Button>
+                                Click="ReaderTocCompactExpandButton_Click" />
                         <TextBlock x:Name="ReaderTocCompactUpIndicator"
                                    Grid.Row="1"
                                    Text="△"
@@ -3470,6 +3463,15 @@
                                             Tag="{Binding}"
                                             AutomationProperties.Name="{Binding Title}"
                                             IsTabStop="False">
+                                        <Button.Template>
+                                            <ControlTemplate>
+                                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                                  HorizontalAlignment="Center"
+                                                                  VerticalAlignment="Center"
+                                                                  HorizontalContentAlignment="Center"
+                                                                  VerticalContentAlignment="Center" />
+                                            </ControlTemplate>
+                                        </Button.Template>
                                         <Border Width="8"
                                                 Height="2"
                                                 Background="{Binding Fill}"
@@ -3490,28 +3492,6 @@
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center" />
                 </Grid>
-            </Border>
-
-            <!-- Hover label for the minimal TOC rail, floating above the
-                 reading surface next to the rail. -->
-            <Border x:Name="ReaderTocCompactHoverLabel"
-                    Grid.ColumnSpan="3"
-                    MaxWidth="340"
-                    Padding="10,6"
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Top"
-                    Background="{StaticResource PaperBrush}"
-                    BorderBrush="#C9C9C5"
-                    BorderThickness="1"
-                    ZIndex="90"
-                    IsHitTestVisible="False"
-                    IsVisible="False">
-                <TextBlock x:Name="ReaderTocCompactHoverLabelText"
-                           MaxWidth="320"
-                           Foreground="#555555"
-                           FontSize="12"
-                           TextAlignment="Center"
-                           TextWrapping="Wrap" />
             </Border>
 
             <!-- Reading canvas and compact controls. -->
@@ -3821,16 +3801,19 @@
                                 Click="ReaderNextButton_Click" />
                         <Slider x:Name="ReaderProgressSlider"
                                 Grid.Column="2"
+                                Classes="noAutoToolTip"
                                 Margin="6,0,14,0"
                                 MinWidth="120"
                                 Minimum="1"
                                 Maximum="1"
                                 Value="1"
                                 VerticalAlignment="Center"
+                                Loaded="ReaderProgressSlider_Loaded"
                                 ValueChanged="ReaderProgressSlider_ValueChanged"
                                 PointerPressed="ReaderProgressSlider_PointerPressed"
                                 PointerMoved="ReaderProgressSlider_PointerMoved"
-                                PointerReleased="ReaderProgressSlider_PointerReleased">
+                                PointerReleased="ReaderProgressSlider_PointerReleased"
+                                PointerExited="ReaderProgressSlider_PointerExited">
                             <Slider.Resources>
                                 <CornerRadius x:Key="SliderThumbCornerRadius">999</CornerRadius>
                             </Slider.Resources>
@@ -3847,15 +3830,14 @@
                             </Slider.Styles>
                         </Slider>
                         <TextBlock x:Name="ReaderChapterText"
-                                   Grid.Column="3"
-                                   Margin="0,0,10,0"
-                                   MaxWidth="320"
+                                   Grid.Column="4"
+                                   MinWidth="44"
                                    FontSize="11"
                                    Foreground="#5E5E5E"
-                                   TextTrimming="CharacterEllipsis"
+                                   TextAlignment="Right"
                                    VerticalAlignment="Center" />
                         <Border x:Name="ReaderPdfBadge"
-                                Grid.Column="4"
+                                Grid.Column="3"
                                 Padding="6,2"
                                 VerticalAlignment="Center"
                                 Background="#F2F2F0"
@@ -4298,6 +4280,34 @@
                                TextWrapping="Wrap" />
                 </ScrollViewer>
             </Border>
+
+            <!-- A native popup is required here: the reading surface is an
+                 embedded WebView2 HWND and would cover a normal Avalonia
+                 overlay regardless of ZIndex. -->
+            <Popup x:Name="ReaderChapterPreviewPopup"
+                   IsOpen="False"
+                   IsLightDismissEnabled="False"
+                   ShouldUseOverlayLayer="False"
+                   TakesFocusFromNativeControl="False">
+                <Border MinWidth="150"
+                        MaxWidth="340"
+                        Padding="12,8"
+                        Background="{StaticResource PaperBrush}"
+                        BorderBrush="#000000"
+                        BorderThickness="1"
+                        CornerRadius="0"
+                        IsHitTestVisible="False">
+                    <StackPanel>
+                        <TextBlock x:Name="ReaderChapterPreviewTitleText"
+                                   MaxWidth="316"
+                                   Foreground="#222222"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </Popup>
         </Grid>
         </Grid>
     </Border>

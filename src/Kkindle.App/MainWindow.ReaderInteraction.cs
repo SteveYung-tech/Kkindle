@@ -720,7 +720,7 @@ public partial class MainWindow
                     animate: intent != ReaderNavigationIntent.None);
                 PrimeReaderContinuousEdgeTracking();
                 SetReaderTocSelection(item);
-                ReaderChapterText.Text = GetReaderChapterLabel();
+                ReaderChapterText.Text = GetReaderChapterPositionLabel();
                 UpdateReaderToolbar();
                 await UpdateReaderBookmarkIndicatorAsync();
                 await SaveReaderProgressAsync(cancellationToken);
@@ -783,9 +783,9 @@ public partial class MainWindow
             FocusCurrentReaderHost();
             PrimeReaderContinuousEdgeTracking();
             SetReaderTocSelection(item);
-            ReaderChapterText.Text = GetReaderChapterLabel();
+            ReaderChapterText.Text = GetReaderChapterPositionLabel();
             UpdateReaderToolbar();
-            ReaderStatusText.Text = $"共 {_readerTocItems.Count} 个章节";
+            ReaderStatusText.Text = string.Empty;
             await UpdateReaderBookmarkIndicatorAsync();
             await SaveReaderProgressAsync(sessionToken);
             _ = PreloadNextReaderChapterAsync(sessionToken);
@@ -1816,7 +1816,7 @@ public partial class MainWindow
                 case "ready":
                     ReaderStatusText.Text = _readerIsPdf
                         ? $"PDF · {_readerPdfPages.Count} 页"
-                        : $"共 {_readerTocItems.Count} 个章节";
+                        : string.Empty;
                     break;
                 case "pdfPage":
                     if (_readerIsPdf && root.TryGetProperty("page", out var pdfPage)
@@ -1824,7 +1824,7 @@ public partial class MainWindow
                     {
                         _readerPdfPage = Math.Clamp(page, 1, Math.Max(1, _readerPdfPages.Count));
                         _readerChapterIndex = _readerPdfPage - 1;
-                        ReaderChapterText.Text = GetReaderChapterLabel();
+                        ReaderChapterText.Text = GetReaderChapterPositionLabel();
                         UpdateReaderToolbar();
                     }
                     goto case "scroll";
@@ -1855,7 +1855,6 @@ public partial class MainWindow
                     // and fragment. Reusing that snapshot avoids issuing a
                     // second WebView script call for every animation frame.
                     UpdateReaderBookmarkIndicatorFromTrackedLocation();
-                    TryAdvanceReaderScrollChapter();
                     break;
                 case "selection":
                     _readerPendingSelection = root.TryGetProperty("text", out var selection)
@@ -1986,12 +1985,11 @@ public partial class MainWindow
                         var keyName = key.GetString();
                         if (_readerIsPdf || _readerLayout.FlowMode == 1)
                         {
-                            // In single-page EPUB reading, vertical arrows own
-                            // chapter navigation while horizontal arrows own
-                            // page navigation. Two-column and PDF layouts keep
-                            // all arrows as page turns.
+                            // Single-page and two-column EPUB layouts share the
+                            // same key map: up/down change chapters while
+                            // left/right turn pages. PDF keeps all arrows as
+                            // page turns.
                             var chapterDirection = !_readerIsPdf
-                                && !_readerLayout.TwoPageMode
                                 ? string.Equals(keyName, "ArrowUp", StringComparison.Ordinal)
                                     ? -1
                                     : string.Equals(keyName, "ArrowDown", StringComparison.Ordinal)
@@ -2666,7 +2664,8 @@ public partial class MainWindow
         ReaderFlowButton.Content = flowMode == 0 ? "滚动" : twoPage ? "双栏" : "单页";
         await ApplyReaderLayoutToHostsAsync(_readerSessionCancellation?.Token ?? CancellationToken.None);
         await SaveReaderLayoutAsync(CancellationToken.None);
-        ReaderStatusText.Text = twoPage ? "已切换为双栏阅读。" : flowMode == 0 ? "已切换为滚动阅读。" : "已切换为单页阅读。";
+        ShowReaderTransientStatus(
+            twoPage ? "已切换为双栏阅读。" : flowMode == 0 ? "已切换为滚动阅读。" : "已切换为单页阅读。");
     }
 
     private void SyncReaderFlowMenu()

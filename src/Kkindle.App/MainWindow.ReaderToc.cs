@@ -19,9 +19,12 @@ namespace Kkindle;
 /// </summary>
 public sealed record ReaderTocMarker(EpubReaderNavigationItem Item, bool IsCurrent)
 {
-    private static readonly IBrush CurrentBrush = Brushes.Black;
-    private static readonly IBrush InactiveBrush = Brushes.White;
-    public static readonly IBrush HoverBrush = Brushes.Black;
+    private static readonly IBrush CurrentBrush = new SolidColorBrush(
+        Color.FromArgb(255, 91, 98, 104));
+    private static readonly IBrush InactiveBrush = new SolidColorBrush(
+        Color.FromArgb(255, 211, 213, 209));
+    public static readonly IBrush HoverBrush = new SolidColorBrush(
+        Color.FromArgb(255, 96, 96, 96));
 
     public string Title => Item.Title;
     public IBrush Fill => GetFill(IsCurrent);
@@ -48,6 +51,8 @@ public partial class MainWindow
     private DateTimeOffset _readerCompactScrollStartedAt;
     private bool _readerCompactPointerActive;
     private double _readerCompactPointerY;
+    private Control? _readerChapterPreviewTarget;
+    private bool _readerChapterPreviewAbove;
 
     private void ReaderTocMinimalToggleButton_Click(object? sender, RoutedEventArgs e)
     {
@@ -209,8 +214,7 @@ public partial class MainWindow
         }
 
         Border? hoveredMarker = null;
-        Button? hoveredButton = null;
-        string? hoveredTitle = null;
+        EpubReaderNavigationItem? hoveredItem = null;
         var hoveredDistance = double.MaxValue;
         foreach (var button in FindDescendants<Button>(ReaderTocCompactList))
         {
@@ -250,8 +254,7 @@ public partial class MainWindow
                 {
                     hoveredDistance = distance;
                     hoveredMarker = marker;
-                    hoveredButton = button;
-                    hoveredTitle = markerData?.Title;
+                    hoveredItem = markerData?.Item;
                 }
             }
             catch (InvalidOperationException)
@@ -262,12 +265,20 @@ public partial class MainWindow
 
         if (hoveredMarker is not null)
             hoveredMarker.Background = ReaderTocMarker.HoverBrush;
-        UpdateReaderCompactHoverLabel(hoveredButton, hoveredTitle);
+        if (!_readerSliderPreviewVisible)
+        {
+            if (_readerCompactPointerActive)
+                UpdateReaderCompactHoverLabel(hoveredMarker, hoveredItem);
+            else
+                HideReaderCompactHoverLabel();
+        }
     }
 
-    private void UpdateReaderCompactHoverLabel(Button? target, string? title)
+    private void UpdateReaderCompactHoverLabel(
+        Control? target,
+        EpubReaderNavigationItem? item)
     {
-        if (target is null || string.IsNullOrWhiteSpace(title))
+        if (target is null || item is null)
         {
             HideReaderCompactHoverLabel();
             return;
@@ -275,16 +286,8 @@ public partial class MainWindow
 
         try
         {
-            ReaderTocCompactHoverLabelText.Text = title;
-            ReaderTocCompactHoverLabel.IsVisible = true;
-            var markerCenter = target
-                .TranslatePoint(new Point(0, target.Bounds.Height / 2), ReaderRoot)?
-                .Y ?? 0;
-            var labelHeight = ReaderTocCompactHoverLabel.Bounds.Height;
-            const double minimumTop = 38d;
-            var maximumTop = Math.Max(minimumTop, ReaderRoot.Bounds.Height - labelHeight);
-            var top = Math.Clamp(markerCenter - labelHeight / 2, minimumTop, maximumTop);
-            ReaderTocCompactHoverLabel.Margin = new Thickness(ReaderTocMinimalWidth + 6, top, 0, 0);
+            var index = GetReaderNavigationItemIndex(item);
+            ShowReaderChapterPreview(target, index, placeAbove: false);
         }
         catch (InvalidOperationException)
         {
@@ -294,8 +297,57 @@ public partial class MainWindow
 
     private void HideReaderCompactHoverLabel()
     {
-        if (ReaderTocCompactHoverLabel is not null)
-            ReaderTocCompactHoverLabel.IsVisible = false;
+        if (ReaderChapterPreviewPopup is not null)
+            ReaderChapterPreviewPopup.IsOpen = false;
+        _readerChapterPreviewTarget = null;
+    }
+
+    private int GetReaderNavigationItemIndex(EpubReaderNavigationItem item)
+    {
+        for (var index = 0; index < _readerTocItems.Count; index++)
+        {
+            if (ReferenceEquals(_readerTocItems[index], item)
+                || _readerTocItems[index].Target.Equals(item.Target, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return Math.Clamp(item.ChapterIndex, 0, Math.Max(0, _readerTocItems.Count - 1));
+    }
+
+    private void ShowReaderChapterPreview(Control target, int index, bool placeAbove)
+    {
+        if (ReaderChapterPreviewPopup is null || target.Bounds.Width <= 0 || target.Bounds.Height <= 0)
+            return;
+
+        if (_readerIsPdf)
+        {
+            var total = Math.Max(1, _readerPdfPages.Count);
+            var page = Math.Clamp(index + 1, 1, total);
+            ReaderChapterPreviewTitleText.Text = $"第 {page} 页";
+        }
+        else
+        {
+            if (_readerTocItems.Count == 0) return;
+            index = Math.Clamp(index, 0, _readerTocItems.Count - 1);
+            ReaderChapterPreviewTitleText.Text = _readerTocItems[index].Title;
+        }
+
+        var targetChanged = !ReferenceEquals(target, _readerChapterPreviewTarget)
+            || placeAbove != _readerChapterPreviewAbove;
+        if (targetChanged && ReaderChapterPreviewPopup.IsOpen)
+            ReaderChapterPreviewPopup.IsOpen = false;
+
+        _readerChapterPreviewTarget = target;
+        _readerChapterPreviewAbove = placeAbove;
+        ReaderChapterPreviewPopup.PlacementTarget = target;
+        ReaderChapterPreviewPopup.Placement = placeAbove
+            ? PlacementMode.Top
+            : PlacementMode.Right;
+        ReaderChapterPreviewPopup.HorizontalOffset = placeAbove ? 0 : 6;
+        ReaderChapterPreviewPopup.VerticalOffset = placeAbove ? -8 : 0;
+        ReaderChapterPreviewPopup.IsOpen = true;
     }
 
     private static void SetReaderCompactMarkerWidth(Border marker, double width)

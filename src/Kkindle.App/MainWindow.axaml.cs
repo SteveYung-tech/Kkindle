@@ -3100,7 +3100,7 @@ public partial class MainWindow : Window
     {
         if (root is Control control)
         {
-            if (ToolTip.GetTip(control) is null)
+            if (!control.Classes.Contains("noAutoToolTip") && ToolTip.GetTip(control) is null)
             {
                 var text = BuildControlToolTip(control);
                 if (!string.IsNullOrWhiteSpace(text))

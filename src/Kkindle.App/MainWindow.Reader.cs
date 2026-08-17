@@ -71,8 +71,8 @@ public partial class MainWindow
             }
 
             ReaderBookInfoText.Text = $"{card.Title} · {file.Format.ToUpperInvariant()}";
-            ReaderChapterText.Text = GetReaderChapterLabel();
-            ReaderStatusText.Text = $"共 {_readerTocItems.Count} 个章节 · 正在加载";
+            ReaderChapterText.Text = GetReaderChapterPositionLabel();
+            ReaderStatusText.Text = "正在加载…";
             ReaderRoot.IsVisible = true;
             LibraryRoot.IsVisible = false;
             WindowBrandText.IsVisible = true;
@@ -333,17 +333,13 @@ public partial class MainWindow
                 token);
             FocusCurrentReaderHost();
             PrimeReaderContinuousEdgeTracking();
-            ReaderChapterText.Text = GetReaderChapterLabel();
+            ReaderChapterText.Text = GetReaderChapterPositionLabel();
             UpdateReaderToolbar();
-            ReaderStatusText.Text = $"共 {_readerTocItems.Count} 个章节";
+            ReaderStatusText.Text = string.Empty;
             SetReaderTocSelectionForChapter(targetIndex);
             await UpdateReaderBookmarkIndicatorAsync();
             await SaveReaderProgressAsync(sessionToken);
             _ = PreloadNextReaderChapterAsync(sessionToken);
-            // Scroll mode keeps advancing across chapters that are too short to
-            // scroll (WinUI reference's SkipShortChapterIfNeededAsync).
-            if (!_readerIsPdf && _readerLayout.FlowMode == 0 && offset > 0)
-                _ = SkipShortReaderChapterIfNeededAsync(targetIndex, sessionToken);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -383,6 +379,14 @@ public partial class MainWindow
             : GetCurrentReaderTocIndex() is var tocIndex && tocIndex >= 0
                 ? $"{tocIndex + 1} / {_readerTocItems.Count} · {_readerTocItems[tocIndex].Title}"
                 : $"{_readerChapterIndex + 1} / {_readerDocument.Chapters.Count} · {GetReaderChapterDisplayName(_readerChapterIndex)}";
+
+    private string GetReaderChapterPositionLabel() => _readerIsPdf
+        ? $"{_readerPdfPage} / {Math.Max(1, _readerPdfPages.Count)}"
+        : _readerDocument is null
+            ? string.Empty
+            : GetCurrentReaderTocIndex() is var tocIndex && tocIndex >= 0
+                ? $"{tocIndex + 1} / {_readerTocItems.Count}"
+                : $"{_readerChapterIndex + 1} / {_readerDocument.Chapters.Count}";
 
     private async Task MoveReaderFooterTocAsync(int direction)
     {
@@ -515,7 +519,7 @@ public partial class MainWindow
         }
         ReaderStatusText.Text = _readerIsPdf
             ? $"PDF · {_readerPdfPages.Count} 页"
-            : $"共 {_readerTocItems.Count} 个章节";
+            : string.Empty;
     }
 
     private void ReaderHost_WebMessageReceived(
@@ -567,7 +571,9 @@ public partial class MainWindow
         _readerBookmarkIndicatorSequence++;
         ReaderBookmarkCornerMarker.IsVisible = false;
         ReaderTocCompactPanel.IsVisible = false;
-        ReaderTocCompactHoverLabel.IsVisible = false;
+        _readerSliderDragging = false;
+        _readerSliderPreviewVisible = false;
+        ReaderChapterPreviewPopup.IsOpen = false;
         ClearReaderCompactNavigationItems();
         ReaderAssistantPanel.IsVisible = false;
         ReaderRoot.ColumnDefinitions[2].Width = new GridLength(0);

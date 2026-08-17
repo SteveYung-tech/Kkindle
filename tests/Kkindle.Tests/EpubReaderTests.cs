@@ -310,6 +310,10 @@ public sealed class EpubReaderTests
             Assert.Contains("nativeContinuousScroll", bridge, StringComparison.Ordinal);
             Assert.Contains("if (nativeContinuousScroll) return", bridge, StringComparison.Ordinal);
             Assert.Contains("type: 'continuousEdge'", bridge, StringComparison.Ordinal);
+            Assert.Contains("continuousWheelGestureGap", bridge, StringComparison.Ordinal);
+            Assert.Contains("if (startsNewGesture)", bridge, StringComparison.Ordinal);
+            Assert.Contains("getContinuousScrollMetrics", bridge, StringComparison.Ordinal);
+            Assert.Contains("body?.scrollHeight", bridge, StringComparison.Ordinal);
             Assert.Contains("position + viewport >= extent - 4", bridge, StringComparison.Ordinal);
             Assert.Contains("../images/ok.jpg", html, StringComparison.Ordinal);
             Assert.Contains("class=\"kkindle-footnote-marker\">注</sup>", html, StringComparison.Ordinal);

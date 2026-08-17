@@ -8,15 +8,15 @@
 
 > 迁移基线（2026-08-15）：Avalonia 阶段 2 至阶段 7 均已完成并合入 `master`，包括三端平台层/启动头、Calibre 去捆绑、发布体系和窗口关闭默认退书架。WinUI 版本继续保留作迁移参照。
 >
-> 当前 Kreader 状态（2026-08-17）：已修正 Windows 右边框、目录/书签面板与页内书签角标、单页/双页/双栏/滚动模式键鼠导航、目录子章节切换、章节标题首行定位、EPUB 进度恢复与目录提取。快速连续按键现统一进入只保留最新方向的非递归串行消费者，避免 WebView 章节加载、动画和取消令牌重入导致卡死崩溃。尚待用户进行真实书籍的高频键盘压力测试，以及 Linux/macOS 真实桌面与真实 Kindle 验收。
+> 当前 Kreader 状态（2026-08-17）：已修正 Windows 右边框、白底书签页与页内书签角标、完整/极简目录及子章节、单页/双栏/滚动模式键鼠导航、章节标题首行定位、EPUB 进度恢复与目录提取。极简目录和底部圆形进度点共用原生章节浮窗；滚动模式使用真实 DOM 最大内容高度判定边缘，同一连续滚轮手势只滚到边缘，停顿后再次滚动才切章。快速连续按键统一进入只保留最新方向的非递归串行消费者，避免 WebView 章节加载、动画和取消令牌重入导致卡死崩溃。尚待 Linux/macOS 真实桌面与真实 Kindle 验收。
 
 ## 0. 当前状态
 
 - 基线功能（WinUI 参考版）：P0/P1/P2、本地书库、Kreader 阅读器、阅读资料中心、Kindle 设备管理（USB/WPD/MTP）、格式转换、Z-Library、Kindle 邮件、备份/设置、AI 助手、安装包与 GitHub 自动发版均已实现并验证；Avalonia 当前版已完成阶段 2/3 与阶段 4 全量移植，但不能据此视为已与 WinUI 全部等价，具体对等状态见第 10.8 节。
-- 分支为 `master`，远端为 `git@github.com:kingstacker/Kkindle.git`；2026-08-17 本次交接更新包含 Kreader 边框、书签、目录/子章节、阅读导航和快速按键稳定性修复。`v0.5.2`（`5daf140`）仍是最新正式标签；本次工作提交源码并生成本地调试 EXE，不创建版本标签或 GitHub Release。
+- 分支为 `master`，远端为 `git@github.com:kingstacker/Kkindle.git`；2026-08-17 本次交接更新包含 Kreader 边框、书签、目录/子章节浮窗、阅读导航、滚轮边缘判定、快速按键稳定性和临时状态自动清理。`v0.5.2`（`5daf140`）仍是最新正式标签；本次工作提交源码并生成本地调试 EXE，不创建版本标签或 GitHub Release。
 - 最新版本：0.5.2（标签 `v0.5.2`）；在 0.5.1 基础上新增全应用滚动条自动隐藏，滚动或悬停时显示，空闲后淡出；补齐 Popup、折叠面板、ContentDialog 和延迟生成模板的挂载，并隔离嵌套 ScrollViewer 的滚动条归属。
 - 测试：Debug 2026-08-17 共 **224 项**，分布在三个项目：`Kkindle.Tests` 190 项（`net8.0`）+ `Kkindle.Tests.Windows` 28 项（`net8.0-windows`）+ `Kkindle.Platform.Common.Tests` 6 项（`net8.0`）。平台公共测试必须按临时挂载根匹配测试设备，不能假设机器上没有真实 Kindle。
-- 当前 Avalonia Windows 单文件调试 EXE：`artifacts\Kkindle-debug-win-x64-latest\Kkindle.exe`，2026-08-17 构建为自包含 win-x64 单文件（202,432,762 字节，SHA-256 `8C2ED545F7222EC1B9120B56B4853E54BB8F478A38D91705DB231B6E19C78ECD`）；已完成 6 秒启动存活和无新增崩溃日志检查，但真实书籍高频键盘操作由用户验收。
+- 当前 Avalonia Windows 单文件调试 EXE：`artifacts\Kkindle-debug-win-x64-latest\Kkindle.exe`，2026-08-17 构建为自包含 win-x64 单文件（202,572,026 字节，SHA-256 `FD7B080A293E9B32A9AF8B851DBB9357903F13349DBE80AE4651D167E6C1E732`）；已完成 224 项测试、启动存活、真实 WebView2 滚轮边缘切章和阅读模式临时状态自动消失验证。
 - 本地旧版完整测试包（2026-08-12 19:36，版本 `0.5.0-test.1`，由 `685ab20` 发布；该历史包曾内置 Calibre 与 KFX Input，新发布策略已禁止捆绑 Calibre）：
   - exe：`artifacts\Kkindle-0.5.0-test.1\Kkindle-0.5.0-test.1-win-x64\Kkindle.exe`
   - 便携包：`artifacts\Kkindle-0.5.0-test.1\Kkindle-0.5.0-test.1-win-x64-portable.zip`
@@ -84,8 +84,8 @@ Kkindle/
 - **窗口关闭默认先退书架**：阅读中点击标题栏 X（或 Alt+F4 等平台关闭请求）只关闭 Kreader、回到主界面，再次点击才退出应用；阅读器内「返回书架」与禅模式 × 行为一致。Avalonia（`MainWindow_Closing` + `CloseWindowButton_Click`）与 WinUI 参照版（`AppWindow_Closing` + `CloseWindowButton_Click`）已同步实现。
 - 目录/子章节 fragment 跳转顶格、章节首行归一化、分页列边界吸附（详见第 4 节约束）。
 - EPUB3 `nav`、EPUB2 OPF `guide` 与 NCX 目录按可靠性提取；错误 NCX 可由书内目录页回退。目录项、底部章节按钮和进度滑块统一使用语义目录（含同 XHTML 内 fragment 子章节），当前正文会选中对应目录项；已有阅读进度恢复到保存位置，无进度书籍从封面开始。
-- 单页 EPUB：上/下键切换上/下语义章节（支持子章节），左/右键切换上/下物理页；双页/双栏和 PDF 的方向键按页切换；滚动模式左/右键切章节，上/下键滚动，并在滚动边缘自动接上/下章。章节跳转把章节名定位为正文第一行。
-- 页内书签入口位于正文右上角热区，当前页有书签时显示嵌入右上角的黑色三角；左侧目录页可覆盖切换到书签详情。底部进度滑块为固定 `12×12` 圆形 thumb。
+- 单页与双栏 EPUB：上/下键切换上/下语义章节（支持子章节），左/右键切换上/下物理页；PDF 的方向键按页切换；滚动模式左/右键切章节，上/下键滚动。同一连续滚轮手势只滚到章节边缘，停顿后再次滚动才接上/下章。章节跳转把章节名定位为正文第一行。
+- 页内书签入口位于正文右上角热区，当前页有书签时显示嵌入右上角的黑色三角；左侧目录页可覆盖切换到纯白背景的书签详情，不显示章节总数。极简目录选中/悬停项及底部固定 `12×12` 圆形进度 thumb 共用原生章节浮窗，鼠标离开即关闭；章节位置只显示在右下角。单页/双栏/滚动模式切换状态显示 2.5 秒后自动清空。
 - 所有键盘翻页/切章均经 `_readerPageTurnGate` 和 `_readerPendingKeyboardNavigation`：只保留最新方向、非递归串行消费。禁止从 WebView `key` 消息或 Avalonia 焦点回退路径直接调用 `MoveReaderChapterAsync`，否则快速按键会重新引入并发导航。
 - Kreader 全书搜索结果使用右侧固定槽位中的原生浅灰滚动条，保留上下三角按钮和可拖动滑块；滚动/悬停显示、闲置隐藏，不显示滑轨线。搜索框与结果内容左边距对齐，结果列表仍扩到目录栏边缘以固定原生滚动条位置；每个词条矩形右侧内缩 `14` DIP，与上方搜索框右边界对齐，搜索结果项自身不再显示全局 `ListViewItem` 的额外外框，避免右侧出现多余矩形；滚动条只位于搜索结果区，不影响底部“返回书架”矩形。搜索框文字垂直居中，词条矩形使用更细的 `0.5` DIP 边框。左侧底部按钮铺满整块底栏、与右侧底栏同高，外框采用与右侧底栏一致的 `#E2E2DE` 浅灰线。
 
@@ -137,7 +137,7 @@ Kkindle/
 14. **Calibre 定位与安装**：所有 Calibre 可执行文件路径一律经 `CalibreExecutableLocator`（`DesktopOperatingSystem` 分支，`ebook-convert` 无 `.exe` 后缀）；不要恢复发布包捆绑 Calibre/KFX Input 的逻辑，也不要写死 `.exe` 路径。KFX 插件若由 Kkindle 安装才启用独立 `CALIBRE_CONFIG_DIRECTORY`，否则直接使用用户 Calibre 配置。
 15. **Linux WebView 引擎适配**：`NativeWebViewReaderHost.View_EnvironmentRequested` 在 Linux 上先探测 `libWPEWebKit-2.0.so.1`，能加载则保持 WPE 适配器，否则 `PreferWebKitGtkInstead` 切到 WebKitGTK 4.1（.deb 已依赖 `libwebkit2gtk-4.1-0`）。阅读器引擎差异（字体注入、PDF、滚轮等）需在真实 Linux/macOS 桌面人工复核。
 16. **数据/配置目录分离**：`AppRootConfiguration.ResolveRoot(configurationDirectory, fallbackRoot)` 的配置目录与数据目录分离（Windows 均为 exe 旁；Linux 配置 `$XDG_CONFIG_HOME/Kkindle`、数据 `$XDG_DATA_HOME/Kkindle`；macOS 均为 `~/Library/Application Support/Kkindle`）。平台头通过 `AppServices.Paths`/`RootConfigurationDirectory` 注入，`App.axaml.cs` 优先使用注入值。
-17. **快速输入与导航重入**：正文按键、分页点击和分页滚轮共享 `TurnReaderPageAsync` 的单消费者；待处理状态是有界的“最新一次导航”，消费者释放 gate 后以循环处理收尾竞态，禁止递归重新进入。滚动模式左右键和窗口焦点回退也必须走该入口。关闭/重新打开阅读器时清空 pending；跨文档加载仍由 session/navigation cancellation token 终止旧请求。
+17. **快速输入与导航重入**：正文按键、分页点击和分页滚轮共享 `TurnReaderPageAsync` 的单消费者；待处理状态是有界的“最新一次导航”，消费者释放 gate 后以循环处理收尾竞态，禁止递归重新进入。滚动模式左右键和窗口焦点回退也必须走该入口。关闭/重新打开阅读器时清空 pending；跨文档加载仍由 session/navigation cancellation token 终止旧请求。滚动边缘必须通过 `getContinuousScrollMetrics` 同时比较 `window`、`html`、`body` 的最大内容尺寸，不能退回仅使用 `document.scrollingElement`，否则长章节开头会被误判为底部并直接跳章。
 
 ## 5. 主要数据表
 
