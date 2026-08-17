@@ -241,7 +241,7 @@ public partial class MainWindow
 
             ReaderBookInfoText.Text = $"{card.Title} · PDF";
             ReaderChapterText.Text = GetReaderChapterPositionLabel();
-            ReaderStatusText.Text = $"PDF · {pages.Count} 页 · 正在加载";
+            ReaderStatusText.Text = $"PDF · {pages.Count} 页";
             ReaderRoot.IsVisible = true;
             LibraryRoot.IsVisible = false;
             WindowBrandText.IsVisible = true;
@@ -489,8 +489,7 @@ public partial class MainWindow
             : location?.Fragment ?? _readerCurrentFragment;
         var quote = _readerIsPdf
             ? $"PDF 第 {_readerPdfPage} 页"
-            : await CaptureCurrentReaderSelectionTextAsync()
-              ?? await CaptureCurrentSectionQuoteAsync();
+            : await CaptureCurrentPageQuoteAsync();
         var currentPosition = location?.ScrollPosition;
         var currentFlowMode = location?.FlowMode ?? _readerLayout.FlowMode;
         var existing = ReaderBookmarks.FirstOrDefault(bookmark =>
@@ -541,23 +540,7 @@ public partial class MainWindow
         await UpdateReaderBookmarkIndicatorAsync();
     }
 
-    private async Task<string?> CaptureCurrentReaderSelectionTextAsync()
-    {
-        if (_readerIsPdf || CurrentReaderHost is not { } host) return null;
-        try
-        {
-            var result = await host.InvokeScriptAsync(
-                "(() => { const selection = window.getSelection?.(); return selection && !selection.isCollapsed ? selection.toString().trim() : ''; })();");
-            var text = DecodeReaderScriptString(result)?.Trim() ?? string.Empty;
-            return string.IsNullOrWhiteSpace(text) ? null : text;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private async Task<string?> CaptureCurrentSectionQuoteAsync()
+    private async Task<string?> CaptureCurrentPageQuoteAsync()
     {
         if (CurrentReaderHost is not { } host) return null;
         try
@@ -567,47 +550,122 @@ public partial class MainWindow
                 (() => {
                   const body = document.body;
                   if (!body) return '';
-                  const isReaderOverlay = node => !!node && (
-                    node.id === 'kkindle-selection-bar'
-                    || node.classList?.contains('kkindle-wave-sweep'));
-                  const cleanBodyText = () => {
-                    const clone = body.cloneNode(true);
-                    clone.querySelectorAll?.('#kkindle-selection-bar, .kkindle-wave-sweep')
-                      .forEach(node => node.remove());
-                    return clone.innerText || clone.textContent || '';
+                  const viewportWidth = window.visualViewport?.width
+                    || window.innerWidth
+                    || document.documentElement.clientWidth;
+                  const viewportHeight = window.visualViewport?.height
+                    || window.innerHeight
+                    || document.documentElement.clientHeight;
+                  const vertical = (getComputedStyle(body).writingMode || '').startsWith('vertical');
+                  const twoPage = window.__kkindleReaderFlowMode === 1
+                    && window.__kkindleReaderTwoPage === true;
+                  const ignoredSelector = [
+                    'script', 'style', 'noscript',
+                    '#kkindle-selection-bar', '#kkindle-bookmark-corner',
+                    '#kk-slide', '#kk-wave', '.kkindle-wave-sweep'
+                  ].join(',');
+                  const intersectsViewport = rect => rect
+                    && rect.width > 0
+                    && rect.height > 0
+                    && (rect.left + rect.right) / 2 >= 0
+                    && (rect.left + rect.right) / 2 <= viewportWidth
+                    && (rect.top + rect.bottom) / 2 >= 0
+                    && (rect.top + rect.bottom) / 2 <= viewportHeight;
+                  const caretAt = (x, y) => {
+                    if (typeof document.caretRangeFromPoint === 'function') {
+                      const range = document.caretRangeFromPoint(x, y);
+                      if (range) return { node: range.startContainer, offset: range.startOffset };
+                    }
+                    if (typeof document.caretPositionFromPoint === 'function') {
+                      const position = document.caretPositionFromPoint(x, y);
+                      if (position) return { node: position.offsetNode, offset: position.offset };
+                    }
+                    return null;
                   };
+                  const visibleGlyphRect = (node, offset, rect) => {
+                    if (!intersectsViewport(rect)) return false;
+                    const caret = caretAt(
+                      (rect.left + rect.right) / 2,
+                      (rect.top + rect.bottom) / 2);
+                    return caret?.node === node && Math.abs(caret.offset - offset) <= 1;
+                  };
+                  const glyphs = [];
+                  let domOrder = 0;
+                  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+                  while (walker.nextNode()) {
+                    const node = walker.currentNode;
+                    const parent = node.parentElement;
+                    const value = node.data || '';
+                    if (!parent || !value.trim() || parent.closest?.(ignoredSelector)) continue;
 
-                  let fragment = location.hash ? location.hash.slice(1) : '';
-                  try { fragment = decodeURIComponent(fragment); } catch { }
+                    const nodeRange = document.createRange();
+                    nodeRange.selectNodeContents(node);
+                    if (!Array.from(nodeRange.getClientRects()).some(intersectsViewport)) continue;
 
-                  const anchor = fragment ? document.getElementById(fragment) : null;
-                  const start = anchor?.closest('h1, h2, h3, h4, h5, h6')
-                    ?? anchor
-                    ?? Array.from(body.children).find(node => !isReaderOverlay(node));
-                  if (!start) return cleanBodyText();
-
-                  const startHeading = /^H([1-6])$/i.exec(start.tagName);
-                  const startLevel = startHeading ? Number(startHeading[1]) : 0;
-                  const pieces = [];
-                  let current = start;
-                  while (current) {
-                    if (isReaderOverlay(current)) {
-                      current = current.nextElementSibling;
-                      continue;
+                    const characterRange = document.createRange();
+                    for (let offset = 0; offset < value.length; offset++) {
+                      characterRange.setStart(node, offset);
+                      characterRange.setEnd(node, offset + 1);
+                      const rect = Array.from(characterRange.getClientRects())
+                        .find(candidate => visibleGlyphRect(node, offset, candidate));
+                      if (!rect) continue;
+                      glyphs.push({
+                        value: value[offset],
+                        left: rect.left,
+                        right: rect.right,
+                        top: rect.top,
+                        bottom: rect.bottom,
+                        domOrder: domOrder++
+                      });
                     }
-                    if (current !== start) {
-                      const heading = /^H([1-6])$/i.exec(current.tagName);
-                      if (heading && (startLevel === 0 || Number(heading[1]) <= startLevel)) break;
-                    }
-                    const value = (current.innerText || '').trim();
-                    if (value) pieces.push(value);
-                    current = current.nextElementSibling;
                   }
-                  return pieces.join('\n\n') || start.innerText || cleanBodyText();
+
+                  if (!glyphs.length) return '';
+                  const pages = new Map();
+                  for (const glyph of glyphs) {
+                    const center = (glyph.left + glyph.right) / 2;
+                    const page = twoPage ? (center < viewportWidth / 2 ? 0 : 1) : 0;
+                    if (!pages.has(page)) pages.set(page, []);
+                    pages.get(page).push(glyph);
+                  }
+
+                  const pageNumbers = Array.from(pages.keys()).sort((a, b) => a - b);
+                  const visualLines = [];
+                  for (const pageNumber of pageNumbers) {
+                    const pageGlyphs = pages.get(pageNumber);
+                    pageGlyphs.sort(vertical
+                      ? (a, b) => b.right - a.right || a.top - b.top || a.domOrder - b.domOrder
+                      : (a, b) => a.top - b.top || a.left - b.left || a.domOrder - b.domOrder);
+                    const lines = [];
+                    for (const glyph of pageGlyphs) {
+                      const start = vertical ? glyph.left : glyph.top;
+                      const end = vertical ? glyph.right : glyph.bottom;
+                      const line = lines.find(candidate =>
+                        Math.min(candidate.end, end) >= Math.max(candidate.start, start) - 1);
+                      if (line) {
+                        line.glyphs.push(glyph);
+                        line.start = Math.min(line.start, start);
+                        line.end = Math.max(line.end, end);
+                      } else {
+                        lines.push({ start, end, glyphs: [glyph] });
+                      }
+                    }
+                    lines.sort(vertical
+                      ? (a, b) => b.end - a.end
+                      : (a, b) => a.start - b.start);
+                    for (const line of lines) {
+                      line.glyphs.sort(vertical
+                        ? (a, b) => a.top - b.top || a.domOrder - b.domOrder
+                        : (a, b) => a.left - b.left || a.domOrder - b.domOrder);
+                      const text = line.glyphs.map(glyph => glyph.value).join('').trim();
+                      if (text) visualLines.push(text);
+                    }
+                  }
+                  return visualLines.slice(0, 3).join('\n');
                 })();
                 """);
             var normalized = NormalizeReaderBookmarkQuote(DecodeReaderScriptString(result));
-            return normalized.Length <= 40 ? normalized : normalized[..40];
+            return normalized.Length <= 72 ? normalized : normalized[..72];
         }
         catch
         {
@@ -1006,7 +1064,8 @@ public partial class MainWindow
                     _readerBookCard.Book.Id,
                     query,
                     int.MaxValue,
-                    ReaderToken);
+                    ReaderToken,
+                    exactPhraseOnly: true);
                 // The same visible excerpt can come from duplicate EPUB spine
                 // entries or legacy chunks with different paths/offsets. At this
                 // final presentation boundary, identical title + snippet means an

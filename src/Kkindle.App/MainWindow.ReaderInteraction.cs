@@ -764,7 +764,7 @@ public partial class MainWindow
         var host = HiddenReaderHost ?? CurrentReaderHost;
         try
         {
-            ReaderStatusText.Text = $"正在打开“{item.Title}”…";
+            ReaderStatusText.Text = string.Empty;
             var loaded = await NavigateReaderHostAndWaitAsync(host, target, navigationToken);
             if (!loaded) throw new InvalidOperationException("章节加载失败。");
 
@@ -2318,6 +2318,7 @@ public partial class MainWindow
                 _selectedReaderAnnotation = null;
                 ReaderDeleteAnnotationButton.IsEnabled = false;
                 ReaderAnnotationNoteBox.Text = string.Empty;
+                if (_readerZenMode) ExitReaderZenMode();
                 ShowReaderNotesTab();
                 ReaderAnnotationNoteBox.Focus();
                 break;
@@ -3233,7 +3234,11 @@ public partial class MainWindow
 
     private void ReaderAnnotateButton_Click(object? sender, RoutedEventArgs e)
     {
+        if (_readerZenMode) ExitReaderZenMode();
         ShowReaderNotesTab();
+        _selectedReaderAnnotation = null;
+        ReaderDeleteAnnotationButton.IsEnabled = false;
+        ReaderAnnotationNoteBox.Text = string.Empty;
         ReaderAnnotationNoteBox.Focus();
     }
 

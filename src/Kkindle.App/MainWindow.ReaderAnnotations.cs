@@ -88,6 +88,7 @@ public partial class MainWindow
         try
         {
             await _readerData.SaveAnnotationAsync(annotation, ReaderToken);
+            MarkReadingMaterialsDirty();
             await RefreshReaderAnnotationsAsync(ReaderToken);
             _selectedReaderAnnotation = ReaderAnnotations.FirstOrDefault(item => item.Id == annotation.Id);
             if (!_readerIsPdf && CurrentReaderHost is { } host)
@@ -182,6 +183,7 @@ public partial class MainWindow
         try
         {
             await _readerData.DeleteAnnotationAsync(_selectedReaderAnnotation.Id, ReaderToken);
+            MarkReadingMaterialsDirty();
             _selectedReaderAnnotation = null;
             await RefreshReaderAnnotationsAsync(ReaderToken);
             if (!_readerIsPdf && CurrentReaderHost is { } host)

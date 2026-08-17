@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -20,7 +21,7 @@ public sealed class EpubReaderPreparationService
     private const string ExtractionReadyFileName = ".kkindle-extracted";
     // Bump whenever sanitization or the injected bridge changes. Existing
     // reader caches otherwise keep the old JavaScript indefinitely.
-    private const string ExtractionFormatVersion = "16";
+    private const string ExtractionFormatVersion = "17";
     private const string ReaderBridgeFileName = ".kkindle-reader-bridge.js";
     private const string ContentSecurityPolicyBase =
         "default-src 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; " +
@@ -189,6 +190,7 @@ public sealed class EpubReaderPreparationService
                 }
                 #kkindle-selection-bar {
                   position: fixed; display: none; z-index: 2147483647;
+                  align-items: center;
                   background: #FFFFFF; border: 1px solid #000000;
                   padding: 3px; white-space: nowrap;
                   font-size: 0;
@@ -197,17 +199,18 @@ public sealed class EpubReaderPreparationService
                 #kkindle-selection-bar button {
                   background: #FFFFFF; color: #000000; border: 0; outline: 0;
                   min-width: 52px; height: 30px; padding: 3px 8px;
-                  font-size: 12px; line-height: 1;
+                  display: inline-flex; align-items: center; justify-content: center;
+                  font-size: 12px; line-height: normal;
                   font-family: inherit; cursor: pointer; border-radius: 0;
                 }
                 #kkindle-selection-bar button:hover { background: #F2F2F2; color: #000000; }
                 #kkindle-selection-bar button:active { background: #D9D9D9; color: #000000; }
                 #kkindle-selection-bar .kk-sel-sep {
-                  display: inline-block; width: 1px; height: 18px;
-                  background: #D5D5D1; vertical-align: middle; margin: 0 2px;
+                  display: block; flex: 0 0 1px; width: 1px; height: 18px;
+                  background: #D5D5D1; margin: 0 2px;
                 }
                 #kkindle-selection-bar .kk-sel-highlight-wrap {
-                  position: relative; display: inline-block; vertical-align: middle;
+                  position: relative; display: inline-flex; align-items: center;
                 }
                 #kkindle-selection-bar .kk-sel-styles {
                   position: absolute; top: calc(100% + 4px); left: 0; display: none;
@@ -313,7 +316,7 @@ public sealed class EpubReaderPreparationService
             if (!selectionBar) return;
             const vw = viewportWidth || window.innerWidth || document.documentElement.clientWidth || 0;
             const vh = viewportHeight || window.innerHeight || document.documentElement.clientHeight || 0;
-            selectionBar.style.display = 'block';
+            selectionBar.style.display = 'flex';
             const barWidth = selectionBar.offsetWidth || 0;
             const barHeight = selectionBar.offsetHeight || 0;
             const left = Math.min(Math.max(8, x - barWidth / 2), Math.max(8, vw - barWidth - 8));
@@ -626,6 +629,9 @@ public sealed class EpubReaderPreparationService
     private static readonly Regex CssImportPattern = new(
         "@import\\s+[^;]+;?",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex HtmlNamedEntityPattern = new(
+        "&[A-Za-z][A-Za-z0-9]+;",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private readonly AppPaths _paths;
 
     public EpubReaderPreparationService(AppPaths paths)
@@ -982,19 +988,50 @@ public sealed class EpubReaderPreparationService
 
     private static async Task<XDocument> LoadXmlAsync(string path, CancellationToken cancellationToken)
     {
-        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
-        var settings = new XmlReaderSettings
+        try
         {
-            Async = true,
-            // Standard EPUB XHTML commonly carries a DOCTYPE. Ignore it
-            // without resolving entities; the null resolver keeps external
-            // DTDs and entities out of the reader process.
-            DtdProcessing = DtdProcessing.Ignore,
-            XmlResolver = null
-        };
-        using var reader = XmlReader.Create(stream, settings);
-        return await XDocument.LoadAsync(reader, LoadOptions.PreserveWhitespace, cancellationToken);
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
+            using var reader = XmlReader.Create(stream, CreateSecureXmlReaderSettings());
+            return await XDocument.LoadAsync(reader, LoadOptions.PreserveWhitespace, cancellationToken);
+        }
+        catch (XmlException)
+        {
+            // A number of EPUB 2 generators emit HTML entities such as
+            // &nbsp; while declaring XHTML. External DTD resolution stays
+            // disabled; decode only entities known by the platform and retry.
+            var xml = await File.ReadAllTextAsync(path, cancellationToken);
+            var normalized = HtmlNamedEntityPattern.Replace(xml, match =>
+            {
+                var entityName = match.Value.AsSpan(1, match.Value.Length - 2);
+                if (entityName.Equals("amp", StringComparison.Ordinal)
+                    || entityName.Equals("lt", StringComparison.Ordinal)
+                    || entityName.Equals("gt", StringComparison.Ordinal)
+                    || entityName.Equals("quot", StringComparison.Ordinal)
+                    || entityName.Equals("apos", StringComparison.Ordinal))
+                    return match.Value;
+
+                var decoded = WebUtility.HtmlDecode(match.Value);
+                return string.Equals(decoded, match.Value, StringComparison.Ordinal)
+                    ? match.Value
+                    : decoded;
+            });
+            if (string.Equals(xml, normalized, StringComparison.Ordinal)) throw;
+
+            using var textReader = new StringReader(normalized);
+            using var reader = XmlReader.Create(textReader, CreateSecureXmlReaderSettings());
+            return await XDocument.LoadAsync(reader, LoadOptions.PreserveWhitespace, cancellationToken);
+        }
     }
+
+    private static XmlReaderSettings CreateSecureXmlReaderSettings() => new()
+    {
+        Async = true,
+        // Standard EPUB XHTML commonly carries a DOCTYPE. Ignore it
+        // without resolving entities; the null resolver keeps external
+        // DTDs and entities out of the reader process.
+        DtdProcessing = DtdProcessing.Ignore,
+        XmlResolver = null
+    };
 
     private static async Task<bool> IsExtractionReadyAsync(
         string markerPath,

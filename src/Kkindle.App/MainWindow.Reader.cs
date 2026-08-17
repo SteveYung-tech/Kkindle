@@ -72,7 +72,7 @@ public partial class MainWindow
 
             ReaderBookInfoText.Text = $"{card.Title} · {file.Format.ToUpperInvariant()}";
             ReaderChapterText.Text = GetReaderChapterPositionLabel();
-            ReaderStatusText.Text = "正在加载…";
+            ReaderStatusText.Text = string.Empty;
             ReaderRoot.IsVisible = true;
             LibraryRoot.IsVisible = false;
             WindowBrandText.IsVisible = true;
@@ -119,6 +119,7 @@ public partial class MainWindow
         {
             await CloseReaderAsync();
             SetTaskStatus($"打开 EPUB 阅读器失败：{exception.Message}");
+            await ShowMessageAsync("无法打开书籍", exception.Message);
         }
     }
 
@@ -304,7 +305,7 @@ public partial class MainWindow
         var host = HiddenReaderHost ?? CurrentReaderHost;
         try
         {
-            ReaderStatusText.Text = $"正在加载第 {targetIndex + 1} 章…";
+            ReaderStatusText.Text = string.Empty;
             var loaded = await NavigateReaderHostAndWaitAsync(host, target, token);
             if (!loaded) throw new InvalidOperationException("章节加载失败。");
 
@@ -607,6 +608,7 @@ public partial class MainWindow
         _readerPendingSelectionEndOffset = 0;
         _readerPendingSelectionPrefix = string.Empty;
         _readerPendingSelectionSuffix = string.Empty;
+        await RefreshReadingMaterialsIfDirtyAsync();
         _readerDocument = null;
         _readerBookCard = null;
         _readerBookFile = null;

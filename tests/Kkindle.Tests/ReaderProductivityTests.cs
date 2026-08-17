@@ -301,6 +301,39 @@ public sealed class ReaderProductivityTests
     }
 
     [Fact]
+    public async Task WholeBookExactSearchRejectsPartialChineseNgramMatches()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var service = new ReaderDataService(new AppPaths(Path.Combine(root, "app")));
+            await service.InitializeAsync();
+            var bookId = Guid.NewGuid();
+            var fileId = Guid.NewGuid();
+
+            await service.ReplaceBookChunksAsync(bookId, fileId, new string('c', 64),
+            [
+                new BookContentChunkDraft(0, 0, "第一章", "text/one.xhtml", 0, 80,
+                    "系统的变化可以解释。这在数量上是通过代谢率体现的。"),
+                new BookContentChunkDraft(1, 0, "第二章", "text/two.xhtml", 0, 80,
+                    "曲线显示时间加速现象，研究指出数量上存在明显差异。")
+            ]);
+
+            var broad = await service.SearchBookAsync(bookId, "这在数量上是通过", int.MaxValue);
+            var exact = await service.SearchBookAsync(
+                bookId,
+                "这在数量上是通过",
+                int.MaxValue,
+                exactPhraseOnly: true);
+
+            Assert.Equal(2, broad.Count);
+            var result = Assert.Single(exact);
+            Assert.Equal("text/one.xhtml", result.ChapterPath);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
     public async Task SearchBookMergesDifferentHitsFromOverlappingPartsOfOneParagraph()
     {
         var root = TestHelpers.CreateTempDirectory();

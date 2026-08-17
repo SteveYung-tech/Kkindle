@@ -139,6 +139,11 @@ public partial class MainWindow
 
     private void ShowReaderNotesTab()
     {
+        if (!_readerZenMode)
+        {
+            ReaderAssistantPanel.IsVisible = true;
+            ReaderRoot.ColumnDefinitions[2].Width = new GridLength(360);
+        }
         ReaderAiView.IsVisible = false;
         ReaderNotesView.IsVisible = true;
         ReaderAiComposer.IsVisible = false;

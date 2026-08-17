@@ -43,6 +43,8 @@ public partial class MainWindow : Window
     private int _detailPaneAnimationVersion;
     private double _authorPopupWidth = double.NaN;
     private DispatcherTimer? _dropOverlayHideTimer;
+    private DispatcherTimer? _bookDetailClickTimer;
+    private BookCardViewModel? _pendingBookDetailCard;
     private CancellationTokenSource? _detailPaneAnimationCancellation;
 
     private readonly AppPaths _paths;
@@ -264,7 +266,7 @@ public partial class MainWindow : Window
     public LibraryViewModel ViewModel { get; }
 
     public ObservableCollection<BookCollectionFolderViewModel> CollectionFolders { get; } = [];
-    public ObservableCollection<DoubanBookCandidate> DoubanCandidates { get; } = [];
+    public ObservableCollection<DoubanCandidateViewModel> DoubanCandidates { get; } = [];
 
     private enum LibraryViewMode
     {
@@ -712,6 +714,7 @@ public partial class MainWindow : Window
 
     private void ClearSelectedBook()
     {
+        CancelPendingBookDetailClick();
         _selectedCard = null;
         var token = BeginDetailPaneAnimation();
         var version = ++_detailPaneAnimationVersion;
@@ -1965,9 +1968,13 @@ public partial class MainWindow : Window
                 return;
             }
 
-            DoubanCandidates.Clear();
+            DisposeDoubanCandidates();
             foreach (var item in candidates)
-                DoubanCandidates.Add(item);
+                DoubanCandidates.Add(new DoubanCandidateViewModel(item));
+
+            TaskProgressPopupText.Text = "正在加载豆瓣候选封面…";
+            SetTaskStatus("正在加载豆瓣候选封面…");
+            await LoadDoubanCandidateCoversAsync(cancellation.Token);
 
             while (true)
             {
@@ -2051,6 +2058,7 @@ public partial class MainWindow : Window
             _doubanPreviewMetadata = null;
             _doubanSelectedCandidate = null;
             DoubanPreviewCoverImage.Source = null;
+            DisposeDoubanCandidates();
             if (ReferenceEquals(_doubanMatchCancellation, cancellation)) _doubanMatchCancellation = null;
             cancellation.Dispose();
         }
@@ -2060,7 +2068,7 @@ public partial class MainWindow : Window
     {
         DoubanPreviewOverlay.IsVisible = false;
         DoubanCandidateList.SelectedIndex = DoubanCandidates.Count > 0 ? 0 : -1;
-        SetDoubanCandidateButtonsEnabled(DoubanCandidateList.SelectedItem is DoubanBookCandidate);
+        SetDoubanCandidateButtonsEnabled(DoubanCandidateList.SelectedItem is DoubanCandidateViewModel);
         ShowOverlay(DoubanCandidateOverlay);
         _doubanCandidateCompletion?.TrySetResult(null);
         _doubanCandidateCompletion = new TaskCompletionSource<DoubanBookCandidate?>(
@@ -2076,7 +2084,9 @@ public partial class MainWindow : Window
         DoubanCandidateOverlay.IsVisible = false;
         DoubanPreviewSummaryText.Text = BuildDoubanSummary(metadata);
         DoubanPreviewStatusText.Text = "未勾选的本地字段不会被修改";
-        DoubanPreviewCoverImage.Source = null;
+        DoubanPreviewCoverImage.Source = DoubanCandidates
+            .FirstOrDefault(item => item.Candidate.SubjectId == candidate.SubjectId)
+            ?.CoverImage;
 
         DoubanUpdateTitleCheck.IsChecked = !string.IsNullOrWhiteSpace(metadata.Title);
         DoubanUpdateAuthorsCheck.IsChecked = !string.IsNullOrWhiteSpace(metadata.Authors);
@@ -2100,7 +2110,9 @@ public partial class MainWindow : Window
 
         // Candidate covers are decorative; a failure must never block the
         // metadata confirmation flow.
-        if (!string.IsNullOrWhiteSpace(candidate.CoverUrl) && _doubanMatchCancellation is { } cancellation)
+        if (DoubanPreviewCoverImage.Source is null
+            && !string.IsNullOrWhiteSpace(candidate.CoverUrl)
+            && _doubanMatchCancellation is { } cancellation)
         {
             _ = LoadDoubanPreviewCoverAsync(candidate.CoverUrl, cancellation.Token);
         }
@@ -2133,6 +2145,42 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task LoadDoubanCandidateCoversAsync(CancellationToken cancellationToken)
+    {
+        var downloads = DoubanCandidates.Select(async item =>
+        {
+            if (string.IsNullOrWhiteSpace(item.Candidate.CoverUrl))
+                return (Item: item, Bytes: (byte[]?)null);
+            try
+            {
+                var bytes = await _douban.DownloadCoverAsync(item.Candidate.CoverUrl, cancellationToken);
+                return (Item: item, Bytes: (byte[]?)bytes);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                return (Item: item, Bytes: (byte[]?)null);
+            }
+        });
+
+        var covers = await Task.WhenAll(downloads);
+        foreach (var (item, bytes) in covers)
+        {
+            if (bytes is null || bytes.Length == 0) continue;
+            await using var stream = new MemoryStream(bytes, writable: false);
+            item.CoverImage = new Bitmap(stream);
+        }
+    }
+
+    private void DisposeDoubanCandidates()
+    {
+        foreach (var item in DoubanCandidates) item.Dispose();
+        DoubanCandidates.Clear();
+    }
+
     private static string BuildDoubanSummary(DoubanBookMetadata metadata)
     {
         static string Fallback(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value.Trim();
@@ -2156,9 +2204,9 @@ public partial class MainWindow : Window
 
     private void DoubanCandidateList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (DoubanCandidateList.SelectedItem is DoubanBookCandidate candidate)
+        if (DoubanCandidateList.SelectedItem is DoubanCandidateViewModel item)
         {
-            _doubanSelectedCandidate = candidate;
+            _doubanSelectedCandidate = item.Candidate;
             SetDoubanCandidateButtonsEnabled(true);
         }
         else
@@ -2175,14 +2223,14 @@ public partial class MainWindow : Window
 
     private void DoubanCandidateList_DoubleTapped(object? sender, TappedEventArgs e)
     {
-        if (DoubanCandidateList.SelectedItem is DoubanBookCandidate)
+        if (DoubanCandidateList.SelectedItem is DoubanCandidateViewModel)
             DoubanCandidateApplyButton_Click(sender, new RoutedEventArgs());
     }
 
     private void DoubanCandidateSourceButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (DoubanCandidateList.SelectedItem is not DoubanBookCandidate candidate) return;
-        OpenDoubanUrl(candidate.Url);
+        if (DoubanCandidateList.SelectedItem is not DoubanCandidateViewModel item) return;
+        OpenDoubanUrl(item.Candidate.Url);
     }
 
     private void DoubanPreviewSourceButton_Click(object? sender, RoutedEventArgs e)
@@ -2206,7 +2254,7 @@ public partial class MainWindow : Window
 
     private void DoubanCandidateApplyButton_Click(object? sender, RoutedEventArgs e)
     {
-        var candidate = DoubanCandidateList.SelectedItem as DoubanBookCandidate;
+        var candidate = (DoubanCandidateList.SelectedItem as DoubanCandidateViewModel)?.Candidate;
         DoubanCandidateOverlay.IsVisible = false;
         _doubanCandidateCompletion?.TrySetResult(candidate);
         _doubanCandidateCompletion = null;
@@ -2619,8 +2667,13 @@ public partial class MainWindow : Window
         // 右键按下会先触发 ListBox 的原生选中（早于 ContextRequested），
         // 标记并抑制那一次 SelectionChanged 里的弹详情页。
         _suppressNextSelectionPane = pointerProperties.IsRightButtonPressed;
+        if (pointerProperties.IsRightButtonPressed)
+            CancelPendingBookDetailClick();
         if (!pointerProperties.IsLeftButtonPressed)
             return;
+
+        if (e.ClickCount >= 2 || (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Shift)) != 0)
+            CancelPendingBookDetailClick();
 
         // 记录框选起点：网格左侧没有空白（卡片从视口左缘开始），从左往右
         // 框选必须允许起点落在卡片上，拖动超过阈值后同样进入框选。
@@ -2652,7 +2705,8 @@ public partial class MainWindow : Window
             _selectedBookIds.Add(card.Book.Id);
             _selectedCard = card;
             _multiSelectAnchor = card;
-            SelectBook(card);
+            if (e.ClickCount == 1)
+                ScheduleBookDetailClick(card, e.Pointer.Type);
         }
 
         UpdateMultiSelectionUi();
@@ -2703,6 +2757,7 @@ public partial class MainWindow : Window
             var deltaY = _rubberBandCurrent.Y - _rubberBandStart.Y;
             if (Math.Max(Math.Abs(deltaX), Math.Abs(deltaY)) < RubberBandDragThreshold)
                 return;
+            CancelPendingBookDetailClick();
             _rubberBandSelecting = true;
             e.Pointer.Capture(BookGrid);
             RubberBandRectangle.IsVisible = true;
@@ -2811,15 +2866,54 @@ public partial class MainWindow : Window
         SelectBook(clicked);
     }
 
+    private void ScheduleBookDetailClick(BookCardViewModel card, PointerType pointerType)
+    {
+        CancelPendingBookDetailClick();
+        _pendingBookDetailCard = card;
+        var interval = this.GetPlatformSettings()?.GetDoubleTapTime(pointerType)
+            ?? TimeSpan.FromMilliseconds(500);
+        if (interval <= TimeSpan.Zero)
+            interval = TimeSpan.FromMilliseconds(500);
+
+        _bookDetailClickTimer = new DispatcherTimer { Interval = interval };
+        _bookDetailClickTimer.Tick += BookDetailClickTimer_Tick;
+        _bookDetailClickTimer.Start();
+    }
+
+    private void BookDetailClickTimer_Tick(object? sender, EventArgs e)
+    {
+        var card = _pendingBookDetailCard;
+        CancelPendingBookDetailClick();
+        if (card is null
+            || !LibraryRoot.IsVisible
+            || !ReferenceEquals(_selectedCard, card)
+            || !_selectedBookIds.Contains(card.Book.Id))
+            return;
+
+        SelectBook(card);
+    }
+
+    private void CancelPendingBookDetailClick()
+    {
+        if (_bookDetailClickTimer is not null)
+        {
+            _bookDetailClickTimer.Stop();
+            _bookDetailClickTimer.Tick -= BookDetailClickTimer_Tick;
+            _bookDetailClickTimer = null;
+        }
+        _pendingBookDetailCard = null;
+    }
+
     private async void BookCard_DoubleTapped(object? sender, TappedEventArgs e)
     {
         if (sender is not Control control || control.DataContext is not BookCardViewModel card) return;
+        CancelPendingBookDetailClick();
         _selectedBookIds.Clear();
         _selectedBookIds.Add(card.Book.Id);
         _selectedCard = card;
         _multiSelectAnchor = card;
         UpdateMultiSelectionUi();
-        SelectBook(card);
+        e.Handled = true;
         await OpenBookAsync(card);
     }
 

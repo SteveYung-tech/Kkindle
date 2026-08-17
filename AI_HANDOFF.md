@@ -8,15 +8,15 @@
 
 > 迁移基线（2026-08-15）：Avalonia 阶段 2 至阶段 7 均已完成并合入 `master`，包括三端平台层/启动头、Calibre 去捆绑、发布体系和窗口关闭默认退书架。WinUI 版本继续保留作迁移参照。
 >
-> 当前 Kreader 状态（2026-08-17）：已修正 Windows 右边框、白底书签页与只在当前可见页显示的书签角标、完整/极简目录及子章节、单页/双栏/滚动模式键鼠导航、章节标题首行定位、EPUB 进度恢复与目录提取。正文分页重新按 WinUI 旧版约束校准，前后翻页、首次渲染左移和章节边界已修复；左右滑动由新页从右向左覆盖旧页，水波使用当前页面快照复刻 Kindle 灰度刷新前沿（560ms）。脚注改由 WebView2 之上的原生 Popup 在脚注附近显示，清理了悬停时的本地 XHTML 地址；Windows 通过 WebView2 `ICoreWebView2Settings.IsStatusBarEnabled=false` 关闭浏览器状态栏。极简目录、禅模式按钮和章节浮窗均使用原生 Popup，已消除 HWND 覆盖造成的文字缺失与闪烁。快速输入仍由只保留最新方向的非递归串行消费者处理。尚待 Linux/macOS 真实桌面与真实 Kindle 验收。
+> 当前 Kreader 状态（2026-08-17）：已修正 Windows 右边框、白底书签页与只在当前可见页显示的书签角标、完整/极简目录及子章节、单页/双栏/滚动模式键鼠导航、章节标题首行定位、EPUB 进度恢复与目录提取。正文分页重新按 WinUI 旧版约束校准，前后翻页、首次渲染左移和章节边界已修复；左右滑动由新页从右向左覆盖旧页，水波使用当前页面快照复刻 Kindle 灰度刷新前沿（560ms）。脚注改由 WebView2 之上的原生 Popup 在脚注附近显示，清理了悬停时的本地 XHTML 地址；Windows 通过 WebView2 `ICoreWebView2Settings.IsStatusBarEnabled=false` 关闭浏览器状态栏。极简目录、禅模式按钮和章节浮窗均使用原生 Popup，已消除 HWND 覆盖造成的文字缺失与闪烁。书签标题使用所属章节，摘要通过浏览器视口坐标的 caret 命中验证排除分页离屏栏位，再按视觉顺序取当前页前三行，不再复用章节开头或选中文字。正文选区工具条使用 Flex 垂直居中；点击“批注”会直接展开右侧快捷批注页并聚焦输入框。阅读器全书搜索只展示正文或标题中真实包含完整输入短语的结果，不再把 AI 检索用的中文 n-gram 部分召回混入结果列表。Kreader 顶栏不再显示首次打开、章节跳转或 PDF 准备过程中的“正在加载/正在打开”临时文案，错误与边界反馈仍保留。EPUB 解析器会在禁用外部 DTD 的安全前提下兼容 `&nbsp;`、`&copy;` 等标准 HTML 命名实体；《策略思维》已用真实文件验证可生成 4 个正文文件和 146 个目录项，其他打开失败也会弹出明确错误。AI 对话、划线与笔记及内嵌设置页已统一为白底、文字标签与底部细分隔线的简约样式，移除空状态图标、方框快捷按钮、消息卡片和批注卡片；API Key 使用密码显示，保存作为唯一主操作。阅读资料的书籍分组收起时不再显示第一条批注预览；展开后的本地批注只显示章节、选中内容和非空批注，隐藏 XHTML 路径、偏移、类型与时间，章节标题优先从已有全文索引解析，PDF 显示页码。阅读器内保存、修改或删除批注后会标记阅读资料为待刷新；返回书架且原入口仍为“笔记与标注”时自动重载，并保留各书籍的展开/收起状态。豆瓣候选弹窗已修正错误的网格行定义，底部操作按钮不再覆盖列表；Avalonia 版补回候选视图模型与并行封面下载，候选项按封面、书籍信息和评分三列显示，单张封面失败时保留 BOOK 占位。电脑书库书卡的单击详情按平台双击阈值延迟显示，双击、右键、组合键或进入框选会取消待显示详情，快速双击直接打开书籍而不闪出详情面板。快速输入仍由只保留最新方向的非递归串行消费者处理。尚待 Linux/macOS 真实桌面与真实 Kindle 验收。
 
 ## 0. 当前状态
 
 - 基线功能（WinUI 参考版）：P0/P1/P2、本地书库、Kreader 阅读器、阅读资料中心、Kindle 设备管理（USB/WPD/MTP）、格式转换、Z-Library、Kindle 邮件、备份/设置、AI 助手、安装包与 GitHub 自动发版均已实现并验证；Avalonia 当前版已完成阶段 2/3 与阶段 4 全量移植，但不能据此视为已与 WinUI 全部等价，具体对等状态见第 10.8 节。
 - 分支为 `master`，远端为 `git@github.com:kingstacker/Kkindle.git`；2026-08-17 本次交接更新包含 Kreader 正文分页、前后翻页、书签可见页判定、脚注 Popup、禅模式原生控件、左右滑动/水波动画、WebView2 状态栏关闭，以及跨平台 CI/发布脚本更新。`v0.5.2`（`5daf140`）仍是最新正式标签；本次工作提交源码并生成本地调试 EXE，不创建版本标签或 GitHub Release。
 - 最新版本：0.5.2（标签 `v0.5.2`）；在 0.5.1 基础上新增全应用滚动条自动隐藏，滚动或悬停时显示，空闲后淡出；补齐 Popup、折叠面板、ContentDialog 和延迟生成模板的挂载，并隔离嵌套 ScrollViewer 的滚动条归属。
-- 测试：Debug 2026-08-17 共 **240 项**，分布在三个项目：`Kkindle.Tests` 206 项（`net8.0`）+ `Kkindle.Tests.Windows` 28 项（`net8.0-windows`）+ `Kkindle.Platform.Common.Tests` 6 项（`net8.0`）。平台公共测试必须按临时挂载根匹配测试设备，不能假设机器上没有真实 Kindle。
-- 当前 Avalonia Windows 单文件调试 EXE：`artifacts\Kkindle-debug.exe`，2026-08-17 构建为自包含 win-x64 单文件（202,744,633 字节，SHA-256 `494DAAE7AF9A75F7D4254EAE832E04FB245D65272C73382E93108B44E0A81B9F`）；完整 240 项测试通过，用户确认打开书籍不再闪退。该 EXE 是本地产物，不提交 Git。
+- 测试：Debug 2026-08-17 共 **242 项**，分布在三个项目：`Kkindle.Tests` 208 项（`net8.0`）+ `Kkindle.Tests.Windows` 28 项（`net8.0-windows`）+ `Kkindle.Platform.Common.Tests` 6 项（`net8.0`）。平台公共测试必须按临时挂载根匹配测试设备，不能假设机器上没有真实 Kindle。
+- 当前 Avalonia Windows 单文件调试 EXE：`artifacts\Kkindle-debug.exe`，2026-08-17 构建为自包含 win-x64 单文件（202,768,697 字节，SHA-256 `38B49B508C78A44561F5B41C92EE93F16165BE264BA21D4FDEF5FBDD4C5C821E`）；完整 242 项测试通过。该 EXE 是本地产物，不提交 Git。
 - 本地旧版完整测试包（2026-08-12 19:36，版本 `0.5.0-test.1`，由 `685ab20` 发布；该历史包曾内置 Calibre 与 KFX Input，新发布策略已禁止捆绑 Calibre）：
   - exe：`artifacts\Kkindle-0.5.0-test.1\Kkindle-0.5.0-test.1-win-x64\Kkindle.exe`
   - 便携包：`artifacts\Kkindle-0.5.0-test.1\Kkindle-0.5.0-test.1-win-x64-portable.zip`
@@ -165,7 +165,7 @@ AppSettings          应用设置；API Key 存 ai-settings.json（DPAPI / Secre
 dotnet build Kkindle.sln -c Debug -p:Platform=x64
 ```
 
-完整测试构建（Windows，240 项 = 206 可移植 + 28 Windows + 6 平台公共）：
+完整测试构建（Windows，242 项 = 208 可移植 + 28 Windows + 6 平台公共）：
 
 ```powershell
 dotnet build Kkindle.sln -c Release -p:Platform=x64
@@ -384,7 +384,7 @@ tests/Kkindle.Tests.Windows/   net8.0-windows  设备测试（WPD/MTP）
 - [x] 工具栏对齐旧版、极简目录 rail、书签角标、阅读统计、F11/Esc 禅模式、滚动接章、全书搜索计数与高亮、AI 思考深度中文标签、空心标签视觉
 - [x] 阅读器 XAML 三栏像素级重构（TOC 286 / 正文 52+50 / 助手 360）、TOC 6 行面板、标题栏品牌与 zen 按钮、过渡遮罩、Avalonia 12 兼容修复
 - [x] **功能对等缺口全量移植（22 项，见 `docs/Kreader功能对比.md`）**：PDF 徽标、分页滚轮翻页、滚动模式键盘、禅模式鼠标唤醒、键盘选区工具条、划线样式快速选择器、contextmenu 取消、PDF 真实渲染、AI 气泡 Markdown（`KreaderMarkdownTextBlock`）、正文外观覆盖 CSS、字体项与回退栈、标注重定位锚定、词典弹窗、复制清选区、Esc 层叠关闭、按钮 ToolTip、滑块拖动提示、短章节连跳、导航意图管线、波浪翻页增强、代码卫生
-- [x] 阶段 4 核心切片回归后 Debug x64 测试 192 项全通过（2026-08-17 增至 240 项）
+- [x] 阶段 4 核心切片回归后 Debug x64 测试 192 项全通过（2026-08-17 增至 242 项）
 
 遗留架构差异（有意保留，见第 7 节与 `docs/Kreader功能对比.md`）：PDF 点击左右区域翻页在 WebView 内置查看器下不存在；`IsScriptEnabled=false` 安全基线无法恢复（净化 + CSP nonce 兜底）。
 
@@ -408,7 +408,7 @@ tests/Kkindle.Tests.Windows/   net8.0-windows  设备测试（WPD/MTP）
 - [x] 三端发布脚本（`build-linux-release.sh`：.deb + tar.gz，依赖声明；`build-macos-release.sh`：.app + Info.plist + ad-hoc/Developer ID 签名 + 可选公证）+ `release.yml` 三 job 并行 + 聚合 GitHub Release + `cross-platform.yml` PR 校验（构建/测试/打包/`dpkg-deb`/`codesign`）+ `docs/cross-platform.md`。
 - [x] 阅读器收尾：EPUB 远程脚注图消毒（无源 `<img>` 替换为 `<sup class="kkindle-footnote-marker">` 或删除，`ExtractionFormatVersion` 8）、极简目录 marker 改 `RenderTransform` 平移（修复悬停波峰错位）、全书搜索结果条目新样式、筛选面板移除过渡动画（修复缩放闪烁）。
 - [x] **窗口关闭默认先退书架**：Avalonia `MainWindow_Closing`（取消关闭 + `CloseReaderAsync`）与 `CloseWindowButton_Click`；WinUI 参照版同步 `AppWindow_Closing` 与 `CloseWindowButton_Click`；阅读中关闭窗口只退主界面，主界面再次关闭才退出。
-- [x] 测试基线已在 2026-08-17 增至：`Kkindle.Tests` 206 + `Kkindle.Platform.Common.Tests` 6 + `Kkindle.Tests.Windows` 28 = 240 项 Debug。
+- [x] 测试基线已在 2026-08-17 增至：`Kkindle.Tests` 208 + `Kkindle.Platform.Common.Tests` 6 + `Kkindle.Tests.Windows` 28 = 242 项 Debug。
 
 阶段 7 待办（未完成）：三端 CI 实跑验收、真实 Linux/macOS 桌面会话与真实 Kindle 验收、macOS 公证凭据配置、像素级截图验收。
 
@@ -434,7 +434,7 @@ tests/Kkindle.Tests.Windows/   net8.0-windows  设备测试（WPD/MTP）
 ### 10.7 验证方式
 
 - 每阶段：`dotnet build Kkindle.sln -c Debug -p:Platform=x64`（约定 #12：默认只出 x64 Debug）+ 启动运行
-- 回归基线：**240 项测试**必须始终全绿（206 可移植 + 28 Windows + 6 平台公共）
+- 回归基线：**242 项测试**必须始终全绿（208 可移植 + 28 Windows + 6 平台公共）
 - 三端校验：`.github/workflows/cross-platform.yml`（PR/手动）在 ubuntu-24.04 / macos-15 上构建启动头、跑可移植与平台公共测试、打包并做 `dpkg-deb`/`codesign` 检查
 - 视觉对照：`docs\images\` 下 9 张截图即验收基线，逐屏对照
 - 阶段 4 人工验收（无法自动化，见第 7 节）：分页分区点击、滚动接章、选区工具栏、四种翻页动画观感、禅模式进出；AI/脚注/PDF 需要在对等切片后补验
@@ -450,7 +450,7 @@ tests/Kkindle.Tests.Windows/   net8.0-windows  设备测试（WPD/MTP）
 - [ ] 使用相同窗口尺寸、DPI、字体和数据集，对 `docs\images\` 基线截图逐屏截图并进行像素差异验收；当前只做过局部样式常量对照，没有完成像素级验收。
 - [x] 已补齐 AI 助手、脚注浮窗、PDF 阅读表面、四档翻页过渡、阅读模式/排版设置、分页分区点击和选区工具栏的 Avalonia 功能闭环；四档动画与旧版的视觉实现仍不是像素级等价。
 - [x] 已按 `docs/Kreader功能对比.md` 全量移植 22 项缺口（P0 PDF 徽标、P1 输入层六项、P2 渲染差异四项、P3 行为差异九项、架构两项的可行部分），详见 10.5「阶段 4 功能对等缺口全量移植」；遗留限制记录于第 7 节。
-- [x] 2026-08-17 已重新构建并运行 240 项测试（206 + 28 + 6）；Windows Avalonia 单文件 Debug EXE 已由用户确认打开书籍不再闪退。
+- [x] 2026-08-17 已重新构建并运行 242 项测试（208 + 28 + 6）；Windows Avalonia 单文件 Debug EXE 已由用户确认打开书籍不再闪退。
 - [x] 已落地并提交三端平台层/启动头/发布体系与 Calibre 去捆绑（见 10.5 阶段 7）；**窗口关闭默认先退书架**已在 Avalonia 与 WinUI 参照版同步实现。
 - [ ] 仍需用真实 EPUB/PDF、真实 Kindle（Windows + Linux/macOS）、相同 DPI 数据集完成手工功能矩阵和截图验收，之后才能把版本标记为 1:1 对等。
 

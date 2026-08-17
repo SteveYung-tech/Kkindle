@@ -1,9 +1,57 @@
 using System.Text;
+using System.ComponentModel;
+using Avalonia.Media.Imaging;
 using Avalonia.Interactivity;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 
 namespace Kkindle;
+
+public sealed class DoubanCandidateViewModel : INotifyPropertyChanged, IDisposable
+{
+    private Bitmap? _coverImage;
+
+    public DoubanCandidateViewModel(DoubanBookCandidate candidate)
+    {
+        Candidate = candidate;
+        Title = candidate.Title;
+        Abstract = string.IsNullOrWhiteSpace(candidate.Abstract)
+            ? "豆瓣未提供简要出版信息"
+            : candidate.Abstract;
+        SubjectText = candidate.SubjectId > 0
+            ? $"豆瓣条目 #{candidate.SubjectId}"
+            : "豆瓣图书条目";
+        RatingText = candidate.Rating is null
+            ? "暂无评分"
+            : $"{candidate.Rating:0.0} / {candidate.RatingCount} 人";
+    }
+
+    public DoubanBookCandidate Candidate { get; }
+    public string Title { get; }
+    public string Abstract { get; }
+    public string SubjectText { get; }
+    public string RatingText { get; }
+
+    public Bitmap? CoverImage
+    {
+        get => _coverImage;
+        set
+        {
+            if (ReferenceEquals(_coverImage, value)) return;
+            _coverImage?.Dispose();
+            _coverImage = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CoverImage)));
+        }
+    }
+
+    public void Dispose()
+    {
+        _coverImage?.Dispose();
+        _coverImage = null;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+}
 
 // One-click Douban batch matching. The per-book flow (manual candidate pick,
 // field-by-field confirmation) lives in MainWindow.axaml.cs; this partial adds

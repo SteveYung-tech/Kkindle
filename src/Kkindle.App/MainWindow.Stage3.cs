@@ -96,7 +96,10 @@ public partial class MainWindow
 
     private readonly List<Stage3ReadingMaterialViewModel> _allStage3ReadingMaterials = [];
     private readonly Dictionary<string, string> _readingMaterialCoverPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<(ReadingMaterialSource Source, string BookTitle), bool> _readingMaterialGroupStates =
+        new(new ReadingMaterialGroupKeyComparer());
     private readonly List<Stage3DashboardRecentViewModel> _readingDashboardItems = [];
+    private bool _readingMaterialsDirty;
 
     private KindleDevice? CurrentDevice => _devices.FirstOrDefault();
 
@@ -1945,6 +1948,7 @@ public partial class MainWindow
 
     private async Task RefreshReadingMaterialsAsync()
     {
+        RememberReadingMaterialGroupStates();
         _allStage3ReadingMaterials.Clear();
         ReadingMaterials.Clear();
         foreach (var group in ReadingMaterialGroups) group.Dispose();
@@ -1966,9 +1970,24 @@ public partial class MainWindow
                 if (!string.IsNullOrWhiteSpace(card.Book.CoverPath) && File.Exists(card.Book.CoverPath))
                     _readingMaterialCoverPaths[BuildReadingMaterialCoverKey(ReadingMaterialSource.Kindle, card.Title)] = card.Book.CoverPath;
             }
-            foreach (var annotation in await _readerData.GetAllAnnotationsAsync(_lifetimeCancellation.Token))
+            var annotations = await _readerData.GetAllAnnotationsAsync(_lifetimeCancellation.Token);
+            var chapterTitles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var bookId in annotations.Select(annotation => annotation.BookId).Distinct())
             {
-                var chapter = string.IsNullOrWhiteSpace(annotation.ChapterPath) ? "未指定章节" : annotation.ChapterPath;
+                foreach (var chunk in await _readerData.GetBookOverviewChunksAsync(
+                             bookId,
+                             int.MaxValue,
+                             _lifetimeCancellation.Token))
+                {
+                    if (string.IsNullOrWhiteSpace(chunk.ChapterTitle)) continue;
+                    chapterTitles.TryAdd(
+                        BuildReadingMaterialChapterKey(chunk.BookFileId, chunk.ChapterPath),
+                        chunk.ChapterTitle.Trim());
+                }
+            }
+            foreach (var annotation in annotations)
+            {
+                var chapter = ResolveReadingMaterialChapterLabel(annotation, chapterTitles);
                 _allStage3ReadingMaterials.Add(new Stage3ReadingMaterialViewModel(
                     ReadingMaterialSource.Local,
                     titles.GetValueOrDefault(annotation.BookId, "已删除的本地书籍"),
@@ -2007,6 +2026,7 @@ public partial class MainWindow
             }
 
             ApplyReadingMaterialsFilter();
+            _readingMaterialsDirty = false;
             var kindleCount = _allStage3ReadingMaterials.Count(item => item.Source == ReadingMaterialSource.Kindle);
             ReadingMaterialsStatusText.Text = _readingMaterialsExportMode
                 ? $"导出预览已准备 · Kindle {kindleCount} 条"
@@ -2028,6 +2048,8 @@ public partial class MainWindow
             return;
         var source = (ReadingMaterialsSourceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "all";
         var query = ReadingMaterialsSearchBox.Text?.Trim() ?? string.Empty;
+        RememberReadingMaterialGroupStates();
+
         var filtered = _allStage3ReadingMaterials
             .Where(item => source == "all"
                 || source == "local" && item.Source == ReadingMaterialSource.Local
@@ -2046,7 +2068,9 @@ public partial class MainWindow
                 items.Key.BookTitle,
                 items.ToArray(),
                 GetReadingMaterialCoverPath(items.Key.Source, items.Key.BookTitle),
-                isExpanded: !_appSettings.ReadingMaterialsCollapsedByDefault))
+                isExpanded: _readingMaterialGroupStates.TryGetValue(items.Key, out var wasExpanded)
+                    ? wasExpanded
+                    : !_appSettings.ReadingMaterialsCollapsedByDefault))
             .OrderByDescending(group => group.Items.Max(item => item.UpdatedAt ?? DateTimeOffset.MinValue)))
         {
             ReadingMaterialGroups.Add(group);
@@ -2085,6 +2109,20 @@ public partial class MainWindow
     {
         if (sender is Button { Tag: Stage3ReadingMaterialGroupViewModel group })
             group.IsExpanded = !group.IsExpanded;
+    }
+
+    private void MarkReadingMaterialsDirty() => _readingMaterialsDirty = true;
+
+    private void RememberReadingMaterialGroupStates()
+    {
+        foreach (var group in ReadingMaterialGroups)
+            _readingMaterialGroupStates[(group.Source, group.BookTitle)] = group.IsExpanded;
+    }
+
+    private async Task RefreshReadingMaterialsIfDirtyAsync()
+    {
+        if (!_readingMaterialsDirty || !ReadingMaterialsPage.IsVisible) return;
+        await RefreshReadingMaterialsAsync();
     }
 
     private async void ReadingMaterialsLocateButton_Click(object? sender, RoutedEventArgs e)
@@ -2129,6 +2167,32 @@ public partial class MainWindow
 
     private static string BuildReadingMaterialCoverKey(ReadingMaterialSource source, string title) =>
         $"{source}\u001F{title}";
+
+    private static string BuildReadingMaterialChapterKey(Guid bookFileId, string? chapterPath) =>
+        $"{bookFileId:N}\u001F{(chapterPath ?? string.Empty).Replace('\\', '/').TrimStart('/')}";
+
+    private static string ResolveReadingMaterialChapterLabel(
+        ReaderAnnotation annotation,
+        IReadOnlyDictionary<string, string> chapterTitles)
+    {
+        if (chapterTitles.TryGetValue(
+                BuildReadingMaterialChapterKey(annotation.BookFileId, annotation.ChapterPath),
+                out var title)
+            && !string.IsNullOrWhiteSpace(title))
+        {
+            return title;
+        }
+
+        if (annotation.ChapterPath.StartsWith("pdf:", StringComparison.OrdinalIgnoreCase))
+        {
+            var pageText = annotation.ChapterPath.Split(':').LastOrDefault();
+            return int.TryParse(pageText, out var page) && page > 0 ? $"第 {page} 页" : "PDF";
+        }
+
+        var fileName = Path.GetFileNameWithoutExtension(
+            annotation.ChapterPath.Replace('\\', '/'));
+        return string.IsNullOrWhiteSpace(fileName) ? "未指定章节" : fileName;
+    }
 
     private string? GetReadingMaterialCoverPath(ReadingMaterialSource source, string title) =>
         _readingMaterialCoverPaths.GetValueOrDefault(BuildReadingMaterialCoverKey(source, title));
@@ -3785,9 +3849,6 @@ public sealed class Stage3ReadingMaterialGroupViewModel : ObservableObject, IDis
     public Bitmap? CoverImage { get; }
     public bool HasCover => CoverImage is not null;
     public bool HasNoCover => CoverImage is null;
-    public string PreviewQuoteLabel => Items.FirstOrDefault()?.QuoteLabel ?? "无划线内容";
-    public string PreviewNoteLabel => Items.FirstOrDefault()?.NoteLabel ?? string.Empty;
-    public string PreviewDateLabel => Items.FirstOrDefault()?.DateLabel ?? "时间未知";
     public bool IsExpanded
     {
         get => _isExpanded;
@@ -3844,6 +3905,9 @@ public sealed class Stage3ReadingMaterialViewModel : ObservableObject
     public KindleClipping? KindleClipping { get; }
     public string QuoteLabel => string.IsNullOrWhiteSpace(Quote) ? "无划线内容" : $"“{Quote}”";
     public string NoteLabel => string.IsNullOrWhiteSpace(Note) ? "" : $"批注：{Note}";
+    public string ChapterDisplayLabel => $"章节：{ChapterLabel}";
+    public string SelectedContentLabel => string.IsNullOrWhiteSpace(Quote) ? "选中内容：无" : $"选中内容：{Quote}";
+    public bool HasNote => !string.IsNullOrWhiteSpace(Note);
     public string DateLabel => UpdatedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "时间未知";
     public string SearchText => string.Join('\n', SourceLabel, BookTitle, TypeLabel, ChapterLabel, Location, Quote, Note);
     public bool IsSelected

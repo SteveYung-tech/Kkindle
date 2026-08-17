@@ -331,6 +331,44 @@ public sealed class EpubReaderTests
     }
 
     [Fact]
+    public async Task PreparesXhtmlThatUsesStandardHtmlNamedEntities()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var epub = Path.Combine(root, "html-entities.epub");
+            using (var archive = ZipFile.Open(epub, ZipArchiveMode.Create))
+            {
+                TestHelpers.AddZipEntry(archive, "META-INF/container.xml", """
+                    <container><rootfiles><rootfile full-path="OEBPS/content.opf" /></rootfiles></container>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/content.opf", """
+                    <package><manifest>
+                      <item id="one" href="chapter.xhtml" media-type="application/xhtml+xml" />
+                    </manifest><spine><itemref idref="one" /></spine></package>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/chapter.xhtml", """
+                    <!DOCTYPE html>
+                    <html xmlns="http://www.w3.org/1999/xhtml">
+                      <head><title>Entity test</title></head>
+                      <body><p>first&nbsp;second &amp; third&copy;</p></body>
+                    </html>
+                    """);
+            }
+
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            paths.EnsureDirectories();
+            var document = await new EpubReaderPreparationService(paths)
+                .PrepareAsync(epub, new string('7', 64));
+
+            var html = await File.ReadAllTextAsync(document.Chapters[0]);
+            Assert.Contains("first\u00a0second &amp; third©", html, StringComparison.Ordinal);
+            Assert.DoesNotContain("&nbsp;", html, StringComparison.Ordinal);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
     public async Task ReadsNestedEpub3SubchaptersAsSeparateNavigationItems()
     {
         var root = TestHelpers.CreateTempDirectory();
@@ -478,6 +516,8 @@ public sealed class EpubReaderTests
             Assert.Contains("data-action=\"highlight-menu\"", bridge, StringComparison.Ordinal);
             Assert.Contains("荧光标记（黑白反色）  ▰", bridge, StringComparison.Ordinal);
             Assert.Contains(".kk-sel-styles.above", bridge, StringComparison.Ordinal);
+            Assert.Contains("display: inline-flex; align-items: center; justify-content: center", bridge, StringComparison.Ordinal);
+            Assert.Contains("selectionBar.style.display = 'flex'", bridge, StringComparison.Ordinal);
             Assert.Contains("dismissedSelectionText", bridge, StringComparison.Ordinal);
             Assert.Contains("document.addEventListener(\"pointerup\"", bridge, StringComparison.Ordinal);
             Assert.Contains("direction: x < width / 3 ? -1 : 1", bridge, StringComparison.Ordinal);

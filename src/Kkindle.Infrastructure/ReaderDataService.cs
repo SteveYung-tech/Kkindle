@@ -865,7 +865,8 @@ public sealed partial class ReaderDataService
         Guid bookId,
         string query,
         int limit = 6,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool exactPhraseOnly = false)
     {
         var terms = BuildSearchTerms(query);
         if (terms.Count == 0) return [];
@@ -886,7 +887,13 @@ public sealed partial class ReaderDataService
             {
                 var ftsResults = await SearchFullTextAsync(bookId, terms, candidateLimit, cancellationToken);
                 if (ftsResults.Count > 0)
-                    return DeduplicateSearchResults(ftsResults, query, terms, requestedLimit);
+                {
+                    var matches = exactPhraseOnly
+                        ? FilterExactPhraseMatches(ftsResults, query)
+                        : ftsResults;
+                    if (matches.Count > 0)
+                        return DeduplicateSearchResults(matches, query, terms, requestedLimit);
+                }
             }
             catch (SqliteException)
             {
@@ -895,7 +902,31 @@ public sealed partial class ReaderDataService
         }
 
         var likeResults = await SearchLikeAsync(bookId, terms, candidateLimit, cancellationToken);
-        return DeduplicateSearchResults(likeResults, query, terms, requestedLimit);
+        var filtered = exactPhraseOnly
+            ? FilterExactPhraseMatches(likeResults, query)
+            : likeResults;
+        return DeduplicateSearchResults(filtered, query, terms, requestedLimit);
+    }
+
+    private static IReadOnlyList<BookContentChunk> FilterExactPhraseMatches(
+        IEnumerable<BookContentChunk> candidates,
+        string query)
+    {
+        var normalizedQuery = WhitespaceRegex().Replace(query.Trim(), " ");
+        if (normalizedQuery.Length == 0) return [];
+        return candidates
+            .Where(candidate =>
+                ContainsNormalizedPhrase(candidate.Content, normalizedQuery)
+                || ContainsNormalizedPhrase(candidate.ChapterTitle, normalizedQuery))
+            .ToArray();
+    }
+
+    private static bool ContainsNormalizedPhrase(string? value, string normalizedQuery)
+    {
+        var normalizedValue = WhitespaceRegex().Replace(value ?? string.Empty, " ");
+        return normalizedValue.Contains(
+            normalizedQuery,
+            StringComparison.CurrentCultureIgnoreCase);
     }
 
     public async Task<IReadOnlyList<BookContentChunk>> GetBookOverviewChunksAsync(
