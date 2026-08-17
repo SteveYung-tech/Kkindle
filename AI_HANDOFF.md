@@ -218,6 +218,7 @@ bash scripts/build-macos-release.sh 0.5.2 artifacts/macos osx-arm64  # 也支持
 - 三端发布包均不得复制或下载 Calibre/KFX Input；运行时自动发现系统 Calibre，或由用户在设置中指定/安装。
 - Windows 安装包（Inno Setup 6）：默认装到 `%LOCALAPPDATA%\Programs\Kkindle`，卸载不删 `data`/`backups`/`app-root.json`；未配置代码签名，SmartScreen 可能提示未知发布者。
 - GitHub：推送 `vX.Y.Z` 标签触发 `.github\workflows\release.yml`：`windows`（windows-2022）、`linux`（ubuntu-24.04，amd64+arm64）、`macos`（macos-15，arm64+x64）三 job 并行构建，`github-release` job 汇总三端产物计算 `SHA256SUMS.txt` 并创建/更新 Release。`.github\workflows\cross-platform.yml` 在 PR / 手动触发时对 Linux、macOS 执行构建 + 可移植与平台公共测试 + 打包 + `dpkg-deb`/`codesign` 校验。
+- `.github\workflows\dev-build.yml` 由手动触发或 `develop`/`dev/**` 分支推送触发，生成保留 7 天的三端开发产物，不创建标签或正式 Release。NuGet 漏洞审计会重试三次；由于 GitHub runner 的外部漏洞服务可能持续不可用，该步骤只告警不阻断，单元测试、编译、Linux `.deb` 安装与启动、macOS 签名与启动仍为强制门槛。
 
 ## 7. 已知限制与待人工验收
 
