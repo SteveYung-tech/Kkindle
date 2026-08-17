@@ -31,6 +31,7 @@ public partial class MainWindow
     private ReaderLayoutSettings _readerLayout = ReaderLayoutDefaults.Normalize(new ReaderLayoutSettings());
     private int _readerPageAnimation = ReaderAnimationFade;
     private readonly SemaphoreSlim _readerPageTurnGate = new(1, 1);
+    private int _readerPendingKeyboardNavigation;
     private IReadOnlyList<EpubReaderNavigationItem> _readerTocItems = [];
     private ReaderProgressRow? _readerRestoredProgress;
     private int _readerSearchSequence;
@@ -120,12 +121,7 @@ public partial class MainWindow
     {
         var settings = await _readerData.GetLayoutSettingsAsync(file.Id, cancellationToken);
         _readerLayout = ReaderLayoutDefaults.Normalize(settings ?? new ReaderLayoutSettings());
-        _readerTocItems = document.Navigation.Count == 0
-            ? document.Chapters.Select((path, index) => new EpubReaderNavigationItem(
-                $"第 {index + 1} 章",
-                new Uri(path).AbsoluteUri,
-                index)).ToArray()
-            : document.Navigation;
+        _readerTocItems = BuildReaderNavigationItems(document);
         _readerRestoredProgress = null;
         _readerBookmarkIndicatorSequence++;
         _readerPendingBookmarkQuote = null;
@@ -161,11 +157,13 @@ public partial class MainWindow
         ResetReaderContinuousEdgeTracking();
         _readerScrollPollRunning = false;
         _readerWheelDeltaRemainder = 0;
+        Interlocked.Exchange(ref _readerPendingKeyboardNavigation, 0);
         _readerPdfSearchSequence++;
         _readerSessionStarted = DateTimeOffset.UtcNow;
         _readerZenMode = false;
         _readerAssistantVisibleBeforeZen = true;
         _readerIsPdf = false;
+        UpdateReaderBookmarkCornerSurface();
         _readerPdfPages = [];
         _readerPdfPage = 1;
         _readerTocExpanded = true;
@@ -213,6 +211,47 @@ public partial class MainWindow
         UpdateReaderToolbar();
         await LoadReaderStatsBaseAsync();
         StartReaderStatsTimer();
+    }
+
+    private static IReadOnlyList<EpubReaderNavigationItem> BuildReaderNavigationItems(
+        EpubReaderDocument document)
+    {
+        if (document.Navigation.Count == 0)
+        {
+            return document.Chapters.Select((chapter, index) => new EpubReaderNavigationItem(
+                GetPreparedChapterTitle(document, index),
+                new Uri(chapter).AbsoluteUri,
+                index)).ToArray();
+        }
+
+        var orderedNavigation = document.Navigation
+            .Select((item, order) => (item, order))
+            .OrderBy(entry => entry.item.ChapterIndex)
+            .ThenBy(entry => entry.order)
+            .Select(entry => entry.item)
+            .ToArray();
+        var firstNavigationChapter = orderedNavigation[0].ChapterIndex;
+        var result = new List<EpubReaderNavigationItem>();
+        for (var chapterIndex = 0; chapterIndex < firstNavigationChapter; chapterIndex++)
+        {
+            result.Add(new EpubReaderNavigationItem(
+                GetPreparedChapterTitle(document, chapterIndex),
+                new Uri(document.Chapters[chapterIndex]).AbsoluteUri,
+                chapterIndex));
+        }
+        result.AddRange(orderedNavigation);
+        return result;
+    }
+
+    private static string GetPreparedChapterTitle(EpubReaderDocument document, int chapterIndex)
+    {
+        if (chapterIndex >= 0
+            && chapterIndex < document.ChapterTitles.Count
+            && !string.IsNullOrWhiteSpace(document.ChapterTitles[chapterIndex]))
+        {
+            return document.ChapterTitles[chapterIndex].Trim();
+        }
+        return chapterIndex == 0 ? "封面" : $"第 {chapterIndex + 1} 章";
     }
 
     private async Task ConfigureReaderHostAsync(
@@ -641,7 +680,8 @@ public partial class MainWindow
     private async Task<bool> NavigateToReaderItemAsync(
         EpubReaderNavigationItem item,
         CancellationToken cancellationToken,
-        ReaderNavigationIntent intent = ReaderNavigationIntent.None)
+        ReaderNavigationIntent intent = ReaderNavigationIntent.None,
+        int? transitionDirection = null)
     {
         if (_readerDocument is null || CurrentReaderHost is null) return false;
         if (item.ChapterIndex < 0 || item.ChapterIndex >= _readerDocument.Chapters.Count) return false;
@@ -657,7 +697,8 @@ public partial class MainWindow
         {
             try
             {
-                var direction = item.ChapterIndex < _readerChapterIndex ? -1 : 1;
+                var direction = transitionDirection
+                    ?? (item.ChapterIndex < _readerChapterIndex ? -1 : 1);
                 await RunReaderContentTransitionAsync(
                     current,
                     current,
@@ -680,6 +721,7 @@ public partial class MainWindow
                 PrimeReaderContinuousEdgeTracking();
                 SetReaderTocSelection(item);
                 ReaderChapterText.Text = GetReaderChapterLabel();
+                UpdateReaderToolbar();
                 await UpdateReaderBookmarkIndicatorAsync();
                 await SaveReaderProgressAsync(cancellationToken);
                 return true;
@@ -709,7 +751,8 @@ public partial class MainWindow
             if (!loaded) throw new InvalidOperationException("章节加载失败。");
 
             await ApplySavedAnnotationsAsync(host, navigationToken);
-            var direction = item.ChapterIndex < _readerChapterIndex ? -1 : 1;
+            var direction = transitionDirection
+                ?? (item.ChapterIndex < _readerChapterIndex ? -1 : 1);
             await RunReaderContentTransitionAsync(
                 current,
                 host,
@@ -737,10 +780,12 @@ public partial class MainWindow
                 },
                 navigationToken,
                 animate: intent != ReaderNavigationIntent.None);
+            FocusCurrentReaderHost();
             PrimeReaderContinuousEdgeTracking();
             SetReaderTocSelection(item);
             ReaderChapterText.Text = GetReaderChapterLabel();
-            ReaderStatusText.Text = $"共 {_readerDocument.Chapters.Count} 个章节";
+            UpdateReaderToolbar();
+            ReaderStatusText.Text = $"共 {_readerTocItems.Count} 个章节";
             await UpdateReaderBookmarkIndicatorAsync();
             await SaveReaderProgressAsync(sessionToken);
             _ = PreloadNextReaderChapterAsync(sessionToken);
@@ -901,8 +946,102 @@ public partial class MainWindow
 
     private void SetReaderTocSelectionForChapter(int chapterIndex)
     {
-        SetReaderTocSelection(
-            _readerTocItems.FirstOrDefault(item => item.ChapterIndex == chapterIndex));
+        SetReaderTocSelectionForLocation(chapterIndex, null);
+    }
+
+    private void SetReaderTocSelectionForLocation(int chapterIndex, string? fragment)
+    {
+        var chapterItems = _readerTocItems
+            .Where(item => item.ChapterIndex == chapterIndex)
+            .ToArray();
+        var decodedFragment = DecodeReaderFragment(fragment);
+        var selected = string.IsNullOrWhiteSpace(decodedFragment)
+            ? null
+            : chapterItems.FirstOrDefault(item =>
+                Uri.TryCreate(item.Target, UriKind.Absolute, out var target)
+                && string.Equals(
+                    GetReaderTargetFragment(target),
+                    decodedFragment,
+                    StringComparison.Ordinal));
+        selected ??= chapterItems.FirstOrDefault();
+        selected ??= _readerTocItems
+            .Where(item => item.ChapterIndex <= chapterIndex)
+            .OrderByDescending(item => item.ChapterIndex)
+            .FirstOrDefault();
+        SetReaderTocSelection(selected);
+    }
+
+    private EpubReaderNavigationItem? FindAdjacentReaderSubchapter(int direction)
+    {
+        direction = Math.Sign(direction);
+        if (direction == 0) return null;
+
+        var chapterItems = _readerTocItems
+            .Where(item => item.ChapterIndex == _readerChapterIndex)
+            .ToArray();
+        if (chapterItems.Length < 2) return null;
+
+        var currentFragment = DecodeReaderFragment(_readerCurrentFragment);
+        var currentIndex = -1;
+        if (!string.IsNullOrWhiteSpace(currentFragment))
+        {
+            currentIndex = Array.FindIndex(chapterItems, item =>
+                Uri.TryCreate(item.Target, UriKind.Absolute, out var target)
+                && string.Equals(
+                    GetReaderTargetFragment(target),
+                    currentFragment,
+                    StringComparison.Ordinal));
+        }
+
+        if (currentIndex < 0)
+        {
+            currentIndex = Array.FindIndex(chapterItems, item =>
+                Uri.TryCreate(item.Target, UriKind.Absolute, out var target)
+                && string.IsNullOrWhiteSpace(GetReaderTargetFragment(target)));
+        }
+
+        // When every entry is anchored, the first one normally represents the
+        // containing chapter heading and therefore acts as the current base.
+        if (currentIndex < 0) currentIndex = 0;
+        var targetIndex = currentIndex + direction;
+        return targetIndex >= 0 && targetIndex < chapterItems.Length
+            ? chapterItems[targetIndex]
+            : null;
+    }
+
+    private int GetCurrentReaderTocIndex()
+    {
+        if (_readerTocItems.Count == 0) return -1;
+
+        var currentFragment = DecodeReaderFragment(_readerCurrentFragment);
+        if (!string.IsNullOrWhiteSpace(currentFragment))
+        {
+            for (var index = 0; index < _readerTocItems.Count; index++)
+            {
+                var item = _readerTocItems[index];
+                if (item.ChapterIndex == _readerChapterIndex
+                    && Uri.TryCreate(item.Target, UriKind.Absolute, out var target)
+                    && string.Equals(
+                        GetReaderTargetFragment(target),
+                        currentFragment,
+                        StringComparison.Ordinal))
+                {
+                    return index;
+                }
+            }
+        }
+
+        var sameChapterIndex = -1;
+        var precedingIndex = -1;
+        for (var index = 0; index < _readerTocItems.Count; index++)
+        {
+            var item = _readerTocItems[index];
+            if (item.ChapterIndex == _readerChapterIndex && sameChapterIndex < 0)
+                sameChapterIndex = index;
+            if (item.ChapterIndex <= _readerChapterIndex)
+                precedingIndex = index;
+        }
+        return sameChapterIndex >= 0 ? sameChapterIndex : precedingIndex;
     }
 
     private async Task ScrollToPendingReaderAnnotationAsync(
@@ -1677,7 +1816,7 @@ public partial class MainWindow
                 case "ready":
                     ReaderStatusText.Text = _readerIsPdf
                         ? $"PDF · {_readerPdfPages.Count} 页"
-                        : $"共 {_readerDocument?.Chapters.Count ?? 0} 个章节";
+                        : $"共 {_readerTocItems.Count} 个章节";
                     break;
                 case "pdfPage":
                     if (_readerIsPdf && root.TryGetProperty("page", out var pdfPage)
@@ -1769,6 +1908,9 @@ public partial class MainWindow
                             _ = ObserveReaderTaskAsync(TurnReaderPageAsync(pageTurnDirection));
                     }
                     break;
+                case "bookmarkToggle":
+                    _ = ObserveReaderTaskAsync(ToggleReaderBookmarkAsync());
+                    break;
                 case "footnoteHover":
                     if (root.TryGetProperty("href", out var footnoteHref))
                         _ = ObserveReaderTaskAsync(
@@ -1810,6 +1952,15 @@ public partial class MainWindow
                         }
                     }
                     break;
+                case "continuousEdge":
+                    if (!_readerIsPdf
+                        && _readerLayout.FlowMode == 0
+                        && root.TryGetProperty("direction", out var edgeDirection)
+                        && edgeDirection.TryGetInt32(out var continuousDirection))
+                    {
+                        TryMoveReaderChapterFromContinuousEdge(Math.Sign(continuousDirection));
+                    }
+                    break;
                 case "pointermove":
                     // Zen chrome wake-up for pointer movement over the webview
                     // (an HWND island whose events never reach Avalonia). The
@@ -1835,11 +1986,30 @@ public partial class MainWindow
                         var keyName = key.GetString();
                         if (_readerIsPdf || _readerLayout.FlowMode == 1)
                         {
-                            // Paginated/PDF: arrows and paging keys turn pages.
+                            // In single-page EPUB reading, vertical arrows own
+                            // chapter navigation while horizontal arrows own
+                            // page navigation. Two-column and PDF layouts keep
+                            // all arrows as page turns.
+                            var chapterDirection = !_readerIsPdf
+                                && !_readerLayout.TwoPageMode
+                                ? string.Equals(keyName, "ArrowUp", StringComparison.Ordinal)
+                                    ? -1
+                                    : string.Equals(keyName, "ArrowDown", StringComparison.Ordinal)
+                                        ? 1
+                                        : 0
+                                : 0;
+                            if (chapterDirection != 0)
+                            {
+                                _ = ObserveReaderTaskAsync(
+                                    TurnReaderPageAsync(chapterDirection, chapterOnly: true));
+                                break;
+                            }
                             var direction = string.Equals(keyName, "ArrowLeft", StringComparison.Ordinal)
+                                || string.Equals(keyName, "ArrowUp", StringComparison.Ordinal)
                                 || string.Equals(keyName, "PageUp", StringComparison.Ordinal)
                                 ? -1
                                 : string.Equals(keyName, "ArrowRight", StringComparison.Ordinal)
+                                    || string.Equals(keyName, "ArrowDown", StringComparison.Ordinal)
                                     || string.Equals(keyName, "PageDown", StringComparison.Ordinal)
                                     ? 1
                                     : 0;
@@ -1858,7 +2028,8 @@ public partial class MainWindow
                                     : 0;
                             if (chapterDirection != 0)
                             {
-                                _ = ObserveReaderTaskAsync(MoveReaderChapterAsync(chapterDirection));
+                                _ = ObserveReaderTaskAsync(
+                                    TurnReaderPageAsync(chapterDirection, chapterOnly: true));
                             }
                             else
                             {
@@ -2097,28 +2268,35 @@ public partial class MainWindow
 
         if (nearBottom && !_readerLastNearBottom && movement > 0.5)
         {
-            if (_readerChapterIndex + 1 < _readerDocument.Chapters.Count)
-            {
-                _readerContinuousLocked = true;
-                _readerContinuousDirection = 1;
-                _readerLastChapterChange = DateTimeOffset.UtcNow;
-                _readerScrollPollRunning = true;
-                _ = ObserveReaderTaskAsync(MoveReaderChapterFromScrollAsync(1));
-            }
+            TryMoveReaderChapterFromContinuousEdge(1);
         }
         else if (nearTop && !_readerLastNearTop && movement < -0.5)
         {
-            if (_readerChapterIndex > 0)
-            {
-                _readerContinuousLocked = true;
-                _readerContinuousDirection = -1;
-                _readerLastChapterChange = DateTimeOffset.UtcNow;
-                _readerScrollPollRunning = true;
-                _ = ObserveReaderTaskAsync(MoveReaderChapterFromScrollAsync(-1));
-            }
+            TryMoveReaderChapterFromContinuousEdge(-1);
         }
         _readerLastNearTop = nearTop;
         _readerLastNearBottom = nearBottom;
+    }
+
+    private void TryMoveReaderChapterFromContinuousEdge(int direction)
+    {
+        if (direction == 0 || _readerIsPdf || _readerLayout.FlowMode != 0) return;
+        if (_readerScrollPollRunning || _readerDocument is null) return;
+        if (direction < 0 && _readerChapterIndex <= 0) return;
+        if (direction > 0 && _readerChapterIndex + 1 >= _readerDocument.Chapters.Count) return;
+
+        var now = DateTimeOffset.UtcNow;
+        if (_readerContinuousLocked
+            && now - _readerLastChapterChange <= TimeSpan.FromMilliseconds(500))
+        {
+            return;
+        }
+
+        _readerContinuousLocked = true;
+        _readerContinuousDirection = direction;
+        _readerLastChapterChange = now;
+        _readerScrollPollRunning = true;
+        _ = ObserveReaderTaskAsync(MoveReaderChapterFromScrollAsync(direction));
     }
 
     private async Task MoveReaderChapterFromScrollAsync(int direction)
@@ -2170,47 +2348,78 @@ public partial class MainWindow
         })();
         """;
 
-    private async Task TurnReaderPageAsync(int direction)
+    private async Task TurnReaderPageAsync(int direction, bool chapterOnly = false)
     {
-        if (!await _readerPageTurnGate.WaitAsync(0)) return;
-        try
+        direction = Math.Sign(direction);
+        if (direction == 0) return;
+
+        var navigation = direction * (chapterOnly ? 2 : 1);
+        Interlocked.Exchange(ref _readerPendingKeyboardNavigation, navigation);
+        while (await _readerPageTurnGate.WaitAsync(0))
         {
-            if (_readerIsPdf)
+            try
             {
-                await NavigatePdfPageAsync(_readerPdfPage + direction, ReaderToken);
-                return;
+                while ((navigation = Interlocked.Exchange(
+                           ref _readerPendingKeyboardNavigation,
+                           0)) != 0)
+                {
+                    await TurnReaderPageCoreAsync(
+                        Math.Sign(navigation),
+                        chapterOnly: Math.Abs(navigation) == 2);
+                }
             }
-            if (CurrentReaderHost is not { } host) return;
-
-            // Decide which content change is needed before starting the visual
-            // transition. At a chapter edge the old path animated a failed DOM
-            // turn and then animated the chapter swap, producing two different
-            // beats for what should feel like one continuous page turn.
-            var canTurnResult = await host.InvokeScriptAsync(
-                ReaderPaginationScripts.CreateCanTurnScript(direction));
-            var canTurnWithinChapter = string.Equals(
-                canTurnResult?.Trim(),
-                "true",
-                StringComparison.OrdinalIgnoreCase);
-            if (canTurnWithinChapter)
+            finally
             {
-                await TurnReaderPageWithAnimationAsync(host, direction);
-                return;
+                _readerPageTurnGate.Release();
             }
 
-            if (direction > 0 && _readerDocument is not null
-                && _readerChapterIndex < _readerDocument.Chapters.Count - 1)
-            {
-                await MoveReaderChapterAsync(1);
-            }
-            else if (direction < 0 && _readerChapterIndex > 0)
-            {
-                await MoveReaderChapterAsync(-1);
-            }
+            // If input arrived between the last exchange and Release, reacquire
+            // and drain it here. If another caller won the gate, that caller is
+            // now the sole consumer. This keeps rapid key-repeat non-recursive
+            // and bounds the backlog to one latest direction.
+            if (Volatile.Read(ref _readerPendingKeyboardNavigation) == 0)
+                return;
         }
-        finally
+    }
+
+    private async Task TurnReaderPageCoreAsync(int direction, bool chapterOnly)
+    {
+        if (chapterOnly)
         {
-            _readerPageTurnGate.Release();
+            await MoveReaderChapterAsync(direction, startAtChapterTitle: true);
+            return;
+        }
+        if (_readerIsPdf)
+        {
+            await NavigatePdfPageAsync(_readerPdfPage + direction, ReaderToken);
+            return;
+        }
+        if (CurrentReaderHost is not { } host) return;
+
+        // Decide which content change is needed before starting the visual
+        // transition. At a chapter edge the old path animated a failed DOM
+        // turn and then animated the chapter swap, producing two different
+        // beats for what should feel like one continuous page turn.
+        var canTurnResult = await host.InvokeScriptAsync(
+            ReaderPaginationScripts.CreateCanTurnScript(direction));
+        var canTurnWithinChapter = string.Equals(
+            canTurnResult?.Trim(),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+        if (canTurnWithinChapter)
+        {
+            await TurnReaderPageWithAnimationAsync(host, direction);
+            return;
+        }
+
+        if (direction > 0 && _readerDocument is not null
+            && _readerChapterIndex < _readerDocument.Chapters.Count - 1)
+        {
+            await MoveReaderChapterAsync(1);
+        }
+        else if (direction < 0 && _readerChapterIndex > 0)
+        {
+            await MoveReaderChapterAsync(-1);
         }
     }
 
@@ -2400,7 +2609,7 @@ public partial class MainWindow
         if (_readerTocExpanded)
         {
             ShowReaderTocTab();
-            SetReaderTocSelectionForChapter(_readerChapterIndex);
+            SetReaderTocSelectionForLocation(_readerChapterIndex, _readerCurrentFragment);
         }
     }
 
@@ -2522,9 +2731,26 @@ public partial class MainWindow
         await SaveReaderLayoutAsync(CancellationToken.None);
     }
 
-    private async void ReaderBookmarkButton_Click(object? sender, RoutedEventArgs e)
+    private void ReaderBookmarkButton_Click(object? sender, RoutedEventArgs e)
     {
+        ShowReaderBookmarkTab();
+    }
+
+    private async void ReaderBookmarkCornerButton_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        e.Handled = true;
         await ToggleReaderBookmarkAsync();
+    }
+
+    private void UpdateReaderBookmarkCornerSurface()
+    {
+        ReaderBookmarkCornerButton.IsVisible = _readerIsPdf;
+        ReaderWebViewHost.Margin = new Thickness(
+            0,
+            _readerIsPdf ? 34 : 12,
+            2,
+            _readerZenMode ? 0 : 10);
     }
 
     private void ReaderAnnotateButton_Click(object? sender, RoutedEventArgs e)
@@ -2568,7 +2794,7 @@ public partial class MainWindow
             ReaderContentPanel.Margin = new Thickness(0);
             ReaderAssistantPanel.Margin = new Thickness(0);
             ReaderWebViewBottomCover.Margin = new Thickness(0);
-            ReaderWebViewHost.Margin = new Thickness(0, 12, 0, 0);
+            UpdateReaderBookmarkCornerSurface();
             ApplyReaderPanelLayout();
             UpdateReaderZenTocToggle();
             UpdateReaderZenChrome(visible: true);
@@ -2651,7 +2877,7 @@ public partial class MainWindow
         ReaderAssistantPanel.Margin = new Thickness(0, 38, 0, 0);
         ReaderLayoutSettingsOverlay.Margin = new Thickness(0, 38, 0, 0);
         ReaderWebViewBottomCover.Margin = new Thickness(0, 0, 0, 10);
-        ReaderWebViewHost.Margin = new Thickness(0, 12, 0, 10);
+        UpdateReaderBookmarkCornerSurface();
         ApplyReaderPanelLayout();
         UpdateReaderZenTocToggle();
         // Leaving zen restores the chrome unconditionally; the hide timer must
@@ -2743,9 +2969,14 @@ public partial class MainWindow
         if (ReaderProgressPercentText is not null)
             ReaderProgressPercentText.Text = $"{CalculateReaderProgressPercent():0}%";
         if (ReaderReadingProgressText is not null)
+        {
+            var tocIndex = GetCurrentReaderTocIndex();
             ReaderReadingProgressText.Text = _readerIsPdf
                 ? $"已读 {_readerPdfPage} / {Math.Max(1, _readerPdfPages.Count)} 页"
-                : $"已读 {Math.Clamp(_readerChapterIndex + 1, 0, _readerDocument?.Chapters.Count ?? 0)} / {_readerDocument?.Chapters.Count ?? 0} 章";
+                : tocIndex >= 0
+                    ? $"已读 {tocIndex + 1} / {_readerTocItems.Count} 章"
+                    : $"已读 {Math.Clamp(_readerChapterIndex + 1, 0, _readerDocument?.Chapters.Count ?? 0)} / {_readerDocument?.Chapters.Count ?? 0} 章";
+        }
         if (ReaderProgressSlider is not null)
         {
             _readerProgressSliderUpdating = true;
@@ -2756,11 +2987,11 @@ public partial class MainWindow
                 ReaderProgressSlider.Maximum = pageCount;
                 ReaderProgressSlider.Value = Math.Clamp(_readerPdfPage, 1, pageCount);
             }
-            else if (_readerDocument is not null && _readerDocument.Chapters.Count > 0)
+            else if (_readerTocItems.Count > 0)
             {
                 ReaderProgressSlider.Minimum = 1;
-                ReaderProgressSlider.Maximum = _readerDocument.Chapters.Count;
-                ReaderProgressSlider.Value = Math.Clamp(_readerChapterIndex + 1, 1, _readerDocument.Chapters.Count);
+                ReaderProgressSlider.Maximum = _readerTocItems.Count;
+                ReaderProgressSlider.Value = Math.Clamp(GetCurrentReaderTocIndex() + 1, 1, _readerTocItems.Count);
             }
             else
             {
@@ -2781,11 +3012,15 @@ public partial class MainWindow
         if (ReaderPdfBadge is not null)
             ReaderPdfBadge.IsVisible = _readerIsPdf;
         if (ReaderPreviousButton is not null)
-            ReaderPreviousButton.IsEnabled = _readerIsPdf ? _readerPdfPage > 1 : _readerChapterIndex > 0;
+            ReaderPreviousButton.IsEnabled = _readerIsPdf
+                ? _readerPdfPage > 1
+                : GetCurrentReaderTocIndex() > 0;
         if (ReaderNextButton is not null)
             ReaderNextButton.IsEnabled = _readerIsPdf
                 ? _readerPdfPage < Math.Max(1, _readerPdfPages.Count)
-                : _readerDocument is not null && _readerChapterIndex + 1 < _readerDocument.Chapters.Count;
+                : GetCurrentReaderTocIndex() is var tocIndex
+                    && tocIndex >= 0
+                    && tocIndex + 1 < _readerTocItems.Count;
         UpdateReaderSearchCount();
     }
 

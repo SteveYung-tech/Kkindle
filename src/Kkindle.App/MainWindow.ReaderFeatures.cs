@@ -58,6 +58,78 @@ public partial class MainWindow
             return;
         }
 
+        // Native WebViews are swapped at chapter boundaries. If Windows sends
+        // the next arrow to the Avalonia window before the newly visible HWND
+        // has accepted focus, keep paginated navigation responsive here. Keys
+        // delivered to the native WebView never enter Avalonia's routed input,
+        // so any arrow reaching this handler still needs to be handled.
+        if (_readerLayout.FlowMode == 1
+            && !IsReaderTextInputFocused()
+            && CurrentReaderHost?.View is Control)
+        {
+            var chapterDirection = !_readerIsPdf
+                && !_readerLayout.TwoPageMode
+                ? e.Key == Key.Up
+                    ? -1
+                    : e.Key == Key.Down
+                        ? 1
+                        : 0
+                : 0;
+            if (chapterDirection != 0)
+            {
+                e.Handled = true;
+                FocusCurrentReaderHost();
+                _ = ObserveReaderTaskAsync(
+                    TurnReaderPageAsync(chapterDirection, chapterOnly: true));
+                return;
+            }
+            var direction = e.Key is Key.Left or Key.Up or Key.PageUp
+                ? -1
+                : e.Key is Key.Right or Key.Down or Key.PageDown
+                    ? 1
+                    : 0;
+            if (direction != 0)
+            {
+                e.Handled = true;
+                FocusCurrentReaderHost();
+                _ = ObserveReaderTaskAsync(TurnReaderPageAsync(direction));
+                return;
+            }
+        }
+
+        if (!_readerIsPdf
+            && _readerLayout.FlowMode == 0
+            && !IsReaderTextInputFocused()
+            && CurrentReaderHost?.View is Control)
+        {
+            var chapterDirection = e.Key == Key.Left
+                ? -1
+                : e.Key == Key.Right
+                    ? 1
+                    : 0;
+            if (chapterDirection != 0)
+            {
+                e.Handled = true;
+                FocusCurrentReaderHost();
+                _ = ObserveReaderTaskAsync(
+                    TurnReaderPageAsync(chapterDirection, chapterOnly: true));
+                return;
+            }
+
+            var scrollDirection = e.Key == Key.Up
+                ? -1
+                : e.Key == Key.Down
+                    ? 1
+                    : 0;
+            if (scrollDirection != 0)
+            {
+                e.Handled = true;
+                FocusCurrentReaderHost();
+                _ = ObserveReaderTaskAsync(ScrollReaderWithKeyboardAsync(scrollDirection));
+                return;
+            }
+        }
+
         if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.B
             && !IsReaderTextInputFocused())
         {
@@ -151,7 +223,7 @@ public partial class MainWindow
             // reference. The extracted page texts stay as the local search /
             // progress / bookmark / AI context index underneath it.
             await InitializeReaderInteractionAsync(
-                new EpubReaderDocument(Path.GetDirectoryName(path) ?? string.Empty, [], []),
+                new EpubReaderDocument(Path.GetDirectoryName(path) ?? string.Empty, [], [], []),
                 file,
                 token);
             _readerIsPdf = true;
@@ -160,6 +232,7 @@ public partial class MainWindow
                 FlowMode = 0,
                 TwoPageMode = false
             });
+            UpdateReaderBookmarkCornerSurface();
 
             var progress = await _readerData.GetProgressAsync(file.Id, token);
             if (progress is not null)
@@ -266,21 +339,23 @@ public partial class MainWindow
         ReaderTocView.IsVisible = true;
         ReaderBookmarkPane.IsVisible = false;
         ReaderSearchPanel.IsVisible = false;
-        ReaderTocTabsPanel.IsVisible = true;
         ReaderReadingInfoPanel.IsVisible = true;
         ReaderTocEmptyText.IsVisible = _readerTocItems.Count == 0;
-        SetReaderTocTabState(bookmarkTab: false);
     }
 
     private void ShowReaderBookmarkTab()
     {
+        // The toolbar bookmark command opens this page in the same left rail
+        // as the TOC. Re-expand the rail when it had been collapsed or reduced
+        // to the compact marker strip so the destination is always visible.
+        _readerTocExpanded = true;
+        _readerTocMinimal = false;
         ReaderTocView.IsVisible = false;
         ReaderBookmarkPane.IsVisible = true;
         ReaderSearchPanel.IsVisible = false;
-        ReaderTocTabsPanel.IsVisible = true;
         ReaderReadingInfoPanel.IsVisible = true;
         ReaderBookmarkEmptyText.IsVisible = ReaderBookmarks.Count == 0;
-        SetReaderTocTabState(bookmarkTab: true);
+        ApplyReaderPanelLayout();
     }
 
     private void ShowReaderSearchTab()
@@ -288,9 +363,7 @@ public partial class MainWindow
         ReaderTocView.IsVisible = false;
         ReaderBookmarkPane.IsVisible = false;
         ReaderSearchPanel.IsVisible = true;
-        ReaderTocTabsPanel.IsVisible = false;
         ReaderReadingInfoPanel.IsVisible = false;
-        SetReaderTocTabState(bookmarkTab: false);
     }
 
     private void ShowReaderSearchStatus(string? message)
@@ -299,24 +372,6 @@ public partial class MainWindow
         ReaderSearchStatusText.IsVisible = message is not null;
         ReaderSearchResultList.IsVisible = message is null;
     }
-
-    // Flat tabs mirror the main sidebar: a slim left marker denotes the
-    // active surface while hover/press use quiet grey planes.
-    private void SetReaderTocTabState(bool bookmarkTab)
-    {
-        if (ReaderTocTabButton is null || ReaderBookmarkTabButton is null) return;
-        ApplyReaderTabVisual(ReaderTocTabButton, !bookmarkTab);
-        ApplyReaderTabVisual(ReaderBookmarkTabButton, bookmarkTab);
-    }
-
-    private static void ApplyReaderTabVisual(Button button, bool selected)
-    {
-        button.Classes.Set("active", selected);
-    }
-
-    private void ReaderTocTabButton_Click(object? sender, RoutedEventArgs e) => ShowReaderTocTab();
-
-    private void ReaderBookmarkTabButton_Click(object? sender, RoutedEventArgs e) => ShowReaderBookmarkTab();
 
     private void ReaderSearchToolbarButton_Click(object? sender, RoutedEventArgs e)
     {
@@ -810,6 +865,8 @@ public partial class MainWindow
         if (location is null)
         {
             ReaderBookmarkCornerMarker.IsVisible = false;
+            if (!_readerIsPdf)
+                _ = ObserveReaderTaskAsync(SetReaderDocumentBookmarkIndicatorAsync(false));
             return;
         }
 
@@ -821,7 +878,24 @@ public partial class MainWindow
                  && Math.Abs(savedPosition - location.ScrollPosition) <= tolerance)
                 || (!string.IsNullOrWhiteSpace(bookmark.Fragment)
                     && string.Equals(bookmark.Fragment, location.Fragment, StringComparison.OrdinalIgnoreCase))));
-        ReaderBookmarkCornerMarker.IsVisible = isBookmarked;
+        ReaderBookmarkCornerMarker.IsVisible = _readerIsPdf && isBookmarked;
+        if (!_readerIsPdf)
+            _ = ObserveReaderTaskAsync(SetReaderDocumentBookmarkIndicatorAsync(isBookmarked));
+    }
+
+    private async Task SetReaderDocumentBookmarkIndicatorAsync(bool isBookmarked)
+    {
+        if (CurrentReaderHost is not { } host) return;
+        try
+        {
+            await host.InvokeScriptAsync(
+                $"window.__kkindleSetBookmarkMarked?.({(isBookmarked ? "true" : "false")});");
+        }
+        catch
+        {
+            // The outgoing chapter may be disposed while its indicator update
+            // is still queued. The incoming chapter refreshes its own state.
+        }
     }
 
     private async Task NavigateToReaderBookmarkAsync(ReaderBookmark bookmark)
@@ -1239,13 +1313,13 @@ public partial class MainWindow
             var pageCount = Math.Max(1, _readerPdfPages.Count);
             return $"第 {Math.Clamp((int)Math.Round(value), 1, pageCount)} 页";
         }
-        if (_readerDocument is null || _readerDocument.Chapters.Count == 0) return string.Empty;
-        var index = Math.Clamp((int)Math.Round(value) - 1, 0, _readerDocument.Chapters.Count - 1);
-        return $"{index + 1} / {_readerDocument.Chapters.Count} · {GetReaderChapterDisplayName(index)}";
+        if (_readerTocItems.Count == 0) return string.Empty;
+        var index = Math.Clamp((int)Math.Round(value) - 1, 0, _readerTocItems.Count - 1);
+        return $"{index + 1} / {_readerTocItems.Count} · {_readerTocItems[index].Title}";
     }
 
-    // The footer slider is chapter-granular for EPUB (1..chapter count) and
-    // page-granular for PDF (1..page count), matching the WinUI reference.
+    // EPUB uses the visible TOC sequence so fragment subchapters are reachable;
+    // PDF remains page-granular.
     private async Task NavigateReaderProgressAsync(double value)
     {
         if (_readerIsPdf)
@@ -1254,14 +1328,14 @@ public partial class MainWindow
             await NavigatePdfPageAsync(page, ReaderToken);
             return;
         }
-        if (_readerDocument is null || _readerDocument.Chapters.Count == 0) return;
-        var chapter = Math.Clamp((int)Math.Round(value) - 1, 0, _readerDocument.Chapters.Count - 1);
-        if (chapter == _readerChapterIndex) return;
-        var target = new Uri(_readerDocument.Chapters[chapter]);
+        if (_readerTocItems.Count == 0) return;
+        var tocIndex = Math.Clamp((int)Math.Round(value) - 1, 0, _readerTocItems.Count - 1);
+        if (tocIndex == GetCurrentReaderTocIndex()) return;
         await NavigateToReaderItemAsync(
-            new EpubReaderNavigationItem($"第 {chapter + 1} 章", target.AbsoluteUri, chapter),
+            _readerTocItems[tocIndex],
             ReaderToken,
-            ReaderNavigationIntent.Progress);
+            ReaderNavigationIntent.Toc,
+            transitionDirection: tocIndex < GetCurrentReaderTocIndex() ? -1 : 1);
     }
 
     private void ReaderLayoutSettingsButton_Click(object? sender, RoutedEventArgs e)

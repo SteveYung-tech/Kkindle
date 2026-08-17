@@ -3215,24 +3215,6 @@
                         </Grid>
                     </Border>
 
-                    <Grid x:Name="ReaderTocTabsPanel"
-                          Grid.Row="1"
-                          Margin="14,4,14,4"
-                          ColumnDefinitions="*,*"
-                          ColumnSpacing="6">
-                        <Button x:Name="ReaderTocTabButton"
-                                Classes="readerTab active"
-                                Content="目录"
-                                HorizontalAlignment="Stretch"
-                                Click="ReaderTocTabButton_Click" />
-                        <Button x:Name="ReaderBookmarkTabButton"
-                                Grid.Column="1"
-                                Classes="readerTab"
-                                Content="书签"
-                                HorizontalAlignment="Stretch"
-                                Click="ReaderBookmarkTabButton_Click" />
-                    </Grid>
-
                     <Grid Grid.Row="3">
                         <Grid x:Name="ReaderTocView">
                             <ListBox x:Name="ReaderTocList"
@@ -3301,7 +3283,7 @@
                             </ListBox>
                             <TextBlock x:Name="ReaderBookmarkEmptyText"
                                        Margin="20"
-                                       Text="还没有书签。阅读时按 Ctrl+B 或点击顶部“书签”按钮添加。"
+                                       Text="还没有书签。"
                                        FontSize="12"
                                        Foreground="#777777"
                                        TextWrapping="Wrap"
@@ -3677,8 +3659,8 @@
                                 <Button x:Name="ReaderBookmarkButton"
                                         Classes="readerHeader"
                                         Content="书签"
-                                        AutomationProperties.Name="添加书签"
-                                        ToolTip.Tip="添加或取消当前阅读位置的书签（Ctrl+B）"
+                                        AutomationProperties.Name="打开书签详情"
+                                        ToolTip.Tip="打开书签详情"
                                         Click="ReaderBookmarkButton_Click" />
                                 <Rectangle Width="1" Height="20" Margin="12,0" Fill="#E2E2DE" VerticalAlignment="Center" />
                                 <Button x:Name="ReaderAssistantToggleButton"
@@ -3693,7 +3675,7 @@
 
                 <Grid Grid.Row="1" Background="{StaticResource PaperBrush}">
                     <Grid x:Name="ReaderWebViewHost"
-                          Margin="0,12,0,10"
+                          Margin="0,12,2,10"
                           Background="{StaticResource PaperBrush}">
                         <ContentControl x:Name="ReaderActiveHostSlot"
                                         HorizontalContentAlignment="Stretch"
@@ -3713,18 +3695,30 @@
                             Background="{StaticResource PaperBrush}"
                             IsHitTestVisible="False"
                             ZIndex="30" />
-                    <Path x:Name="ReaderBookmarkCornerMarker"
-                          Width="26"
-                          Height="26"
-                          Margin="0"
-                          HorizontalAlignment="Right"
-                          VerticalAlignment="Top"
-                          ZIndex="25"
-                          Data="M 0,0 L 26,0 L 26,26 Z"
-                          Fill="#777774"
-                          Stretch="None"
-                          IsHitTestVisible="False"
-                          IsVisible="False" />
+                    <Border x:Name="ReaderBookmarkCornerButton"
+                            Width="34"
+                            Height="34"
+                            Margin="0"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Background="Transparent"
+                            ZIndex="40"
+                            AutomationProperties.Name="添加或取消当前位置书签"
+                            ToolTip.Tip="添加或取消当前位置书签"
+                            Cursor="Hand"
+                            IsVisible="False"
+                            PointerPressed="ReaderBookmarkCornerButton_PointerPressed">
+                        <Path x:Name="ReaderBookmarkCornerMarker"
+                              Width="26"
+                              Height="26"
+                              HorizontalAlignment="Right"
+                              VerticalAlignment="Top"
+                              Data="M 0,0 L 26,0 L 26,26 Z"
+                              Fill="#000000"
+                              Stretch="None"
+                              IsHitTestVisible="False"
+                              IsVisible="False" />
+                    </Border>
 
                     <!-- This must remain a sibling after the native WebView
                          slots. Native child windows paint over Avalonia
@@ -3836,7 +3830,22 @@
                                 ValueChanged="ReaderProgressSlider_ValueChanged"
                                 PointerPressed="ReaderProgressSlider_PointerPressed"
                                 PointerMoved="ReaderProgressSlider_PointerMoved"
-                                PointerReleased="ReaderProgressSlider_PointerReleased" />
+                                PointerReleased="ReaderProgressSlider_PointerReleased">
+                            <Slider.Resources>
+                                <CornerRadius x:Key="SliderThumbCornerRadius">999</CornerRadius>
+                            </Slider.Resources>
+                            <Slider.Styles>
+                                <Style Selector="Slider /template/ Thumb">
+                                    <Setter Property="Width" Value="12" />
+                                    <Setter Property="Height" Value="12" />
+                                    <Setter Property="MinWidth" Value="12" />
+                                    <Setter Property="MinHeight" Value="12" />
+                                    <Setter Property="MaxWidth" Value="12" />
+                                    <Setter Property="MaxHeight" Value="12" />
+                                    <Setter Property="CornerRadius" Value="6" />
+                                </Style>
+                            </Slider.Styles>
+                        </Slider>
                         <TextBlock x:Name="ReaderChapterText"
                                    Grid.Column="3"
                                    Margin="0,0,10,0"
@@ -4343,13 +4352,16 @@
             </Grid>
         </StackPanel>
 
-        <!-- The WebView-backed reader can cover the host's right stroke. Draw
-             only that edge above reader content; the other three remain the
-             WindowShadowHost border so the frame is never doubled. -->
-        <Rectangle Width="1"
-                Margin="0,4,4,4"
-                HorizontalAlignment="Right"
-                Fill="#000000"
+        <!-- Draw the frame as a sibling above the content. The native WebView
+             is a separate child window and can cover WindowShadowHost's own
+             right stroke; this overlay keeps all four sides on one geometry.
+             Its margin is kept in sync with WindowShadowHost (12 DIP in a
+             normal window, 0 when maximized). -->
+        <Border x:Name="WindowFrameOverlay"
+                Margin="12"
+                Background="Transparent"
+                BorderBrush="#000000"
+                BorderThickness="1"
                 IsHitTestVisible="False"
                 ZIndex="1000" />
 

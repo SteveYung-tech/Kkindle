@@ -11,6 +11,13 @@ internal static class ReaderNavigationScripts
         (() => {
           const body = document.body;
           if (!body) return;
+          const scrollToStart = () => {
+            try {
+              window.scrollTo({ left: 0, top: 0, behavior: 'instant' });
+            } catch (_) {
+              window.scrollTo(0, 0);
+            }
+          };
 
           // A chapter-start jump is also a location change. Without clearing
           // the old hash, the next scroll report resurrects a stale fragment
@@ -64,7 +71,10 @@ internal static class ReaderNavigationScripts
 
           stripLeadingBlanks(body);
           const first = body.firstElementChild;
-          if (!first) return;
+          if (!first) {
+            scrollToStart();
+            return;
+          }
 
           // Walk down at most the leading wrapper chain. This handles both
           // body > div > p and body > div > img without touching later content.
@@ -88,6 +98,7 @@ internal static class ReaderNavigationScripts
             if (!isWrapper(child)) break;
             current = child;
           }
+          scrollToStart();
         })();
         """;
 

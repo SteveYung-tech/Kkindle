@@ -4,6 +4,20 @@ namespace Kkindle.Tests;
 
 public sealed class ReaderPaginationScriptTests
 {
+    [Theory]
+    [InlineData(false, "column-count: 1 !important")]
+    [InlineData(true, "column-count: 2 !important")]
+    public void FlowCssPinsTheVisibleColumnCount(bool twoPage, string expected)
+    {
+        var css = ReaderPaginationScripts.CreateFlowCss(
+            pagination: true,
+            vertical: false,
+            twoPage: twoPage);
+
+        Assert.Contains(expected, css, StringComparison.Ordinal);
+        Assert.Contains("column-width: auto !important", css, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void TurnScriptDefaultsToInstantScrolling()
     {

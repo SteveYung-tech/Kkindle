@@ -23,7 +23,12 @@ public sealed class MassStorageKindleDeviceServiceTests
                 [mounts],
                 (_, _) => Task.CompletedTask);
 
-            var device = Assert.Single(await service.DetectDevicesAsync());
+            var device = Assert.Single(
+                await service.DetectDevicesAsync(),
+                candidate =>
+                    Path.GetFullPath(candidate.RootPath).Equals(
+                        Path.GetFullPath(kindle),
+                        StringComparison.OrdinalIgnoreCase));
             var source = Path.Combine(root, "sample.epub");
             var bytes = "epub payload"u8.ToArray();
             await File.WriteAllBytesAsync(source, bytes);

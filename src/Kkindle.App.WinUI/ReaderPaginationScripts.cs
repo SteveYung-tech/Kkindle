@@ -109,9 +109,13 @@ internal static class ReaderPaginationScripts
         var columnGap = twoPage
             ? $"max({minimumColumnGap}px, calc((var({ViewportWidthVariable}, 100vw) - {Format(safeMaxContentWidth * 2)}px) / 2))"
             : $"max({minimumColumnGap}px, calc(var({ViewportWidthVariable}, 100vw) - {maxContentWidthCss}px))";
-        var columnWidth = twoPage
-            ? $"calc((var({ViewportWidthVariable}, 100vw) - var(--kkindle-page-column-gap) - var(--kkindle-page-column-gap)) / 2)"
-            : $"calc(var({ViewportWidthVariable}, 100vw) - var(--kkindle-page-column-gap))";
+        // Pin the number of visible columns instead of asking Chromium to
+        // infer it from a calculated column-width. Under WebView DPI scaling,
+        // innerWidth can briefly differ from the CSS layout viewport; the
+        // inferred two-page layout then collapses to one wide column. With an
+        // explicit count, one page is always one column and a spread is always
+        // two columns, while padding + gaps still total exactly one viewport.
+        var columnCount = twoPage ? 2 : 1;
         if (vertical)
         {
             var verticalColumnHeight = $"calc(100vh - {Format(ReaderPaginationDefaults.TopPadding + ReaderPaginationDefaults.BottomPadding)}px)";
@@ -123,8 +127,8 @@ internal static class ReaderPaginationScripts
         }
         return $"html {{ height: 100%; overflow: hidden !important; writing-mode: horizontal-tb !important; }}"
             + $" body {{ --kkindle-page-column-gap: {columnGap}; width: 100% !important; min-width: 0 !important; height: 100% !important; margin: 0 !important; overflow: visible !important; padding: {topPadding}px calc(var(--kkindle-page-column-gap) / 2) {bottomPadding}px !important; box-sizing: border-box !important;"
-            + $" writing-mode: horizontal-tb !important; column-width: {columnWidth} !important;"
-            + $" column-gap: var(--kkindle-page-column-gap) !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}"
+            + $" writing-mode: horizontal-tb !important; column-width: auto !important; column-count: {columnCount} !important;"
+            + $" column-gap: var(--kkindle-page-column-gap) !important; column-fill: auto !important; max-width: none !important; }}"
             // Chromium's scrollWidth for the overflowing multicolumns does not
             // include the body's right padding, so the maximum scroll position
             // lands with the LAST column's text flush against the viewport's

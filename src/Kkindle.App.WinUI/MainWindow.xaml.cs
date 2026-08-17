@@ -334,7 +334,10 @@ public sealed partial class MainWindow : Window
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
             _windowPresenter = presenter;
-            presenter.SetBorderAndTitleBar(hasBorder: true, hasTitleBar: false);
+            // ExtendsContentIntoTitleBar already keeps the resize frame while
+            // replacing the caption area with our custom title bar. Calling
+            // SetBorderAndTitleBar here applies a second client/frame boundary
+            // on Windows 11, which shows up as a detached duplicate right edge.
             UpdateMaximizeGlyph();
         }
 
@@ -2341,8 +2344,10 @@ public sealed partial class MainWindow : Window
             MainContentColumn.Width = new GridLength(1, GridUnitType.Star);
             DetailColumn.Width = new GridLength(0);
         }
-        if (double.IsNaN(RootGrid.Width) || Math.Abs(RootGrid.Width - viewportWidth) > 0.5)
-            RootGrid.Width = viewportWidth;
+        // RootGrid is already measured against the window client area. Do not
+        // assign XamlRoot.Size.Width here: that value includes the native
+        // resize frame in custom-title-bar mode and lets content overdraw the
+        // right frame, producing a duplicate or broken edge.
         ApplyReaderPanelLayout(viewportWidth);
     }
 

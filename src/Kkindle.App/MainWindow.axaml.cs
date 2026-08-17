@@ -348,7 +348,10 @@ public partial class MainWindow : Window
     {
         if (WindowShadowHost is null) return;
         var maximized = WindowState == WindowState.Maximized;
-        WindowShadowHost.Margin = maximized ? new Thickness(0) : new Thickness(12);
+        var frameMargin = maximized ? new Thickness(0) : new Thickness(12);
+        WindowShadowHost.Margin = frameMargin;
+        if (WindowFrameOverlay is not null)
+            WindowFrameOverlay.Margin = frameMargin;
         if (WindowResizeLayer is not null)
             WindowResizeLayer.IsVisible = !maximized;
     }

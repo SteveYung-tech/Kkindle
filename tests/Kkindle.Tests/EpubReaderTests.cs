@@ -94,6 +94,154 @@ public sealed class EpubReaderTests
     }
 
     [Fact]
+    public async Task PrefersEpub2GuideTocWhenNcxTargetsAreWrong()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var epub = Path.Combine(root, "broken-ncx.epub");
+            using (var archive = ZipFile.Open(epub, ZipArchiveMode.Create))
+            {
+                TestHelpers.AddZipEntry(archive, "META-INF/container.xml", """
+                    <container><rootfiles><rootfile full-path="content.opf" /></rootfiles></container>
+                    """);
+                TestHelpers.AddZipEntry(archive, "content.opf", """
+                    <package><manifest>
+                      <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml" />
+                      <item id="title" href="title.xhtml" media-type="application/xhtml+xml" />
+                      <item id="toc-page" href="toc.xhtml" media-type="application/xhtml+xml" />
+                      <item id="intro" href="intro.xhtml" media-type="application/xhtml+xml" />
+                      <item id="part" href="part.xhtml" media-type="application/xhtml+xml" />
+                      <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml" />
+                    </manifest>
+                    <spine toc="ncx">
+                      <itemref idref="cover" /><itemref idref="title" /><itemref idref="toc-page" />
+                      <itemref idref="intro" /><itemref idref="part" />
+                    </spine>
+                    <guide><reference type="toc" title="Contents" href="toc.xhtml#contents" /></guide>
+                    </package>
+                    """);
+                TestHelpers.AddZipEntry(archive, "toc.ncx", """
+                    <ncx><navMap>
+                      <navPoint><navLabel><text>书名页</text></navLabel><content src="toc.xhtml" /></navPoint>
+                      <navPoint><navLabel><text>目录</text></navLabel><content src="toc.xhtml" /></navPoint>
+                      <navPoint><navLabel><text>第一部</text></navLabel><content src="intro.xhtml#wrong" /></navPoint>
+                    </navMap></ncx>
+                    """);
+                TestHelpers.AddZipEntry(archive, "cover.xhtml", "<html><head><title>Cover</title></head><body /></html>");
+                TestHelpers.AddZipEntry(archive, "title.xhtml", "<html><head><title>书名页</title></head><body>书名</body></html>");
+                TestHelpers.AddZipEntry(archive, "toc.xhtml", """
+                    <html><head><title>Table of Contents</title></head><body>
+                      <h1 id="contents">目录</h1>
+                      <a href="intro.xhtml#intro">序言</a>
+                      <a href="part.xhtml#part-one">第一部</a>
+                    </body></html>
+                    """);
+                TestHelpers.AddZipEntry(archive, "intro.xhtml", "<html><head><title>序言</title></head><body><h1 id=\"intro\">序言</h1></body></html>");
+                TestHelpers.AddZipEntry(archive, "part.xhtml", "<html><head><title>第一部</title></head><body><h1 id=\"part-one\">第一部</h1></body></html>");
+            }
+
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            paths.EnsureDirectories();
+            var document = await new EpubReaderPreparationService(paths)
+                .PrepareAsync(epub, new string('3', 64));
+
+            Assert.Equal(["序言", "第一部"], document.Navigation.Select(item => item.Title));
+            Assert.Equal([3, 4], document.Navigation.Select(item => item.ChapterIndex));
+            Assert.EndsWith("intro.xhtml#intro", document.Navigation[0].Target);
+            Assert.EndsWith("part.xhtml#part-one", document.Navigation[1].Target);
+            Assert.Equal(["封面", "书名页", "目录", "序言", "第一部"], document.ChapterTitles);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task PrefersRoleMarkedTocOverEarlierLandmarksNavigation()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var epub = Path.Combine(root, "role-toc.epub");
+            using (var archive = ZipFile.Open(epub, ZipArchiveMode.Create))
+            {
+                TestHelpers.AddZipEntry(archive, "META-INF/container.xml", """
+                    <container><rootfiles><rootfile full-path="EPUB/package.opf" /></rootfiles></container>
+                    """);
+                TestHelpers.AddZipEntry(archive, "EPUB/package.opf", """
+                    <package><manifest>
+                      <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="NAV" />
+                      <item id="one" href="one.xhtml" media-type="application/xhtml+xml" />
+                      <item id="two" href="two.xhtml" media-type="application/xhtml+xml" />
+                    </manifest><spine><itemref idref="one" /><itemref idref="two" /></spine></package>
+                    """);
+                TestHelpers.AddZipEntry(archive, "EPUB/nav.xhtml", """
+                    <html><body>
+                      <nav epub:type="landmarks" xmlns:epub="http://www.idpf.org/2007/ops">
+                        <a href="one.xhtml">正文入口</a>
+                      </nav>
+                      <nav role="doc-toc">
+                        <a href="one.xhtml">第一章</a>
+                        <a href="two.xhtml?edition=2#part">第二章</a>
+                        <a href="two.xhtml?edition=3#part">重复第二章</a>
+                      </nav>
+                    </body></html>
+                    """);
+                TestHelpers.AddZipEntry(archive, "EPUB/one.xhtml", "<html><body>一</body></html>");
+                TestHelpers.AddZipEntry(archive, "EPUB/two.xhtml", "<html><body><h1 id=\"part\">二</h1></body></html>");
+            }
+
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            paths.EnsureDirectories();
+            var document = await new EpubReaderPreparationService(paths)
+                .PrepareAsync(epub, new string('1', 64));
+
+            Assert.Equal(["第一章", "第二章"], document.Navigation.Select(item => item.Title));
+            Assert.DoesNotContain('?', document.Navigation[1].Target);
+            Assert.EndsWith("two.xhtml#part", document.Navigation[1].Target);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task InfersUnmarkedTocFromMostValidSpineLinks()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var epub = Path.Combine(root, "inferred-toc.epub");
+            using (var archive = ZipFile.Open(epub, ZipArchiveMode.Create))
+            {
+                TestHelpers.AddZipEntry(archive, "META-INF/container.xml", """
+                    <container><rootfiles><rootfile full-path="EPUB/package.opf" /></rootfiles></container>
+                    """);
+                TestHelpers.AddZipEntry(archive, "EPUB/package.opf", """
+                    <package><manifest>
+                      <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav" />
+                      <item id="one" href="one.xhtml" media-type="application/xhtml+xml" />
+                      <item id="two" href="two.xhtml" media-type="application/xhtml+xml" />
+                    </manifest><spine><itemref idref="one" /><itemref idref="two" /></spine></package>
+                    """);
+                TestHelpers.AddZipEntry(archive, "EPUB/nav.xhtml", """
+                    <html><body>
+                      <nav><a href="one.xhtml">快捷入口</a></nav>
+                      <nav><a href="one.xhtml">第一章</a><a href="two.xhtml">第二章</a></nav>
+                    </body></html>
+                    """);
+                TestHelpers.AddZipEntry(archive, "EPUB/one.xhtml", "<html><body>一</body></html>");
+                TestHelpers.AddZipEntry(archive, "EPUB/two.xhtml", "<html><body>二</body></html>");
+            }
+
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            paths.EnsureDirectories();
+            var document = await new EpubReaderPreparationService(paths)
+                .PrepareAsync(epub, new string('2', 64));
+
+            Assert.Equal(["第一章", "第二章"], document.Navigation.Select(item => item.Title));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
     public async Task SanitizesHtmlScriptsEventsExternalResourcesAndAddsReaderBridge()
     {
         var root = TestHelpers.CreateTempDirectory();
@@ -147,12 +295,22 @@ public sealed class EpubReaderTests
             Assert.DoesNotContain("javascript:", html, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("Content-Security-Policy", html, StringComparison.Ordinal);
             Assert.Contains("script-src 'nonce-", html, StringComparison.Ordinal);
-            Assert.Contains("invokeCSharpAction", html, StringComparison.Ordinal);
-            Assert.Contains("chrome.webview", html, StringComparison.Ordinal);
-            Assert.Contains("type: \"scroll\"", html, StringComparison.Ordinal);
-            Assert.Contains("contextmenu", html, StringComparison.Ordinal);
-            Assert.Contains("reportSelection(event)", html, StringComparison.Ordinal);
-            Assert.Contains("contextMenu: !!contextEvent", html, StringComparison.Ordinal);
+            Assert.Contains("src=\".kkindle-reader-bridge.js\"", html, StringComparison.Ordinal);
+            Assert.DoesNotContain("<![CDATA[", html, StringComparison.Ordinal);
+            var bridge = await File.ReadAllTextAsync(Path.Combine(
+                Path.GetDirectoryName(document.Chapters[0])!,
+                ".kkindle-reader-bridge.js"));
+            Assert.Contains("invokeCSharpAction", bridge, StringComparison.Ordinal);
+            Assert.Contains("chrome.webview", bridge, StringComparison.Ordinal);
+            Assert.Contains("type: \"scroll\"", bridge, StringComparison.Ordinal);
+            Assert.Contains("contextmenu", bridge, StringComparison.Ordinal);
+            Assert.Contains("reportSelection(event)", bridge, StringComparison.Ordinal);
+            Assert.Contains("contextMenu: !!contextEvent", bridge, StringComparison.Ordinal);
+            Assert.Contains("bookmarkToggle", bridge, StringComparison.Ordinal);
+            Assert.Contains("nativeContinuousScroll", bridge, StringComparison.Ordinal);
+            Assert.Contains("if (nativeContinuousScroll) return", bridge, StringComparison.Ordinal);
+            Assert.Contains("type: 'continuousEdge'", bridge, StringComparison.Ordinal);
+            Assert.Contains("position + viewport >= extent - 4", bridge, StringComparison.Ordinal);
             Assert.Contains("../images/ok.jpg", html, StringComparison.Ordinal);
             Assert.Contains("class=\"kkindle-footnote-marker\">注</sup>", html, StringComparison.Ordinal);
             Assert.DoesNotContain("width=\"24\"", html, StringComparison.Ordinal);
@@ -307,12 +465,15 @@ public sealed class EpubReaderTests
 
             Assert.Contains("original chapter", html, StringComparison.Ordinal);
             Assert.DoesNotContain("stale transformed chapter", html, StringComparison.Ordinal);
-            Assert.Contains("data-action=\"highlight-menu\"", html, StringComparison.Ordinal);
-            Assert.Contains("荧光标记（黑白反色）  ▰", html, StringComparison.Ordinal);
-            Assert.Contains(".kk-sel-styles.above", html, StringComparison.Ordinal);
-            Assert.Contains("dismissedSelectionText", html, StringComparison.Ordinal);
-            Assert.Contains("document.addEventListener(\"pointerup\"", html, StringComparison.Ordinal);
-            Assert.Contains("direction: x < width / 3 ? -1 : 1", html, StringComparison.Ordinal);
+            var bridge = await File.ReadAllTextAsync(Path.Combine(
+                Path.GetDirectoryName(rebuilt.Chapters[0])!,
+                ".kkindle-reader-bridge.js"));
+            Assert.Contains("data-action=\"highlight-menu\"", bridge, StringComparison.Ordinal);
+            Assert.Contains("荧光标记（黑白反色）  ▰", bridge, StringComparison.Ordinal);
+            Assert.Contains(".kk-sel-styles.above", bridge, StringComparison.Ordinal);
+            Assert.Contains("dismissedSelectionText", bridge, StringComparison.Ordinal);
+            Assert.Contains("document.addEventListener(\"pointerup\"", bridge, StringComparison.Ordinal);
+            Assert.Contains("direction: x < width / 3 ? -1 : 1", bridge, StringComparison.Ordinal);
             Assert.False(markerText.EndsWith("\n0", StringComparison.Ordinal));
         }
         finally { TestHelpers.TryDelete(root); }

@@ -12,14 +12,16 @@ public sealed record EpubReaderNavigationItem(string Title, string Target, int C
 public sealed record EpubReaderDocument(
     string RootPath,
     IReadOnlyList<string> Chapters,
-    IReadOnlyList<EpubReaderNavigationItem> Navigation);
+    IReadOnlyList<EpubReaderNavigationItem> Navigation,
+    IReadOnlyList<string> ChapterTitles);
 
 public sealed class EpubReaderPreparationService
 {
     private const string ExtractionReadyFileName = ".kkindle-extracted";
     // Bump whenever sanitization or the injected bridge changes. Existing
     // reader caches otherwise keep the old JavaScript indefinitely.
-    private const string ExtractionFormatVersion = "10";
+    private const string ExtractionFormatVersion = "13";
+    private const string ReaderBridgeFileName = ".kkindle-reader-bridge.js";
     private const string ContentSecurityPolicyBase =
         "default-src 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; " +
         "connect-src 'none'; form-action 'none'; img-src 'self' file:; " +
@@ -288,6 +290,46 @@ public sealed class EpubReaderPreparationService
             selectionBar.querySelector('#kk-sel-styles')?.classList.remove('open', 'above');
           };
 
+          let bookmarkCorner = null;
+          const installBookmarkCorner = () => {
+            if (bookmarkCorner || !document.body) return;
+            let styleElement = document.getElementById('kkindle-bookmark-corner-style');
+            if (!styleElement) {
+              styleElement = document.createElement('style');
+              styleElement.id = 'kkindle-bookmark-corner-style';
+              styleElement.textContent = `
+                #kkindle-bookmark-corner {
+                  position: fixed; top: 0; right: 0; width: 34px; height: 34px;
+                  z-index: 2147483646; margin: 0; padding: 0;
+                  border: 0; outline: 0; border-radius: 0;
+                  background: transparent; cursor: pointer;
+                }
+                #kkindle-bookmark-corner::after {
+                  content: ""; position: absolute; top: 0; right: 0;
+                  width: 0; height: 0; opacity: 0;
+                  border-top: 26px solid #000000;
+                  border-left: 26px solid transparent;
+                }
+                #kkindle-bookmark-corner.marked::after { opacity: 1; }`;
+              document.head.appendChild(styleElement);
+            }
+            bookmarkCorner = document.createElement('button');
+            bookmarkCorner.id = 'kkindle-bookmark-corner';
+            bookmarkCorner.type = 'button';
+            bookmarkCorner.title = '添加或取消当前位置书签';
+            bookmarkCorner.setAttribute('aria-label', '添加或取消当前位置书签');
+            bookmarkCorner.addEventListener('click', event => {
+              event.preventDefault();
+              event.stopPropagation();
+              send({ type: 'bookmarkToggle' });
+            });
+            document.body.appendChild(bookmarkCorner);
+          };
+          window.__kkindleSetBookmarkMarked = marked => {
+            installBookmarkCorner();
+            bookmarkCorner?.classList.toggle('marked', !!marked);
+          };
+
           const isFootnoteLink = element => {
             const metadata = [
               element.getAttribute('epub:type') || '',
@@ -378,12 +420,11 @@ public sealed class EpubReaderPreparationService
               if (element) send({ type: "footnoteLeave" });
             } catch (_) { }
           }, true);
-          document.addEventListener("keyup", event => {
-            if (["ArrowLeft", "ArrowRight", "PageUp", "PageDown"].includes(event.key))
-              send({ type: "key", key: event.key });
-          }, true);
-          // ArrowUp/ArrowDown are scroll-only in continuous mode; keydown keeps
-          // the repeat semantics of the WinUI reference's keyboard handling.
+          // Handle navigation on keydown so arrows respond immediately and
+          // retain native key-repeat behavior. Horizontal continuous reading
+          // leaves up/down to Chromium's native scrolling; routing those keys
+          // through an asynchronous host script can swallow the key without
+          // moving the document. The host still owns page and chapter changes.
           document.addEventListener("keydown", event => {
             const key = event.key || '';
             const lower = key.toLowerCase();
@@ -395,12 +436,36 @@ public sealed class EpubReaderPreparationService
               return;
             }
             const paginated = window.__kkindleReaderFlowMode === 1;
+            const continuousDirection = !paginated
+              ? (key === 'ArrowUp' || key === 'PageUp' ? -1
+                : key === 'ArrowDown' || key === 'PageDown' ? 1 : 0)
+              : 0;
+            if (continuousDirection !== 0) {
+              const el = document.scrollingElement || document.documentElement;
+              const horizontal = window.__kkindleReaderVertical === true;
+              const position = horizontal ? Math.abs(el?.scrollLeft || 0) : (el?.scrollTop || 0);
+              const viewport = horizontal ? (el?.clientWidth || 0) : (el?.clientHeight || 0);
+              const extent = horizontal ? (el?.scrollWidth || 0) : (el?.scrollHeight || 0);
+              const atEdge = continuousDirection < 0
+                ? position <= 4
+                : extent > 0 && position + viewport >= extent - 4;
+              if (atEdge) {
+                event.preventDefault();
+                send({ type: 'continuousEdge', direction: continuousDirection });
+                return;
+              }
+            }
+            const nativeContinuousScroll = !paginated
+              && window.__kkindleReaderVertical !== true
+              && (key === 'ArrowUp' || key === 'ArrowDown');
+            if (nativeContinuousScroll) return;
             const controlled = paginated
               ? ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'].includes(key)
               : ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key);
-            if (controlled) event.preventDefault();
-            if (key === "ArrowUp" || key === "ArrowDown")
+            if (controlled) {
+              event.preventDefault();
               send({ type: "key", key });
+            }
           }, true);
           // Replace Chromium's default context menu with Kreader's native text
           // actions. Right-clicking a live selection reports both its anchor and
@@ -414,7 +479,23 @@ public sealed class EpubReaderPreparationService
           // the WinUI reference's low-level mouse hook; the host accumulates
           // the deltas. Continuous mode is left to native scrolling.
           document.addEventListener("wheel", event => {
-            if (window.__kkindleReaderFlowMode !== 1) return;
+            if (window.__kkindleReaderFlowMode !== 1) {
+              const direction = Math.sign(event.deltaY || 0);
+              if (direction === 0) return;
+              const el = document.scrollingElement || document.documentElement;
+              const horizontal = window.__kkindleReaderVertical === true;
+              const position = horizontal ? Math.abs(el?.scrollLeft || 0) : (el?.scrollTop || 0);
+              const viewport = horizontal ? (el?.clientWidth || 0) : (el?.clientHeight || 0);
+              const extent = horizontal ? (el?.scrollWidth || 0) : (el?.scrollHeight || 0);
+              const atEdge = direction < 0
+                ? position <= 4
+                : extent > 0 && position + viewport >= extent - 4;
+              if (atEdge) {
+                event.preventDefault();
+                send({ type: 'continuousEdge', direction });
+              }
+              return;
+            }
             event.preventDefault();
             send({ type: "wheel", deltaY: event.deltaY || 0 });
           }, { passive: false });
@@ -449,6 +530,7 @@ public sealed class EpubReaderPreparationService
 
           const ready = () => {
             installSelectionBar();
+            installBookmarkCorner();
             send({ type: "ready" });
             queueScrollReport();
           };
@@ -566,7 +648,14 @@ public sealed class EpubReaderPreparationService
                 .ToList();
         }
 
-        return new EpubReaderDocument(cacheRoot, chapters, navigation);
+        var chapterTitles = new List<string>(chapters.Count);
+        foreach (var chapter in chapters)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            chapterTitles.Add(await ReadChapterTitleAsync(chapter, cancellationToken));
+        }
+
+        return new EpubReaderDocument(cacheRoot, chapters, navigation, chapterTitles);
     }
 
     private static async Task<List<EpubReaderNavigationItem>> ReadNavigationAsync(
@@ -578,7 +667,7 @@ public sealed class EpubReaderPreparationService
         CancellationToken cancellationToken)
     {
         var navItem = manifest.Values.FirstOrDefault(item =>
-            item.Properties?.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("nav") == true);
+            HasToken(item.Properties, "nav"));
         if (navItem is not null)
         {
             var navPath = ResolveContainedPath(packageDirectory, Uri.UnescapeDataString(navItem.Href!.Split('#')[0]));
@@ -586,21 +675,57 @@ public sealed class EpubReaderPreparationService
             if (File.Exists(navPath))
             {
                 var navDocument = await LoadXmlAsync(navPath, cancellationToken);
-                var toc = navDocument.Descendants().FirstOrDefault(element =>
-                    element.Name.LocalName == "nav"
-                    && element.Attributes().Any(attribute =>
-                        attribute.Name.LocalName == "type" && attribute.Value.Split(' ').Contains("toc")))
-                    ?? navDocument.Descendants().FirstOrDefault(element => element.Name.LocalName == "nav");
-                if (toc is not null)
-                {
-                    var result = CreateNavigationItems(
-                        toc.Descendants().Where(element => element.Name.LocalName == "a")
-                            .Select(element => (Title: NormalizeTitle(element.Value), Href: element.Attribute("href")?.Value)),
+                var navElements = navDocument.Descendants()
+                    .Where(element => element.Name.LocalName.Equals("nav", StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                var explicitToc = navElements
+                    .Where(IsTocNavigationElement)
+                    .Select(element => CreateNavigationItems(
+                        GetNavigationLinks(element),
                         navPath,
                         cacheRoot,
-                        chapters);
-                    if (result.Count > 0) return result;
+                        chapters))
+                    .OrderByDescending(items => items.Count)
+                    .FirstOrDefault(items => items.Count > 0);
+                if (explicitToc is not null) return explicitToc;
+
+                var inferredToc = navElements
+                    .Where(element => !IsKnownNonTocNavigationElement(element))
+                    .Select(element => CreateNavigationItems(
+                        GetNavigationLinks(element),
+                        navPath,
+                        cacheRoot,
+                        chapters))
+                    .OrderByDescending(items => items.Count)
+                    .FirstOrDefault(items => items.Count > 0);
+                if (inferredToc is not null)
+                {
+                    return inferredToc;
                 }
+            }
+        }
+
+        var guideToc = package.Descendants()
+            .FirstOrDefault(element =>
+                element.Name.LocalName.Equals("reference", StringComparison.OrdinalIgnoreCase)
+                && HasToken(GetAttributeValue(element, "type"), "toc"));
+        var guideHref = GetAttributeValue(guideToc, "href");
+        if (!string.IsNullOrWhiteSpace(guideHref))
+        {
+            var guidePathPart = guideHref.Split('#', 2)[0].Split('?', 2)[0];
+            var guidePath = ResolveContainedPath(
+                packageDirectory,
+                Uri.UnescapeDataString(guidePathPart));
+            EnsureContainedPath(cacheRoot, guidePath);
+            if (File.Exists(guidePath))
+            {
+                var guideDocument = await LoadXmlAsync(guidePath, cancellationToken);
+                var guideItems = CreateNavigationItems(
+                    GetNavigationLinks(guideDocument.Root),
+                    guidePath,
+                    cacheRoot,
+                    chapters);
+                if (guideItems.Count > 0) return guideItems;
             }
         }
 
@@ -635,15 +760,17 @@ public sealed class EpubReaderPreparationService
         IReadOnlyList<string> chapters)
     {
         var result = new List<EpubReaderNavigationItem>();
+        var targets = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (title, href) in source)
         {
             if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(href)) continue;
             if (Uri.TryCreate(href, UriKind.Absolute, out var absolute) && !absolute.IsFile) continue;
 
             var parts = href.Split('#', 2);
-            var targetPath = parts[0].Length == 0
+            var pathPart = parts[0].Split('?', 2)[0];
+            var targetPath = pathPart.Length == 0
                 ? navigationDocumentPath
-                : ResolveContainedPath(Path.GetDirectoryName(navigationDocumentPath)!, Uri.UnescapeDataString(parts[0]));
+                : ResolveContainedPath(Path.GetDirectoryName(navigationDocumentPath)!, Uri.UnescapeDataString(pathPart));
             EnsureContainedPath(cacheRoot, targetPath);
             var chapterIndex = chapters.ToList().FindIndex(chapter =>
                 Path.GetFullPath(chapter).Equals(Path.GetFullPath(targetPath), StringComparison.OrdinalIgnoreCase));
@@ -651,9 +778,95 @@ public sealed class EpubReaderPreparationService
 
             var target = new Uri(targetPath).AbsoluteUri;
             if (parts.Length == 2 && parts[1].Length > 0) target += $"#{parts[1]}";
+            var fragmentKey = parts.Length == 2 ? DecodeNavigationFragment(parts[1]) : string.Empty;
+            if (!targets.Add($"{chapterIndex}\0{fragmentKey}")) continue;
             result.Add(new EpubReaderNavigationItem(title, target, chapterIndex));
         }
         return result;
+    }
+
+    private static IEnumerable<(string Title, string? Href)> GetNavigationLinks(XElement? navigation) =>
+        navigation?.Descendants()
+            .Where(element => element.Name.LocalName.Equals("a", StringComparison.OrdinalIgnoreCase))
+            .Select(element => (
+                Title: NormalizeTitle(element.Value),
+                Href: element.Attributes().FirstOrDefault(attribute =>
+                    attribute.Name.LocalName.Equals("href", StringComparison.OrdinalIgnoreCase))?.Value))
+        ?? [];
+
+    private static bool IsTocNavigationElement(XElement element) =>
+        element.Attributes().Any(attribute =>
+            attribute.Name.LocalName.Equals("type", StringComparison.OrdinalIgnoreCase)
+            && HasToken(attribute.Value, "toc"))
+        || HasToken(element.Attributes().FirstOrDefault(attribute =>
+            attribute.Name.LocalName.Equals("role", StringComparison.OrdinalIgnoreCase))?.Value, "doc-toc")
+        || HasTocHint(GetAttributeValue(element, "id"))
+        || HasTocHint(GetAttributeValue(element, "class"));
+
+    private static bool IsKnownNonTocNavigationElement(XElement element)
+    {
+        var metadata = element.Attributes()
+            .Where(attribute => new[] { "type", "role", "id", "class" }.Any(name =>
+                attribute.Name.LocalName.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            .Select(attribute => attribute.Value);
+        return metadata.Any(value => Regex.IsMatch(
+            value,
+            @"(?:^|[\s_-])(landmarks?|page[-_]?list|doc[-_]?pagelist)(?:$|[\s_-])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
+    }
+
+    private static bool HasToken(string? value, string token) =>
+        value?.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Any(part => part.Equals(token, StringComparison.OrdinalIgnoreCase)) == true;
+
+    private static string? GetAttributeValue(XElement? element, string name) =>
+        element?.Attributes().FirstOrDefault(attribute =>
+            attribute.Name.LocalName.Equals(name, StringComparison.OrdinalIgnoreCase))?.Value;
+
+    private static bool HasTocHint(string? value) =>
+        !string.IsNullOrWhiteSpace(value)
+        && Regex.IsMatch(
+            value,
+            @"(?:^|[\s_-])(toc|table[-_]?of[-_]?contents?)(?:$|[\s_-])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static string DecodeNavigationFragment(string fragment)
+    {
+        try { return Uri.UnescapeDataString(fragment); }
+        catch { return fragment; }
+    }
+
+    private static async Task<string> ReadChapterTitleAsync(
+        string chapterPath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var document = await LoadXmlAsync(chapterPath, cancellationToken);
+            var heading = document.Descendants().FirstOrDefault(element =>
+                element.Name.LocalName.Equals("h1", StringComparison.OrdinalIgnoreCase));
+            var title = NormalizeTitle(heading?.Value);
+            if (title.Length == 0)
+            {
+                title = NormalizeTitle(document.Descendants().FirstOrDefault(element =>
+                    element.Name.LocalName.Equals("title", StringComparison.OrdinalIgnoreCase))?.Value);
+            }
+
+            return title.ToLowerInvariant() switch
+            {
+                "cover" => "封面",
+                "table of contents" => "目录",
+                _ => title
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private static string NormalizeTitle(string? value) =>
@@ -842,6 +1055,12 @@ public sealed class EpubReaderPreparationService
 
         var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
         var policy = $"{ContentSecurityPolicyBase} script-src 'nonce-{nonce}';";
+        var bridgePath = Path.Combine(Path.GetDirectoryName(path)!, ReaderBridgeFileName);
+        await File.WriteAllTextAsync(
+            bridgePath,
+            ReaderBridgeScript,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            cancellationToken);
         head.AddFirst(
             new XElement(
                 namespaceName + "meta",
@@ -851,7 +1070,8 @@ public sealed class EpubReaderPreparationService
             new XElement(
                 namespaceName + "script",
                 new XAttribute("nonce", nonce),
-                new XCData(ReaderBridgeScript)));
+                new XAttribute("src", ReaderBridgeFileName),
+                " "));
 
         await WriteXmlAsync(document, path, cancellationToken);
     }
