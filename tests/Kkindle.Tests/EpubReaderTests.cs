@@ -307,6 +307,9 @@ public sealed class EpubReaderTests
             Assert.Contains("reportSelection(event)", bridge, StringComparison.Ordinal);
             Assert.Contains("contextMenu: !!contextEvent", bridge, StringComparison.Ordinal);
             Assert.Contains("bookmarkToggle", bridge, StringComparison.Ordinal);
+            Assert.Contains("data-kkindle-footnote-href", bridge, StringComparison.Ordinal);
+            Assert.Contains("element.removeAttribute('href')", bridge, StringComparison.Ordinal);
+            Assert.Contains("type: \"footnoteHover\"", bridge, StringComparison.Ordinal);
             Assert.Contains("nativeContinuousScroll", bridge, StringComparison.Ordinal);
             Assert.Contains("if (nativeContinuousScroll) return", bridge, StringComparison.Ordinal);
             Assert.Contains("type: 'continuousEdge'", bridge, StringComparison.Ordinal);

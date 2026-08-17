@@ -226,7 +226,7 @@ public partial class MainWindow : Window
         // every open because ApplyTemplate can rebuild the PART_Popup instance.
         AuthorFilterBox.DropDownOpened += (_, _) =>
         {
-            if (AuthorFilterBox.GetTemplateChildren()
+            if (AuthorFilterBox.GetTemplateDescendants()
                     .FirstOrDefault(c => c.Name == "PART_Popup") is Popup { } popup)
                 popup.Width = _authorPopupWidth;
         };
@@ -239,7 +239,7 @@ public partial class MainWindow : Window
     // the ListBox rebuilds its template ScrollViewer.
     private void AttachBookGridAutoHideScrollbar()
     {
-        if (BookGrid.GetTemplateChildren().OfType<ScrollViewer>().FirstOrDefault() is not { } viewer)
+        if (BookGrid.GetTemplateDescendants().OfType<ScrollViewer>().FirstOrDefault() is not { } viewer)
         {
             BookGrid.TemplateApplied += (_, _) => AttachBookGridAutoHideScrollbar();
             return;
@@ -347,7 +347,7 @@ public partial class MainWindow : Window
     private void UpdateWindowShadowMargin()
     {
         if (WindowShadowHost is null) return;
-        var maximized = WindowState == WindowState.Maximized;
+        var maximized = WindowState is WindowState.Maximized or WindowState.FullScreen;
         var frameMargin = maximized ? new Thickness(0) : new Thickness(12);
         WindowShadowHost.Margin = frameMargin;
         if (WindowFrameOverlay is not null)

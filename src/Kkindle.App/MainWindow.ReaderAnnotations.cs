@@ -285,7 +285,7 @@ public partial class MainWindow
     {
         _readerFootnoteHoverSequence++;
         _readerFootnotePinned = false;
-        ReaderFootnotePopup.IsVisible = false;
+        HideReaderFootnotePopup();
     }
 
     private async void ReaderExportMarkdownButton_Click(object? sender, RoutedEventArgs e)

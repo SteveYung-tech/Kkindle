@@ -471,7 +471,12 @@ public partial class MainWindow
 
     private void UpdateReaderZenTocToggle()
     {
-        if (ReaderZenTocButton is null) return;
-        ReaderZenTocButton.Content = _readerTocMinimal ? "隐藏极简目录" : "极简目录";
+        var label = _readerTocMinimal ? "关闭极简目录" : "显示极简目录";
+        if (ReaderZenTocButton is not null)
+            ReaderZenTocButton.Content = label;
+        if (ReaderZenTitleTocText is not null)
+            ReaderZenTitleTocText.Text = label;
+        if (ReaderZenPopupTocText is not null)
+            ReaderZenPopupTocText.Text = label;
     }
 }

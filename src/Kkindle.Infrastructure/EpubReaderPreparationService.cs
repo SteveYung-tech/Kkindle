@@ -20,7 +20,7 @@ public sealed class EpubReaderPreparationService
     private const string ExtractionReadyFileName = ".kkindle-extracted";
     // Bump whenever sanitization or the injected bridge changes. Existing
     // reader caches otherwise keep the old JavaScript indefinitely.
-    private const string ExtractionFormatVersion = "15";
+    private const string ExtractionFormatVersion = "16";
     private const string ReaderBridgeFileName = ".kkindle-reader-bridge.js";
     private const string ContentSecurityPolicyBase =
         "default-src 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; " +
@@ -428,16 +428,35 @@ public sealed class EpubReaderPreparationService
               const element = event.target instanceof Element
                 ? event.target.closest("a")
                 : null;
-              if (element && element.href) {
+              const storedHref = element?.getAttribute('data-kkindle-footnote-href') || '';
+              const href = element?.getAttribute('href') || storedHref;
+              if (element && href) {
                 event.preventDefault();
                 const footnote = isFootnoteLink(element);
-                send({ type: "link", href: element.href, target: element.target || "", footnote });
+                let absoluteHref;
+                try { absoluteHref = new URL(href, location.href).href; }
+                catch (_) { absoluteHref = href; }
+                send({ type: "link", href: absoluteHref, target: element.target || "", footnote });
                 return;
               }
             } catch (_) { }
           }, true);
           document.addEventListener("mouseup", () => reportSelection(null), true);
           let footnoteHoverTimer = 0;
+          const suppressFootnoteStatus = element => {
+            if (!element || !isFootnoteLink(element)) return;
+            const href = element.getAttribute('href');
+            if (!href || !href.includes('#')) return;
+            element.setAttribute('data-kkindle-footnote-href', href);
+            // WebView2 otherwise displays the raw local XHTML URL while the
+            // note marker is hovered. The bridge retains the target instead.
+            element.removeAttribute('href');
+          };
+          const restoreFootnoteStatus = element => {
+            if (!element) return;
+            const href = element.getAttribute('data-kkindle-footnote-href');
+            if (href && !element.getAttribute('href')) element.setAttribute('href', href);
+          };
           document.addEventListener("pointerover", event => {
             try {
               const element = event.target instanceof Element
@@ -445,18 +464,28 @@ public sealed class EpubReaderPreparationService
                 : null;
               if (!element || !element.href.includes('#')) return;
               if (!isFootnoteLink(element)) return;
+              suppressFootnoteStatus(element);
               window.clearTimeout(footnoteHoverTimer);
               footnoteHoverTimer = window.setTimeout(() =>
-                send({ type: "footnoteHover", href: element.href }), 90);
+                send({
+                  type: "footnoteHover",
+                  href: new URL(element.getAttribute('data-kkindle-footnote-href') || '', location.href).href,
+                  x: event.clientX || 0,
+                  y: event.clientY || 0
+                }), 90);
             } catch (_) { }
           }, true);
           document.addEventListener("pointerout", event => {
             try {
               window.clearTimeout(footnoteHoverTimer);
               const element = event.target instanceof Element
-                ? event.target.closest("a[href]")
+                ? event.target.closest("a")
                 : null;
-              if (element) send({ type: "footnoteLeave" });
+              if (!element) return;
+              if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
+              restoreFootnoteStatus(element);
+              if (element.getAttribute('data-kkindle-footnote-href'))
+                send({ type: "footnoteLeave" });
             } catch (_) { }
           }, true);
           // Handle navigation on keydown so arrows respond immediately and
@@ -562,11 +591,16 @@ public sealed class EpubReaderPreparationService
           // Avalonia tree, so the page reports movement through the bridge
           // (throttled), replacing the WinUI reference's low-level mouse hook.
           let lastPointerMove = 0;
-          document.addEventListener("pointermove", () => {
+          document.addEventListener("pointermove", event => {
             const now = Date.now();
             if (now - lastPointerMove < 80) return;
             lastPointerMove = now;
-            send({ type: "pointermove" });
+            send({
+              type: "pointermove",
+              x: event.clientX,
+              y: event.clientY,
+              width: window.innerWidth
+            });
           }, true);
           document.addEventListener("scroll", queueScrollReport, { passive: true });
           window.addEventListener("resize", () => {

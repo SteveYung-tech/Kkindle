@@ -17,59 +17,6 @@ internal static class ReaderPaginationScripts
         + " || document.documentElement.clientWidth"
         + " || document.scrollingElement?.clientWidth || 0";
 
-    // Chromium can preserve an anchor-produced fractional column offset even
-    // after the nominal scroll boundary is restored. Align against the actual
-    // rendered block fragment, whose centre is invariant across publisher
-    // margins, paragraph indents and DPI scaling.
-    public static string PageAlignmentHelperDefinition =>
-        """
-        window.__kkindleAlignPaginatedPage = () => {
-          const el = document.scrollingElement || document.documentElement;
-          const body = document.body;
-          if (!el || !body || el.scrollLeft <= 0.5) return 0;
-          const viewWidth = el.clientWidth || window.innerWidth || 0;
-          if (viewWidth <= 0) return 0;
-          const bodyStyle = getComputedStyle(body);
-          if (window.__kkindleReaderTwoPage
-              || (bodyStyle.writingMode || '').startsWith('vertical')) return 0;
-          const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
-          const padRight = parseFloat(bodyStyle.paddingRight) || 0;
-          const contentLeft = padLeft;
-          const contentRight = viewWidth - padRight;
-          const contentWidth = contentRight - contentLeft;
-          if (contentWidth <= 0) return 0;
-
-          let best = null;
-          let bestWidthError = Number.POSITIVE_INFINITY;
-          const blocks = body.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,table');
-          for (const block of blocks) {
-            const rects = block.getClientRects ? Array.from(block.getClientRects()) : [];
-            for (const rect of rects) {
-              if (rect.width <= 8 || rect.height <= 0
-                  || rect.right <= 0 || rect.left >= viewWidth
-                  || rect.bottom <= 0 || rect.top >= window.innerHeight) continue;
-              const widthError = Math.abs(rect.width - contentWidth);
-              if (widthError < bestWidthError) {
-                best = rect;
-                bestWidthError = widthError;
-              }
-            }
-          }
-          if (!best) return 0;
-
-          const expectedCenter = (contentLeft + contentRight) / 2;
-          const actualCenter = (best.left + best.right) / 2;
-          const error = actualCenter - expectedCenter;
-          if (!Number.isFinite(error) || Math.abs(error) <= 0.5
-              || Math.abs(error) >= viewWidth * 0.4) return 0;
-          const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
-          const target = Math.max(0, Math.min(rawMax, el.scrollLeft + error));
-          el.scrollLeft = target;
-          el.scrollTop = 0;
-          return error;
-        };
-        """;
-
     public static string CreateFlowCss(
         bool pagination,
         bool vertical,
@@ -154,13 +101,15 @@ internal static class ReaderPaginationScripts
               if (step <= 0) return;
               const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
               const trailingInset = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
-              const max = Math.max(0, Math.min(rawMax, Math.round(Math.max(0, rawMax - trailingInset) / step) * step));
+              // scrollWidth/clientWidth are integer-rounded, while scrollLeft
+              // is device-pixel precise. Keep the logical page boundary here
+              // and let Chromium clamp the request to its fractional maximum.
+              const max = Math.max(0, Math.round(Math.max(0, rawMax - trailingInset) / step) * step);
               const nearest = Math.round(el.scrollLeft / step) * step;
               const target = el.scrollLeft >= max - {{tolerance}}
                 ? max
                 : Math.max(0, Math.min(max, nearest));
               window.scrollTo({ left: target, top: 0, behavior: 'instant' });
-              try { window.__kkindleAlignPaginatedPage?.(); } catch (_) {}
             })();
             """;
     }
@@ -178,7 +127,7 @@ internal static class ReaderPaginationScripts
               if (step <= 0) return false;
               const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
               const trailingInset = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
-              const max = Math.max(0, Math.min(rawMax, Math.round(Math.max(0, rawMax - trailingInset) / step) * step));
+              const max = Math.max(0, Math.round(Math.max(0, rawMax - trailingInset) / step) * step);
               const nearest = Math.round(el.scrollLeft / step) * step;
               const current = el.scrollLeft >= max - 4
                 ? max
@@ -189,7 +138,6 @@ internal static class ReaderPaginationScripts
                 0,
                 Math.min(max, current + ({{safeDirection}} < 0 ? -step : step)));
               window.scrollTo({ left: target, top: 0, behavior: '{{behavior}}' });
-              try { window.__kkindleAlignPaginatedPage?.(); } catch (_) {}
               return true;
             })();
             """;
@@ -207,7 +155,7 @@ internal static class ReaderPaginationScripts
               if (step <= 0) return false;
               const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
               const trailingInset = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
-              const max = Math.max(0, Math.min(rawMax, Math.round(Math.max(0, rawMax - trailingInset) / step) * step));
+              const max = Math.max(0, Math.round(Math.max(0, rawMax - trailingInset) / step) * step);
               const nearest = Math.round(el.scrollLeft / step) * step;
               const current = el.scrollLeft >= max - {{tolerance}}
                 ? max
@@ -215,6 +163,49 @@ internal static class ReaderPaginationScripts
               return {{safeDirection}} < 0
                 ? current > {{tolerance}}
                 : current < max - {{tolerance}};
+            })();
+            """;
+    }
+
+    public static string CreateRestorePositionScript(
+        double left,
+        double top,
+        bool pagination)
+    {
+        var safeLeft = double.IsFinite(left) ? Math.Max(0, left) : 0;
+        var safeTop = double.IsFinite(top) ? Math.Max(0, top) : 0;
+        if (!pagination)
+        {
+            return $$"""
+            (() => {
+              window.scrollTo({ left: {{Format(safeLeft)}}, top: {{Format(safeTop)}}, behavior: 'instant' });
+            })();
+            """;
+        }
+
+        // Persisted positions may come from a different WebView width. Resolve
+        // the saved pixel to a page index first and write only the final page
+        // boundary; briefly restoring the stale raw pixel exposes a clipped
+        // column and lets asynchronous layout work preserve the bad offset.
+        return $$"""
+            (() => {
+              const el = document.scrollingElement || document.documentElement;
+              const body = document.body;
+              if (!el || !body) return false;
+              const step = {{PageStepExpression}};
+              if (step <= 0) return false;
+              const requested = {{Format(safeLeft)}};
+              const rawMax = Math.max(0, el.scrollWidth - el.clientWidth);
+              const trailingInset = parseFloat(getComputedStyle(body).paddingRight) || 0;
+              const max = Math.max(
+                0,
+                Math.round(Math.max(0, rawMax - trailingInset) / step) * step);
+              const pageIndex = Math.round(requested / step);
+              const target = requested >= max - 4
+                ? max
+                : Math.max(0, Math.min(max, pageIndex * step));
+              window.scrollTo({ left: target, top: 0, behavior: 'instant' });
+              return true;
             })();
             """;
     }

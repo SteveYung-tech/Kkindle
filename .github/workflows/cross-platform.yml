@@ -1,6 +1,8 @@
 name: Cross-platform validation
 
 on:
+  push:
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
@@ -28,7 +30,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 9.0.x
       - name: Build platform head
         run: dotnet build ${{ matrix.head }} -c Release
       - name: Run portable tests
@@ -37,6 +39,23 @@ jobs:
         run: dotnet test tests/Kkindle.Platform.Common.Tests/Kkindle.Platform.Common.Tests.csproj -c Release
       - name: Build native package
         run: ${{ matrix.package_command }}
+      - name: Install and smoke-test Linux package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ./artifacts/validation/kkindle_0.0.0_amd64.deb xvfb
+          set +e
+          xvfb-run -a timeout --signal=TERM --kill-after=5s 20s /usr/bin/kkindle \
+            > "$RUNNER_TEMP/kkindle-linux.log" 2>&1
+          status=$?
+          set -e
+          if [[ "$status" != 124 ]]; then
+            cat "$RUNNER_TEMP/kkindle-linux.log"
+            echo "Kkindle exited before the Linux smoke-test timeout (status $status)." >&2
+            exit 1
+          fi
       - name: Inspect Linux package metadata
         if: runner.os == 'Linux'
         run: |
@@ -46,4 +65,17 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           tar -xzf artifacts/validation/Kkindle-0.0.0-osx-arm64.tar.gz -C artifacts/validation
+          plutil -lint artifacts/validation/Kkindle.app/Contents/Info.plist
           codesign --verify --deep --strict artifacts/validation/Kkindle.app
+          artifacts/validation/Kkindle.app/Contents/MacOS/Kkindle \
+            > "$RUNNER_TEMP/kkindle-macos.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          sleep 12
+          if ! kill -0 "$pid" 2>/dev/null; then
+            cat "$RUNNER_TEMP/kkindle-macos.log"
+            echo "Kkindle exited during the macOS smoke test." >&2
+            exit 1
+          fi
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true

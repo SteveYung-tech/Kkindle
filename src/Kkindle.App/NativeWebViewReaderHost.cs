@@ -1,7 +1,9 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Platform;
 using Kkindle.Core;
 using System.Runtime.InteropServices;
+using SkiaSharp;
 
 namespace Kkindle;
 
@@ -10,15 +12,17 @@ namespace Kkindle;
 /// control uses the native browser for each platform (WebView2 on Windows),
 /// while the rest of the reader only sees the portable IReaderHost contract.
 /// </summary>
-public sealed class NativeWebViewReaderHost : IReaderHost
+public sealed class NativeWebViewReaderHost : IReaderHost, IReaderPageSnapshotProvider
 {
     private readonly NativeWebView _view = new();
+    private readonly Action<IntPtr>? _configureWindowsWebView2;
     private readonly TaskCompletionSource<object?> _ready = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _disposed;
 
-    public NativeWebViewReaderHost()
+    public NativeWebViewReaderHost(Action<IntPtr>? configureWindowsWebView2 = null)
     {
+        _configureWindowsWebView2 = configureWindowsWebView2;
         _view.AdapterCreated += View_AdapterCreated;
         _view.EnvironmentRequested += View_EnvironmentRequested;
         _view.NavigationStarted += View_NavigationStarted;
@@ -56,6 +60,174 @@ public sealed class NativeWebViewReaderHost : IReaderHost
         _view.Stop();
     }
 
+    public Task<byte[]?> CaptureVisiblePageAsync(CancellationToken cancellationToken)
+    {
+        if (_disposed || !OperatingSystem.IsWindows())
+            return Task.FromResult<byte[]?>(null);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        try
+        {
+            var topLeft = _view.PointToScreen(new Avalonia.Point(0, 0));
+            var scaling = TopLevel.GetTopLevel(_view)?.RenderScaling ?? 1d;
+            var width = Math.Max(1, (int)Math.Ceiling(_view.Bounds.Width * scaling));
+            var height = Math.Max(1, (int)Math.Ceiling(_view.Bounds.Height * scaling));
+            var snapshot = CaptureScreenRectangle(topLeft.X, topLeft.Y, width, height);
+            return Task.FromResult<byte[]?>(snapshot);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return Task.FromResult<byte[]?>(null);
+        }
+    }
+
+    private static byte[]? CaptureScreenRectangle(int x, int y, int width, int height)
+    {
+        var screenDc = GetDC(IntPtr.Zero);
+        if (screenDc == IntPtr.Zero) return null;
+
+        var memoryDc = IntPtr.Zero;
+        var bitmapHandle = IntPtr.Zero;
+        var previousObject = IntPtr.Zero;
+        try
+        {
+            memoryDc = CreateCompatibleDC(screenDc);
+            if (memoryDc == IntPtr.Zero) return null;
+            bitmapHandle = CreateCompatibleBitmap(screenDc, width, height);
+            if (bitmapHandle == IntPtr.Zero) return null;
+            previousObject = SelectObject(memoryDc, bitmapHandle);
+            if (!BitBlt(
+                    memoryDc,
+                    0,
+                    0,
+                    width,
+                    height,
+                    screenDc,
+                    x,
+                    y,
+                    SourceCopy | CaptureBlt))
+            {
+                return null;
+            }
+
+            var bitmapInfo = new BitmapInfo
+            {
+                Header = new BitmapInfoHeader
+                {
+                    Size = (uint)Marshal.SizeOf<BitmapInfoHeader>(),
+                    Width = width,
+                    Height = -height,
+                    Planes = 1,
+                    BitCount = 32,
+                    Compression = 0
+                }
+            };
+            using var bitmap = new SKBitmap(new SKImageInfo(
+                width,
+                height,
+                SKColorType.Bgra8888,
+                SKAlphaType.Opaque));
+            if (GetDIBits(
+                    memoryDc,
+                    bitmapHandle,
+                    0,
+                    (uint)height,
+                    bitmap.GetPixels(),
+                    ref bitmapInfo,
+                    0) != height)
+            {
+                return null;
+            }
+
+            using var image = SKImage.FromBitmap(bitmap);
+            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+            return data?.ToArray();
+        }
+        finally
+        {
+            if (previousObject != IntPtr.Zero && memoryDc != IntPtr.Zero)
+                SelectObject(memoryDc, previousObject);
+            if (bitmapHandle != IntPtr.Zero)
+                DeleteObject(bitmapHandle);
+            if (memoryDc != IntPtr.Zero)
+                DeleteDC(memoryDc);
+            ReleaseDC(IntPtr.Zero, screenDc);
+        }
+    }
+
+    private const uint SourceCopy = 0x00CC0020;
+    private const uint CaptureBlt = 0x40000000;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BitmapInfoHeader
+    {
+        public uint Size;
+        public int Width;
+        public int Height;
+        public ushort Planes;
+        public ushort BitCount;
+        public uint Compression;
+        public uint SizeImage;
+        public int XPelsPerMeter;
+        public int YPelsPerMeter;
+        public uint ColorsUsed;
+        public uint ColorsImportant;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BitmapInfo
+    {
+        public BitmapInfoHeader Header;
+        public uint Colors;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetDC(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern int ReleaseDC(IntPtr window, IntPtr dc);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateCompatibleDC(IntPtr dc);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteDC(IntPtr dc);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateCompatibleBitmap(IntPtr dc, int width, int height);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr SelectObject(IntPtr dc, IntPtr value);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr value);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool BitBlt(
+        IntPtr destination,
+        int destinationX,
+        int destinationY,
+        int width,
+        int height,
+        IntPtr source,
+        int sourceX,
+        int sourceY,
+        uint operation);
+
+    [DllImport("gdi32.dll")]
+    private static extern int GetDIBits(
+        IntPtr dc,
+        IntPtr bitmap,
+        uint startScan,
+        uint scanLines,
+        IntPtr bits,
+        ref BitmapInfo bitmapInfo,
+        uint usage);
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -71,7 +243,17 @@ public sealed class NativeWebViewReaderHost : IReaderHost
     }
 
     private void View_AdapterCreated(object? sender, WebViewAdapterEventArgs e)
-        => _ready.TrySetResult(null);
+    {
+        if (OperatingSystem.IsWindows()
+            && _configureWindowsWebView2 is not null
+            && e.TryGetPlatformHandle() is IWindowsWebView2PlatformHandle platformHandle
+            && platformHandle.CoreWebView2 != IntPtr.Zero)
+        {
+            try { _configureWindowsWebView2(platformHandle.CoreWebView2); }
+            catch { }
+        }
+        _ready.TrySetResult(null);
+    }
 
     private static void View_EnvironmentRequested(
         object? sender,
@@ -122,4 +304,5 @@ public sealed class NativeWebViewReaderHost : IReaderHost
         object? sender,
         WebViewNewWindowRequestedEventArgs e)
         => e.Handled = true;
+
 }

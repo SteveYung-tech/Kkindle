@@ -268,7 +268,7 @@ internal static class ReaderNavigationScripts
             const step = {{ReaderPaginationScripts.PageStepExpression}};
             const rawMax = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
             const max = step > 0
-              ? Math.max(0, Math.min(rawMax, Math.round(Math.max(0, rawMax - padRight) / step) * step))
+              ? Math.max(0, Math.round(Math.max(0, rawMax - padRight) / step) * step)
               : rawMax;
             // A two-page spread has a left and a right column inside the same
             // viewport. Rounding maps the right column to the next viewport,
@@ -295,28 +295,7 @@ internal static class ReaderNavigationScripts
             window.scrollTo({ top: Math.max(0, docTop - padTop), behavior: 'instant' });
           }
 
-          let after = block.getBoundingClientRect();
-          if (flowMode === 1 && !twoPage) {
-            // Correct against the rendered column itself. Fractional column
-            // widths and WebView DPI can otherwise shift the page by roughly
-            // one body inset: text touches the left edge while the right side
-            // gets the extra whitespace seen in the reported screenshot.
-            const horizontalError = after.left - (parseFloat(bodyStyle.paddingLeft) || 0);
-            if (Math.abs(horizontalError) > 0.5) {
-              const step = {{ReaderPaginationScripts.PageStepExpression}};
-              const rawMax = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-              const padRight = parseFloat(bodyStyle.paddingRight) || 0;
-              const max = step > 0
-                ? Math.max(0, Math.min(rawMax, Math.round(Math.max(0, rawMax - padRight) / step) * step))
-                : rawMax;
-              window.scrollTo({
-                left: Math.max(0, Math.min(max, scroller.scrollLeft + horizontalError)),
-                top: 0,
-                behavior: 'instant'
-              });
-              after = block.getBoundingClientRect();
-            }
-          }
+          const after = block.getBoundingClientRect();
           const computed = getComputedStyle(block);
           const padLeft = parseFloat(bodyStyle.paddingLeft) || 0;
           const step = {{ReaderPaginationScripts.PageStepExpression}};

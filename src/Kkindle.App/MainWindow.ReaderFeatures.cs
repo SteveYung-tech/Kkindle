@@ -4,6 +4,7 @@ using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Primitives.PopupPositioning;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -158,9 +159,9 @@ public partial class MainWindow
             HideReaderSearchPanel();
             return true;
         }
-        if (ReaderLayoutSettingsOverlay.IsVisible)
+        if (ReaderLayoutSettingsPopup.IsOpen)
         {
-            ReaderLayoutSettingsOverlay.IsVisible = false;
+            ReaderLayoutSettingsPopup.IsOpen = false;
             return true;
         }
         if (_readerZenMode)
@@ -871,12 +872,14 @@ public partial class MainWindow
 
         var tolerance = location.FlowMode == 1 ? 8 : 4;
         var isBookmarked = ReaderBookmarks.Any(bookmark =>
-            AreReaderBookmarkChapterPathsEqual(bookmark.ChapterPath, location.ChapterPath)
-            && bookmark.FlowMode == location.FlowMode
-            && ((bookmark.ScrollPosition is int savedPosition
-                 && Math.Abs(savedPosition - location.ScrollPosition) <= tolerance)
-                || (!string.IsNullOrWhiteSpace(bookmark.Fragment)
-                    && string.Equals(bookmark.Fragment, location.Fragment, StringComparison.OrdinalIgnoreCase))));
+            ReaderBookmarkPolicy.MatchesVisiblePosition(
+                bookmark.ChapterPath,
+                bookmark.FlowMode,
+                bookmark.ScrollPosition,
+                location.ChapterPath,
+                location.FlowMode,
+                location.ScrollPosition,
+                tolerance));
         ReaderBookmarkCornerMarker.IsVisible = _readerIsPdf && isBookmarked;
         if (!_readerIsPdf)
             _ = ObserveReaderTaskAsync(SetReaderDocumentBookmarkIndicatorAsync(isBookmarked));
@@ -1402,17 +1405,34 @@ public partial class MainWindow
 
     private void ReaderLayoutSettingsButton_Click(object? sender, RoutedEventArgs e)
     {
-        ReaderFontScaleSlider.Value = _readerLayout.FontScale;
-        ReaderLineHeightSlider.Value = _readerLayout.LineHeight;
-        ReaderMaxWidthSlider.Value = _readerLayout.MaxWidth;
-        ReaderBodyPaddingSlider.Value = _readerLayout.BodyPadding;
-        ReaderVerticalWritingCheck.IsChecked = _readerLayout.VerticalWriting;
-        SelectReaderFontFamily(_readerLayout.FontFamily);
-        SelectReaderFlowMode(_readerLayout.FlowMode, _readerLayout.TwoPageMode);
-        SelectReaderPageAnimation(_readerPageAnimation);
+        _suppressReaderLayoutChange = true;
+        try
+        {
+            ReaderFontScaleSlider.Value = _readerLayout.FontScale;
+            ReaderLineHeightSlider.Value = _readerLayout.LineHeight;
+            ReaderMaxWidthSlider.Value = _readerLayout.MaxWidth;
+            ReaderBodyPaddingSlider.Value = _readerLayout.BodyPadding;
+            ReaderVerticalWritingCheck.IsChecked = _readerLayout.VerticalWriting;
+            SelectReaderFontFamily(_readerLayout.FontFamily);
+            SelectReaderFlowMode(_readerLayout.FlowMode, _readerLayout.TwoPageMode);
+            SelectReaderPageAnimation(_readerPageAnimation);
+        }
+        finally
+        {
+            _suppressReaderLayoutChange = false;
+        }
         UpdateReaderLayoutSliderLabels();
         UpdateReaderLayoutStatus();
-        ReaderLayoutSettingsOverlay.IsVisible = true;
+        ReaderLayoutSettingsPopup.PlacementTarget = ReaderRoot;
+        ReaderLayoutSettingsPopup.Placement = PlacementMode.AnchorAndGravity;
+        ReaderLayoutSettingsPopup.PlacementAnchor = PopupAnchor.TopLeft;
+        ReaderLayoutSettingsPopup.PlacementGravity = PopupGravity.BottomRight;
+        ReaderLayoutSettingsPopup.HorizontalOffset = 0;
+        ReaderLayoutSettingsPopup.VerticalOffset = 38;
+        ReaderLayoutSettingsOverlay.Margin = new Thickness(0);
+        ReaderLayoutSettingsOverlay.Width = Math.Max(0, ReaderRoot.Bounds.Width);
+        ReaderLayoutSettingsOverlay.Height = Math.Max(0, ReaderRoot.Bounds.Height - 38);
+        ReaderLayoutSettingsPopup.IsOpen = true;
     }
 
     // ValueChanged / SelectionChanged can fire while XAML is still being
@@ -1499,7 +1519,7 @@ public partial class MainWindow
         GetSelectedReaderFlowMode().TwoPageMode);
 
     private void ReaderLayoutSettingsCloseButton_Click(object? sender, RoutedEventArgs e)
-        => ReaderLayoutSettingsOverlay.IsVisible = false;
+        => ReaderLayoutSettingsPopup.IsOpen = false;
 
     private async void ReaderLayoutResetButton_Click(object? sender, RoutedEventArgs e)
     {

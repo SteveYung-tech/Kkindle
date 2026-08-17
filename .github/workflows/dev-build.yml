@@ -1,0 +1,181 @@
+name: Development Build
+
+run-name: Development build ${{ inputs.base_version || '0.6.0-dev' }}.${{ github.run_number }}.${{ github.run_attempt }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_version:
+        description: "开发版基础版本，例如 0.6.0-dev"
+        required: true
+        default: "0.6.0-dev"
+        type: string
+  push:
+    branches:
+      - develop
+      - "dev/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: development-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Resolve development version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          BASE_VERSION: ${{ inputs.base_version || '0.6.0-dev' }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-dev([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "base_version must look like 0.6.0-dev" >&2
+            exit 2
+          fi
+          version="${BASE_VERSION}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Development version: $version"
+
+  validate:
+    name: Run tests and dependency audit
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+      - name: Run portable tests
+        run: dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj -c Release
+      - name: Run platform-common tests
+        run: dotnet test tests/Kkindle.Platform.Common.Tests/Kkindle.Platform.Common.Tests.csproj -c Release
+      - name: Audit runtime dependencies
+        run: dotnet list src/Kkindle.Desktop.Linux/Kkindle.Desktop.Linux.csproj package --vulnerable --include-transitive
+
+  windows:
+    name: Build Windows portable package
+    needs: [prepare, validate]
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      DEV_VERSION: ${{ needs.prepare.outputs.version }}
+      OUTPUT_DIR: ${{ github.workspace }}\artifacts\development-windows
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+      - name: Build portable package
+        shell: pwsh
+        run: |
+          .\scripts\Build-Release.ps1 `
+            -Version $env:DEV_VERSION `
+            -OutputRoot $env:OUTPUT_DIR `
+            -SkipInstaller
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Kkindle-${{ needs.prepare.outputs.version }}-windows
+          path: |
+            ${{ env.OUTPUT_DIR }}/*.zip
+            ${{ env.OUTPUT_DIR }}/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  linux:
+    name: Build Linux packages
+    needs: [prepare, validate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DEV_VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+      - name: Build amd64 packages
+        run: bash scripts/build-linux-release.sh "$DEV_VERSION" artifacts/development-linux linux-x64
+      - name: Build arm64 packages
+        run: bash scripts/build-linux-release.sh "$DEV_VERSION" artifacts/development-linux linux-arm64
+      - name: Install and smoke-test amd64 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y "./artifacts/development-linux/kkindle_${DEV_VERSION}_amd64.deb" xvfb
+          set +e
+          xvfb-run -a timeout --signal=TERM --kill-after=5s 20s /usr/bin/kkindle \
+            > "$RUNNER_TEMP/kkindle-linux-development.log" 2>&1
+          status=$?
+          set -e
+          if [[ "$status" != 124 ]]; then
+            cat "$RUNNER_TEMP/kkindle-linux-development.log"
+            echo "Kkindle exited before the Linux smoke-test timeout (status $status)." >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Kkindle-${{ needs.prepare.outputs.version }}-linux
+          path: artifacts/development-linux/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  macos:
+    name: Build ad-hoc macOS packages
+    needs: [prepare, validate]
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEV_VERSION: ${{ needs.prepare.outputs.version }}
+      APPLE_SIGNING_IDENTITY: "-"
+      APPLE_REQUIRE_NOTARIZATION: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+      - name: Build Apple Silicon package
+        run: bash scripts/build-macos-release.sh "$DEV_VERSION" artifacts/development-macos osx-arm64
+      - name: Build Intel package
+        run: bash scripts/build-macos-release.sh "$DEV_VERSION" artifacts/development-macos osx-x64
+      - name: Validate and launch Apple Silicon package
+        shell: bash
+        run: |
+          set -euo pipefail
+          validation_root="$RUNNER_TEMP/kkindle-macos-development"
+          mkdir -p "$validation_root"
+          tar -xzf "artifacts/development-macos/Kkindle-${DEV_VERSION}-osx-arm64.tar.gz" -C "$validation_root"
+          plutil -lint "$validation_root/Kkindle.app/Contents/Info.plist"
+          codesign --verify --deep --strict "$validation_root/Kkindle.app"
+          codesign -dv --verbose=4 "$validation_root/Kkindle.app" 2>&1 \
+            | grep -q 'Signature=adhoc'
+          "$validation_root/Kkindle.app/Contents/MacOS/Kkindle" \
+            > "$RUNNER_TEMP/kkindle-macos-development.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          sleep 12
+          if ! kill -0 "$pid" 2>/dev/null; then
+            cat "$RUNNER_TEMP/kkindle-macos-development.log"
+            echo "Kkindle exited during the macOS smoke test." >&2
+            exit 1
+          fi
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Kkindle-${{ needs.prepare.outputs.version }}-macos
+          path: artifacts/development-macos/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

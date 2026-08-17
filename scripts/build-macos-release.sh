@@ -17,6 +17,15 @@ trap 'rm -rf "$work_root"' EXIT
 publish_root="$work_root/publish"
 app_root="$work_root/Kkindle.app"
 
+# Keep prerelease suffixes in the archive name, but use Apple-compatible
+# numeric values inside Info.plist.
+short_version="${version%%-*}"
+build_version="$short_version"
+if [[ ! "$short_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Version must contain three numeric components: $version" >&2
+  exit 2
+fi
+
 dotnet publish "$repo_root/src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj" \
   -c Release -r "$rid" --self-contained true \
   -p:Version="$version" -p:PublishSingleFile=false \
@@ -39,8 +48,8 @@ cat > "$app_root/Contents/Info.plist" <<EOF
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>Kkindle</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>$version</string>
-  <key>CFBundleVersion</key><string>$version</string>
+  <key>CFBundleShortVersionString</key><string>$short_version</string>
+  <key>CFBundleVersion</key><string>$build_version</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
@@ -52,6 +61,21 @@ EOF
 # distributable hardened-runtime signature. If APPLE_NOTARY_PROFILE names a
 # notarytool keychain profile, the finished bundle is also notarized/stapled.
 signing_identity="${APPLE_SIGNING_IDENTITY:--}"
+require_notarization="${APPLE_REQUIRE_NOTARIZATION:-0}"
+notary_key_path="${APPLE_NOTARY_KEY_PATH:-}"
+notary_key_id="${APPLE_NOTARY_KEY_ID:-}"
+notary_issuer="${APPLE_NOTARY_ISSUER:-}"
+notary_profile="${APPLE_NOTARY_PROFILE:-}"
+if [[ "$require_notarization" == "1" ]]; then
+  if [[ "$signing_identity" == "-" ]]; then
+    echo "APPLE_SIGNING_IDENTITY is required for a distributable macOS build." >&2
+    exit 2
+  fi
+  if [[ -z "$notary_profile" && ( -z "$notary_key_path" || -z "$notary_key_id" || -z "$notary_issuer" ) ]]; then
+    echo "Notarization credentials are required; set APPLE_NOTARY_* or APPLE_NOTARY_PROFILE." >&2
+    exit 2
+  fi
+fi
 if [[ "$signing_identity" == "-" ]]; then
   codesign --force --deep --sign - "$app_root"
 else
@@ -60,13 +84,26 @@ else
 fi
 codesign --verify --deep --strict "$app_root"
 
-if [[ -n "${APPLE_NOTARY_PROFILE:-}" ]]; then
+if [[ -n "$notary_key_path" ]]; then
   notarization_zip="$work_root/Kkindle-notarization.zip"
   ditto -c -k --keepParent "$app_root" "$notarization_zip"
   xcrun notarytool submit "$notarization_zip" \
-    --keychain-profile "$APPLE_NOTARY_PROFILE" --wait
+    --key "$notary_key_path" --key-id "$notary_key_id" --issuer "$notary_issuer" --wait
+  xcrun stapler staple "$app_root"
+  xcrun stapler validate "$app_root"
+elif [[ -n "$notary_profile" ]]; then
+  notarization_zip="$work_root/Kkindle-notarization.zip"
+  ditto -c -k --keepParent "$app_root" "$notarization_zip"
+  xcrun notarytool submit "$notarization_zip" \
+    --keychain-profile "$notary_profile" --wait
   xcrun stapler staple "$app_root"
   xcrun stapler validate "$app_root"
 fi
 
-tar -C "$work_root" -czf "$output_root/Kkindle-$version-$rid.tar.gz" Kkindle.app
+if [[ "$signing_identity" == "-" ]]; then
+  cp "$repo_root/docs/macos-adhoc-install.md" "$work_root/MACOS-README.md"
+  tar -C "$work_root" -czf "$output_root/Kkindle-$version-$rid.tar.gz" \
+    Kkindle.app MACOS-README.md
+else
+  tar -C "$work_root" -czf "$output_root/Kkindle-$version-$rid.tar.gz" Kkindle.app
+fi

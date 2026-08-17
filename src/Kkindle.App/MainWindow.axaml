@@ -82,29 +82,52 @@
                            IsVisible="False" />
             </Grid>
 
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="0">
+            <Border x:Name="ReaderZenActivationRegion"
+                    Grid.ColumnSpan="2"
+                    Width="380"
+                    Height="38"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Background="Transparent"
+                    IsVisible="False"
+                    ZIndex="0"
+                    PointerEntered="ReaderTitleControls_PointerEntered"
+                    PointerExited="ReaderTitleControls_PointerExited" />
+
+            <StackPanel x:Name="ReaderTitleControls"
+                        Grid.Column="1"
+                        Orientation="Horizontal"
+                        Spacing="0"
+                        ZIndex="1"
+                        PointerEntered="ReaderTitleControls_PointerEntered"
+                        PointerExited="ReaderTitleControls_PointerExited">
                 <Button x:Name="ReaderZenTitleTocButton"
                         Classes="caption"
                         Width="92"
                         Height="38"
                         Padding="0"
                         FontSize="11"
-                        Content="极简目录"
                         AutomationProperties.Name="切换极简目录"
                         ToolTip.Tip="显示或隐藏禅模式极简目录"
                         IsVisible="False"
-                        Click="ReaderZenMinimalTocButton_Click" />
+                        Click="ReaderZenMinimalTocButton_Click">
+                    <TextBlock x:Name="ReaderZenTitleTocText"
+                               Text="极简目录"
+                               Foreground="{Binding $parent[Button].Foreground}" />
+                </Button>
                 <Button x:Name="ReaderZenTitleExitButton"
                         Classes="caption"
                         Width="104"
                         Height="38"
                         Padding="0"
                         FontSize="11"
-                        Content="退出禅模式"
                         AutomationProperties.Name="退出禅模式"
                         ToolTip.Tip="退出禅模式，恢复目录与阅读助手"
                         IsVisible="False"
-                        Click="ReaderExitZenButton_Click" />
+                        Click="ReaderExitZenButton_Click">
+                    <TextBlock Text="退出禅模式"
+                               Foreground="{Binding $parent[Button].Foreground}" />
+                </Button>
                 <Button x:Name="MinimizeWindowButton"
                         Classes="caption"
                         Width="46"
@@ -149,7 +172,7 @@
                         <Binding Path="IsVisible" ElementName="DoubanPreviewOverlay" />
                         <Binding Path="IsVisible" ElementName="ImportFormatSelectionOverlay" />
                         <Binding Path="IsVisible" ElementName="MessageOverlay" />
-                        <Binding Path="IsVisible" ElementName="ReaderLayoutSettingsOverlay" />
+                        <Binding Path="IsOpen" ElementName="ReaderLayoutSettingsPopup" />
                     </MultiBinding>
                 </Border.IsVisible>
             </Border>
@@ -2239,7 +2262,7 @@
                                                    FontSize="11"
                                                    Foreground="{StaticResource MutedInkBrush}"
                                                    TextWrapping="Wrap" />
-                                        <TextBlock Text="书籍和阅读记录保存在本机；备份包可以复制到其他 Windows 设备使用。"
+                                        <TextBlock Text="书籍和阅读记录保存在本机；备份包可以复制到其他设备使用。"
                                                    FontSize="11"
                                                    Foreground="{StaticResource MutedInkBrush}"
                                                    TextWrapping="Wrap" />
@@ -4132,13 +4155,15 @@
                 </Grid>
             </Border>
 
-            <!-- Reading layout settings (per book). -->
-            <Grid x:Name="ReaderLayoutSettingsOverlay"
-                  Grid.ColumnSpan="3"
-                  Margin="0,38,0,0"
-                  Background="#66000000"
-                  IsVisible="False"
-                  ZIndex="85">
+            <!-- Reading layout settings (per book). A native popup is required:
+                 the WebView2 HWND island covers ordinary Avalonia overlays. -->
+            <Popup x:Name="ReaderLayoutSettingsPopup"
+                   IsOpen="False"
+                   IsLightDismissEnabled="False"
+                   ShouldUseOverlayLayer="False"
+                   TakesFocusFromNativeControl="True">
+                <Grid x:Name="ReaderLayoutSettingsOverlay"
+                      Background="#66000000">
                 <Border Width="580"
                         MaxHeight="760"
                         Background="{StaticResource PaperBrush}"
@@ -4160,7 +4185,7 @@
                                         <TextBlock Text="字号" FontSize="11" VerticalAlignment="Center" />
                                         <TextBlock x:Name="ReaderFontScaleValueText" Grid.Column="1" FontSize="11" Foreground="#5A5A5A" />
                                     </Grid>
-                                    <Slider x:Name="ReaderFontScaleSlider" Minimum="0.8" Maximum="1.8" Value="1" ValueChanged="ReaderLayoutSettingChanged">
+                                    <Slider x:Name="ReaderFontScaleSlider" Minimum="0.8" Maximum="1.8" TickFrequency="0.1" IsSnapToTickEnabled="True" Value="1" ValueChanged="ReaderLayoutSettingChanged">
                                         <Slider.Resources>
                                             <SolidColorBrush x:Key="SliderTrackValueFill" Color="#30302E" />
                                             <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#111111" />
@@ -4176,7 +4201,7 @@
                                         <TextBlock Text="行高" FontSize="11" VerticalAlignment="Center" />
                                         <TextBlock x:Name="ReaderLineHeightValueText" Grid.Column="1" FontSize="11" Foreground="#5A5A5A" />
                                     </Grid>
-                                    <Slider x:Name="ReaderLineHeightSlider" Minimum="1.3" Maximum="2.6" Value="1.88" ValueChanged="ReaderLayoutSettingChanged">
+                                    <Slider x:Name="ReaderLineHeightSlider" Minimum="1.3" Maximum="2.6" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="1.88" ValueChanged="ReaderLayoutSettingChanged">
                                         <Slider.Resources>
                                             <SolidColorBrush x:Key="SliderTrackValueFill" Color="#30302E" />
                                             <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#111111" />
@@ -4192,7 +4217,7 @@
                                         <TextBlock Text="正文最大宽度" FontSize="11" VerticalAlignment="Center" />
                                         <TextBlock x:Name="ReaderMaxWidthValueText" Grid.Column="1" FontSize="11" Foreground="#5A5A5A" />
                                     </Grid>
-                                    <Slider x:Name="ReaderMaxWidthSlider" Minimum="480" Maximum="1200" Value="800" ValueChanged="ReaderLayoutSettingChanged">
+                                    <Slider x:Name="ReaderMaxWidthSlider" Minimum="480" Maximum="1200" TickFrequency="20" IsSnapToTickEnabled="True" Value="800" ValueChanged="ReaderLayoutSettingChanged">
                                         <Slider.Resources>
                                             <SolidColorBrush x:Key="SliderTrackValueFill" Color="#30302E" />
                                             <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#111111" />
@@ -4208,7 +4233,7 @@
                                         <TextBlock Text="左右边距" FontSize="11" VerticalAlignment="Center" />
                                         <TextBlock x:Name="ReaderBodyPaddingValueText" Grid.Column="1" FontSize="11" Foreground="#5A5A5A" />
                                     </Grid>
-                                    <Slider x:Name="ReaderBodyPaddingSlider" Minimum="24" Maximum="160" Value="68" ValueChanged="ReaderLayoutSettingChanged">
+                                    <Slider x:Name="ReaderBodyPaddingSlider" Minimum="24" Maximum="160" TickFrequency="8" IsSnapToTickEnabled="True" Value="68" ValueChanged="ReaderLayoutSettingChanged">
                                         <Slider.Resources>
                                             <SolidColorBrush x:Key="SliderTrackValueFill" Color="#30302E" />
                                             <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#111111" />
@@ -4255,31 +4280,37 @@
                         </Grid>
                     </ScrollViewer>
                 </Border>
-            </Grid>
+                </Grid>
+            </Popup>
 
-            <!-- Footnote preview: deliberately monochrome and square, no
-                 title chrome (WinUI reference). -->
-            <Border x:Name="ReaderFootnotePopup"
-                    Width="360"
-                    MaxHeight="260"
-                    Padding="12,10"
-                    Margin="0,20,20,0"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Top"
-                    Background="{StaticResource PaperBrush}"
-                    BorderBrush="#000000"
-                    BorderThickness="2"
-                    CornerRadius="0"
-                    IsVisible="False"
-                    ZIndex="95">
-                <ScrollViewer MaxHeight="236">
-                    <TextBlock x:Name="ReaderFootnoteText"
-                               Foreground="{StaticResource InkBrush}"
-                               FontSize="12"
-                               LineHeight="20"
-                               TextWrapping="Wrap" />
-                </ScrollViewer>
-            </Border>
+            <!-- A native popup keeps the footnote above the HWND-backed
+                 WebView2 surface, matching the WinUI reference reader. -->
+            <Popup x:Name="ReaderFootnoteHostPopup"
+                   IsOpen="False"
+                   IsLightDismissEnabled="False"
+                   ShouldUseOverlayLayer="False"
+                   TakesFocusFromNativeControl="False">
+                <Border x:Name="ReaderFootnotePopup"
+                        Width="360"
+                        MaxHeight="260"
+                        Padding="12,10"
+                        Background="{StaticResource PaperBrush}"
+                        BorderBrush="#000000"
+                        BorderThickness="2"
+                        CornerRadius="0"
+                        IsHitTestVisible="False"
+                        IsVisible="False">
+                    <ScrollViewer MaxHeight="236"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                        <TextBlock x:Name="ReaderFootnoteText"
+                                   Foreground="{StaticResource InkBrush}"
+                                   FontSize="12"
+                                   LineHeight="20"
+                                   TextWrapping="Wrap" />
+                    </ScrollViewer>
+                </Border>
+            </Popup>
 
             <!-- A native popup is required here: the reading surface is an
                  embedded WebView2 HWND and would cover a normal Avalonia
@@ -4361,6 +4392,78 @@
                       StrokeJoin="Miter" />
             </Grid>
         </StackPanel>
+
+        <!-- Zen controls must use a native popup: the full-screen WebView is
+             an HWND island and otherwise paints over Avalonia title content. -->
+        <Popup x:Name="ReaderZenControlsPopup"
+               IsOpen="False"
+               IsLightDismissEnabled="False"
+               ShouldUseOverlayLayer="False"
+               TakesFocusFromNativeControl="True">
+            <!-- NativeWebView is a child window on Windows and paints over the
+                 ordinary title-bar grid. Keep the complete old title-button
+                 row in one native popup so Zen mode never leaves a black gap
+                 or splits the controls across two composition surfaces. -->
+            <Border Background="{StaticResource PaperBrush}"
+                    PointerEntered="ReaderTitleControls_PointerEntered"
+                    PointerExited="ReaderTitleControls_PointerExited">
+                <StackPanel Orientation="Horizontal" Spacing="0">
+                    <Button x:Name="ReaderZenPopupTocButton"
+                            Classes="caption"
+                            Width="92"
+                            Height="38"
+                            Padding="0"
+                            FontSize="11"
+                            AutomationProperties.Name="切换极简目录"
+                            ToolTip.Tip="显示或隐藏禅模式极简目录"
+                            Click="ReaderZenMinimalTocButton_Click">
+                        <TextBlock x:Name="ReaderZenPopupTocText"
+                                   Text="显示极简目录"
+                                   Foreground="{Binding $parent[Button].Foreground}" />
+                    </Button>
+                    <Button x:Name="ReaderZenPopupExitButton"
+                            Classes="caption"
+                            Width="104"
+                            Height="38"
+                            Padding="0"
+                            FontSize="11"
+                            AutomationProperties.Name="退出禅模式"
+                            ToolTip.Tip="退出禅模式，恢复目录与阅读助手"
+                            Click="ReaderExitZenButton_Click">
+                        <TextBlock Text="退出禅模式"
+                                   Foreground="{Binding $parent[Button].Foreground}" />
+                    </Button>
+                    <Button x:Name="ReaderZenPopupMinimizeButton"
+                            Classes="caption"
+                            Width="46"
+                            Height="38"
+                            Padding="0"
+                            Click="MinimizeWindowButton_Click"
+                            AutomationProperties.Name="最小化">
+                        <Path Data="M 0,0 H 10" />
+                    </Button>
+                    <Button x:Name="ReaderZenPopupMaximizeButton"
+                            Classes="caption"
+                            Width="46"
+                            Height="38"
+                            Padding="0"
+                            Click="MaximizeWindowButton_Click"
+                            AutomationProperties.Name="最大化">
+                        <Path x:Name="ReaderZenPopupMaximizeGlyph"
+                              Data="M 0.5,0.5 H 9.5 V 9.5 H 0.5 Z" />
+                    </Button>
+                    <Button x:Name="ReaderZenPopupCloseButton"
+                            Classes="caption"
+                            Width="46"
+                            Height="38"
+                            Padding="0"
+                            Click="CloseWindowButton_Click"
+                            AutomationProperties.Name="关闭">
+                        <Path Data="M 0,0 L 10,10 M 10,0 L 0,10" />
+                    </Button>
+                </StackPanel>
+            </Border>
+        </Popup>
 
         <!-- Draw the frame as a sibling above the content. The native WebView
              is a separate child window and can cover WindowShadowHost's own

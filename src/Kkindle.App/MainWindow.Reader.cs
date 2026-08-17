@@ -561,11 +561,12 @@ public partial class MainWindow
         ReaderRoot.IsVisible = false;
         LibraryRoot.IsVisible = true;
         WindowBrandText.IsVisible = false;
-        ReaderLayoutSettingsOverlay.IsVisible = false;
+        ReaderLayoutSettingsPopup.IsOpen = false;
         ReaderInPageSearchBar.IsVisible = false;
+        StopReaderFootnoteHoverPoll();
         _readerFootnoteHoverSequence++;
         _readerFootnotePinned = false;
-        ReaderFootnotePopup.IsVisible = false;
+        HideReaderFootnotePopup();
         ReaderHighlightButton.IsVisible = false;
         ReaderAnnotateButton.IsVisible = false;
         _readerBookmarkIndicatorSequence++;

@@ -27,6 +27,81 @@ public sealed class ReaderPaginationScriptTests
         Assert.DoesNotContain("behavior: 'smooth'", script, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void PaginationScriptsKeepTheSnappedViewportBoundary()
+    {
+        Assert.DoesNotContain("AlignPaginatedPage", ReaderPaginationScripts.Snap, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AlignPaginatedPage",
+            ReaderPaginationScripts.CreateTurnScript(direction: 1),
+            StringComparison.Ordinal);
+
+        var fragmentScript = ReaderNavigationScripts.CreateFragmentScroll(
+            needle: "section",
+            flowMode: 1,
+            vertical: false);
+        Assert.Contains("const pageLeft = pageIndex * step", fragmentScript, StringComparison.Ordinal);
+        Assert.DoesNotContain("horizontalError", fragmentScript, StringComparison.Ordinal);
+        Assert.DoesNotContain("scroller.scrollLeft +", fragmentScript, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PaginationScriptsDoNotClampLogicalBoundaryToIntegerRawMaximum()
+    {
+        var scripts = new[]
+        {
+            ReaderPaginationScripts.Snap,
+            ReaderPaginationScripts.CreateTurnScript(direction: 1),
+            ReaderPaginationScripts.CreateCanTurnScript(direction: 1),
+            ReaderPaginationScripts.CreateRestorePositionScript(982, 0, pagination: true),
+            ReaderNavigationScripts.CreateFragmentScroll("section", flowMode: 1, vertical: false)
+        };
+
+        foreach (var script in scripts)
+        {
+            Assert.Contains("Math.round(Math.max(0, rawMax -", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("Math.min(rawMax", script, StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RestorePositionScriptSnapsOnlyPaginatedLayouts(bool pagination)
+    {
+        var script = ReaderPaginationScripts.CreateRestorePositionScript(
+            left: 1234,
+            top: 56,
+            pagination);
+
+        if (pagination)
+        {
+            Assert.Contains("const requested = 1234", script, StringComparison.Ordinal);
+            Assert.Contains("const pageIndex = Math.round(requested / step)", script, StringComparison.Ordinal);
+            Assert.Contains("left: target, top: 0", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("left: 1234", script, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains("left: 1234, top: 56", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("pageIndex", script, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void PaginationRestoreDoesNotInstallReactiveScrollGuards()
+    {
+        var script = ReaderPaginationScripts.CreateRestorePositionScript(
+            left: 957,
+            top: 0,
+            pagination: true);
+
+        Assert.DoesNotContain("addEventListener", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("setTimeout", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("scrollend", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("__kkindlePaginationDiagnostics", script, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(true, true, "el.scrollWidth")]
     [InlineData(true, false, "el.scrollHeight")]

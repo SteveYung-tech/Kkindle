@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Controls;
@@ -27,6 +28,8 @@ public partial class MainWindow
     private const int ReaderAnimationFade = 1;
     private const int ReaderAnimationSlide = 2;
     private const int ReaderAnimationWave = 3;
+    private const double ReaderZenActivationWidth = 380;
+    private const double ReaderZenActivationHeight = 64;
 
     private ReaderLayoutSettings _readerLayout = ReaderLayoutDefaults.Normalize(new ReaderLayoutSettings());
     private int _readerPageAnimation = ReaderAnimationFade;
@@ -43,6 +46,10 @@ public partial class MainWindow
     private int _readerBookmarkIndicatorSequence;
     private int _readerFootnoteHoverSequence;
     private bool _readerFootnotePinned;
+    private bool _readerFootnotePollRunning;
+    private string? _readerFootnoteHref;
+    private Point? _readerFootnotePlacementPoint;
+    private DispatcherTimer? _readerFootnoteHoverTimer;
     private string? _readerPendingBookmarkQuote;
     private int? _readerPendingBookmarkPosition;
     private int _readerPendingBookmarkFlowMode;
@@ -186,10 +193,10 @@ public partial class MainWindow
         ReaderSearchStatusText.IsVisible = true;
         ReaderSearchResultList.IsVisible = false;
         ReaderInPageSearchBar.IsVisible = false;
-        ReaderLayoutSettingsOverlay.IsVisible = false;
+        ReaderLayoutSettingsPopup.IsOpen = false;
         ReaderHighlightButton.IsVisible = false;
         ReaderAnnotateButton.IsVisible = false;
-        ReaderFootnotePopup.IsVisible = false;
+        HideReaderFootnotePopup();
         ReaderBookmarkCornerMarker.IsVisible = false;
         ReaderAiMessages.Clear();
         ReaderAiSources.Clear();
@@ -211,6 +218,7 @@ public partial class MainWindow
         UpdateReaderToolbar();
         await LoadReaderStatsBaseAsync();
         StartReaderStatsTimer();
+        StartReaderFootnoteHoverPoll();
     }
 
     private static IReadOnlyList<EpubReaderNavigationItem> BuildReaderNavigationItems(
@@ -259,6 +267,15 @@ public partial class MainWindow
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ReaderProgressRow? restoredProgress = null;
+        if (ReferenceEquals(host, CurrentReaderHost)
+            && _readerRestoredProgress is { } pendingProgress
+            && pendingProgress.ChapterIndex == _readerChapterIndex)
+        {
+            restoredProgress = pendingProgress;
+            _readerRestoredProgress = null;
+        }
+
         // PDF renders inside WebView2's built-in viewer: there is no document
         // to inject layout into (and InvokeScript would throw), so host
         // configuration applies to EPUB pages only.
@@ -325,7 +342,6 @@ public partial class MainWindow
             """;
         await host.InvokeScriptAsync(script);
         await WaitForReaderFontsAsync(host, cancellationToken);
-        await host.InvokeScriptAsync(ReaderPaginationScripts.PageAlignmentHelperDefinition);
         if (pagination)
         {
             await host.InvokeScriptAsync(FitReaderCoverImageScript);
@@ -334,7 +350,7 @@ public partial class MainWindow
 
         if (ReferenceEquals(host, CurrentReaderHost))
         {
-            if (_readerRestoredProgress is { } progress
+            if (restoredProgress is { } progress
                 && progress.ChapterIndex == _readerChapterIndex)
             {
                 if (progress.ScrollPosition > 0)
@@ -343,7 +359,10 @@ public partial class MainWindow
                     var left = horizontal ? progress.ScrollPosition : 0;
                     var top = horizontal ? 0 : progress.ScrollPosition;
                     await host.InvokeScriptAsync(
-                        $"(() => {{ window.scrollTo({{ left: {left.ToString(CultureInfo.InvariantCulture)}, top: {top.ToString(CultureInfo.InvariantCulture)}, behavior: 'instant' }}); }})();");
+                        ReaderPaginationScripts.CreateRestorePositionScript(
+                            left,
+                            top,
+                            pagination));
                 }
                 else if (!string.IsNullOrWhiteSpace(progress.Fragment))
                 {
@@ -355,7 +374,6 @@ public partial class MainWindow
                         _readerLayout.VerticalWriting,
                         _readerLayout.TwoPageMode));
                 }
-                _readerRestoredProgress = null;
             }
             await ApplySavedAnnotationsAsync(host, cancellationToken);
         }
@@ -1755,9 +1773,8 @@ public partial class MainWindow
                 ReaderToken);
             if (targets.TryGetValue(EpubFootnoteResolver.NormalizeTargetKey(uri.AbsoluteUri), out var footnote))
             {
-                ReaderFootnoteText.Text = footnote;
                 _readerFootnotePinned = true;
-                ReaderFootnotePopup.IsVisible = true;
+                ShowReaderFootnotePopup(footnote);
                 return;
             }
         }
@@ -1771,14 +1788,17 @@ public partial class MainWindow
             $"第 {chapterIndex + 1} 章",
             uri.AbsoluteUri,
             chapterIndex);
-        ReaderFootnotePopup.IsVisible = false;
+        HideReaderFootnotePopup();
         await NavigateToReaderItemAsync(
             item,
             _readerSessionCancellation?.Token ?? CancellationToken.None,
             ReaderNavigationIntent.Link);
     }
 
-    private async Task HandleReaderFootnoteHoverAsync(string href, bool isFootnote)
+    private async Task HandleReaderFootnoteHoverAsync(
+        string href,
+        bool isFootnote,
+        Point? placementPoint = null)
     {
         if (!isFootnote
             || _readerDocument is null
@@ -1798,9 +1818,203 @@ public partial class MainWindow
         if (sequence == _readerFootnoteHoverSequence
             && targets.TryGetValue(EpubFootnoteResolver.NormalizeTargetKey(uri.AbsoluteUri), out var footnote))
         {
-            ReaderFootnoteText.Text = footnote;
-            ReaderFootnotePopup.IsVisible = true;
+            _readerFootnoteHref = uri.AbsoluteUri;
+            ShowReaderFootnotePopup(footnote, placementPoint);
         }
+    }
+
+    private void StartReaderFootnoteHoverPoll()
+    {
+        _readerFootnoteHoverTimer ??= new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(120)
+        };
+        _readerFootnoteHoverTimer.Stop();
+        _readerFootnoteHoverTimer.Tick -= ReaderFootnoteHoverTimer_Tick;
+        _readerFootnoteHoverTimer.Tick += ReaderFootnoteHoverTimer_Tick;
+        _readerFootnoteHoverTimer.Start();
+    }
+
+    private void StopReaderFootnoteHoverPoll()
+    {
+        _readerFootnoteHoverTimer?.Stop();
+        _readerFootnotePollRunning = false;
+        _readerFootnoteHref = null;
+        _readerFootnotePlacementPoint = null;
+        HideReaderFootnotePopup();
+    }
+
+    private async void ReaderFootnoteHoverTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_readerFootnotePollRunning) return;
+        _readerFootnotePollRunning = true;
+        try
+        {
+            await PollReaderFootnoteHoverAsync();
+        }
+        finally
+        {
+            _readerFootnotePollRunning = false;
+        }
+    }
+
+    private async Task PollReaderFootnoteHoverAsync()
+    {
+        if (ShouldKeepReaderFootnotePopupOpen()) return;
+        if (_readerIsPdf
+            || !ReaderRoot.IsVisible
+            || ReaderLayoutSettingsPopup.IsOpen
+            || CurrentReaderHost is not { View: Control view } host
+            || !GetCursorPos(out var cursor))
+        {
+            HideReaderFootnotePopup();
+            return;
+        }
+
+        var topLeft = view.PointToScreen(new Avalonia.Point(0, 0));
+        var scaling = TopLevel.GetTopLevel(view)?.RenderScaling ?? 1d;
+        var width = Math.Max(1, view.Bounds.Width * scaling);
+        var height = Math.Max(1, view.Bounds.Height * scaling);
+        var relativeX = cursor.X - topLeft.X;
+        var relativeY = cursor.Y - topLeft.Y;
+        if (relativeX < 0 || relativeX >= width || relativeY < 0 || relativeY >= height)
+        {
+            HideReaderFootnotePopup();
+            return;
+        }
+
+        string? result;
+        try
+        {
+            result = await host.InvokeScriptAsync(
+                CreateReaderFootnoteHoverProbeScript(relativeX, relativeY, width, height));
+        }
+        catch
+        {
+            HideReaderFootnotePopup();
+            return;
+        }
+
+        var raw = DecodeReaderScriptString(result);
+        if (string.IsNullOrWhiteSpace(raw)
+            || string.Equals(raw, "null", StringComparison.OrdinalIgnoreCase))
+        {
+            HideReaderFootnotePopup();
+            return;
+        }
+
+        string href;
+        try
+        {
+            using var document = JsonDocument.Parse(raw);
+            href = ReadString(document.RootElement, "href");
+        }
+        catch (JsonException)
+        {
+            HideReaderFootnotePopup();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(href))
+        {
+            HideReaderFootnotePopup();
+            return;
+        }
+        if (ReaderFootnoteHostPopup.IsOpen
+            && string.Equals(_readerFootnoteHref, href, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        await HandleReaderFootnoteHoverAsync(
+            href,
+            isFootnote: true,
+            placementPoint: new Point(relativeX / scaling, relativeY / scaling));
+    }
+
+    private bool ShouldKeepReaderFootnotePopupOpen() =>
+        _readerFootnotePinned && ReaderFootnoteHostPopup.IsOpen;
+
+    private static string CreateReaderFootnoteHoverProbeScript(
+        double relativeX,
+        double relativeY,
+        double hostWidth,
+        double hostHeight)
+    {
+        var x = relativeX.ToString("0.###", CultureInfo.InvariantCulture);
+        var y = relativeY.ToString("0.###", CultureInfo.InvariantCulture);
+        var width = hostWidth.ToString("0.###", CultureInfo.InvariantCulture);
+        var height = hostHeight.ToString("0.###", CultureInfo.InvariantCulture);
+        return $$"""
+            (() => {
+              const root = document.documentElement;
+              const vw = root.clientWidth || document.body?.clientWidth || window.innerWidth || 0;
+              const vh = root.clientHeight || document.body?.clientHeight || window.innerHeight || 0;
+              if (!vw || !vh) return null;
+              const x = Math.max(0, Math.min(vw - 1, Math.round({{x}} * vw / {{width}})));
+              const y = Math.max(0, Math.min(vh - 1, Math.round({{y}} * vh / {{height}})));
+              const element = document.elementFromPoint(x, y);
+              const anchor = element?.closest?.('a');
+              if (!anchor) return null;
+              let url;
+              try {
+                const href = anchor.getAttribute('href')
+                  || anchor.getAttribute('data-kkindle-footnote-href')
+                  || '';
+                url = new URL(href, location.href);
+              }
+              catch { return null; }
+              if (!url.hash) return null;
+              return JSON.stringify({ href: url.href });
+            })();
+            """;
+    }
+
+    private void ShowReaderFootnotePopup(string text, Point? placementPoint = null)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            HideReaderFootnotePopup();
+            return;
+        }
+
+        ReaderFootnoteText.Text = text;
+        ReaderFootnotePopup.IsVisible = true;
+        if (placementPoint is { } point)
+            _readerFootnotePlacementPoint = point;
+        if (CurrentReaderHost?.View is Control view
+            && _readerFootnotePlacementPoint is { } anchor)
+        {
+            ReaderFootnoteHostPopup.PlacementTarget = view;
+            ReaderFootnoteHostPopup.Placement = Avalonia.Controls.PlacementMode.AnchorAndGravity;
+            ReaderFootnoteHostPopup.PlacementRect = new Rect(anchor.X, anchor.Y, 1, 1);
+            ReaderFootnoteHostPopup.PlacementAnchor =
+                Avalonia.Controls.Primitives.PopupPositioning.PopupAnchor.TopLeft;
+            ReaderFootnoteHostPopup.PlacementGravity =
+                Avalonia.Controls.Primitives.PopupPositioning.PopupGravity.BottomRight;
+            ReaderFootnoteHostPopup.PlacementConstraintAdjustment =
+                Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.FlipX
+                | Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.FlipY
+                | Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.SlideX
+                | Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.SlideY;
+        }
+        else
+        {
+            ReaderFootnoteHostPopup.PlacementTarget = ReaderWebViewHost;
+            ReaderFootnoteHostPopup.Placement = Avalonia.Controls.PlacementMode.Pointer;
+        }
+        ReaderFootnoteHostPopup.HorizontalOffset = 12;
+        ReaderFootnoteHostPopup.VerticalOffset = 14;
+        ReaderFootnoteHostPopup.IsOpen = true;
+    }
+
+    private void HideReaderFootnotePopup()
+    {
+        ReaderFootnoteHostPopup.IsOpen = false;
+        ReaderFootnotePopup.IsVisible = false;
+        ReaderFootnoteText.Text = string.Empty;
+        _readerFootnotePlacementPoint = null;
+        if (!_readerFootnotePinned) _readerFootnoteHref = null;
     }
 
     private void HandleReaderBridgeMessage(string? body)
@@ -1912,13 +2126,26 @@ public partial class MainWindow
                     break;
                 case "footnoteHover":
                     if (root.TryGetProperty("href", out var footnoteHref))
+                    {
+                        Point? placementPoint = null;
+                        if (root.TryGetProperty("x", out var footnoteX)
+                            && root.TryGetProperty("y", out var footnoteY)
+                            && footnoteX.TryGetDouble(out var x)
+                            && footnoteY.TryGetDouble(out var y))
+                        {
+                            placementPoint = new Point(Math.Max(0, x), Math.Max(0, y));
+                        }
                         _ = ObserveReaderTaskAsync(
-                            HandleReaderFootnoteHoverAsync(footnoteHref.GetString() ?? string.Empty, true));
+                            HandleReaderFootnoteHoverAsync(
+                                footnoteHref.GetString() ?? string.Empty,
+                                true,
+                                placementPoint));
+                    }
                     break;
                 case "footnoteLeave":
                     _readerFootnoteHoverSequence++;
                     if (!_readerFootnotePinned)
-                        ReaderFootnotePopup.IsVisible = false;
+                        HideReaderFootnotePopup();
                     break;
                 case "resize":
                     _ = ObserveReaderTaskAsync(
@@ -1966,16 +2193,29 @@ public partial class MainWindow
                     // page throttles the reports; keep a host-side tick guard
                     // so a burst of messages cannot restart the timer faster
                     // than the 80 ms window.
-                    if (_readerZenMode)
+                    if (_readerZenMode && !OperatingSystem.IsWindows())
                     {
                         var moveNow = Environment.TickCount64;
                         if (moveNow - _readerZenLastMouseMoveTick > 80)
                         {
                             _readerZenLastMouseMoveTick = moveNow;
-                            if (!_readerZenChromeVisible)
+                            if (root.TryGetProperty("x", out var pointerX)
+                                && root.TryGetProperty("y", out var pointerY)
+                                && root.TryGetProperty("width", out var surfaceWidth))
+                            {
+                                UpdateReaderZenChromeForPointer(
+                                    pointerX.GetDouble(),
+                                    pointerY.GetDouble(),
+                                    surfaceWidth.GetDouble());
+                            }
+                            else if (!_readerZenChromeVisible)
+                            {
                                 UpdateReaderZenChrome(visible: true);
+                            }
                             else
+                            {
                                 RestartReaderZenChromeHideTimer();
+                            }
                         }
                     }
                     break;
@@ -2452,30 +2692,116 @@ public partial class MainWindow
         CancellationToken cancellationToken,
         bool animate = true)
     {
-        var animation = animate ? _readerPageAnimation : ReaderAnimationNone;
+        // The legacy reader applies page animations only to pagination. In
+        // continuous mode chapter navigation must remain an immediate scroll
+        // transition instead of fading or sliding the whole document.
+        var animation = animate && _readerLayout.FlowMode == 1
+            ? _readerPageAnimation
+            : ReaderAnimationNone;
         if (animation == ReaderAnimationNone)
             return await changeContentAsync();
 
+        if (animation is ReaderAnimationSlide or ReaderAnimationWave)
+        {
+            if (ReferenceEquals(outgoingHost, incomingHost))
+            {
+                var viewTransition = await TryRunReaderViewTransitionAsync(
+                    incomingHost,
+                    direction,
+                    animation,
+                    changeContentAsync,
+                    cancellationToken);
+                if (viewTransition.Succeeded)
+                {
+                    await UpdateReaderScrollStateAsync(incomingHost);
+                    return viewTransition.Result!;
+                }
+            }
+
+            var snapshot = outgoingHost is IReaderPageSnapshotProvider provider
+                ? await provider.CaptureVisiblePageAsync(cancellationToken)
+                : null;
+            if (snapshot is { Length: > 0 })
+            {
+                if (animation == ReaderAnimationWave)
+                {
+                    var waveResult = await TryRunReaderWaveTransitionAsync(
+                        outgoingHost,
+                        incomingHost,
+                        direction,
+                        snapshot,
+                        changeContentAsync,
+                        cancellationToken);
+                    if (waveResult.Succeeded)
+                    {
+                        await UpdateReaderScrollStateAsync(incomingHost);
+                        return waveResult.Result!;
+                    }
+                }
+                else
+                {
+                    var slideResult = await TryRunReaderSlideTransitionAsync(
+                        outgoingHost,
+                        incomingHost,
+                        direction,
+                        snapshot,
+                        changeContentAsync,
+                        cancellationToken);
+                    if (slideResult.Succeeded)
+                    {
+                        await UpdateReaderScrollStateAsync(incomingHost);
+                        return slideResult.Result!;
+                    }
+                }
+            }
+
+            // Screenshot capture is optional on non-Windows hosts. Preserve
+            // navigation and fall back to an opacity-only transition rather
+            // than transforming the live overflowing document.
+            animation = ReaderAnimationFade;
+        }
+
+        var result = await RunReaderFadeTransitionAsync(
+            outgoingHost,
+            incomingHost,
+            changeContentAsync,
+            cancellationToken);
+        await UpdateReaderScrollStateAsync(incomingHost);
+        return result;
+    }
+
+    private async Task<T> RunReaderFadeTransitionAsync<T>(
+        IReaderHost outgoingHost,
+        IReaderHost incomingHost,
+        Func<Task<T>> changeContentAsync,
+        CancellationToken cancellationToken)
+    {
         await TryInvokeReaderTransitionAsync(
             outgoingHost,
-            CreateReaderTransitionScript(animation, direction, restore: false));
+            CreateReaderFadeTransitionScript(phase: 0));
 
         try
         {
-            await Task.Delay(GetReaderTransitionOutDuration(animation), cancellationToken);
+            await Task.Delay(ReaderTransitionOutDurationMs, cancellationToken);
             if (!ReferenceEquals(outgoingHost, incomingHost))
             {
                 await TryInvokeReaderTransitionAsync(
                     incomingHost,
-                    CreateReaderTransitionScript(animation, direction, restore: false));
+                    CreateReaderFadeTransitionScript(phase: 1));
             }
 
             var result = await changeContentAsync();
+            if (ReferenceEquals(outgoingHost, incomingHost))
+            {
+                await TryInvokeReaderTransitionAsync(
+                    incomingHost,
+                    CreateReaderFadeTransitionScript(phase: 1));
+            }
             try
             {
                 await incomingHost.InvokeScriptAsync(
-                    CreateReaderTransitionScript(animation, direction, restore: true));
-                await Task.Delay(GetReaderTransitionInDuration(animation), cancellationToken);
+                    CreateReaderFadeTransitionScript(phase: 2));
+                await Task.Delay(ReaderTransitionInDurationMs, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -2490,17 +2816,184 @@ public partial class MainWindow
         }
         finally
         {
-            await TryInvokeReaderTransitionAsync(outgoingHost, CreateReaderTransitionCleanupScript());
+            var cleanup = CreateReaderFadeTransitionCleanupScript();
+            await TryInvokeReaderTransitionAsync(outgoingHost, cleanup);
             if (!ReferenceEquals(outgoingHost, incomingHost))
-                await TryInvokeReaderTransitionAsync(incomingHost, CreateReaderTransitionCleanupScript());
+            {
+                await TryInvokeReaderTransitionAsync(incomingHost, cleanup);
+            }
         }
     }
 
-    private static int GetReaderTransitionOutDuration(int animation) =>
-        animation == ReaderAnimationWave ? 90 : 110;
+    private const int ReaderTransitionOutDurationMs = 300;
+    private const int ReaderTransitionInDurationMs = 360;
+    private const int ReaderSlideDurationMs = 430;
+    private const int ReaderWaveDurationMs = 560;
 
-    private static int GetReaderTransitionInDuration(int animation) =>
-        animation == ReaderAnimationWave ? 320 : 190;
+    private async Task<(bool Succeeded, T? Result)> TryRunReaderViewTransitionAsync<T>(
+        IReaderHost host,
+        int direction,
+        int animation,
+        Func<Task<T>> changeContentAsync,
+        CancellationToken cancellationToken)
+    {
+        var duration = animation == ReaderAnimationWave
+            ? ReaderWaveDurationMs
+            : ReaderSlideDurationMs;
+        var startScript = animation == ReaderAnimationWave
+            ? ReaderWaveScripts.CreateWaveViewTransitionStartScript(
+                forward: direction > 0,
+                durationMs: duration)
+            : ReaderWaveScripts.CreateSlideViewTransitionStartScript(
+                forward: direction > 0,
+                durationMs: duration);
+        if (!await TryInvokeReaderBooleanScriptAsync(host, startScript))
+            return (false, default);
+
+        var ready = false;
+        try
+        {
+            // startViewTransition captures the old page before entering its
+            // update callback. Wait for that callback before changing the
+            // scroll position, then release it so Chromium snapshots the new
+            // page and animates the two independent bitmaps.
+            for (var attempt = 0; attempt < 30; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (await TryInvokeReaderBooleanScriptAsync(
+                        host,
+                        ReaderWaveScripts.ViewTransitionReadyScript))
+                {
+                    ready = true;
+                    break;
+                }
+                await Task.Delay(10, cancellationToken);
+            }
+            if (!ready) return (false, default);
+
+            var result = await changeContentAsync();
+            await TryInvokeReaderBooleanScriptAsync(
+                host,
+                ReaderWaveScripts.ViewTransitionReleaseScript);
+            await Task.Delay(duration + 80, cancellationToken);
+            return (true, result);
+        }
+        finally
+        {
+            await TryInvokeReaderTransitionAsync(
+                host,
+                ReaderWaveScripts.ViewTransitionReleaseScript);
+            await TryInvokeReaderTransitionAsync(
+                host,
+                ReaderWaveScripts.ViewTransitionCleanupScript);
+        }
+    }
+
+    private async Task<(bool Succeeded, T? Result)> TryRunReaderWaveTransitionAsync<T>(
+        IReaderHost outgoingHost,
+        IReaderHost incomingHost,
+        int direction,
+        byte[] snapshot,
+        Func<Task<T>> changeContentAsync,
+        CancellationToken cancellationToken)
+    {
+        var dataUrl = "data:image/png;base64," + Convert.ToBase64String(snapshot);
+        if (dataUrl.Length > 4_500_000) return (false, default);
+
+        var width = Math.Max(1, ReaderWebViewHost.Bounds.Width);
+        var height = Math.Max(1, ReaderWebViewHost.Bounds.Height);
+        var overlayScript = ReaderWaveScripts.CreateWaveOverlayScript(
+            dataUrl,
+            width,
+            height,
+            forward: direction > 0,
+            totalDurationMs: ReaderWaveDurationMs,
+            startPaused: true);
+
+        if (!await TryInvokeReaderBooleanScriptAsync(incomingHost, overlayScript))
+            return (false, default);
+
+        try
+        {
+            // The captured old page remains frozen above the reader while the
+            // live page or prepared chapter changes underneath. Starting only
+            // after that change prevents the previous implementation's visible
+            // jump near the end of an already-running wave.
+            var result = await changeContentAsync();
+            if (!await TryInvokeReaderBooleanScriptAsync(
+                    incomingHost,
+                    ReaderWaveScripts.CreateWaveStartScript()))
+            {
+                return (true, result);
+            }
+
+            await Task.Delay(ReaderWaveDurationMs + 80, cancellationToken);
+            return (true, result);
+        }
+        finally
+        {
+            await TryInvokeReaderTransitionAsync(
+                incomingHost,
+                ReaderWaveScripts.CreateWaveCleanupScript());
+            if (!ReferenceEquals(outgoingHost, incomingHost))
+            {
+                await TryInvokeReaderTransitionAsync(
+                    outgoingHost,
+                    ReaderWaveScripts.CreateWaveCleanupScript());
+            }
+        }
+    }
+
+    private async Task<(bool Succeeded, T? Result)> TryRunReaderSlideTransitionAsync<T>(
+        IReaderHost outgoingHost,
+        IReaderHost incomingHost,
+        int direction,
+        byte[] snapshot,
+        Func<Task<T>> changeContentAsync,
+        CancellationToken cancellationToken)
+    {
+        var dataUrl = "data:image/png;base64," + Convert.ToBase64String(snapshot);
+        if (dataUrl.Length > 4_500_000) return (false, default);
+
+        var width = Math.Max(1, ReaderWebViewHost.Bounds.Width);
+        var height = Math.Max(1, ReaderWebViewHost.Bounds.Height);
+        var overlayScript = ReaderWaveScripts.CreateSlideOverlayScript(
+            dataUrl,
+            width,
+            height,
+            forward: direction > 0,
+            durationMs: ReaderSlideDurationMs,
+            startPaused: true);
+
+        if (!await TryInvokeReaderBooleanScriptAsync(incomingHost, overlayScript))
+            return (false, default);
+
+        try
+        {
+            // Only the frozen bitmap moves. The real paginated body is never
+            // transformed, so its fractional scroll extent cannot be clamped.
+            var result = await changeContentAsync();
+            if (await TryInvokeReaderBooleanScriptAsync(
+                    incomingHost,
+                    ReaderWaveScripts.CreateSlideStartScript()))
+            {
+                await Task.Delay(ReaderSlideDurationMs + 60, cancellationToken);
+            }
+            return (true, result);
+        }
+        finally
+        {
+            await TryInvokeReaderTransitionAsync(
+                incomingHost,
+                ReaderWaveScripts.CreateSlideCleanupScript());
+            if (!ReferenceEquals(outgoingHost, incomingHost))
+            {
+                await TryInvokeReaderTransitionAsync(
+                    outgoingHost,
+                    ReaderWaveScripts.CreateSlideCleanupScript());
+            }
+        }
+    }
 
     private static async Task TryInvokeReaderTransitionAsync(IReaderHost host, string script)
     {
@@ -2514,72 +3007,55 @@ public partial class MainWindow
         }
     }
 
-    private static string CreateReaderTransitionScript(int animation, int direction, bool restore)
+    private static async Task<bool> TryInvokeReaderBooleanScriptAsync(
+        IReaderHost host,
+        string script)
     {
-        var safeAnimation = Math.Clamp(animation, ReaderAnimationNone, ReaderAnimationWave);
-        var offset = direction > 0 ? -18 : 18;
-        return $$"""
+        try
+        {
+            var result = await host.InvokeScriptAsync(script);
+            return string.Equals(
+                result?.Trim().Trim('"'),
+                "true",
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string CreateReaderFadeTransitionScript(int phase) =>
+        $$"""
             (() => {
-              const root = document.documentElement;
-              if (!root) return false;
-              let style = document.getElementById('kkindle-reader-transition-style');
-              if (!style) {
-                style = document.createElement('style');
-                style.id = 'kkindle-reader-transition-style';
-                document.head.appendChild(style);
-              }
-              style.textContent = `
-                @keyframes kkindle-reader-wave {
-                  0% { filter: grayscale(1) contrast(1); }
-                  35% { filter: grayscale(1) contrast(1.08); }
-                  65% { filter: grayscale(1) contrast(.94); }
-                  100% { filter: grayscale(1) contrast(1); }
-                }
-                @keyframes kkindle-reader-sweep {
-                  0% { transform: translateX(-120%) skewX(-14deg); }
-                  100% { transform: translateX(120%) skewX(-14deg); }
-                }
-                .kkindle-wave-sweep {
-                  position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;
-                  background: linear-gradient(105deg, transparent 30%, rgba(0,0,0,.16) 50%, transparent 70%);
-                  animation: kkindle-reader-sweep 380ms ease-in-out both;
-                }
-              `;
-              root.style.transition = 'opacity 160ms ease, transform 180ms ease, filter 220ms ease';
-              if ({{(restore ? "true" : "false")}}) {
-                root.style.opacity = '1';
-                root.style.transform = 'translateX(0)';
-                root.style.filter = 'none';
-                root.style.animation = 'none';
-                const sweep = document.querySelector('.kkindle-wave-sweep');
-                if (sweep) sweep.remove();
+              const surface = document.body || document.documentElement;
+              if (!surface) return false;
+              surface.style.willChange = 'opacity';
+              const phase = {{phase}};
+              if (phase === 0) {
+                surface.style.transition = 'opacity {{ReaderTransitionOutDurationMs}}ms cubic-bezier(.4,0,.6,1)';
+                surface.style.opacity = '0';
+              } else if (phase === 1) {
+                surface.style.transition = 'none';
+                surface.style.opacity = '0';
               } else {
-                root.style.opacity = {{(safeAnimation == ReaderAnimationFade ? "'0.2'" : "'0.42'")}};
-                root.style.transform = {{(safeAnimation == ReaderAnimationSlide ? $"'translateX({offset}px)'" : "'translateX(0)'")}};
-                root.style.filter = {{(safeAnimation == ReaderAnimationWave ? "'grayscale(1) contrast(1.06)'" : "'none'")}};
-                root.style.animation = {{(safeAnimation == ReaderAnimationWave ? "'kkindle-reader-wave 380ms ease both'" : "'none'")}};
-                if ({{(safeAnimation == ReaderAnimationWave ? "true" : "false")}}) {
-                  const sweep = document.createElement('div');
-                  sweep.className = 'kkindle-wave-sweep';
-                  document.body.appendChild(sweep);
-                }
+                surface.style.transition = 'none';
+                void surface.offsetWidth;
+                surface.style.transition = 'opacity {{ReaderTransitionInDurationMs}}ms cubic-bezier(.4,0,.2,1)';
+                surface.style.opacity = '1';
               }
               return true;
             })();
             """;
-    }
 
-    private static string CreateReaderTransitionCleanupScript() =>
+    private static string CreateReaderFadeTransitionCleanupScript() =>
         """
         (() => {
-          const root = document.documentElement;
-          if (!root) return false;
-          root.style.removeProperty('transition');
-          root.style.removeProperty('opacity');
-          root.style.removeProperty('transform');
-          root.style.removeProperty('filter');
-          root.style.removeProperty('animation');
-          document.querySelectorAll('.kkindle-wave-sweep').forEach(node => node.remove());
+          const surface = document.body || document.documentElement;
+          if (!surface) return false;
+          surface.style.removeProperty('transition');
+          surface.style.removeProperty('opacity');
+          surface.style.removeProperty('will-change');
           return true;
         })();
         """;
@@ -2680,25 +3156,28 @@ public partial class MainWindow
 
     private void ReaderZenMenuItem_Click(object? sender, RoutedEventArgs e)
     {
+        ReaderMoreButton.Flyout?.Hide();
         ToggleReaderZenMode();
     }
 
     private void ReaderLayoutSettingsMenuItem_Click(object? sender, RoutedEventArgs e)
     {
+        ReaderMoreButton.Flyout?.Hide();
         ReaderLayoutSettingsButton_Click(sender, e);
     }
 
     private void ReaderAnimationItem_Click(object? sender, RoutedEventArgs e)
     {
-        if (sender is not MenuItem { Tag: string tag }) return;
-        _readerPageAnimation = tag switch
-        {
-            "none" => ReaderAnimationNone,
-            "slide" => ReaderAnimationSlide,
-            "wave" => ReaderAnimationWave,
-            _ => ReaderAnimationFade
-        };
+        if (ReferenceEquals(sender, ReaderAnimationFadeItem))
+            _readerPageAnimation = ReaderAnimationFade;
+        else if (ReferenceEquals(sender, ReaderAnimationSlideItem))
+            _readerPageAnimation = ReaderAnimationSlide;
+        else if (ReferenceEquals(sender, ReaderAnimationWaveItem))
+            _readerPageAnimation = ReaderAnimationWave;
+        else
+            _readerPageAnimation = ReaderAnimationNone;
         SyncReaderAnimationMenu();
+        ReaderMoreButton.Flyout?.Hide();
     }
 
     private void SyncReaderAnimationMenu()
@@ -2776,7 +3255,7 @@ public partial class MainWindow
             ReaderAssistantPanel.IsVisible = false;
             ReaderRoot.ColumnDefinitions[2].Width = new GridLength(0);
             ReaderAssistantToggleButton.IsVisible = false;
-            ReaderZenBar.IsVisible = true;
+            ReaderZenBar.IsVisible = false;
             if (ReaderZenMenuItem is not null) ReaderZenMenuItem.IsChecked = true;
             // Zen mode starts with the minimal TOC rail, matching the WinUI
             // reference: the full TOC panel is collapsed and only the 52-DIP
@@ -2796,7 +3275,10 @@ public partial class MainWindow
             UpdateReaderBookmarkCornerSurface();
             ApplyReaderPanelLayout();
             UpdateReaderZenTocToggle();
-            UpdateReaderZenChrome(visible: true);
+            // The old reader enters distraction-free mode immediately. Mouse
+            // movement reveals the title controls again when they are needed.
+            UpdateReaderZenChrome(visible: false);
+            StartReaderZenPointerWatch();
         }
         else
         {
@@ -2874,7 +3356,7 @@ public partial class MainWindow
         ReaderTocCompactPanel.Margin = new Thickness(0, 38, 0, 0);
         ReaderContentPanel.Margin = new Thickness(0, 38, 0, 0);
         ReaderAssistantPanel.Margin = new Thickness(0, 38, 0, 0);
-        ReaderLayoutSettingsOverlay.Margin = new Thickness(0, 38, 0, 0);
+        ReaderLayoutSettingsOverlay.Margin = new Thickness(0);
         ReaderWebViewBottomCover.Margin = new Thickness(0, 0, 0, 10);
         UpdateReaderBookmarkCornerSurface();
         ApplyReaderPanelLayout();
@@ -2885,6 +3367,9 @@ public partial class MainWindow
         _readerZenChromeVisible = true;
         ReaderZenTitleTocButton.IsVisible = false;
         ReaderZenTitleExitButton.IsVisible = false;
+        ReaderZenActivationRegion.IsVisible = false;
+        ReaderZenControlsPopup.IsOpen = false;
+        _readerZenPointerWatchTimer?.Stop();
         MinimizeWindowButton.IsVisible = true;
         MaximizeWindowButton.IsVisible = true;
         CloseWindowButton.IsVisible = true;
@@ -2897,27 +3382,132 @@ public partial class MainWindow
     // reveals it again, and it hides after ~2.5 s of inactivity.
     private bool _readerZenChromeVisible = true;
     private DispatcherTimer? _readerZenChromeHideTimer;
+    private DispatcherTimer? _readerZenPointerWatchTimer;
     private long _readerZenLastMouseMoveTick;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ReaderNativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ReaderNativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorPos(out ReaderNativePoint point);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr window, out ReaderNativeRect rect);
+
+    private void StartReaderZenPointerWatch()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        _readerZenPointerWatchTimer ??= new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(80)
+        };
+        _readerZenPointerWatchTimer.Stop();
+        _readerZenPointerWatchTimer.Tick -= ReaderZenPointerWatchTimer_Tick;
+        _readerZenPointerWatchTimer.Tick += ReaderZenPointerWatchTimer_Tick;
+        _readerZenPointerWatchTimer.Start();
+    }
+
+    private void ReaderZenPointerWatchTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_readerZenMode || !OperatingSystem.IsWindows())
+        {
+            _readerZenPointerWatchTimer?.Stop();
+            return;
+        }
+
+        var handle = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        if (handle == IntPtr.Zero
+            || !GetCursorPos(out var cursor)
+            || !GetWindowRect(handle, out var window))
+        {
+            return;
+        }
+
+        var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1d;
+        var activationWidth = ReaderZenActivationWidth * scaling;
+        var activationHeight = ReaderZenActivationHeight * scaling;
+        var insideTopRight = cursor.X >= window.Right - activationWidth
+            && cursor.X <= window.Right
+            && cursor.Y >= window.Top
+            && cursor.Y <= window.Top + activationHeight;
+        if (insideTopRight != _readerZenChromeVisible)
+            UpdateReaderZenChrome(insideTopRight);
+    }
 
     private void ReaderRoot_PointerMoved(object? sender, PointerEventArgs e)
     {
-        if (!_readerZenMode) return;
+        // Windows uses the native screen-space watcher above for both the
+        // Avalonia surface and the child WebView HWND. Mixing its physical
+        // pixels with these DIP coordinates makes the two paths fight at
+        // non-100% display scaling and repeatedly opens/closes the popup.
+        if (!_readerZenMode || OperatingSystem.IsWindows()) return;
         var now = Environment.TickCount64;
         if (now - _readerZenLastMouseMoveTick <= 80) return;
         _readerZenLastMouseMoveTick = now;
-        if (_readerZenMode && !_readerZenChromeVisible)
-            UpdateReaderZenChrome(visible: true);
-        else if (_readerZenMode)
-            RestartReaderZenChromeHideTimer();
+        var point = e.GetPosition(ReaderRoot);
+        UpdateReaderZenChromeForPointer(point.X, point.Y, ReaderRoot.Bounds.Width);
     }
 
-    private void RestartReaderZenChromeHideTimer()
+    private void UpdateReaderZenChromeForPointer(double x, double y, double surfaceWidth)
+    {
+        if (!_readerZenMode) return;
+
+        var insideTopRight = y >= 0
+            && y <= ReaderZenActivationHeight
+            && x >= Math.Max(0, surfaceWidth - ReaderZenActivationWidth);
+        if (insideTopRight)
+        {
+            if (!_readerZenChromeVisible)
+                UpdateReaderZenChrome(visible: true);
+            else
+                RestartReaderZenChromeHideTimer();
+        }
+        else if (_readerZenChromeVisible)
+        {
+            UpdateReaderZenChrome(visible: false);
+        }
+    }
+
+    private void ReaderTitleControls_PointerEntered(object? sender, PointerEventArgs e)
+    {
+        if (!_readerZenMode) return;
+        if (!_readerZenChromeVisible)
+            UpdateReaderZenChrome(visible: true);
+        _readerZenChromeHideTimer?.Stop();
+    }
+
+    private void ReaderTitleControls_PointerExited(object? sender, PointerEventArgs e)
+    {
+        // On Windows the native watcher closes the popup as soon as the
+        // pointer leaves the complete activation region. A delayed close from
+        // the smaller button row can otherwise race that watcher and flicker.
+        if (_readerZenMode && !OperatingSystem.IsWindows())
+            RestartReaderZenChromeHideTimer(500);
+    }
+
+    private void RestartReaderZenChromeHideTimer(int delayMs = 1200)
     {
         _readerZenChromeHideTimer ??= new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(2500)
+            Interval = TimeSpan.FromMilliseconds(delayMs)
         };
         _readerZenChromeHideTimer.Stop();
+        _readerZenChromeHideTimer.Interval = TimeSpan.FromMilliseconds(delayMs);
         _readerZenChromeHideTimer.Tick -= ReaderZenChromeHideTimer_Tick;
         _readerZenChromeHideTimer.Tick += ReaderZenChromeHideTimer_Tick;
         _readerZenChromeHideTimer.Start();
@@ -2932,18 +3522,33 @@ public partial class MainWindow
     private void UpdateReaderZenChrome(bool visible)
     {
         _readerZenChromeVisible = visible;
-        ReaderZenTitleTocButton.IsVisible = _readerZenMode && visible;
-        ReaderZenTitleExitButton.IsVisible = _readerZenMode && visible;
+        ReaderZenActivationRegion.IsVisible = _readerZenMode;
+        ReaderZenTitleTocButton.IsVisible = false;
+        ReaderZenTitleExitButton.IsVisible = false;
         MinimizeWindowButton.IsVisible = visible;
         MaximizeWindowButton.IsVisible = visible;
         CloseWindowButton.IsVisible = visible;
+        if (_readerZenMode && visible)
+        {
+            ReaderZenControlsPopup.PlacementTarget = ReaderZenActivationRegion;
+            ReaderZenControlsPopup.Placement = Avalonia.Controls.PlacementMode.AnchorAndGravity;
+            ReaderZenControlsPopup.PlacementAnchor = Avalonia.Controls.Primitives.PopupPositioning.PopupAnchor.TopRight;
+            ReaderZenControlsPopup.PlacementGravity = Avalonia.Controls.Primitives.PopupPositioning.PopupGravity.BottomLeft;
+            ReaderZenControlsPopup.HorizontalOffset = 0;
+            ReaderZenControlsPopup.VerticalOffset = 0;
+            ReaderZenControlsPopup.IsOpen = true;
+        }
+        else
+        {
+            ReaderZenControlsPopup.IsOpen = false;
+        }
         // The brand text floats over the minimal TOC rail in zen mode, so it
         // stays hidden there; it is restored when returning to the bookshelf.
         WindowBrandText.IsVisible = !_readerZenMode
             && visible
             && ReaderRoot.IsVisible;
 
-        if (visible)
+        if (visible && !OperatingSystem.IsWindows())
             RestartReaderZenChromeHideTimer();
         else
             _readerZenChromeHideTimer?.Stop();

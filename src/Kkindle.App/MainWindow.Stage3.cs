@@ -570,7 +570,9 @@ public partial class MainWindow
         _deviceDisplayName = null;
         DevicePageDeviceText.Text = "未检测到设备";
         DeviceNameButton.IsEnabled = false;
-        DevicePageStatusText.Text = detail ?? "请连接并解锁 Kindle；支持 USB 磁盘与 MTP。";
+        DevicePageStatusText.Text = detail ?? (OperatingSystem.IsWindows()
+            ? "请连接并解锁 Kindle；支持 USB 磁盘与 MTP。"
+            : "请连接并解锁 Kindle；当前平台支持挂载为 USB 磁盘的 Kindle。");
         KindleStatusText.Text = "无设备连接";
         KindleConnectionText.Text = detail ?? string.Empty;
         KindleConnectionText.IsVisible = !string.IsNullOrWhiteSpace(detail);

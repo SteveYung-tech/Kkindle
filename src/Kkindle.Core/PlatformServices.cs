@@ -70,6 +70,16 @@ public interface IReaderHost : IDisposable
     void Stop();
 }
 
+/// <summary>
+/// Optional capability for reader hosts that can capture the currently
+/// visible browser viewport. Page-transition effects use this when available
+/// and fall back to a regular fade when the platform cannot provide it.
+/// </summary>
+public interface IReaderPageSnapshotProvider
+{
+    Task<byte[]?> CaptureVisiblePageAsync(CancellationToken cancellationToken);
+}
+
 public sealed class ReaderNavigationStartingEventArgs(Uri? request) : EventArgs
 {
     public Uri? Request { get; } = request;

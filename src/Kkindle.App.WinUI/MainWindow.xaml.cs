@@ -4739,7 +4739,6 @@ public sealed partial class MainWindow : Window
                 root.style.setProperty('{{ReaderPaginationScripts.ViewportWidthVariable}}', viewportWidth + 'px');
               }
               window.__kkindleReaderTwoPage = {{(_readerLayout.TwoPageMode ? "true" : "false")}};
-              {{ReaderPaginationScripts.PageAlignmentHelperDefinition}}
               // Expose the real body content box (WebView viewport minus the
               // body's top/bottom padding) so image max-heights target the
               // actual page box instead of guessing from the window size.

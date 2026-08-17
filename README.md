@@ -111,7 +111,7 @@ Kkindle 是一款面向 Windows、Linux 和 macOS 的个人电子书与 Kindle �
 ## 环境要求
 
 - Windows 11 x64、主流 x64 Linux 桌面，或 macOS 12 及以上（Intel/Apple Silicon）
-- 从源码构建需要 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- 从源码构建需要 [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)；应用目标框架仍为 .NET 8。
 - Linux 需要 WebKitGTK、Secret Service/`secret-tool`
 - 三端如需格式转换，均需用户另行安装 Calibre，或在设置中指定已有的 `ebook-convert`
 - Windows 支持 USB 磁盘和 WPD/MTP Kindle；Linux/macOS 当前支持挂载为 USB 磁盘的 Kindle
@@ -169,6 +169,12 @@ git push origin v1.0.0
 ```
 
 失败后可在 GitHub Actions 中手动运行 Release 工作流并填写已有标签；工作流会覆盖该 Release 中同名产物，不会重复创建版本。
+
+## GitHub 开发版构建
+
+程序尚未稳定时，不需要创建标签或 GitHub Release。可在 GitHub Actions 中手动运行 `Development Build`，填写类似 `0.6.0-dev` 的基础版本；工作流会自动追加运行编号，生成三平台开发包并作为 Actions Artifacts 保存 7 天。推送 `develop` 或 `dev/**` 分支也会自动触发该工作流。
+
+开发版只生成 Windows 便携 ZIP、Linux 安装包/便携包和 macOS ad-hoc 包，不会创建 Release，也不会修改仓库标签。macOS 压缩包内附有 Gatekeeper 打开说明。
 
 ## 验证
 

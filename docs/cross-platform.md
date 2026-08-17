@@ -32,6 +32,12 @@ automatically falls back to the packaged WebKitGTK 4.1 dependency otherwise.
 This makes the same package work on Ubuntu 24.04 and distributions that ship
 WPE WebKit 2.0.
 
+The `Development Build` GitHub Actions workflow can be run manually or by
+pushing the `develop`/`dev/**` branches. It appends the Actions run number to a
+base version such as `0.6.0-dev`, uploads three-platform packages as seven-day
+workflow artifacts, and never creates a Git tag or GitHub Release. Development
+macOS packages always use ad-hoc signing.
+
 Calibre is not bundled in any Windows, Linux or macOS archive. It is optional and is
 discovered from the application directory, standard install locations or
 `PATH`, or the user can select `ebook-convert` in Settings. On Debian/Ubuntu,
@@ -47,9 +53,17 @@ official plugin index, validated as a plugin ZIP and installed with the
 detected `calibre-customize`. These downloads never become part of a Kkindle
 release artifact.
 
-The macOS script ad-hoc signs local builds. Set `APPLE_SIGNING_IDENTITY` to a
-Developer ID Application identity for a hardened-runtime signature. Set
-`APPLE_NOTARY_PROFILE` to a `notarytool` keychain profile to notarize and
-staple before the archive is created. Public distribution still requires the
-Developer ID credentials; an ad-hoc signature does not satisfy Gatekeeper for
-downloaded applications.
+Local macOS builds and GitHub Releases use ad-hoc signing when Apple
+distribution credentials are not configured. The archive includes
+`MACOS-README.md` with the Gatekeeper override steps required for that build.
+
+For normal Gatekeeper-approved distribution, configure these repository
+secrets:
+`APPLE_CERTIFICATE_P12_BASE64`, `APPLE_CERTIFICATE_PASSWORD`,
+`APPLE_NOTARY_KEY_BASE64`, `APPLE_NOTARY_KEY_ID`, and `APPLE_NOTARY_ISSUER`.
+`APPLE_SIGNING_IDENTITY` and `APPLE_KEYCHAIN_PASSWORD` are optional; the
+workflow discovers the Developer ID identity and generates a temporary
+keychain password when they are omitted. The release job imports the
+certificate, signs with the hardened runtime, notarizes, staples and validates
+the app before uploading it. Supplying only part of the required credentials
+fails the release instead of silently falling back to ad-hoc signing.

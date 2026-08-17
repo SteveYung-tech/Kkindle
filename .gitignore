@@ -6,3 +6,8 @@ TestResults/
 artifacts/
 *.user
 *.suo
+
+# Local UI/debug captures and diagnostic helpers are not release sources.
+/*.png
+/debug-*.ps1
+/debug-senddiag/

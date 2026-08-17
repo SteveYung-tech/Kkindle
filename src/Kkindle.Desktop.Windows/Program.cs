@@ -2,6 +2,7 @@ using Avalonia;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 using Kkindle.Platform.Windows;
+using System.Runtime.InteropServices;
 
 namespace Kkindle.Desktop.Windows;
 
@@ -77,6 +78,55 @@ internal static class Program
         return new AppServices(
             SecretProtector: new WindowsSecretProtector(),
             CreateDeviceChangeNotifier: handle => new WindowsDeviceChangeNotifier(handle),
-            KindleDeviceService: new KindleDeviceService(paths, new BookMetadataService()));
+            KindleDeviceService: new KindleDeviceService(paths, new BookMetadataService()),
+            ReaderHostFactory: () => new NativeWebViewReaderHost(ConfigureWebView2));
+    }
+
+    private static void ConfigureWebView2(IntPtr coreWebView2Pointer)
+    {
+        var coreWebView = (ICoreWebView2)Marshal.GetTypedObjectForIUnknown(
+            coreWebView2Pointer,
+            typeof(ICoreWebView2));
+        Marshal.ThrowExceptionForHR(coreWebView.GetSettings(out var settings));
+        Marshal.ThrowExceptionForHR(settings.SetIsStatusBarEnabled(0));
+    }
+
+    [ComImport]
+    [Guid("76ECEACB-0462-4D94-AC83-423A6793775E")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface ICoreWebView2
+    {
+        [PreserveSig]
+        int GetSettings(out ICoreWebView2Settings settings);
+    }
+
+    [ComImport]
+    [Guid("E562E4F0-D7FA-43AC-8D71-C05150499F00")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface ICoreWebView2Settings
+    {
+        [PreserveSig]
+        int GetIsScriptEnabled(out int enabled);
+
+        [PreserveSig]
+        int SetIsScriptEnabled(int enabled);
+
+        [PreserveSig]
+        int GetIsWebMessageEnabled(out int enabled);
+
+        [PreserveSig]
+        int SetIsWebMessageEnabled(int enabled);
+
+        [PreserveSig]
+        int GetAreDefaultScriptDialogsEnabled(out int enabled);
+
+        [PreserveSig]
+        int SetAreDefaultScriptDialogsEnabled(int enabled);
+
+        [PreserveSig]
+        int GetIsStatusBarEnabled(out int enabled);
+
+        [PreserveSig]
+        int SetIsStatusBarEnabled(int enabled);
     }
 }
