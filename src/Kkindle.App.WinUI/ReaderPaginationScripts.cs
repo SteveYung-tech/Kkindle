@@ -25,7 +25,9 @@ internal static class ReaderPaginationScripts
         {
             return vertical
                 ? "html { height: 100%; overflow: hidden !important; } body { height: 100%; overflow: visible !important; box-sizing: border-box; }"
-                : "html, body { min-height: 100%; overflow-x: hidden !important; } body { column-width: auto !important; column-count: auto !important; column-gap: normal !important; writing-mode: horizontal-tb !important; }";
+                : OperatingSystem.IsLinux()
+                    ? "html { width: 100% !important; height: 100% !important; min-height: 0 !important; overflow-x: hidden !important; overflow-y: auto !important; writing-mode: horizontal-tb !important; } body { min-height: 100% !important; margin: 0 !important; overflow: visible !important; column-width: auto !important; column-count: auto !important; column-gap: normal !important; writing-mode: horizontal-tb !important; }"
+                    : "html, body { min-height: 100%; overflow-x: hidden !important; } body { column-width: auto !important; column-count: auto !important; column-gap: normal !important; writing-mode: horizontal-tb !important; }";
         }
 
         var topPadding = Format(ReaderPaginationDefaults.TopPadding);
@@ -75,6 +77,19 @@ internal static class ReaderPaginationScripts
                 + $" padding: {topPadding}px {responsiveSidePadding} {bottomPadding}px !important; box-sizing: border-box !important;"
                 + $" writing-mode: vertical-rl !important; text-orientation: mixed !important; column-width: {verticalColumnHeight} !important;"
                 + $" column-gap: {minimumColumnGap} !important; column-fill: auto !important; column-count: auto !important; max-width: none !important; }}";
+        }
+        if (OperatingSystem.IsLinux())
+        {
+            var columnWidth = twoPage
+                ? $"calc((100vw - (var(--kkindle-page-column-gap) * 2)) / 2)"
+                : $"calc(100vw - var(--kkindle-page-column-gap))";
+            return $"html {{ height: 100%; overflow: hidden !important; writing-mode: horizontal-tb !important; }}"
+                + $" body {{ --kkindle-page-column-gap: {columnGap}; width: 100% !important; min-width: 0 !important; height: 100% !important; margin: 0 !important; overflow: visible !important; padding: {topPadding}px calc(var(--kkindle-page-column-gap) / 2) {bottomPadding}px !important; box-sizing: border-box !important;"
+                + $" writing-mode: horizontal-tb !important; -webkit-column-width: {columnWidth} !important; column-width: {columnWidth} !important;"
+                + $" -webkit-column-count: auto !important; column-count: auto !important;"
+                + $" -webkit-column-gap: var(--kkindle-page-column-gap) !important; column-gap: var(--kkindle-page-column-gap) !important;"
+                + $" -webkit-column-fill: auto !important; column-fill: auto !important; max-width: none !important; }}"
+                + $" body::after {{ content: \"\"; display: block; height: 0.1px; width: calc(100% + var(--kkindle-page-column-gap) / 2); }}";
         }
         return $"html {{ height: 100%; overflow: hidden !important; writing-mode: horizontal-tb !important; }}"
             + $" body {{ --kkindle-page-column-gap: {columnGap}; width: 100% !important; min-width: 0 !important; height: 100% !important; margin: 0 !important; overflow: visible !important; padding: {topPadding}px calc(var(--kkindle-page-column-gap) / 2) {bottomPadding}px !important; box-sizing: border-box !important;"

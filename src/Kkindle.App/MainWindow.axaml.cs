@@ -11,6 +11,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using Avalonia.Threading;
@@ -155,6 +156,7 @@ public partial class MainWindow : Window
         ViewModel = new LibraryViewModel(library, paths.Data);
 
         InitializeComponent();
+        ApplyApplicationIcon();
         BookGrid.ItemsPanel = new FuncTemplate<Panel?>(() =>
         {
             _bookGridPanel = new AnimatedWrapPanel
@@ -234,6 +236,20 @@ public partial class MainWindow : Window
         };
         Dispatcher.UIThread.Post(UpdateBookGridLayout, DispatcherPriority.Loaded);
         AttachBookGridAutoHideScrollbar();
+    }
+
+    private void ApplyApplicationIcon()
+    {
+        try
+        {
+            using var iconStream = AssetLoader.Open(
+                new Uri("avares://Kkindle.App/Assets/Icons/kkindle.png"));
+            Icon = new WindowIcon(iconStream);
+        }
+        catch
+        {
+            // A missing icon must not prevent the app from starting.
+        }
     }
 
     // Marks the book grid's ScrollViewer with the bookScroll/.scrolling classes
@@ -318,6 +334,40 @@ public partial class MainWindow : Window
             {
                 _selectedCard = ViewModel.Books[0];
                 _ = RunSendDiagnosticAsync();
+            }
+            if (Environment.GetEnvironmentVariable("KKINDLE_KREADER_VALIDATE") == "1")
+            {
+                _ = Dispatcher.UIThread.InvokeAsync(RunKreaderValidationAndExitAsync);
+            }
+            if (int.TryParse(Environment.GetEnvironmentVariable("KKINDLE_OPEN_BOOK_INDEX"), out var openIndex)
+                && openIndex >= 0 && openIndex < ViewModel.Books.Count)
+            {
+                _ = Dispatcher.UIThread.InvokeAsync(async () =>
+                {
+                    await OpenBookAsync(ViewModel.Books[openIndex], restoreProgress: false);
+                    if (int.TryParse(Environment.GetEnvironmentVariable("KKINDLE_OPEN_CHAPTER_STEPS"), out var steps))
+                    {
+                        for (var i = 0; i < steps; i++)
+                        {
+                            await Task.Delay(2500);
+                            await MoveReaderChapterAsync(1);
+                        }
+                    }
+                    await Task.Delay(2000);
+                    try
+                    {
+                        var dom = CurrentReaderHost is null
+                            ? "<no host>"
+                            : await CurrentReaderHost.InvokeScriptAsync(
+                                "(() => JSON.stringify({t:(document.body?.innerText||'').slice(0,120), imgs:document.images.length, imgOk:[...document.images].map(i=>i.naturalWidth).join(','), src:[...document.images].map(i=>i.currentSrc||i.src).join('|').slice(0,300)}))();");
+                        System.IO.File.WriteAllText("/tmp/reader-state.txt",
+                            $"chapterIndex={_readerChapterIndex}\nstatus={ReaderStatusText.Text}\nsource={CurrentReaderHost?.Source}\ndom={dom}\n");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.IO.File.WriteAllText("/tmp/reader-state.txt", "probe failed: " + ex);
+                    }
+                });
             }
         }
         catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
@@ -1171,7 +1221,10 @@ public partial class MainWindow : Window
             await ImportPathsAsync(paths);
     }
 
-    private async Task OpenBookAsync(BookCardViewModel card, BookFile? requestedFile = null)
+    private async Task OpenBookAsync(
+        BookCardViewModel card,
+        BookFile? requestedFile = null,
+        bool restoreProgress = true)
     {
         var file = requestedFile ?? ReaderBookSelectionPolicy.SelectPreferred(
             card.Book.Files,
@@ -1193,7 +1246,7 @@ public partial class MainWindow : Window
 
         if (string.Equals(file.Format, "epub", StringComparison.OrdinalIgnoreCase))
         {
-            await OpenEpubReaderAsync(card, file, path);
+            await OpenEpubReaderAsync(card, file, path, restoreProgress);
             return;
         }
 
@@ -1214,7 +1267,7 @@ public partial class MainWindow : Window
                     file.Sha256,
                     file.Format,
                     _lifetimeCancellation.Token);
-                await OpenEpubReaderAsync(card, file, cache.EpubPath);
+                await OpenEpubReaderAsync(card, file, cache.EpubPath, restoreProgress);
             }
             catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
             {

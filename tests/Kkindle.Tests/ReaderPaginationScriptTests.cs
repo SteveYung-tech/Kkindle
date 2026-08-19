@@ -14,8 +14,16 @@ public sealed class ReaderPaginationScriptTests
             vertical: false,
             twoPage: twoPage);
 
-        Assert.Contains(expected, css, StringComparison.Ordinal);
-        Assert.Contains("column-width: auto !important", css, StringComparison.Ordinal);
+        if (OperatingSystem.IsLinux())
+        {
+            Assert.Contains("column-count: auto !important", css, StringComparison.Ordinal);
+            Assert.Contains("-webkit-column-width:", css, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains(expected, css, StringComparison.Ordinal);
+            Assert.Contains("column-width: auto !important", css, StringComparison.Ordinal);
+        }
     }
 
     [Fact]

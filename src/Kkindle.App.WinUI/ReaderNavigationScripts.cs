@@ -25,6 +25,7 @@ internal static class ReaderNavigationScripts
           try {
             if (location.hash) history.replaceState(null, '', location.href.split('#')[0]);
           } catch (_) { }
+          window.__kkindleReaderLogicalHash = '';
 
           document.querySelectorAll('.kkindle-fragment-break, .kkindle-fragment-zeroed').forEach(el => {
             try { el.classList.remove('kkindle-fragment-break'); } catch (_) {}
@@ -111,6 +112,7 @@ internal static class ReaderNavigationScripts
         (() => {
           let id = '{{needle}}';
           try { id = decodeURIComponent(id); } catch { }
+          window.__kkindleReaderLogicalHash = id ? '#' + encodeURIComponent(id) : '';
           try {
             history.replaceState(
               null,
@@ -228,6 +230,7 @@ internal static class ReaderNavigationScripts
           // does not reload the XHTML. Keep the document hash in sync as well;
           // bookmarks and section quotes use it to preserve the exact anchor
           // the reader is currently showing.
+          window.__kkindleReaderLogicalHash = id ? '#' + encodeURIComponent(id) : '';
           try {
             if (id) history.replaceState(null, '', '#' + encodeURIComponent(id));
           } catch (_) { }

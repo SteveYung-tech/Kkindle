@@ -18,7 +18,12 @@ currently enumerated on those systems.
 
 ## Build and package
 
+Install the exact .NET SDK version pinned by the repository root `global.json`
+before building. Release scripts run from the repository root and refuse other
+SDK versions so Linux, macOS and Windows packages are produced by the same SDK.
+
 ```sh
+dotnet --version # must print 9.0.300
 dotnet build src/Kkindle.Desktop.Linux/Kkindle.Desktop.Linux.csproj -c Release
 dotnet build src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj -c Release
 bash scripts/build-linux-release.sh 0.5.2 artifacts/linux linux-x64
@@ -26,11 +31,11 @@ bash scripts/build-macos-release.sh 0.5.2 artifacts/macos osx-arm64
 ```
 
 The Linux package is self-contained for .NET but still depends on the native
-WebKitGTK, font, Secret Service and desktop libraries declared by the `.deb`.
-The reader prefers WPE WebKit when `libWPEWebKit-2.0.so.1` is installed and
-automatically falls back to the packaged WebKitGTK 4.1 dependency otherwise.
-This makes the same package work on Ubuntu 24.04 and distributions that ship
-WPE WebKit 2.0.
+webview, font, Secret Service and desktop libraries declared by the `.deb`.
+The reader follows Avalonia's Linux `NativeWebView` path and prefers WPE
+WebKit when `libWPEWebKit-2.0.so.1` is installed. Ubuntu 22.04 does not package
+that WPE 2.0 ABI, so the `.deb` remains installable there through the
+WebKitGTK 4.1 fallback.
 
 The `Development Build` GitHub Actions workflow can be run manually or by
 pushing the `develop`/`dev/**` branches. It appends the Actions run number to a

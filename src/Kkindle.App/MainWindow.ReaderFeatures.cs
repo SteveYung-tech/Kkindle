@@ -227,7 +227,7 @@ public partial class MainWindow
                 file,
                 token);
             _readerIsPdf = true;
-            _readerLayout = ReaderLayoutDefaults.Normalize(_readerLayout with
+            _readerLayout = NormalizeReaderLayoutForPlatform(_readerLayout with
             {
                 FlowMode = 0,
                 TwoPageMode = false
@@ -260,6 +260,10 @@ public partial class MainWindow
             ReaderRoot.ColumnDefinitions[2].Width = new GridLength(0);
 
             await EnsureReaderHostsAsync();
+            // PDF renders in the webview's own viewer, so the Linux plain-text
+            // surface never applies here. Drop any overlay left by a previous
+            // EPUB session before revealing the host.
+            HideLinuxReaderTextFallback();
             SetReaderHostLayer();
             FocusCurrentReaderHost();
             var pdfSource = new Uri(path).AbsoluteUri + $"#page={_readerPdfPage}";
@@ -702,7 +706,7 @@ public partial class MainWindow
         try
         {
             var result = await host.InvokeScriptAsync(
-                "(() => { const el = document.scrollingElement || document.documentElement; if (!el) return null; return JSON.stringify({ left: el.scrollLeft || 0, top: el.scrollTop || 0, fragment: location.hash || '' }); })();");
+                "(() => { const el = document.scrollingElement || document.documentElement; if (!el) return null; return JSON.stringify({ left: el.scrollLeft || 0, top: el.scrollTop || 0, fragment: window.__kkindleReaderLogicalHash || location.hash || '' }); })();");
             var raw = DecodeReaderScriptString(result);
             if (string.IsNullOrWhiteSpace(raw) || string.Equals(raw, "null", StringComparison.OrdinalIgnoreCase))
                 return null;
@@ -1554,7 +1558,7 @@ public partial class MainWindow
                 if (token.IsCancellationRequested) return;
                 try
                 {
-                    _readerLayout = ReaderLayoutDefaults.Normalize(ReadReaderLayoutFromControls());
+                    _readerLayout = NormalizeReaderLayoutForPlatform(ReadReaderLayoutFromControls());
                     _readerPageAnimation = GetSelectedReaderPageAnimation();
                     UpdateReaderZoomLabel();
                     await ApplyReaderLayoutToHostsAsync(_readerSessionCancellation?.Token ?? CancellationToken.None);
@@ -1599,7 +1603,7 @@ public partial class MainWindow
             _suppressReaderLayoutChange = false;
         }
         UpdateReaderLayoutSliderLabels();
-        _readerLayout = ReaderLayoutDefaults.Normalize(ReadReaderLayoutFromControls());
+        _readerLayout = NormalizeReaderLayoutForPlatform(ReadReaderLayoutFromControls());
         _readerPageAnimation = ReaderAnimationFade;
         UpdateReaderZoomLabel();
         await ApplyReaderLayoutToHostsAsync(ReaderToken);
@@ -1630,7 +1634,7 @@ public partial class MainWindow
     {
         // The flow mode lives in the header menu (ReaderFlowButton); keep the
         // menu state in sync when the layout settings panel is opened.
-        _readerLayout = ReaderLayoutDefaults.Normalize(_readerLayout with
+        _readerLayout = NormalizeReaderLayoutForPlatform(_readerLayout with
         {
             FlowMode = flowMode,
             TwoPageMode = twoPageMode

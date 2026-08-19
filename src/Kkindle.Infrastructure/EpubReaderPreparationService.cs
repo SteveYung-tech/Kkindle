@@ -21,7 +21,7 @@ public sealed class EpubReaderPreparationService
     private const string ExtractionReadyFileName = ".kkindle-extracted";
     // Bump whenever sanitization or the injected bridge changes. Existing
     // reader caches otherwise keep the old JavaScript indefinitely.
-    private const string ExtractionFormatVersion = "17";
+    private const string ExtractionFormatVersion = "24";
     private const string ReaderBridgeFileName = ".kkindle-reader-bridge.js";
     private const string ContentSecurityPolicyBase =
         "default-src 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; " +
@@ -39,8 +39,14 @@ public sealed class EpubReaderPreparationService
               const webview = window.chrome && window.chrome.webview;
               if (webview && typeof webview.postMessage === "function")
                 webview.postMessage(body);
-              else if (typeof window.invokeCSharpAction === "function")
-                window.invokeCSharpAction(body);
+              else {
+                const webkit = window.webkit && window.webkit.messageHandlers;
+                const handler = webkit && webkit.postAvWebViewMessage;
+                if (handler && typeof handler.postMessage === "function")
+                  handler.postMessage(body);
+                else if (typeof window.invokeCSharpAction === "function")
+                  window.invokeCSharpAction(body);
+              }
             } catch (_) { }
           };
 
@@ -55,7 +61,7 @@ public sealed class EpubReaderPreparationService
               scrollHeight: element.scrollHeight || 0,
               clientWidth: element.clientWidth || 0,
               clientHeight: element.clientHeight || 0,
-              fragment: location.hash || ''
+              fragment: window.__kkindleReaderLogicalHash || location.hash || ''
             });
           };
           let scrollQueued = false;
@@ -66,6 +72,34 @@ public sealed class EpubReaderPreparationService
               scrollQueued = false;
               reportScroll();
             });
+          };
+
+          // Keep in-chapter pagination inside the WebKit document. Native
+          // message delivery is then required only at a chapter boundary;
+          // a transient host bridge failure cannot make an otherwise rendered
+          // page stop responding to clicks, page keys, or the wheel.
+          const turnPaginatedPage = direction => {
+            const element = document.scrollingElement || document.documentElement;
+            const body = document.body;
+            if (!element || !body || window.__kkindleReaderFlowMode !== 1) return false;
+            const step = element.clientWidth
+              || document.documentElement.clientWidth
+              || window.innerWidth
+              || 0;
+            if (step <= 0) return false;
+            const rawMax = Math.max(0, (element.scrollWidth || 0) - (element.clientWidth || 0));
+            const trailingInset = parseFloat(getComputedStyle(body).paddingRight) || 0;
+            const maximum = Math.max(
+              0,
+              Math.round(Math.max(0, rawMax - trailingInset) / step) * step);
+            const current = element.scrollLeft >= maximum - 4
+              ? maximum
+              : Math.max(0, Math.min(maximum, Math.round((element.scrollLeft || 0) / step) * step));
+            const target = Math.max(0, Math.min(maximum, current + (direction < 0 ? -step : step)));
+            if (Math.abs(target - current) < 1) return false;
+            window.scrollTo({ left: target, top: 0, behavior: 'instant' });
+            queueScrollReport();
+            return true;
           };
 
           // Publisher styles can make Chromium expose a viewport-sized
@@ -228,6 +262,9 @@ public sealed class EpubReaderPreparationService
                 #kkindle-selection-bar .kk-sel-menu-sep {
                   display: block; height: 1px; margin: 3px 6px;
                   background: #D5D5D1;
+                }
+                img, svg {
+                  visibility: visible !important; opacity: 1 !important;
                 }`;
               document.head.appendChild(styleElement);
             }
@@ -387,44 +424,28 @@ public sealed class EpubReaderPreparationService
               || (!!(element.closest('sup') || element.querySelector('sup'))
                   && /^(?:\[?\d{1,3}\]?|[＊*†‡])$/.test(label));
           };
-          // Turn on the completed primary-pointer gesture instead of waiting
-          // for Chromium to synthesize a click. This also matches the WinUI
-          // reader's mouse-up handling, so the first click after the native
-          // webview receives focus is not lost. A small movement guard keeps
-          // text selection from becoming a page turn.
+          const isPageTurnTarget = element =>
+            element instanceof Element
+            && !element.closest('a, button, input, textarea, select, option, label, #kkindle-selection-bar');
           let pagePointerDown = null;
           document.addEventListener("pointerdown", event => {
-            if (event.button !== 0 || event.isPrimary === false) return;
-            pagePointerDown = {
-              id: event.pointerId,
-              x: event.clientX || 0,
-              y: event.clientY || 0
-            };
+            try {
+              if (event.button !== 0
+                  || event.isPrimary === false
+                  || window.__kkindleReaderFlowMode !== 1
+                  || !isPageTurnTarget(event.target)) {
+                pagePointerDown = null;
+                return;
+              }
+              pagePointerDown = {
+                id: event.pointerId,
+                x: event.clientX || 0,
+                y: event.clientY || 0
+              };
+            } catch (_) { }
           }, true);
           document.addEventListener("pointercancel", () => {
             pagePointerDown = null;
-          }, true);
-          document.addEventListener("pointerup", event => {
-            try {
-              const start = pagePointerDown;
-              pagePointerDown = null;
-              if (!start || start.id !== event.pointerId
-                  || event.button !== 0 || event.isPrimary === false
-                  || window.__kkindleReaderFlowMode !== 1) return;
-              const moved = Math.abs((event.clientX || 0) - start.x)
-                + Math.abs((event.clientY || 0) - start.y);
-              if (moved > 12) return;
-              const control = event.target instanceof Element
-                ? event.target.closest("a, button, input, textarea, select, [contenteditable]")
-                : null;
-              if (control) return;
-              const selection = window.getSelection ? window.getSelection() : null;
-              if (selection && !selection.isCollapsed && selection.toString()) return;
-              const width = window.innerWidth || document.documentElement.clientWidth || 0;
-              if (width <= 0) return;
-              const x = event.clientX || 0;
-              send({ type: "page", direction: x < width / 3 ? -1 : 1 });
-            } catch (_) { }
           }, true);
           document.addEventListener("click", event => {
             try {
@@ -445,6 +466,38 @@ public sealed class EpubReaderPreparationService
             } catch (_) { }
           }, true);
           document.addEventListener("mouseup", () => reportSelection(null), true);
+          document.addEventListener("pointerup", event => {
+            reportSelection(null);
+            try {
+              const start = pagePointerDown;
+              pagePointerDown = null;
+              if (!start
+                  || start.id !== event.pointerId
+                  || event.button !== 0
+                  || event.isPrimary === false
+                  || window.__kkindleReaderFlowMode !== 1
+                  || !isPageTurnTarget(event.target)) {
+                return;
+              }
+              const moved = Math.abs((event.clientX || 0) - start.x)
+                + Math.abs((event.clientY || 0) - start.y);
+              if (moved > 12) return;
+              window.requestAnimationFrame?.(() => {
+                try {
+                  const selection = window.getSelection ? window.getSelection() : null;
+                  if (selection && !selection.isCollapsed && (selection.toString() || '').trim()) return;
+                  const width = window.innerWidth || document.documentElement.clientWidth || 0;
+                  if (width <= 0) return;
+                  const x = event.clientX || 0;
+                  if (x < width / 3 || x > width * 2 / 3) {
+                    const direction = x < width / 3 ? -1 : 1;
+                    if (!turnPaginatedPage(direction))
+                      send({ type: "page", direction });
+                  }
+                } catch (_) { }
+              });
+            } catch (_) { }
+          }, true);
           let footnoteHoverTimer = 0;
           const suppressFootnoteStatus = element => {
             if (!element || !isFootnoteLink(element)) return;
@@ -532,6 +585,12 @@ public sealed class EpubReaderPreparationService
               : ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key);
             if (controlled) {
               event.preventDefault();
+              const pageDirection = key === 'ArrowLeft' || key === 'PageUp'
+                ? -1
+                : key === 'ArrowRight' || key === 'PageDown'
+                  ? 1
+                  : 0;
+              if (pageDirection !== 0 && turnPaginatedPage(pageDirection)) return;
               send({ type: "key", key });
             }
           }, true);
@@ -552,6 +611,7 @@ public sealed class EpubReaderPreparationService
           let continuousWheelDirection = 0;
           let continuousWheelLastAt = 0;
           const continuousWheelGestureGap = 180;
+          let paginatedWheelRemainder = 0;
           document.addEventListener("wheel", event => {
             if (window.__kkindleReaderFlowMode !== 1) {
               const direction = Math.sign(event.deltaY || 0);
@@ -575,7 +635,17 @@ public sealed class EpubReaderPreparationService
               return;
             }
             event.preventDefault();
-            send({ type: "wheel", deltaY: event.deltaY || 0 });
+            const delta = event.deltaY || 0;
+            if (delta === 0) return;
+            if (paginatedWheelRemainder !== 0
+                && Math.sign(paginatedWheelRemainder) !== Math.sign(delta))
+              paginatedWheelRemainder = 0;
+            paginatedWheelRemainder += delta;
+            if (Math.abs(paginatedWheelRemainder) < 120) return;
+            const direction = paginatedWheelRemainder > 0 ? 1 : -1;
+            paginatedWheelRemainder %= 120;
+            if (!turnPaginatedPage(direction))
+              send({ type: "page", direction });
           }, { passive: false });
           // Keyboard-driven selections (Shift+arrows) never raise mouseup, so
           // report on selectionchange as well (debounced through rAF), matching
@@ -1098,13 +1168,31 @@ public sealed class EpubReaderPreparationService
                 continue;
             }
 
+            EpubReaderImageReferenceNormalizer.NormalizeHtmlImageReferences(
+                element,
+                path,
+                cacheRoot);
+
             foreach (var attribute in element.Attributes().ToArray())
             {
                 var attributeName = attribute.Name.LocalName;
                 if (attributeName.StartsWith("on", StringComparison.OrdinalIgnoreCase)
-                    || attributeName is "srcset" or "background")
+                    || attributeName is "background")
                 {
                     attribute.Remove();
+                    continue;
+                }
+
+                if (attributeName == "srcset")
+                {
+                    var sanitizedSrcSet = EpubReaderImageReferenceNormalizer.NormalizeSrcSetAttribute(
+                        element,
+                        path,
+                        cacheRoot);
+                    if (string.IsNullOrWhiteSpace(sanitizedSrcSet))
+                        attribute.Remove();
+                    else
+                        attribute.Value = sanitizedSrcSet;
                     continue;
                 }
 
@@ -1227,27 +1315,8 @@ public sealed class EpubReaderPreparationService
         });
     }
 
-    private static bool IsSafeLocalReference(string value, string sourcePath, string cacheRoot)
-    {
-        var trimmed = value.Trim();
-        if (trimmed.Length == 0 || trimmed.StartsWith('#')) return true;
-        if (trimmed.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase)
-            || trimmed.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
-            || trimmed.StartsWith("vbscript:", StringComparison.OrdinalIgnoreCase)
-            || trimmed.StartsWith("//", StringComparison.Ordinal)) return false;
-
-        if (!Uri.TryCreate(new Uri(sourcePath), trimmed, out var resolved) || !resolved.IsFile)
-            return false;
-        try
-        {
-            EnsureContainedPath(cacheRoot, resolved.LocalPath);
-            return true;
-        }
-        catch (InvalidDataException)
-        {
-            return false;
-        }
-    }
+    private static bool IsSafeLocalReference(string value, string sourcePath, string cacheRoot) =>
+        EpubReaderImageReferenceNormalizer.IsSafeLocalReference(value, sourcePath, cacheRoot);
 
     private static async Task WriteXmlAsync(
         XDocument document,

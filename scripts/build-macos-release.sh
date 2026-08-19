@@ -11,6 +11,8 @@ case "$rid" in
 esac
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_root/scripts/dotnet-sdk.sh"
+require_repo_dotnet_sdk "$repo_root"
 output_root="$(mkdir -p "$output_root" && cd "$output_root" && pwd)"
 work_root="$(mktemp -d)"
 trap 'rm -rf "$work_root"' EXIT
@@ -26,7 +28,8 @@ if [[ ! "$short_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 2
 fi
 
-dotnet publish "$repo_root/src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj" \
+cd "$repo_root"
+dotnet publish "src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj" \
   -c Release -r "$rid" --self-contained true \
   -p:Version="$version" -p:PublishSingleFile=false \
   -o "$publish_root"

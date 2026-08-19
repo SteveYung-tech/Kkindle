@@ -40,7 +40,7 @@ public static class ReaderAnnotationExport
             builder.AppendLine();
             if (!string.IsNullOrWhiteSpace(annotation.Note))
                 builder.Append("批注：").AppendLine(Trim(annotation.Note));
-            builder.Append("创建时间：").AppendLine(annotation.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
+            builder.Append("创建时间：").AppendLine(annotation.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss zzz"));
             builder.Append("定位：").AppendLine(BuildLocationLabel(annotation));
             builder.AppendLine("---");
             builder.AppendLine();
@@ -78,7 +78,7 @@ public static class ReaderAnnotationExport
             builder.AppendLine(Trim(annotation.SelectedText));
             if (!string.IsNullOrWhiteSpace(annotation.Note))
                 builder.Append("批注：").AppendLine(Trim(annotation.Note));
-            builder.Append("创建时间：").AppendLine(annotation.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
+            builder.Append("创建时间：").AppendLine(annotation.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss zzz"));
             builder.Append("定位：").AppendLine(BuildLocationLabel(annotation));
             builder.AppendLine();
         }

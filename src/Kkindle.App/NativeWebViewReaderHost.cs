@@ -12,13 +12,14 @@ namespace Kkindle;
 /// control uses the native browser for each platform (WebView2 on Windows),
 /// while the rest of the reader only sees the portable IReaderHost contract.
 /// </summary>
-public sealed class NativeWebViewReaderHost : IReaderHost, IReaderPageSnapshotProvider
+public sealed class NativeWebViewReaderHost : IReaderHost, IReaderHtmlHost, IReaderPageSnapshotProvider
 {
     private readonly NativeWebView _view = new();
     private readonly Action<IntPtr>? _configureWindowsWebView2;
     private readonly TaskCompletionSource<object?> _ready = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _disposed;
+    private Uri? _logicalSource;
 
     public NativeWebViewReaderHost(Action<IntPtr>? configureWindowsWebView2 = null)
     {
@@ -33,7 +34,7 @@ public sealed class NativeWebViewReaderHost : IReaderHost, IReaderPageSnapshotPr
 
     public object View => _view;
 
-    public Uri? Source => _view.Source;
+    public Uri? Source => _logicalSource ?? _view.Source;
 
     public Task ReadyTask => _ready.Task;
 
@@ -44,7 +45,15 @@ public sealed class NativeWebViewReaderHost : IReaderHost, IReaderPageSnapshotPr
     public void Navigate(Uri uri)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        _logicalSource = null;
         _view.Navigate(uri);
+    }
+
+    public void NavigateToString(string html, Uri baseUri)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _logicalSource = baseUri;
+        _view.NavigateToString(html, baseUri);
     }
 
     public async Task<string?> InvokeScriptAsync(string script)
@@ -62,9 +71,12 @@ public sealed class NativeWebViewReaderHost : IReaderHost, IReaderPageSnapshotPr
 
     public Task<byte[]?> CaptureVisiblePageAsync(CancellationToken cancellationToken)
     {
-        if (_disposed || !OperatingSystem.IsWindows())
+        if (_disposed)
             return Task.FromResult<byte[]?>(null);
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (!OperatingSystem.IsWindows())
+            return Task.FromResult<byte[]?>(null);
 
         try
         {
@@ -263,10 +275,9 @@ public sealed class NativeWebViewReaderHost : IReaderHost, IReaderPageSnapshotPr
 
         if (e is LinuxWpeWebViewEnvironmentRequestedEventArgs linux)
         {
-            // Ubuntu 24.04 ships WebKitGTK 4.1 but not the WPE WebKit 2.0 ABI
-            // used by Avalonia's preferred Linux adapter. Keep WPE where it is
-            // available (for example on Debian 13), otherwise select the GTK
-            // adapter that is installed by the Kkindle .deb package.
+            // Avalonia's Linux NativeWebView path is WPE WebKit. Keep that
+            // default whenever the runtime library is installed; opt into the
+            // GTK adapter only as a compatibility fallback for older systems.
             linux.PreferWebKitGtkInstead = !CanLoadLinuxWpeWebKit();
         }
     }
@@ -284,6 +295,12 @@ public sealed class NativeWebViewReaderHost : IReaderHost, IReaderPageSnapshotPr
         WebViewNavigationStartingEventArgs e)
     {
         var translated = new ReaderNavigationStartingEventArgs(e.Request);
+        if (_logicalSource is not null
+            && (translated.Request is null
+                || string.Equals(translated.Request.Scheme, "about", StringComparison.OrdinalIgnoreCase)))
+        {
+            translated = new ReaderNavigationStartingEventArgs(_logicalSource);
+        }
         NavigationStarting?.Invoke(this, translated);
         e.Cancel = translated.Cancel;
     }
@@ -291,9 +308,19 @@ public sealed class NativeWebViewReaderHost : IReaderHost, IReaderPageSnapshotPr
     private void View_NavigationCompleted(
         object? sender,
         WebViewNavigationCompletedEventArgs e)
-        => NavigationCompleted?.Invoke(
+    {
+        var request = e.Request;
+        if (_logicalSource is not null
+            && (request is null
+                || string.Equals(request.Scheme, "about", StringComparison.OrdinalIgnoreCase)))
+        {
+            request = _logicalSource;
+        }
+
+        NavigationCompleted?.Invoke(
             this,
-            new ReaderNavigationCompletedEventArgs(e.Request, e.IsSuccess));
+            new ReaderNavigationCompletedEventArgs(request, e.IsSuccess));
+    }
 
     private void View_WebMessageReceived(
         object? sender,

@@ -17,6 +17,45 @@ if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path $repositoryRoot "artifacts\release\$Version"
 }
 
+function Assert-RepositoryDotnetSdk {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RepositoryRoot
+    )
+
+    $globalJsonPath = Join-Path $RepositoryRoot 'global.json'
+    if (-not (Test-Path -LiteralPath $globalJsonPath -PathType Leaf)) {
+        throw "global.json was not found: $globalJsonPath"
+    }
+
+    $requiredSdk = ((Get-Content -LiteralPath $globalJsonPath -Raw) | ConvertFrom-Json).sdk.version
+    if ([string]::IsNullOrWhiteSpace($requiredSdk)) {
+        throw "Could not read .NET SDK version from $globalJsonPath"
+    }
+
+    $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
+    if ($null -eq $dotnetCommand) {
+        throw "dotnet was not found. Install .NET SDK $requiredSdk as specified by global.json."
+    }
+
+    Push-Location $RepositoryRoot
+    try {
+        $actualSdk = (& dotnet --version 2>$null)
+        if ($LASTEXITCODE -ne 0) {
+            throw "dotnet could not select SDK $requiredSdk. Install that exact SDK version."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+
+    if ($actualSdk -ne $requiredSdk) {
+        throw "Kkindle uses one .NET SDK version: $requiredSdk from global.json; found $actualSdk."
+    }
+}
+
+Assert-RepositoryDotnetSdk -RepositoryRoot $repositoryRoot
+
 $OutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
 if (Test-Path -LiteralPath $OutputRoot) {
     throw "Output directory already exists: $OutputRoot"
@@ -39,9 +78,15 @@ $publishArguments = @(
     '-o', $publishDirectory
 )
 
-& dotnet @publishArguments
-if ($LASTEXITCODE -ne 0) {
-    throw "dotnet publish failed with exit code $LASTEXITCODE"
+Push-Location $repositoryRoot
+try {
+    & dotnet @publishArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet publish failed with exit code $LASTEXITCODE"
+    }
+}
+finally {
+    Pop-Location
 }
 
 $applicationPath = Join-Path $publishDirectory 'Kkindle.exe'

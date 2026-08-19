@@ -270,6 +270,10 @@ public sealed class EpubReaderTests
                         <img src="https://example.com/remote.jpg" />
                         <img class="local" src="../images/ok.jpg" />
                         <a class="footnote" href="#note-1"><img src="https://example.com/note.png" alt="" width="24" height="24" /></a>
+                        <picture>
+                          <source type="image/webp" srcset="../images/ok.webp 1x, https://example.com/ok.webp 2x" />
+                          <img class="lazy" data-src="../images/lazy.jpg" data-srcset="../images/lazy.jpg 1x, https://example.com/lazy@2x.jpg 2x" alt="lazy image" />
+                        </picture>
                         <p id="note-1">Footnote text</p>
                         <a href="javascript:alert(1)">unsafe link</a>
                         <a href="chapter.xhtml#part">safe link</a>
@@ -281,6 +285,8 @@ public sealed class EpubReaderTests
                     .remote { background: url("data:image/png;base64,AAAA"); }
                     """);
                 TestHelpers.AddZipEntry(archive, "OEBPS/images/ok.jpg", "image");
+                TestHelpers.AddZipEntry(archive, "OEBPS/images/ok.webp", "image");
+                TestHelpers.AddZipEntry(archive, "OEBPS/images/lazy.jpg", "image");
             }
 
             var paths = new AppPaths(Path.Combine(root, "app"));
@@ -296,13 +302,19 @@ public sealed class EpubReaderTests
             Assert.Contains("Content-Security-Policy", html, StringComparison.Ordinal);
             Assert.Contains("script-src 'nonce-", html, StringComparison.Ordinal);
             Assert.Contains("src=\".kkindle-reader-bridge.js\"", html, StringComparison.Ordinal);
+            Assert.Contains("srcset=\"../images/ok.webp 1x\"", html, StringComparison.Ordinal);
+            Assert.Contains("src=\"../images/lazy.jpg\"", html, StringComparison.Ordinal);
             Assert.DoesNotContain("<![CDATA[", html, StringComparison.Ordinal);
             var bridge = await File.ReadAllTextAsync(Path.Combine(
                 Path.GetDirectoryName(document.Chapters[0])!,
                 ".kkindle-reader-bridge.js"));
             Assert.Contains("invokeCSharpAction", bridge, StringComparison.Ordinal);
             Assert.Contains("chrome.webview", bridge, StringComparison.Ordinal);
+            Assert.Contains("postAvWebViewMessage", bridge, StringComparison.Ordinal);
             Assert.Contains("type: \"scroll\"", bridge, StringComparison.Ordinal);
+            Assert.Contains("turnPaginatedPage", bridge, StringComparison.Ordinal);
+            Assert.Contains("paginatedWheelRemainder", bridge, StringComparison.Ordinal);
+            Assert.Contains("visibility: visible !important; opacity: 1 !important;", bridge, StringComparison.Ordinal);
             Assert.Contains("contextmenu", bridge, StringComparison.Ordinal);
             Assert.Contains("reportSelection(event)", bridge, StringComparison.Ordinal);
             Assert.Contains("contextMenu: !!contextEvent", bridge, StringComparison.Ordinal);
@@ -326,6 +338,37 @@ public sealed class EpubReaderTests
             var css = await File.ReadAllTextAsync(cssPath);
             Assert.Contains("../images/ok.jpg", css, StringComparison.Ordinal);
             Assert.DoesNotContain("data:image", css, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public void ExtractsLocalImagePathsFromLazyAndSrcSetReferences()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var chapter = Path.Combine(root, "chapter.xhtml");
+            var imageRoot = Path.Combine(root, "images");
+            Directory.CreateDirectory(imageRoot);
+            File.WriteAllText(Path.Combine(imageRoot, "cover.webp"), "image");
+            File.WriteAllText(Path.Combine(imageRoot, "cover.jpg"), "image");
+            File.WriteAllText(chapter, """
+                <html xmlns="http://www.w3.org/1999/xhtml">
+                  <body>
+                    <picture>
+                      <source srcset="images/cover.webp 1x, https://example.com/cover.webp 2x" />
+                      <img data-src="images/cover.jpg" alt="cover" />
+                    </picture>
+                  </body>
+                </html>
+                """);
+
+            var imagePaths = EpubReaderImageReferenceNormalizer.ExtractLocalImagePaths(chapter);
+
+            Assert.Contains(Path.Combine(root, "images", "cover.webp"), imagePaths, StringComparer.OrdinalIgnoreCase);
+            Assert.Contains(Path.Combine(root, "images", "cover.jpg"), imagePaths, StringComparer.OrdinalIgnoreCase);
+            Assert.DoesNotContain(imagePaths, path => path.Contains("example.com", StringComparison.OrdinalIgnoreCase));
         }
         finally { TestHelpers.TryDelete(root); }
     }
@@ -519,8 +562,11 @@ public sealed class EpubReaderTests
             Assert.Contains("display: inline-flex; align-items: center; justify-content: center", bridge, StringComparison.Ordinal);
             Assert.Contains("selectionBar.style.display = 'flex'", bridge, StringComparison.Ordinal);
             Assert.Contains("dismissedSelectionText", bridge, StringComparison.Ordinal);
+            Assert.Contains("pagePointerDown", bridge, StringComparison.Ordinal);
             Assert.Contains("document.addEventListener(\"pointerup\"", bridge, StringComparison.Ordinal);
-            Assert.Contains("direction: x < width / 3 ? -1 : 1", bridge, StringComparison.Ordinal);
+            Assert.Contains("requestAnimationFrame?.(() =>", bridge, StringComparison.Ordinal);
+            Assert.Contains("const direction = x < width / 3 ? -1 : 1", bridge, StringComparison.Ordinal);
+            Assert.Contains("if (!turnPaginatedPage(direction))", bridge, StringComparison.Ordinal);
             Assert.False(markerText.EndsWith("\n0", StringComparison.Ordinal));
         }
         finally { TestHelpers.TryDelete(root); }

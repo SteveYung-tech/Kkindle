@@ -26,15 +26,23 @@ public partial class MainWindow
     private readonly SemaphoreSlim _readerPreloadHostNavigationGate = new(1, 1);
 
     private IReaderHost? CurrentReaderHost =>
-        _readerShowingPreload ? _readerPreloadHost : _readerActiveHost;
+        _readerShowingPreload && _readerPreloadHost is not null
+            ? _readerPreloadHost
+            : _readerActiveHost;
 
     private IReaderHost? HiddenReaderHost =>
-        _readerShowingPreload ? _readerActiveHost : _readerPreloadHost;
+        OperatingSystem.IsLinux()
+            ? null
+            : _readerShowingPreload ? _readerActiveHost : _readerPreloadHost;
+
+    private static bool IsReaderHostReady(IReaderHost? host)
+        => host?.ReadyTask.IsCompletedSuccessfully == true;
 
     private async Task OpenEpubReaderAsync(
         BookCardViewModel card,
         BookFile file,
-        string epubPath)
+        string epubPath,
+        bool restoreProgress = true)
     {
         _readerSessionCancellation?.Cancel();
         _readerSessionCancellation?.Dispose();
@@ -61,9 +69,11 @@ public partial class MainWindow
             _readerShowingPreload = false;
             await InitializeReaderInteractionAsync(document, file, sessionToken);
 
-            var savedProgress = await _readerData.GetProgressAsync(file.Id, sessionToken);
+            var savedProgress = restoreProgress
+                ? await _readerData.GetProgressAsync(file.Id, sessionToken)
+                : null;
             _readerRestoredProgress = ValidateReaderProgress(document, savedProgress);
-            if (_readerRestoredProgress is { } progress)
+            if (restoreProgress && _readerRestoredProgress is { } progress)
             {
                 _readerChapterIndex = progress.ChapterIndex;
                 _readerScrollPosition = progress.ScrollPosition;
@@ -79,12 +89,12 @@ public partial class MainWindow
             ApplyReaderPanelLayout();
 
             await EnsureReaderHostsAsync();
-            // Keep the first document behind the opaque reader surface until
-            // its Kreader CSS and bundled font have been applied. Native
+            // On Windows, keep the first document behind the opaque reader
+            // surface until its Kreader CSS and bundled font have been applied:
             // WebView2 paints the navigated XHTML before the first script
-            // injection, so showing this slot here would expose the EPUB's
-            // original typography for a frame.
-            SetReaderHostLayer(revealActiveHost: false);
+            // injection. Linux native webviews can skip completion events for
+            // hidden controls, so keep the visible host on-screen there.
+            SetReaderHostLayer(revealActiveHost: !OperatingSystem.IsWindows());
 
             var target = new Uri(document.Chapters[_readerChapterIndex]);
             if (!string.IsNullOrWhiteSpace(_readerCurrentFragment))
@@ -168,24 +178,97 @@ public partial class MainWindow
         if (_readerActiveHost is null)
         {
             _readerActiveHost = _readerHostFactory();
-            _readerPreloadHost = _readerHostFactory();
-            if (ReferenceEquals(_readerActiveHost, _readerPreloadHost))
-                throw new InvalidOperationException("阅读器宿主工厂必须返回两个不同实例。");
-
             _readerActiveHost.NavigationStarting += ReaderHost_NavigationStarting;
             _readerActiveHost.NavigationCompleted += ReaderHost_NavigationCompleted;
             _readerActiveHost.WebMessageReceived += ReaderHost_WebMessageReceived;
-            _readerPreloadHost.NavigationStarting += ReaderHost_NavigationStarting;
-            _readerPreloadHost.NavigationCompleted += ReaderHost_NavigationCompleted;
-            _readerPreloadHost.WebMessageReceived += ReaderHost_WebMessageReceived;
-
             ReaderActiveHostSlot.Content = _readerActiveHost.View;
-            ReaderPreloadHostSlot.Content = _readerPreloadHost.View;
+
+            if (!OperatingSystem.IsLinux())
+            {
+                _readerPreloadHost = _readerHostFactory();
+                if (ReferenceEquals(_readerActiveHost, _readerPreloadHost))
+                    throw new InvalidOperationException("阅读器宿主工厂必须返回两个不同实例。");
+
+                _readerPreloadHost.NavigationStarting += ReaderHost_NavigationStarting;
+                _readerPreloadHost.NavigationCompleted += ReaderHost_NavigationCompleted;
+                _readerPreloadHost.WebMessageReceived += ReaderHost_WebMessageReceived;
+                ReaderPreloadHostSlot.Content = _readerPreloadHost.View;
+            }
+            else
+            {
+                _readerPreloadHost = null;
+                ReaderPreloadHostSlot.Content = null;
+            }
         }
 
-        await Task.WhenAll(
-            _readerActiveHost.ReadyTask,
-            _readerPreloadHost!.ReadyTask);
+        if (OperatingSystem.IsLinux())
+            _readerShowingPreload = false;
+
+        ReaderActiveHostSlot.IsVisible = true;
+        ReaderActiveHostSlot.Opacity = 1;
+        ReaderActiveHostSlot.IsHitTestVisible = true;
+        ReaderActiveHostSlot.ZIndex = 1;
+        ReaderPreloadHostSlot.IsVisible = _readerPreloadHost is not null;
+        ReaderPreloadHostSlot.Opacity = 0;
+        ReaderPreloadHostSlot.IsHitTestVisible = false;
+        ReaderPreloadHostSlot.ZIndex = 0;
+
+        if (!await WaitForReaderHostReadyAsync(
+                _readerActiveHost,
+                TimeSpan.FromSeconds(10),
+                _readerSessionCancellation?.Token ?? _lifetimeCancellation.Token))
+        {
+            throw new InvalidOperationException(
+                "阅读器 WebView 初始化超时。请确认 Linux 已安装 WPE WebKit 运行库后重试。");
+        }
+
+        if (_readerPreloadHost is not null)
+        {
+            _ = WarmUpReaderPreloadHostAsync(
+                _readerPreloadHost,
+                _readerSessionCancellation?.Token ?? _lifetimeCancellation.Token);
+        }
+    }
+
+    private static async Task<bool> WaitForReaderHostReadyAsync(
+        IReaderHost host,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        if (host.ReadyTask.IsCompletedSuccessfully) return true;
+
+        try
+        {
+            await host.ReadyTask.WaitAsync(timeout, cancellationToken);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task WarmUpReaderPreloadHostAsync(
+        IReaderHost host,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await WaitForReaderHostReadyAsync(
+                host,
+                TimeSpan.FromSeconds(3),
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch
+        {
+        }
     }
 
     private async Task<bool> NavigateReaderHostAndWaitAsync(
@@ -199,6 +282,20 @@ public partial class MainWindow
         await gate.WaitAsync(cancellationToken);
         try
         {
+            if (OperatingSystem.IsLinux() && !_readerIsPdf)
+            {
+                ReaderLinuxTextFallbackOverlay.IsVisible = false;
+                SetReaderHostLayer(revealActiveHost: true);
+            }
+
+            if (!await WaitForReaderHostReadyAsync(
+                    host,
+                    TimeSpan.FromSeconds(10),
+                    cancellationToken))
+            {
+                return false;
+            }
+
             // A TOC click can request a fragment in the chapter currently
             // prepared by the hidden host. Same-document WebView navigation
             // is not guaranteed to raise NavigationCompleted, so reuse the
@@ -222,7 +319,8 @@ public partial class MainWindow
             host.NavigationCompleted += handler;
             try
             {
-                host.Navigate(target);
+                if (!await NavigateReaderHostCoreAsync(host, target, cancellationToken))
+                    return false;
                 var loaded = await completion.Task.WaitAsync(TimeSpan.FromSeconds(12), cancellationToken);
                 if (loaded)
                     await ConfigureReaderHostAsync(host, cancellationToken);
@@ -239,10 +337,38 @@ public partial class MainWindow
         }
     }
 
+    private async Task<bool> NavigateReaderHostCoreAsync(
+        IReaderHost host,
+        Uri target,
+        CancellationToken cancellationToken)
+    {
+        if (OperatingSystem.IsLinux()
+            && Environment.GetEnvironmentVariable("KKINDLE_LINUX_HTML_STRING") == "1"
+            && !_readerIsPdf
+            && target.IsFile
+            && host is IReaderHtmlHost htmlHost)
+        {
+            var path = target.LocalPath;
+            if (!File.Exists(path)) return false;
+            var html = await File.ReadAllTextAsync(path, cancellationToken);
+            var baseUri = new UriBuilder(target)
+            {
+                Fragment = string.Empty
+            }.Uri;
+            htmlHost.NavigateToString(html, baseUri);
+            return true;
+        }
+
+        host.Navigate(target);
+        return true;
+    }
+
     private async Task PreloadNextReaderChapterAsync(CancellationToken cancellationToken)
     {
-        if (_readerDocument is null
+        if (OperatingSystem.IsLinux()
+            || _readerDocument is null
             || HiddenReaderHost is not { } host
+            || !IsReaderHostReady(host)
             || _readerChapterIndex >= _readerDocument.Chapters.Count - 1) return;
 
         var target = new Uri(_readerDocument.Chapters[_readerChapterIndex + 1]);
@@ -287,6 +413,9 @@ public partial class MainWindow
             return;
         }
 
+        _readerLinuxTextFallbackTargetTitle = null;
+        if (OperatingSystem.IsLinux() && !_readerIsPdf)
+            _readerScrollPosition = offset < 0 ? -1 : 0;
         _readerCurrentFragment = null;
         var targetIndex = _readerChapterIndex + offset;
         if (targetIndex < 0 || targetIndex >= _readerDocument.Chapters.Count)
@@ -302,7 +431,10 @@ public partial class MainWindow
         _readerNavigationCancellation = navigationCancellation;
         var token = navigationCancellation.Token;
         var target = new Uri(_readerDocument.Chapters[targetIndex]);
-        var host = HiddenReaderHost ?? CurrentReaderHost;
+        var hiddenHost = HiddenReaderHost;
+        var host = OperatingSystem.IsLinux()
+            ? CurrentReaderHost
+            : IsReaderHostReady(hiddenHost) ? hiddenHost! : CurrentReaderHost;
         try
         {
             ReaderStatusText.Text = string.Empty;
@@ -329,6 +461,7 @@ public partial class MainWindow
                     _readerShowingPreload = ReferenceEquals(host, _readerPreloadHost);
                     SetReaderHostLayer();
                     await UpdateReaderScrollStateAsync(host);
+                    await UpdateLinuxReaderTextFallbackAsync(token);
                     return true;
                 },
                 token);
@@ -453,6 +586,15 @@ public partial class MainWindow
 
     private void SetReaderHostLayer(bool revealActiveHost = true)
     {
+        // On Linux the plain-text reading surface replaces the native webview
+        // instead of layering above it: an embedded native webview paints over
+        // Avalonia visuals whatever their ZIndex. Revealing the host while that
+        // overlay is the live surface covers the chapter with a blank page, so
+        // the guard lives here rather than at each call site — the first open
+        // used to reveal the host after the overlay had already been built.
+        if (revealActiveHost && IsLinuxReaderTextFallbackActive())
+            revealActiveHost = false;
+
         var activeSlot = _readerShowingPreload ? ReaderPreloadHostSlot : ReaderActiveHostSlot;
         var hiddenSlot = _readerShowingPreload ? ReaderActiveHostSlot : ReaderPreloadHostSlot;
         // Native webviews are HWND-backed. Opacity and ZIndex alone only affect
@@ -569,6 +711,8 @@ public partial class MainWindow
         WindowBrandText.IsVisible = false;
         ReaderLayoutSettingsPopup.IsOpen = false;
         ReaderInPageSearchBar.IsVisible = false;
+        ReaderLinuxTextFallbackOverlay.IsVisible = false;
+        ReaderLinuxTextFallbackText.Text = string.Empty;
         StopReaderFootnoteHoverPoll();
         _readerFootnoteHoverSequence++;
         _readerFootnotePinned = false;
@@ -651,6 +795,8 @@ public partial class MainWindow
         if (_readerDocument is null
             || _readerChapterIndex < 0
             || _readerChapterIndex >= _readerDocument.Chapters.Count) return;
+
+        TryApplyLinuxReaderTextFallbackState();
 
         var chapterPath = Path.GetRelativePath(
                 _readerDocument.RootPath,

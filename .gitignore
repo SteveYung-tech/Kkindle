@@ -4,6 +4,10 @@ obj/
 data/
 TestResults/
 artifacts/
+.dotnet/
+.dotnet-home/
+.nuget/
+.tools/
 *.user
 *.suo
 

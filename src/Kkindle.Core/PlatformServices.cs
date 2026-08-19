@@ -70,6 +70,11 @@ public interface IReaderHost : IDisposable
     void Stop();
 }
 
+public interface IReaderHtmlHost
+{
+    void NavigateToString(string html, Uri baseUri);
+}
+
 /// <summary>
 /// Optional capability for reader hosts that can capture the currently
 /// visible browser viewport. Page-transition effects use this when available

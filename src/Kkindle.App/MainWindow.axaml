@@ -3733,6 +3733,69 @@
                                         VerticalContentAlignment="Stretch" />
                     </Grid>
 
+                    <Border x:Name="ReaderLinuxTextFallbackOverlay"
+                            Margin="0,12,2,10"
+                            Background="{StaticResource PaperBrush}"
+                            IsVisible="False"
+                            Focusable="True"
+                            Tapped="ReaderLinuxTextFallback_Tapped"
+                            PointerWheelChanged="ReaderLinuxTextFallback_PointerWheelChanged"
+                            ZIndex="25">
+                        <Grid x:Name="ReaderLinuxTextFallbackContent">
+                            <ScrollViewer x:Name="ReaderLinuxTextFallbackScroll"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          VerticalScrollBarVisibility="Auto"
+                                          Padding="24,18"
+                                          ScrollChanged="ReaderLinuxTextFallbackScroll_ScrollChanged">
+                                <StackPanel Spacing="18">
+                                    <SelectableTextBlock x:Name="ReaderLinuxTextFallbackText"
+                                                        Foreground="{StaticResource InkBrush}"
+                                                        SelectionBrush="{StaticResource InkBrush}"
+                                                        SelectionForegroundBrush="{StaticResource PaperBrush}"
+                                                        TextWrapping="Wrap"
+                                                        HorizontalAlignment="Center"
+                                                        PointerReleased="ReaderLinuxTextFallback_ContentPointerReleased" />
+                                    <ItemsControl ItemsSource="{Binding ReaderLinuxTextFallbackImages}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Margin="0,6,0,0">
+                                                    <Image Source="{Binding}"
+                                                           Stretch="Uniform"
+                                                           HorizontalAlignment="Center"
+                                                           MaxWidth="960" />
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+                            <Border x:Name="ReaderLinuxTextFallbackPagedRoot"
+                                    IsVisible="False"
+                                    Padding="24,18">
+                                <Grid x:Name="ReaderLinuxTextFallbackPagedContent"
+                                      ColumnDefinitions="*,28,*">
+                                    <SelectableTextBlock x:Name="ReaderLinuxTextFallbackPageLeft"
+                                                        Grid.Column="0"
+                                                        Foreground="{StaticResource InkBrush}"
+                                                        SelectionBrush="{StaticResource InkBrush}"
+                                                        SelectionForegroundBrush="{StaticResource PaperBrush}"
+                                                        TextWrapping="Wrap"
+                                                        HorizontalAlignment="Stretch"
+                                                        PointerReleased="ReaderLinuxTextFallback_ContentPointerReleased" />
+                                    <SelectableTextBlock x:Name="ReaderLinuxTextFallbackPageRight"
+                                                        Grid.Column="2"
+                                                        Foreground="{StaticResource InkBrush}"
+                                                        SelectionBrush="{StaticResource InkBrush}"
+                                                        SelectionForegroundBrush="{StaticResource PaperBrush}"
+                                                        TextWrapping="Wrap"
+                                                        HorizontalAlignment="Stretch"
+                                                        IsVisible="False"
+                                                        PointerReleased="ReaderLinuxTextFallback_ContentPointerReleased" />
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </Border>
+
                     <!-- Native webviews paint over child Avalonia content. Keep
                          these decorations as later siblings so they render on
                          top of the active reading surface, matching WinUI. -->

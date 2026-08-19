@@ -222,7 +222,7 @@ public static class BookLibraryComparer
 
     private static string NormalizeAuthors(string? authors) => string.Join("|",
         (authors ?? string.Empty)
-            .Split([',', '，', ';', '；', '&'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Split(new[] { ',', '，', ';', '；', '&' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(NormalizeMetadata)
             .Where(author => author.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -274,7 +274,7 @@ public static class KindleResourcePolicy
     {
         pathWithinRoot = string.Empty;
         if (string.IsNullOrWhiteSpace(relativePath)) return false;
-        var segments = relativePath.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+        var segments = relativePath.Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
         if (segments.Any(segment => segment is "." or "..")) return false;
         if (segments.Any(segment => segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)) return false;
         var rootSegments = RootRelativePath(kind).Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
