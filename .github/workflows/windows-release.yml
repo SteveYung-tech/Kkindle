@@ -75,14 +75,6 @@ jobs:
             -Version '${{ steps.version.outputs.version }}' `
             -OutputRoot $env:RELEASE_DIR
 
-      - name: Create checksums
-        shell: pwsh
-        run: |
-          Get-ChildItem -File $env:RELEASE_DIR |
-            Get-FileHash -Algorithm SHA256 |
-            ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
-            Set-Content -Encoding ascii "$env:RELEASE_DIR\SHA256SUMS.txt"
-
       - name: Create release tag
         if: steps.version.outputs.tag_exists == 'false'
         shell: pwsh
