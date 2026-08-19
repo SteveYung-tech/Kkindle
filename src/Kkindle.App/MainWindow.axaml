@@ -1394,6 +1394,7 @@
                         <Button x:Name="ReadingMaterialsBackButton" Content="返回书架" Padding="11,6" Click="ShowAllBooksButton_Click" />
                     </StackPanel>
                     <StackPanel x:Name="ReadingMaterialsExportActions" Grid.Column="1" Margin="0,46,0,0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top" IsVisible="False">
+                        <Button x:Name="SelectAllReadingMaterialsButton" Content="全选" Classes="quiet" Padding="11,6" Click="SelectAllReadingMaterialsButton_Click" />
                         <Button Content="刷新资料" Classes="quiet" Padding="11,6" Click="RefreshReadingMaterialsButton_Click" />
                         <Button Content="返回书架" Padding="11,6" Click="ShowAllBooksButton_Click" />
                     </StackPanel>
@@ -1495,6 +1496,9 @@
                                                                           VerticalAlignment="Top"
                                                                           Click="ReadingMaterialSelectionChanged" />
                                                                 <StackPanel Grid.Column="1" Spacing="5">
+                                                                    <TextBlock Text="{Binding SourceLabel}"
+                                                                               FontSize="10"
+                                                                               Foreground="{StaticResource MutedInkBrush}" />
                                                                     <TextBlock Text="{Binding ChapterDisplayLabel}"
                                                                                FontSize="11"
                                                                                FontWeight="SemiBold"
@@ -1593,8 +1597,8 @@
                                 </StackPanel>
                             </Border>
                         </Grid>
-                        <Grid ColumnDefinitions="*,*" RowDefinitions="270,270" ColumnSpacing="16" RowSpacing="16">
-                            <Border Classes="flatPanel" Padding="14">
+                        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="16" RowSpacing="16">
+                            <Border Classes="flatPanel" BorderThickness="1,0,0,0" Padding="14">
                                 <StackPanel Spacing="8">
                                     <TextBlock Text="近 14 天阅读时长" FontSize="16" FontWeight="SemiBold" />
                                     <TextBlock Text="每天有效阅读分钟数" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
@@ -1616,7 +1620,7 @@
                                     </ItemsControl>
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Column="1" Classes="flatPanel" Padding="14">
+                            <Border Grid.Column="1" Classes="flatPanel" BorderThickness="1,0,0,0" Padding="14">
                                 <StackPanel Spacing="8">
                                     <TextBlock Text="单本阅读时长" FontSize="16" FontWeight="SemiBold" />
                                     <TextBlock Text="累计阅读时长最高的书籍" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
@@ -1633,7 +1637,7 @@
                                     </ItemsControl>
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Row="1" Classes="flatPanel" Padding="14">
+                            <Border Grid.Row="1" Classes="flatPanel" BorderThickness="1,0,0,0" Padding="14">
                                 <StackPanel Spacing="8">
                                     <TextBlock Text="阅读进度分布" FontSize="16" FontWeight="SemiBold" />
                                     <TextBlock Text="按当前阅读百分比分组" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
@@ -1650,7 +1654,7 @@
                                     </ItemsControl>
                                 </StackPanel>
                             </Border>
-                            <Border Grid.Row="1" Grid.Column="1" Classes="flatPanel" Padding="14">
+                            <Border Grid.Row="1" Grid.Column="1" Classes="flatPanel" BorderThickness="1,0,0,0" Padding="14">
                                 <StackPanel Spacing="8">
                                     <TextBlock Text="阅读状态分布" FontSize="16" FontWeight="SemiBold" />
                                     <TextBlock Text="阅读中与已完成书籍数量" FontSize="10" Foreground="{StaticResource MutedInkBrush}" />
@@ -1668,6 +1672,34 @@
                                 </StackPanel>
                             </Border>
                         </Grid>
+                        <Border Classes="flatPanel" BorderThickness="1,0,0,0" Padding="14">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="最近阅读" FontSize="16" FontWeight="SemiBold" />
+                                <ScrollViewer MaxHeight="220"
+                                              VerticalScrollBarVisibility="Auto"
+                                              AutomationProperties.Name="最近阅读记录">
+                                    <ItemsControl ItemsSource="{Binding DashboardRecentItems}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="local:Stage3DashboardRecentViewModel">
+                                                <Border Padding="0,8"
+                                                        BorderBrush="{StaticResource HairlineBrush}"
+                                                        BorderThickness="0,0,0,1">
+                                                    <TextBlock Text="{Binding Display}"
+                                                               FontSize="11"
+                                                               TextWrapping="Wrap" />
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                                <TextBlock x:Name="DashboardRecentEmptyText"
+                                           Text="还没有阅读记录。打开一本 EPUB 后，这里会显示最近进度。"
+                                           FontSize="11"
+                                           Foreground="{StaticResource MutedInkBrush}"
+                                           TextWrapping="Wrap"
+                                           IsVisible="False" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
@@ -2191,7 +2223,7 @@
                                     Padding="14">
                                         <StackPanel Spacing="10">
                                             <TextBlock Text="Kreader 本地词典" FontSize="16" FontWeight="SemiBold" />
-                                            <TextBlock Text="支持 UTF-8 文本词典，每行使用“词条 + Tab + 释义”或“词条=释义”。阅读时选中文字可直接查词。"
+                                            <TextBlock Text="支持 MDX、Kindle 词典（AZW/AZW3/MOBI/KFX）及 UTF-8 文本词典。Kindle 词典导入需要 Calibre，受 DRM 保护的词典无法导入。"
                                                        FontSize="11"
                                                        Foreground="{StaticResource MutedInkBrush}"
                                                        TextWrapping="Wrap" />
@@ -3253,23 +3285,33 @@
                                 Width="38"
                                 MinWidth="38"
                                 Height="34"
-                                Content="≡"
-                                FontSize="13"
+                                VerticalAlignment="Center"
                                 AutomationProperties.Name="切换极简目录"
                                 ToolTip.Tip="切换极简目录"
-                                Click="ReaderTocMinimalToggleButton_Click" />
+                                Click="ReaderTocMinimalToggleButton_Click">
+                            <Path Width="13"
+                                  Height="13"
+                                  Data="M 1.5,1.5 H 11.5 V 11.5 H 1.5 Z M 3.2,4 H 9.8 M 3.2,6.5 H 9.8 M 3.2,9 H 9.8"
+                                  Stroke="#242424"
+                                  StrokeThickness="0.85"
+                                  StrokeLineCap="Square"
+                                  StrokeJoin="Miter"
+                                  IsHitTestVisible="False" />
+                        </Button>
                         <Button Grid.Column="2"
                                 Classes="icon"
                                 Width="38"
                                 MinWidth="38"
                                 Height="34"
+                                VerticalAlignment="Center"
                                 AutomationProperties.Name="收起目录"
                                 ToolTip.Tip="收起目录"
                                 Click="ReaderTocButton_Click">
                             <Path Width="12"
                                   Height="12"
                                   Data="M 3,1.5 L 9,6 L 3,10.5"
-                                  StrokeThickness="1.35"
+                                  Stroke="#242424"
+                                  StrokeThickness="0.85"
                                   StrokeLineCap="Square"
                                   StrokeJoin="Miter"
                                   IsHitTestVisible="False" />
@@ -3486,11 +3528,19 @@
                                 MinWidth="28"
                                 Height="34"
                                 Padding="0"
-                                Content="≡"
-                                FontSize="13"
+                                VerticalAlignment="Center"
                                 AutomationProperties.Name="展开完整目录"
                                 ToolTip.Tip="展开完整目录"
-                                Click="ReaderTocCompactExpandButton_Click" />
+                                Click="ReaderTocCompactExpandButton_Click">
+                            <Path Width="13"
+                                  Height="13"
+                                  Data="M 1.5,1.5 H 11.5 V 11.5 H 1.5 Z M 3.2,4 H 9.8 M 3.2,6.5 H 9.8 M 3.2,9 H 9.8"
+                                  Stroke="#242424"
+                                  StrokeThickness="0.85"
+                                  StrokeLineCap="Square"
+                                  StrokeJoin="Miter"
+                                  IsHitTestVisible="False" />
+                        </Button>
                         <TextBlock x:Name="ReaderTocCompactUpIndicator"
                                    Grid.Row="1"
                                    Text="△"
@@ -4464,6 +4514,14 @@
                                    FontWeight="SemiBold"
                                    TextAlignment="Center"
                                    TextWrapping="Wrap" />
+                        <TextBlock x:Name="ReaderChapterPreviewBodyText"
+                                   MaxWidth="316"
+                                   Margin="0,6,0,0"
+                                   Foreground="#666666"
+                                   FontSize="11"
+                                   LineHeight="17"
+                                   TextWrapping="Wrap"
+                                   IsVisible="False" />
                     </StackPanel>
                 </Border>
             </Popup>

@@ -75,6 +75,36 @@ public sealed class MassStorageKindleDeviceServiceTests
         }
     }
 
+    [Fact]
+    public async Task ReadAndBatchDeleteClippings_RoundTripsMountedKindle()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var kindle = Path.Combine(root, "Kindle");
+            var documents = Path.Combine(kindle, "documents");
+            Directory.CreateDirectory(documents);
+            const string block = "Book (Author)\n- Your Highlight at Location 1 | Added on August 9, 2026\n\nSame quote";
+            await File.WriteAllTextAsync(
+                Path.Combine(documents, "My Clippings.txt"),
+                $"{block}\n==========\n{block}\n==========\n");
+            var service = new MassStorageKindleDeviceService(
+                new AppPaths(Path.Combine(root, "appdata")),
+                new FakeMetadataService(),
+                [root]);
+            var device = new KindleDevice { RootPath = kindle, Transport = KindleTransport.MassStorage };
+            var clippings = await service.ReadClippingsAsync(device);
+
+            await service.DeleteClippingsAsync(device, clippings.Select(item => item.Id).ToArray());
+
+            Assert.Empty(await service.ReadClippingsAsync(device));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private sealed class FakeMetadataService : IMetadataService
     {
         public Task<BookMetadata> ReadMetadataAsync(string path, CancellationToken cancellationToken = default) =>

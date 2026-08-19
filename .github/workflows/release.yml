@@ -256,16 +256,34 @@ jobs:
         run: |
           cd artifacts
           sha256sum * > SHA256SUMS.txt
+      - name: Generate changelog from commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f "tag_name=${RELEASE_TAG}" \
+            --jq '.body' > "$RUNNER_TEMP/kkindle-release-notes.md"
+          test -s "$RUNNER_TEMP/kkindle-release-notes.md"
       - name: Create or update GitHub Release
         shell: bash
         run: |
+          set -euo pipefail
           version="${RELEASE_TAG#v}"
           prerelease=()
           [[ "$version" == *-* ]] && prerelease=(--prerelease)
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" artifacts/* --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Kkindle $RELEASE_TAG" \
+              --notes-file "$RUNNER_TEMP/kkindle-release-notes.md"
           else
             gh release create "$RELEASE_TAG" artifacts/* \
               --repo "$GITHUB_REPOSITORY" --verify-tag \
-              --title "Kkindle $RELEASE_TAG" --generate-notes "${prerelease[@]}"
+              --title "Kkindle $RELEASE_TAG" \
+              --notes-file "$RUNNER_TEMP/kkindle-release-notes.md" \
+              "${prerelease[@]}"
           fi

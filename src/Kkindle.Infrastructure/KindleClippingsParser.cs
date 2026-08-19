@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -7,6 +8,8 @@ namespace Kkindle.Infrastructure;
 
 public static partial class KindleClippingsParser
 {
+    public sealed record DisplayPair(KindleClipping Clipping, KindleClipping? PairedNote);
+
     public static IReadOnlyList<KindleClipping> Parse(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return [];
@@ -18,7 +21,7 @@ public static partial class KindleClippingsParser
             var raw = value.Trim('\n', '\r', ' ', '\t');
             if (raw.Length == 0) continue;
             var lines = raw.Split('\n');
-            var heading = lines[0].Trim();
+            var heading = lines[0].Trim().TrimStart('\uFEFF');
             if (heading.Length == 0) continue;
             var metadataIndex = Array.FindIndex(lines, 1, line => line.TrimStart().StartsWith('-'));
             var metadata = metadataIndex >= 0 ? lines[metadataIndex].Trim() : string.Empty;
@@ -36,8 +39,43 @@ public static partial class KindleClippingsParser
                 Type = ParseType(metadata),
                 Metadata = metadata,
                 Content = content,
-                RawBlock = raw
+                RawBlock = raw,
+                AddedAt = ParseAddedAt(metadata)
             });
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Kindle writes a highlight and its note as separate blocks. Pair notes
+    /// with the closest highlight for the same book and location so clients
+    /// can render one complete annotation while retaining both source IDs.
+    /// </summary>
+    public static IReadOnlyList<DisplayPair> PairForDisplay(IEnumerable<KindleClipping> clippings)
+    {
+        var items = clippings.Where(item => item.Type != KindleClippingType.Bookmark).ToArray();
+        var pairedNotes = new HashSet<string>(StringComparer.Ordinal);
+        var highlightNotes = new Dictionary<string, KindleClipping>(StringComparer.Ordinal);
+        foreach (var clipping in items.Where(item => item.Type == KindleClippingType.Highlight))
+        {
+            var note = items
+                .Where(candidate => candidate.Type == KindleClippingType.Note
+                    && !pairedNotes.Contains(candidate.Id)
+                    && IsSameBook(clipping, candidate)
+                    && LocationsAreRelated(clipping.Metadata, candidate.Metadata))
+                .OrderBy(candidate => Math.Abs(Array.IndexOf(items, candidate) - Array.IndexOf(items, clipping)))
+                .FirstOrDefault();
+            if (note is not null)
+            {
+                pairedNotes.Add(note.Id);
+                highlightNotes[clipping.Id] = note;
+            }
+        }
+        var result = new List<DisplayPair>(items.Length);
+        foreach (var clipping in items)
+        {
+            if (clipping.Type == KindleClippingType.Note && pairedNotes.Contains(clipping.Id)) continue;
+            result.Add(new DisplayPair(clipping, highlightNotes.GetValueOrDefault(clipping.Id)));
         }
         return result;
     }
@@ -64,15 +102,85 @@ public static partial class KindleClippingsParser
 
     private static KindleClippingType ParseType(string metadata)
     {
-        if (ContainsAny(metadata, "highlight", "划线", "标注")) return KindleClippingType.Highlight;
-        if (ContainsAny(metadata, "note", "笔记")) return KindleClippingType.Note;
-        if (ContainsAny(metadata, "bookmark", "书签")) return KindleClippingType.Bookmark;
+        if (ContainsAny(metadata, "highlight", "划线", "劃線", "标注", "標註", "ハイライト", "하이라이트"))
+            return KindleClippingType.Highlight;
+        if (ContainsAny(metadata, "note", "笔记", "筆記", "メモ", "노트"))
+            return KindleClippingType.Note;
+        if (ContainsAny(metadata, "bookmark", "书签", "書籤", "ブックマーク", "책갈피"))
+            return KindleClippingType.Bookmark;
         return KindleClippingType.Unknown;
+    }
+
+    private static DateTimeOffset? ParseAddedAt(string metadata)
+    {
+        string[] markers = ["Added on", "添加于", "添加於", "新增於", "作成日", "작성일"];
+        var cultures = new[]
+        {
+            CultureInfo.CurrentCulture,
+            CultureInfo.GetCultureInfo("en-US"),
+            CultureInfo.GetCultureInfo("zh-CN"),
+            CultureInfo.GetCultureInfo("zh-TW"),
+            CultureInfo.GetCultureInfo("ja-JP"),
+            CultureInfo.GetCultureInfo("ko-KR")
+        };
+
+        foreach (var section in metadata.Split('|', StringSplitOptions.TrimEntries).Reverse())
+        {
+            var marker = markers.FirstOrDefault(value => section.Contains(value, StringComparison.OrdinalIgnoreCase));
+            if (marker is null) continue;
+            var markerIndex = section.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            var dateText = section[(markerIndex + marker.Length)..].Trim(' ', '-', ':', '：');
+            dateText = CjkWeekdayPattern().Replace(dateText, string.Empty).Trim();
+            foreach (var culture in cultures.Distinct())
+            {
+                if (DateTimeOffset.TryParse(
+                        dateText,
+                        culture,
+                        DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal,
+                        out var value))
+                    return value;
+            }
+        }
+        return null;
     }
 
     private static bool ContainsAny(string value, params string[] terms) =>
         terms.Any(term => value.Contains(term, StringComparison.OrdinalIgnoreCase));
 
+    private static bool IsSameBook(KindleClipping left, KindleClipping right) =>
+        string.Equals(left.BookTitle, right.BookTitle, StringComparison.CurrentCultureIgnoreCase)
+        && string.Equals(left.Author, right.Author, StringComparison.CurrentCultureIgnoreCase);
+
+    private static bool LocationsAreRelated(string leftMetadata, string rightMetadata)
+    {
+        var left = ExtractLocationRange(leftMetadata);
+        var right = ExtractLocationRange(rightMetadata);
+        if (left is null || right is null) return false;
+        return left.Value.Start <= right.Value.End + 1 && right.Value.Start <= left.Value.End + 1;
+    }
+
+    private static (int Start, int End)? ExtractLocationRange(string metadata)
+    {
+        var location = metadata.Split('|', 2)[0];
+        var numbers = LocationNumberPattern().Matches(location)
+            .Select(match => int.TryParse(match.Value, out var value) ? value : -1)
+            .Where(value => value >= 0)
+            .Take(2)
+            .ToArray();
+        return numbers.Length switch
+        {
+            0 => null,
+            1 => (numbers[0], numbers[0]),
+            _ => (Math.Min(numbers[0], numbers[1]), Math.Max(numbers[0], numbers[1]))
+        };
+    }
+
     [GeneratedRegex(@"(?m)^\s*={10}\s*$")]
     private static partial Regex DelimiterPattern();
+
+    [GeneratedRegex(@"(?:星期|週|周)[一二三四五六日天]|[月火水木金土日]曜日|[월화수목금토일]요일")]
+    private static partial Regex CjkWeekdayPattern();
+
+    [GeneratedRegex(@"\d+")]
+    private static partial Regex LocationNumberPattern();
 }

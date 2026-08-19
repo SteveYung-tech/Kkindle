@@ -84,7 +84,7 @@ public sealed partial class EpubBookContentService
         return chunks;
     }
 
-    internal static async Task<string> ExtractPlainTextAsync(
+    public static async Task<string> ExtractPlainTextAsync(
         string chapterPath,
         CancellationToken cancellationToken = default)
     {

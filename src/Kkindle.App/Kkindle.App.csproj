@@ -38,12 +38,4 @@
     </Content>
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- Keep the reader's CSS/JS math byte-for-byte aligned with the WinUI
-         reference during the migration. These files contain no WinUI types. -->
-    <Compile Include="..\Kkindle.App.WinUI\ReaderNavigationScripts.cs" Link="ReaderNavigationScripts.cs" />
-    <Compile Include="..\Kkindle.App.WinUI\ReaderPaginationScripts.cs" Link="ReaderPaginationScripts.cs" />
-    <Compile Include="..\Kkindle.App.WinUI\ReaderAppearanceScripts.cs" Link="ReaderAppearanceScripts.cs" />
-    <Compile Include="..\Kkindle.App.WinUI\ReaderWaveScripts.cs" Link="ReaderWaveScripts.cs" />
-  </ItemGroup>
 </Project>

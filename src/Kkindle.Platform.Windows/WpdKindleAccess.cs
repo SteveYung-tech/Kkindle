@@ -471,6 +471,63 @@ internal static class WpdKindleAccess
         }
     }
 
+    public static string CopyStorageFileToLocal(
+        KindleDevice device,
+        string relativePath,
+        string destinationDirectory,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)
+            || relativePath.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries).Any(segment => segment == ".."))
+            throw new InvalidOperationException("Kindle 文件路径无效。");
+
+        Directory.CreateDirectory(destinationDirectory);
+        dynamic? shell = null;
+        dynamic? kindle = null;
+        dynamic? storage = null;
+        dynamic? item = null;
+        dynamic? destination = null;
+        try
+        {
+            shell = CreateShell();
+            kindle = FindDevice(shell, device.RootPath)
+                ?? throw new IOException("Kindle 已断开连接。");
+            storage = FindFirstStorage(kindle)
+                ?? throw new IOException("无法读取 Kindle 内部存储。");
+            item = FindItemByRelativePath(storage, relativePath)
+                ?? throw new FileNotFoundException("Kindle 文件不存在。", relativePath);
+            if ((bool)item.IsFolder) throw new InvalidOperationException("Kindle 目标不能是文件夹。");
+            destination = shell.NameSpace(destinationDirectory)
+                ?? throw new IOException("无法创建封面缓存目录。");
+
+            var fileName = Path.GetFileName(relativePath);
+            var destinationPath = Path.Combine(destinationDirectory, fileName);
+            destination.CopyHere(item, CopyWithoutUi);
+            var startedAt = DateTime.UtcNow;
+            while (DateTime.UtcNow - startedAt < TimeSpan.FromSeconds(30))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (File.Exists(destinationPath) && new FileInfo(destinationPath).Length > 0)
+                    return destinationPath;
+                Thread.Sleep(250);
+            }
+            throw new TimeoutException("读取 Kindle 书籍封面超时。");
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法从 MTP Kindle 读取书籍封面。", exception);
+        }
+        finally
+        {
+            Release(destination);
+            Release(item);
+            Release(storage);
+            Release(kindle);
+            Release(shell);
+            FlushReleasedComObjects();
+        }
+    }
+
     public static void RemoveBook(
         KindleDevice device,
         KindleBook book,

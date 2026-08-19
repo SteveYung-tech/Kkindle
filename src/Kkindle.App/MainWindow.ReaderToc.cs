@@ -53,6 +53,8 @@ public partial class MainWindow
     private double _readerCompactPointerY;
     private Control? _readerChapterPreviewTarget;
     private bool _readerChapterPreviewAbove;
+    private readonly Dictionary<string, string> _readerChapterPreviewTextCache = new(StringComparer.OrdinalIgnoreCase);
+    private int _readerChapterPreviewRequestVersion;
 
     private void ReaderTocMinimalToggleButton_Click(object? sender, RoutedEventArgs e)
     {
@@ -287,7 +289,7 @@ public partial class MainWindow
         try
         {
             var index = GetReaderNavigationItemIndex(item);
-            ShowReaderChapterPreview(target, index, placeAbove: false);
+            ShowReaderChapterPreview(target, index, placeAbove: false, includeBodyPreview: true);
         }
         catch (InvalidOperationException)
         {
@@ -297,8 +299,14 @@ public partial class MainWindow
 
     private void HideReaderCompactHoverLabel()
     {
+        _readerChapterPreviewRequestVersion++;
         if (ReaderChapterPreviewPopup is not null)
             ReaderChapterPreviewPopup.IsOpen = false;
+        if (ReaderChapterPreviewBodyText is not null)
+        {
+            ReaderChapterPreviewBodyText.Text = string.Empty;
+            ReaderChapterPreviewBodyText.IsVisible = false;
+        }
         _readerChapterPreviewTarget = null;
     }
 
@@ -316,11 +324,18 @@ public partial class MainWindow
         return Math.Clamp(item.ChapterIndex, 0, Math.Max(0, _readerTocItems.Count - 1));
     }
 
-    private void ShowReaderChapterPreview(Control target, int index, bool placeAbove)
+    private void ShowReaderChapterPreview(
+        Control target,
+        int index,
+        bool placeAbove,
+        bool includeBodyPreview = false)
     {
         if (ReaderChapterPreviewPopup is null || target.Bounds.Width <= 0 || target.Bounds.Height <= 0)
             return;
 
+        var requestVersion = ++_readerChapterPreviewRequestVersion;
+        ReaderChapterPreviewBodyText.Text = string.Empty;
+        ReaderChapterPreviewBodyText.IsVisible = false;
         if (_readerIsPdf)
         {
             var total = Math.Max(1, _readerPdfPages.Count);
@@ -332,6 +347,11 @@ public partial class MainWindow
             if (_readerTocItems.Count == 0) return;
             index = Math.Clamp(index, 0, _readerTocItems.Count - 1);
             ReaderChapterPreviewTitleText.Text = _readerTocItems[index].Title;
+            if (includeBodyPreview)
+            {
+                ReaderChapterPreviewBodyText.Text = "正在读取正文…";
+                ReaderChapterPreviewBodyText.IsVisible = true;
+            }
         }
 
         var targetChanged = !ReferenceEquals(target, _readerChapterPreviewTarget)
@@ -348,6 +368,74 @@ public partial class MainWindow
         ReaderChapterPreviewPopup.HorizontalOffset = placeAbove ? 0 : 6;
         ReaderChapterPreviewPopup.VerticalOffset = placeAbove ? -8 : 0;
         ReaderChapterPreviewPopup.IsOpen = true;
+
+        if (includeBodyPreview && !_readerIsPdf)
+        {
+            _ = LoadReaderChapterPreviewBodyAsync(
+                target,
+                index,
+                ReaderChapterPreviewTitleText.Text,
+                requestVersion);
+        }
+    }
+
+    private async Task LoadReaderChapterPreviewBodyAsync(
+        Control target,
+        int index,
+        string title,
+        int requestVersion)
+    {
+        if (_readerDocument is null
+            || index < 0
+            || index >= _readerDocument.Chapters.Count)
+        {
+            return;
+        }
+
+        var chapterPath = Path.GetFullPath(_readerDocument.Chapters[index]);
+        try
+        {
+            if (!_readerChapterPreviewTextCache.TryGetValue(chapterPath, out var preview))
+            {
+                var plainText = await EpubBookContentService.ExtractPlainTextAsync(chapterPath);
+                preview = BuildReaderChapterPreviewText(plainText, title);
+                _readerChapterPreviewTextCache[chapterPath] = preview;
+            }
+
+            if (requestVersion != _readerChapterPreviewRequestVersion
+                || !ReferenceEquals(target, _readerChapterPreviewTarget)
+                || ReaderChapterPreviewPopup is null
+                || !ReaderChapterPreviewPopup.IsOpen)
+            {
+                return;
+            }
+
+            ReaderChapterPreviewBodyText.Text = preview;
+            ReaderChapterPreviewBodyText.IsVisible = !string.IsNullOrWhiteSpace(preview);
+        }
+        catch (Exception)
+        {
+            // A hover preview is optional; keep the title visible when the
+            // chapter cannot be decoded or is removed during cleanup.
+        }
+    }
+
+    private static string BuildReaderChapterPreviewText(string plainText, string title)
+    {
+        var normalizedTitle = NormalizeReaderPlainTextLine(title);
+        return string.Join(
+            Environment.NewLine,
+            plainText
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace('\r', '\n')
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0)
+                .Where(line => !string.Equals(
+                    NormalizeReaderPlainTextLine(line),
+                    normalizedTitle,
+                    StringComparison.OrdinalIgnoreCase))
+                .Take(4));
     }
 
     private static void SetReaderCompactMarkerWidth(Border marker, double width)
@@ -391,6 +479,7 @@ public partial class MainWindow
     private void SetReaderCompactNavigationItems(IReadOnlyList<EpubReaderNavigationItem> items)
     {
         StopReaderCompactScrollAnimation();
+        _readerChapterPreviewTextCache.Clear();
         _readerCompactNavigationItems = items;
         RefreshReaderCompactMarkers();
         QueueReaderCompactScrollIndicatorUpdate();

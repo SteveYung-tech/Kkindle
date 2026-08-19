@@ -37,7 +37,7 @@ dotnet publish "src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj" \
 mkdir -p "$app_root/Contents/MacOS" "$app_root/Contents/Resources"
 cp -a "$publish_root/." "$app_root/Contents/MacOS/"
 cp "$repo_root/LICENSE" "$app_root/Contents/Resources/LICENSE"
-cp "$repo_root/src/Kkindle.App.WinUI/Assets/Kkindle.ico" "$app_root/Contents/Resources/Kkindle.ico"
+cp "$repo_root/src/Kkindle.App/Assets/Icons/Kkindle.ico" "$app_root/Contents/Resources/Kkindle.ico"
 chmod 0755 "$app_root/Contents/MacOS/Kkindle"
 
 cat > "$app_root/Contents/Info.plist" <<EOF

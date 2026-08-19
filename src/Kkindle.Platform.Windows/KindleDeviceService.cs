@@ -92,7 +92,12 @@ public sealed class KindleDeviceService : IKindleDeviceService
             var key = NormalizeDevicePath(book.RelativePath);
             if (cachedEntries.TryGetValue(key, out var cached)
                 && cached.Matches(book.Size, book.ModifiedAt)
-                && (cached.CoverPath is null || File.Exists(cached.CoverPath)))
+                // A cache entry without a cover is incomplete. Re-enrich it so
+                // Kindle's system thumbnail can be copied when the book itself
+                // does not contain an embedded cover.
+                && (device.Transport != KindleTransport.Wpd
+                    ? cached.CoverPath is null || File.Exists(cached.CoverPath)
+                    : cached.CoverPath is not null && File.Exists(cached.CoverPath)))
             {
                 ApplyCachedBook(book, cached);
                 currentEntries.Add(cached);
@@ -309,6 +314,21 @@ public sealed class KindleDeviceService : IKindleDeviceService
                 return false;
             }
             await EnrichBookAsync(device, book, localPath, cancellationToken);
+            if (string.IsNullOrWhiteSpace(book.CoverPath))
+            {
+                var thumbnailName = await KindleThumbnailService.ReadThumbnailFileNameAsync(localPath, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(thumbnailName))
+                {
+                    var thumbnailPath = WpdKindleAccess.CopyStorageFileToLocal(
+                        device,
+                        $@"system\thumbnails\{thumbnailName}",
+                        stagingDirectory,
+                        cancellationToken);
+                    var coverPath = Path.Combine(_coverCacheDirectory, GetCoverCacheKey(device, book) + ".jpg");
+                    File.Copy(thumbnailPath, coverPath, overwrite: true);
+                    book.CoverPath = coverPath;
+                }
+            }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or TimeoutException)
         {
@@ -651,19 +671,28 @@ public sealed class KindleDeviceService : IKindleDeviceService
         return KindleClippingsParser.Parse(text);
     }
 
-    public async Task DeleteClippingAsync(
+    public Task DeleteClippingAsync(
         KindleDevice device,
         string clippingId,
         CancellationToken cancellationToken = default)
+        => DeleteClippingsAsync(device, [clippingId], cancellationToken);
+
+    public async Task DeleteClippingsAsync(
+        KindleDevice device,
+        IReadOnlyCollection<string> clippingIds,
+        CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(clippingId)) throw new ArgumentException("Kindle 笔记标识无效。", nameof(clippingId));
+        ArgumentNullException.ThrowIfNull(clippingIds);
+        if (clippingIds.Count == 0) return;
+        if (clippingIds.Any(string.IsNullOrWhiteSpace)) throw new ArgumentException("Kindle 笔记标识无效。", nameof(clippingIds));
+        var ids = clippingIds.ToHashSet(StringComparer.Ordinal);
         cancellationToken.ThrowIfCancellationRequested();
         if (device.Transport == KindleTransport.Wpd)
         {
             var current = await Task.Run(() => WpdKindleAccess.ReadClippingsText(device, cancellationToken), cancellationToken);
             var clippings = KindleClippingsParser.Parse(current);
-            if (!clippings.Any(item => item.Id == clippingId)) throw new FileNotFoundException("Kindle 划线笔记不存在。");
-            var updated = KindleClippingsParser.BuildDocument(clippings.Where(item => item.Id != clippingId));
+            EnsureClippingsExist(clippings, ids);
+            var updated = KindleClippingsParser.BuildDocument(clippings.Where(item => !ids.Contains(item.Id)));
             await Task.Run(() => WpdKindleAccess.ReplaceClippingsText(device, updated, cancellationToken), cancellationToken);
             return;
         }
@@ -674,8 +703,8 @@ public sealed class KindleDeviceService : IKindleDeviceService
         using (var reader = new StreamReader(path, Encoding.UTF8, true))
             currentText = await reader.ReadToEndAsync(cancellationToken);
         var currentClippings = KindleClippingsParser.Parse(currentText);
-        if (!currentClippings.Any(item => item.Id == clippingId)) throw new FileNotFoundException("Kindle 划线笔记不存在。");
-        var updatedText = KindleClippingsParser.BuildDocument(currentClippings.Where(item => item.Id != clippingId));
+        EnsureClippingsExist(currentClippings, ids);
+        var updatedText = KindleClippingsParser.BuildDocument(currentClippings.Where(item => !ids.Contains(item.Id)));
         var temporary = path + ".kkindle-part";
         var backup = path + ".kkindle-backup";
         try
@@ -695,6 +724,12 @@ public sealed class KindleDeviceService : IKindleDeviceService
             if (File.Exists(temporary)) File.Delete(temporary);
             if (File.Exists(backup)) File.Delete(backup);
         }
+    }
+
+    private static void EnsureClippingsExist(IReadOnlyList<KindleClipping> clippings, HashSet<string> ids)
+    {
+        if (!ids.IsSubsetOf(clippings.Select(item => item.Id)))
+            throw new FileNotFoundException("一个或多个 Kindle 划线笔记不存在。");
     }
 
     public Task EjectAsync(KindleDevice device, CancellationToken cancellationToken = default)

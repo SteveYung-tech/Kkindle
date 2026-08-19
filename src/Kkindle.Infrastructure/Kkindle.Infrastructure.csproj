@@ -2,11 +2,16 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>Kkindle.Infrastructure</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS0105;CS0108;CS0164;CS0169;CS0649;CS0600;CS0618;CS8618;CS8600;CS8603;CS8625;CS8765;SYSLIB0023</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Kkindle.Core\Kkindle.Core.csproj" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
     <PackageReference Include="PdfPig" Version="0.1.15" />
+    <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
+    <PackageReference Include="SharpZipLib" Version="1.4.2" />
+    <PackageReference Include="xxHash.Core" Version="2.0.0" />
   </ItemGroup>
   <ItemGroup>
     <!-- Kindle scan caching and book classification stay internal: they are

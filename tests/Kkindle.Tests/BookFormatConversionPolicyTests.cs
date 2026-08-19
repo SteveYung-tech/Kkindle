@@ -15,10 +15,12 @@ public sealed class BookFormatConversionPolicyTests
     }
 
     [Fact]
-    public void RecognizesKfxAsCalibreInputOnly()
+    public void RecognizesKindleDictionaryFormatsAsCalibreInputOnly()
     {
         Assert.True(BookFormatConversionPolicy.IsCalibreInputFormat(".KFX"));
+        Assert.True(BookFormatConversionPolicy.IsCalibreInputFormat(".AZW"));
         Assert.False(BookFormatConversionPolicy.IsConvertibleFormat("kfx"));
+        Assert.False(BookFormatConversionPolicy.IsConvertibleFormat("azw"));
     }
 
     [Fact]

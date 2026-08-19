@@ -241,4 +241,18 @@ public sealed class BookFormatConversionServiceTests
             TestHelpers.TryDelete(root);
         }
     }
+
+    [Theory]
+    [InlineData(0, "KFX Input (2.30.0)", "", true)]
+    [InlineData(0, "", "KFX INPUT enabled", true)]
+    [InlineData(0, "EPUB Input", "", false)]
+    [InlineData(1, "KFX Input", "", false)]
+    public void KfxPluginListingRequiresSuccessfulCommandAndPluginName(
+        int exitCode,
+        string output,
+        string error,
+        bool expected)
+    {
+        Assert.Equal(expected, CalibreSetupService.IsKfxInputListed(exitCode, output, error));
+    }
 }

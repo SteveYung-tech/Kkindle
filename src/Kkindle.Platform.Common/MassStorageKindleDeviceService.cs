@@ -301,21 +301,31 @@ public sealed class MassStorageKindleDeviceService : IKindleDeviceService
         return KindleClippingsParser.Parse(await reader.ReadToEndAsync(cancellationToken));
     }
 
-    public async Task DeleteClippingAsync(
+    public Task DeleteClippingAsync(
         KindleDevice device,
         string clippingId,
         CancellationToken cancellationToken = default)
+        => DeleteClippingsAsync(device, [clippingId], cancellationToken);
+
+    public async Task DeleteClippingsAsync(
+        KindleDevice device,
+        IReadOnlyCollection<string> clippingIds,
+        CancellationToken cancellationToken = default)
     {
         EnsureMassStorage(device);
-        if (string.IsNullOrWhiteSpace(clippingId)) throw new ArgumentException("Kindle 笔记标识无效。", nameof(clippingId));
+        ArgumentNullException.ThrowIfNull(clippingIds);
+        if (clippingIds.Count == 0) return;
+        if (clippingIds.Any(string.IsNullOrWhiteSpace)) throw new ArgumentException("Kindle 笔记标识无效。", nameof(clippingIds));
+        var ids = clippingIds.ToHashSet(StringComparer.Ordinal);
         var path = GetClippingsPath(device);
         if (!File.Exists(path)) throw new FileNotFoundException("Kindle 上不存在 My Clippings.txt。", path);
         string currentText;
         using (var reader = new StreamReader(path, Encoding.UTF8, true))
             currentText = await reader.ReadToEndAsync(cancellationToken);
         var clippings = KindleClippingsParser.Parse(currentText);
-        if (!clippings.Any(item => item.Id == clippingId)) throw new FileNotFoundException("Kindle 划线笔记不存在。");
-        var updated = KindleClippingsParser.BuildDocument(clippings.Where(item => item.Id != clippingId));
+        if (!ids.IsSubsetOf(clippings.Select(item => item.Id)))
+            throw new FileNotFoundException("一个或多个 Kindle 划线笔记不存在。");
+        var updated = KindleClippingsParser.BuildDocument(clippings.Where(item => !ids.Contains(item.Id)));
         var temporary = path + ".kkindle-part";
         var backup = path + ".kkindle-backup";
         try
@@ -416,13 +426,34 @@ public sealed class MassStorageKindleDeviceService : IKindleDeviceService
             var metadata = await _metadata.ReadMetadataAsync(source, cancellationToken);
             if (!string.IsNullOrWhiteSpace(metadata.Title)) book.Title = metadata.Title.Trim();
             if (!string.IsNullOrWhiteSpace(metadata.Authors)) book.Authors = metadata.Authors.Trim();
-            if (metadata.CoverBytes is { Length: > 0 })
+            var coverBytes = metadata.CoverBytes;
+            var coverExtension = metadata.CoverExtension;
+            if (coverBytes is not { Length: > 0 })
             {
-                var extension = metadata.CoverExtension.Equals(".png", StringComparison.OrdinalIgnoreCase) ? ".png" : ".jpg";
+                // Some Kindle books keep the cover only in the device
+                // thumbnail cache (for example encrypted KFX files).
+                var thumbnailName = await KindleThumbnailService.ReadThumbnailFileNameAsync(source, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(thumbnailName))
+                {
+                    var thumbnailPath = ResolveWithinRoot(
+                        device.RootPath,
+                        Path.Combine("system", "thumbnails", thumbnailName),
+                        device.RootPath);
+                    if (File.Exists(thumbnailPath))
+                    {
+                        coverBytes = await File.ReadAllBytesAsync(thumbnailPath, cancellationToken);
+                        coverExtension = ".jpg";
+                    }
+                }
+            }
+
+            if (coverBytes is { Length: > 0 })
+            {
+                var extension = coverExtension.Equals(".png", StringComparison.OrdinalIgnoreCase) ? ".png" : ".jpg";
                 var identity = $"{device.Identity}\n{book.RelativePath}\n{book.Size}\n{book.ModifiedAt?.UtcTicks ?? 0}";
                 var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
                 var coverPath = Path.Combine(_coverCacheDirectory, key + extension);
-                await File.WriteAllBytesAsync(coverPath, metadata.CoverBytes, cancellationToken);
+                await File.WriteAllBytesAsync(coverPath, coverBytes, cancellationToken);
                 book.CoverPath = coverPath;
             }
         }

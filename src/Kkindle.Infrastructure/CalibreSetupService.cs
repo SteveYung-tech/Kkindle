@@ -77,6 +77,29 @@ public sealed class CalibreSetupService : IDisposable
         }
     }
 
+    public async Task<bool> IsKfxInputInstalledAsync(
+        string? calibrePath,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var ebookConvert = LocateCalibre(calibrePath);
+        if (string.IsNullOrWhiteSpace(ebookConvert)) return false;
+
+        var calibreDirectory = Path.GetDirectoryName(ebookConvert);
+        if (string.IsNullOrWhiteSpace(calibreDirectory)) return false;
+        var customizer = Path.Combine(
+            calibreDirectory,
+            CalibreExecutableLocator.ToolName("calibre-customize", CalibreExecutableLocator.CurrentOperatingSystem()));
+        if (!File.Exists(customizer)) return false;
+
+        var listed = await RunCommandAsync(
+            customizer,
+            ["--list-plugins"],
+            cancellationToken,
+            calibreConfigurationDirectory: Environment.GetEnvironmentVariable("KKINDLE_CALIBRE_CONFIG_DIRECTORY"));
+        return IsKfxInputListed(listed.ExitCode, listed.Output, listed.Error);
+    }
+
     public async Task<string> InstallKfxInputAsync(
         string? calibrePath,
         IProgress<CalibreSetupProgress>? progress = null,
@@ -115,8 +138,7 @@ public sealed class CalibreSetupService : IDisposable
                 ["--list-plugins"],
                 cancellationToken,
                 calibreConfigurationDirectory: Environment.GetEnvironmentVariable("KKINDLE_CALIBRE_CONFIG_DIRECTORY"));
-            if (listed.ExitCode != 0
-                || !(listed.Output + Environment.NewLine + listed.Error).Contains("KFX Input", StringComparison.OrdinalIgnoreCase))
+            if (!IsKfxInputListed(listed.ExitCode, listed.Output, listed.Error))
                 throw new InvalidOperationException("KFX Input 安装完成，但 Calibre 未能识别该插件。");
 
             progress?.Report(new CalibreSetupProgress("KFX Input 已安装。"));
@@ -327,6 +349,13 @@ public sealed class CalibreSetupService : IDisposable
         var content = reader.ReadToEnd();
         if (!content.Contains("KFX Input", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("下载的插件包未声明 KFX Input。");
+    }
+
+    internal static bool IsKfxInputListed(int exitCode, string? output, string? error)
+    {
+        if (exitCode != 0) return false;
+        return string.Concat(output, Environment.NewLine, error)
+            .Contains("KFX Input", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task ValidateMsiAsync(string path, CancellationToken cancellationToken)

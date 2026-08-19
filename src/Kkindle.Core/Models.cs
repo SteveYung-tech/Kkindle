@@ -303,6 +303,9 @@ public sealed class KindleClipping
     public string Metadata { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public string RawBlock { get; set; } = string.Empty;
+    public DateTimeOffset? AddedAt { get; set; }
+    /// <summary>Used by the reading-materials view when a Kindle note belongs to this highlight.</summary>
+    public KindleClipping? PairedNote { get; set; }
     public string TypeLabel => Type switch
     {
         KindleClippingType.Highlight => "划线",

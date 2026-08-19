@@ -48,6 +48,7 @@ public interface IKindleDeviceService
     Task RemoveResourceAsync(KindleDevice device, KindleDeviceResource resource, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<KindleClipping>> ReadClippingsAsync(KindleDevice device, CancellationToken cancellationToken = default);
     Task DeleteClippingAsync(KindleDevice device, string clippingId, CancellationToken cancellationToken = default);
+    Task DeleteClippingsAsync(KindleDevice device, IReadOnlyCollection<string> clippingIds, CancellationToken cancellationToken = default);
     Task EjectAsync(KindleDevice device, CancellationToken cancellationToken = default);
 }
 

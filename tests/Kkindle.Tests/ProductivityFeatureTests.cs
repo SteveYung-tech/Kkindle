@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.Json;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
@@ -79,6 +80,28 @@ public sealed class ProductivityFeatureTests
             await service.RemoveAsync(imported.Id);
             Assert.Empty(await service.ListAsync());
             Assert.Empty(await service.LookupAsync("book"));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task KindleDictionaryConvertsImportsAndLooksUpEntries()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "dictionary.azw");
+            await File.WriteAllTextAsync(source, "fake Kindle dictionary");
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new DictionaryService(paths, new FakeKindleDictionaryConverter());
+
+            var imported = await service.ImportAsync(source, "Kindle 测试词典");
+
+            Assert.Equal(2, imported.EntryCount);
+            var kindle = Assert.Single(await service.LookupAsync("kindle"));
+            Assert.Contains("电子阅读器", kindle.Definition.Replace(Environment.NewLine, string.Empty));
+            Assert.Equal("Kindle 测试词典", kindle.DictionaryName);
+            Assert.Equal("书", Assert.Single(await service.LookupAsync("book")).Definition);
         }
         finally { TestHelpers.TryDelete(root); }
     }
@@ -291,5 +314,29 @@ public sealed class ProductivityFeatureTests
             Assert.Equal(14, dashboard.DailyReading.Count);
         }
         finally { TestHelpers.TryDelete(root); }
+    }
+
+    private sealed class FakeKindleDictionaryConverter : IBookFormatConverter
+    {
+        public Task ConvertAsync(
+            string sourcePath,
+            string destinationPath,
+            IProgress<FormatConversionProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            using var archive = ZipFile.Open(destinationPath, ZipArchiveMode.Create);
+            TestHelpers.AddZipEntry(archive, "OEBPS/dictionary.xhtml", """
+                <html xmlns="http://www.w3.org/1999/xhtml" xmlns:idx="https://kindlegen.s3.amazonaws.com/AmazonKindlePublishingGuidelines.pdf">
+                  <body>
+                    <idx:entry name="default">
+                      <idx:orth value="Kindle">Kindle</idx:orth>
+                      <p><b>电子</b>阅读器</p>
+                    </idx:entry>
+                    <dl><dt>book</dt><dd>书</dd></dl>
+                  </body>
+                </html>
+                """);
+            return Task.CompletedTask;
+        }
     }
 }

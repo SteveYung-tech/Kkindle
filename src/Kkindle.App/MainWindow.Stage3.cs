@@ -40,6 +40,8 @@ public partial class MainWindow
     // closed; OpenKindlePageAsync then rescans instead of showing the stale
     // list (its Count == 0 fast path would skip the rescan).
     private bool _deviceBooksDirty;
+    private bool _deviceBooksLoaded;
+    private Task? _deviceWarmTask;
     private bool _isRefreshingDevices;
     private double _deviceUsedRatio;
     private Point? _deviceStatusToastPosition;
@@ -48,6 +50,8 @@ public partial class MainWindow
     private bool _stage3Ready;
     private bool _deviceResourceBusy;
     private KindleResourceKind _deviceResourceKind = KindleResourceKind.Font;
+    private readonly Dictionary<(string DeviceKey, KindleResourceKind Kind), IReadOnlyList<KindleDeviceResource>> _deviceResourceCache = [];
+    private readonly Dictionary<string, IReadOnlyList<KindleClipping>> _deviceClippingCache = new(StringComparer.OrdinalIgnoreCase);
     private bool _backupBusy;
     private CancellationTokenSource? _zLibrarySearchCancellation;
     private int _zLibraryPage = 1;
@@ -80,6 +84,7 @@ public partial class MainWindow
     private CancellationTokenSource? _appSettingsAutoSaveCancellation;
     private int _settingsSavedStatusSequence;
     private bool _calibreSetupBusy;
+    private CancellationTokenSource? _calibreDetectionCancellation;
 
     public ObservableCollection<KindleBookCardViewModel> DeviceBooks { get; } = [];
     public ObservableCollection<KindleBookCardViewModel> VisibleDeviceBooks { get; } = [];
@@ -90,6 +95,7 @@ public partial class MainWindow
     public ObservableCollection<Stage3DashboardBarViewModel> DashboardBookTimes { get; } = [];
     public ObservableCollection<Stage3DashboardBarViewModel> DashboardProgressBuckets { get; } = [];
     public ObservableCollection<Stage3DashboardBarViewModel> DashboardReadingStatuses { get; } = [];
+    public ObservableCollection<Stage3DashboardRecentViewModel> DashboardRecentItems { get; } = [];
     public ObservableCollection<ZLibraryBookCardViewModel> ZLibraryBooks { get; } = [];
     public ObservableCollection<ManagedFont> ManagedFonts { get; } = [];
     public ObservableCollection<DictionaryDefinition> ManagedDictionaries { get; } = [];
@@ -98,7 +104,7 @@ public partial class MainWindow
     private readonly Dictionary<string, string> _readingMaterialCoverPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<(ReadingMaterialSource Source, string BookTitle), bool> _readingMaterialGroupStates =
         new(new ReadingMaterialGroupKeyComparer());
-    private readonly List<Stage3DashboardRecentViewModel> _readingDashboardItems = [];
+    private ObservableCollection<Stage3DashboardRecentViewModel> _readingDashboardItems => DashboardRecentItems;
     private bool _readingMaterialsDirty;
 
     private KindleDevice? CurrentDevice => _devices.FirstOrDefault();
@@ -524,6 +530,12 @@ public partial class MainWindow
             }
 
             var changed = !string.Equals(device.Identity, _lastDeviceIdentity, StringComparison.OrdinalIgnoreCase);
+            if (changed)
+            {
+                _deviceBooksLoaded = false;
+                _deviceResourceCache.Clear();
+                _deviceClippingCache.Clear();
+            }
             _devices = [device];
             _lastDeviceIdentity = device.Identity;
             _deviceDisplayName = displayName;
@@ -540,7 +552,9 @@ public partial class MainWindow
             UpdateDeviceStorageBar();
             SetEjectButtonsEnabled(true);
             if (changed) ShowDeviceStatusToast($"{displayName} 已连接");
-            if (scanBooks && (changed || DeviceBooks.Count == 0))
+            if (changed)
+                _deviceWarmTask = TrackDeviceOperationAsync(() => WarmDeviceCachesAsync(device, !scanBooks, cancellationToken));
+            if (scanBooks && (changed || !_deviceBooksLoaded || _deviceBooksDirty))
                 await RefreshDeviceBooksAsync(cancellationToken);
         }
         catch (OperationCanceledException)
@@ -566,6 +580,10 @@ public partial class MainWindow
     {
         foreach (var book in DeviceBooks) book.Dispose();
         DeviceBooks.Clear();
+        _deviceBooksLoaded = false;
+        _deviceWarmTask = null;
+        _deviceResourceCache.Clear();
+        _deviceClippingCache.Clear();
         DeviceBookCountText.Text = "0";
         _devices = [];
         ApplyDeviceBookFilter();
@@ -634,6 +652,8 @@ public partial class MainWindow
 
             ApplyDeviceBookFilter();
             DevicePageStatusText.Text = $"已读取 {books.Count} 本书 · {device.ConnectionLabel}";
+            _deviceBooksLoaded = true;
+            _deviceBooksDirty = false;
         }
         catch (OperationCanceledException)
         {
@@ -643,6 +663,50 @@ public partial class MainWindow
             DeviceBookEmptyText.Text = $"扫描失败：{exception.Message}";
             DeviceBookEmptyState.IsVisible = true;
             DevicePageStatusText.Text = "Kindle 书库扫描失败。";
+        }
+    }
+
+    private async Task WarmDeviceCachesAsync(
+        KindleDevice device,
+        bool preloadBooks,
+        CancellationToken cancellationToken)
+    {
+        if (_kindle is null || !ReferenceEquals(CurrentDevice, device)) return;
+        try
+        {
+            var cacheKey = BuildDeviceCacheKey(device);
+            var persisted = await _kindleAuxiliaryCacheStore.GetAsync(device.Identity, cancellationToken);
+            if (persisted is not null)
+            {
+                _deviceResourceCache[(cacheKey, KindleResourceKind.Font)] = persisted.Fonts;
+                _deviceResourceCache[(cacheKey, KindleResourceKind.Dictionary)] = persisted.Dictionaries;
+                _deviceClippingCache[device.Identity] = persisted.Clippings;
+            }
+
+            // Refresh all four device data sets once per connection. Page switches
+            // then use these identity-bound snapshots instead of reopening Kindle.
+            if (preloadBooks && !_deviceBooksLoaded)
+                await RefreshDeviceBooksAsync(cancellationToken);
+            var fonts = await _kindle.ScanResourcesAsync(device, KindleResourceKind.Font, cancellationToken);
+            var dictionaries = await _kindle.ScanResourcesAsync(device, KindleResourceKind.Dictionary, cancellationToken);
+            var clippings = await _kindle.ReadClippingsAsync(device, cancellationToken);
+            _deviceResourceCache[(cacheKey, KindleResourceKind.Font)] = fonts;
+            _deviceResourceCache[(cacheKey, KindleResourceKind.Dictionary)] = dictionaries;
+            _deviceClippingCache[device.Identity] = clippings;
+            await _kindleAuxiliaryCacheStore.SaveAsync(device.Identity, new KindleDeviceAuxiliaryCacheSnapshot
+            {
+                Fonts = fonts.ToList(),
+                Dictionaries = dictionaries.ToList(),
+                Clippings = clippings.ToList(),
+                UpdatedAt = DateTimeOffset.UtcNow
+            }, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            DevicePageStatusText.Text = $"设备信息已读取部分内容：{exception.Message}";
         }
     }
 
@@ -714,7 +778,7 @@ public partial class MainWindow
     {
         ShowStage3Page(DevicePage);
         await RefreshDevicesAsync(scanBooks: true);
-        if (CurrentDevice is not null && (DeviceBooks.Count == 0 || _deviceBooksDirty))
+        if (CurrentDevice is not null && (!_deviceBooksLoaded || _deviceBooksDirty))
         {
             _deviceBooksDirty = false;
             await RefreshDeviceBooksAsync();
@@ -1956,6 +2020,8 @@ public partial class MainWindow
         _readingMaterialCoverPaths.Clear();
         try
         {
+            if (_deviceWarmTask is not null)
+                await _deviceWarmTask;
             var books = await _library.SearchAsync(cancellationToken: _lifetimeCancellation.Token);
             var titles = books.ToDictionary(book => book.Id, book => book.Title);
             foreach (var book in books)
@@ -2006,22 +2072,32 @@ public partial class MainWindow
                 IReadOnlyList<KindleClipping>? clippings = null;
                 await TrackDeviceOperationAsync(async () =>
                 {
-                    clippings = await _kindle.ReadClippingsAsync(device, _lifetimeCancellation.Token);
+                    if (_deviceClippingCache.TryGetValue(device.Identity, out var cached))
+                        clippings = cached;
+                    else
+                    {
+                        clippings = await _kindle.ReadClippingsAsync(device, _lifetimeCancellation.Token);
+                        _deviceClippingCache[device.Identity] = clippings;
+                        await PersistDeviceAuxiliaryCacheAsync(device);
+                    }
                 });
-                foreach (var clipping in (clippings ?? [])
-                    .Where(item => item.Type != KindleClippingType.Bookmark))
+                foreach (var pair in KindleClippingsParser.PairForDisplay(clippings ?? []))
                 {
+                    var clipping = pair.Clipping;
                     _allStage3ReadingMaterials.Add(new Stage3ReadingMaterialViewModel(
                         ReadingMaterialSource.Kindle,
                         clipping.BookTitle,
-                        clipping.TypeLabel,
+                        pair.PairedNote is null ? clipping.TypeLabel : "划线与笔记",
                         clipping.Metadata,
                         clipping.Metadata,
                         clipping.Type == KindleClippingType.Note ? string.Empty : clipping.Content,
-                        clipping.Type == KindleClippingType.Note ? clipping.Content : string.Empty,
-                        ParseClippingDate(clipping.Metadata),
+                        clipping.Type == KindleClippingType.Note
+                            ? clipping.Content
+                            : pair.PairedNote?.Content ?? string.Empty,
+                        MaxAddedAt(clipping.AddedAt, pair.PairedNote?.AddedAt),
                         null,
-                        clipping));
+                        clipping,
+                        pair.PairedNote));
                 }
             }
 
@@ -2061,16 +2137,21 @@ public partial class MainWindow
         foreach (var item in filtered) ReadingMaterials.Add(item);
         foreach (var group in ReadingMaterialGroups) group.Dispose();
         ReadingMaterialGroups.Clear();
-        foreach (var group in filtered
-            .GroupBy(item => (item.Source, item.BookTitle), new ReadingMaterialGroupKeyComparer())
+        var grouped = source == "all"
+            ? filtered.GroupBy(item => item.BookTitle, StringComparer.CurrentCultureIgnoreCase)
+                .Select(items => (Source: items.First().Source, Title: items.Key, Items: items.ToArray(), IsMixed: items.Select(item => item.Source).Distinct().Count() > 1))
+            : filtered.GroupBy(item => (item.Source, item.BookTitle), new ReadingMaterialGroupKeyComparer())
+                .Select(items => (Source: items.Key.Source, Title: items.Key.BookTitle, Items: items.ToArray(), IsMixed: false));
+        foreach (var group in grouped
             .Select(items => new Stage3ReadingMaterialGroupViewModel(
-                items.Key.Source,
-                items.Key.BookTitle,
-                items.ToArray(),
-                GetReadingMaterialCoverPath(items.Key.Source, items.Key.BookTitle),
-                isExpanded: _readingMaterialGroupStates.TryGetValue(items.Key, out var wasExpanded)
+                items.Source,
+                items.Title,
+                items.Items,
+                GetReadingMaterialCoverPathForGroup(items.Items),
+                isExpanded: _readingMaterialGroupStates.TryGetValue((items.Source, items.Title), out var wasExpanded)
                     ? wasExpanded
-                    : !_appSettings.ReadingMaterialsCollapsedByDefault))
+                    : !_appSettings.ReadingMaterialsCollapsedByDefault,
+                isMixedSource: items.IsMixed))
             .OrderByDescending(group => group.Items.Max(item => item.UpdatedAt ?? DateTimeOffset.MinValue)))
         {
             ReadingMaterialGroups.Add(group);
@@ -2092,6 +2173,14 @@ public partial class MainWindow
     private void ReadingMaterialsSearchBox_TextChanged(object? sender, TextChangedEventArgs e) => ApplyReadingMaterialsFilter();
     private void ReadingMaterialsSourceBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) => ApplyReadingMaterialsFilter();
 
+    private void SelectAllReadingMaterialsButton_Click(object? sender, RoutedEventArgs e)
+    {
+        var selectAll = ReadingMaterials.Count > 0 && ReadingMaterials.Any(item => !item.IsSelected);
+        foreach (var item in ReadingMaterials)
+            item.IsSelected = selectAll;
+        UpdateReadingMaterialsActionState();
+    }
+
     private void ReadingMaterialSelectionChanged(object? sender, RoutedEventArgs e)
     {
         UpdateReadingMaterialsActionState();
@@ -2103,6 +2192,18 @@ public partial class MainWindow
         DeleteReadingMaterialsButton.IsEnabled = !_readingMaterialsExportMode && selected.Length > 0;
         ReadingMaterialsLocateButton.IsEnabled = !_readingMaterialsExportMode
             && selected.Any(item => item.LocalAnnotation is not null);
+        if (SelectAllReadingMaterialsButton is not null)
+            SelectAllReadingMaterialsButton.Content = ReadingMaterials.Count > 0
+                && ReadingMaterials.All(item => item.IsSelected)
+                ? "取消全选"
+                : "全选";
+        if (_readingMaterialsExportMode && ReadingMaterialsExportSummaryText is not null)
+        {
+            var localCount = ReadingMaterials.Count(item => item.Source == ReadingMaterialSource.Local);
+            var kindleCount = ReadingMaterials.Count(item => item.Source == ReadingMaterialSource.Kindle);
+            ReadingMaterialsExportSummaryText.Text =
+                $"导出预览 · 本地 {localCount} 条 · Kindle {kindleCount} 条 · 当前将导出 {selected.Length} 条";
+        }
     }
 
     private void ReadingMaterialGroupToggleButton_Click(object? sender, RoutedEventArgs e)
@@ -2195,7 +2296,41 @@ public partial class MainWindow
     }
 
     private string? GetReadingMaterialCoverPath(ReadingMaterialSource source, string title) =>
-        _readingMaterialCoverPaths.GetValueOrDefault(BuildReadingMaterialCoverKey(source, title));
+        _readingMaterialCoverPaths.GetValueOrDefault(BuildReadingMaterialCoverKey(source, title))
+        ?? _readingMaterialCoverPaths
+            .Where(pair => pair.Key.StartsWith($"{source}\u001F", StringComparison.OrdinalIgnoreCase))
+            .Select(pair => (Title: pair.Key[(pair.Key.IndexOf('\u001F') + 1)..], Path: pair.Value))
+            .Where(pair => AreCoverTitlesRelated(pair.Title, title))
+            .OrderByDescending(pair => Math.Min(NormalizeCoverTitle(pair.Title).Length, NormalizeCoverTitle(title).Length))
+            .Select(pair => pair.Path)
+            .FirstOrDefault();
+
+    private static bool AreCoverTitlesRelated(string left, string right)
+    {
+        var normalizedLeft = NormalizeCoverTitle(left);
+        var normalizedRight = NormalizeCoverTitle(right);
+        return normalizedLeft.Length >= 4
+            && normalizedRight.Length >= 4
+            && (normalizedLeft.Contains(normalizedRight, StringComparison.OrdinalIgnoreCase)
+                || normalizedRight.Contains(normalizedLeft, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeCoverTitle(string value)
+    {
+        var withoutParenthetical = Regex.Replace(value, @"[（(][^）)]{0,100}[）)]", string.Empty);
+        return new string(withoutParenthetical
+            .Where(character => char.IsLetterOrDigit(character) || character >= '\u4E00' && character <= '\u9FFF')
+            .ToArray())
+            .ToLowerInvariant();
+    }
+
+    private string? GetReadingMaterialCoverPathForGroup(IReadOnlyList<Stage3ReadingMaterialViewModel> items)
+    {
+        var title = items.FirstOrDefault()?.BookTitle;
+        if (string.IsNullOrWhiteSpace(title)) return null;
+        return GetReadingMaterialCoverPath(ReadingMaterialSource.Local, title)
+            ?? GetReadingMaterialCoverPath(ReadingMaterialSource.Kindle, title);
+    }
 
     private sealed class ReadingMaterialGroupKeyComparer : IEqualityComparer<(ReadingMaterialSource Source, string BookTitle)>
     {
@@ -2226,12 +2361,21 @@ public partial class MainWindow
         if (!await ConfirmAsync("删除阅读资料", $"确定删除选中的 {selected.Length} 条记录吗？Kindle 记录只会从 My Clippings.txt 删除。")) return;
         try
         {
-            foreach (var item in selected)
+            foreach (var item in selected.Where(item => item.LocalAnnotation is not null))
             {
                 if (item.LocalAnnotation is { } annotation)
                     await _readerData.DeleteAnnotationAsync(annotation.Id, _lifetimeCancellation.Token);
-                else if (item.KindleClipping is { } clipping && CurrentDevice is { } device && _kindle is not null)
-                    await TrackDeviceOperationAsync(() => _kindle.DeleteClippingAsync(device, clipping.Id, _lifetimeCancellation.Token));
+            }
+            var kindleIds = selected
+                .SelectMany(item => new[] { item.KindleClipping?.Id, item.PairedKindleClipping?.Id })
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Cast<string>()
+                .ToArray();
+            if (kindleIds.Length > 0 && CurrentDevice is { } device && _kindle is not null)
+            {
+                await TrackDeviceOperationAsync(() => _kindle.DeleteClippingsAsync(device, kindleIds, _lifetimeCancellation.Token));
+                _deviceClippingCache.Remove(device.Identity);
+                await PersistDeviceAuxiliaryCacheAsync(device);
             }
             await RefreshReadingMaterialsAsync();
         }
@@ -2249,7 +2393,13 @@ public partial class MainWindow
 
     private async Task ExportReadingMaterialsAsync(bool markdown)
     {
-        var records = ReadingMaterials.Select(item => item.ToRecord()).ToArray();
+        var selected = ReadingMaterials.Where(item => item.IsSelected).ToArray();
+        if (selected.Length == 0)
+        {
+            ReadingMaterialsStatusText.Text = "请先勾选要导出的记录，或点击“全选”。";
+            return;
+        }
+        var records = selected.Select(item => item.ToRecord()).ToArray();
         if (records.Length == 0)
         {
             ReadingMaterialsStatusText.Text = "当前筛选结果没有可导出的记录。";
@@ -2282,6 +2432,9 @@ public partial class MainWindow
         _ => "全部来源"
     };
 
+    private static DateTimeOffset? MaxAddedAt(DateTimeOffset? left, DateTimeOffset? right) =>
+        left is null ? right : right is null ? left : left > right ? left : right;
+
     private async Task OpenDeviceResourcePageAsync(KindleResourceKind kind)
     {
         _deviceResourceKind = kind;
@@ -2294,7 +2447,7 @@ public partial class MainWindow
         await RefreshDeviceResourcesAsync();
     }
 
-    private async Task RefreshDeviceResourcesAsync()
+    private async Task RefreshDeviceResourcesAsync(bool forceRefresh = false)
     {
         DeviceResources.Clear();
         DeviceResourceList.SelectedItem = null;
@@ -2310,12 +2463,18 @@ public partial class MainWindow
         }
         try
         {
+            if (_deviceWarmTask is not null)
+                await _deviceWarmTask;
+            var cacheKey = BuildDeviceCacheKey(device);
+            if (!forceRefresh && _deviceResourceCache.TryGetValue((cacheKey, _deviceResourceKind), out var cached))
+            {
+                ApplyDeviceResources(cached, device);
+                return;
+            }
+
             var resources = await _kindle.ScanResourcesAsync(device, _deviceResourceKind, _lifetimeCancellation.Token);
-            foreach (var resource in resources) DeviceResources.Add(resource);
-            DeviceResourceDeviceText.Text = device.Name;
-            DeviceResourceCountText.Text = $"{resources.Count} 个文件";
-            DeviceResourceStatusText.Text = $"已读取 {resources.Count} 个文件";
-            DeviceResourceEmptyText.IsVisible = resources.Count == 0;
+            _deviceResourceCache[(cacheKey, _deviceResourceKind)] = resources;
+            ApplyDeviceResources(resources, device);
         }
         catch (Exception exception)
         {
@@ -2324,6 +2483,41 @@ public partial class MainWindow
             DeviceResourceStatusText.Text = $"读取失败：{exception.Message}";
             DeviceResourceEmptyText.IsVisible = true;
         }
+    }
+
+    private void ApplyDeviceResources(IReadOnlyList<KindleDeviceResource> resources, KindleDevice device)
+    {
+        DeviceResources.Clear();
+        DeviceResourceList.SelectedItem = null;
+        ExportDeviceResourceButton.IsEnabled = false;
+        DeleteDeviceResourceButton.IsEnabled = false;
+            foreach (var resource in resources) DeviceResources.Add(resource);
+            DeviceResourceDeviceText.Text = device.Name;
+            DeviceResourceCountText.Text = $"{resources.Count} 个文件";
+            DeviceResourceStatusText.Text = $"已读取 {resources.Count} 个文件";
+            DeviceResourceEmptyText.IsVisible = resources.Count == 0;
+    }
+
+    private static string BuildDeviceCacheKey(KindleDevice device) =>
+        $"{device.Transport}:{device.Identity}:{Path.GetFullPath(device.RootPath)}";
+
+    private void InvalidateCurrentDeviceResourceCache()
+    {
+        if (CurrentDevice is not { } device) return;
+        _deviceResourceCache.Remove((BuildDeviceCacheKey(device), _deviceResourceKind));
+    }
+
+    private async Task PersistDeviceAuxiliaryCacheAsync(KindleDevice device)
+    {
+        var key = BuildDeviceCacheKey(device);
+        var previous = await _kindleAuxiliaryCacheStore.GetAsync(device.Identity, _lifetimeCancellation.Token);
+        await _kindleAuxiliaryCacheStore.SaveAsync(device.Identity, new KindleDeviceAuxiliaryCacheSnapshot
+        {
+            Fonts = (_deviceResourceCache.GetValueOrDefault((key, KindleResourceKind.Font)) ?? previous?.Fonts ?? []).ToList(),
+            Dictionaries = (_deviceResourceCache.GetValueOrDefault((key, KindleResourceKind.Dictionary)) ?? previous?.Dictionaries ?? []).ToList(),
+            Clippings = (_deviceClippingCache.GetValueOrDefault(device.Identity) ?? previous?.Clippings ?? []).ToList(),
+            UpdatedAt = DateTimeOffset.UtcNow
+        }, _lifetimeCancellation.Token);
     }
 
     private void DeviceResourceList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -2339,7 +2533,7 @@ public partial class MainWindow
     private async void RefreshDeviceResourcesButton_Click(object? sender, RoutedEventArgs e)
     {
         await RefreshDevicesAsync(scanBooks: false);
-        await RefreshDeviceResourcesAsync();
+        await RefreshDeviceResourcesAsync(forceRefresh: true);
     }
 
     private async void ImportDeviceResourceButton_Click(object? sender, RoutedEventArgs e)
@@ -2400,6 +2594,7 @@ public partial class MainWindow
         if (paths.Length == 0) return;
 
         _deviceResourceBusy = true;
+        var resourceChanged = false;
         try
         {
             ShowTransferToast("导入 Kindle 资源", $"正在导入 {paths.Length} 个文件…", progress: 0);
@@ -2412,13 +2607,24 @@ public partial class MainWindow
                     _deviceResourceKind,
                     path,
                     cancellationToken: _lifetimeCancellation.Token);
+                resourceChanged = true;
                 ShowTransferToast("导入 Kindle 资源", $"正在导入 {Path.GetFileName(path)}…", progress: (index + 1) * 100 / paths.Length);
             }
-            await RefreshDeviceResourcesAsync();
+            InvalidateCurrentDeviceResourceCache();
+            await RefreshDeviceResourcesAsync(forceRefresh: true);
+            if (CurrentDevice is { } currentDevice)
+                await PersistDeviceAuxiliaryCacheAsync(currentDevice);
             ShowTransferToast("导入 Kindle 资源", $"已导入 {paths.Length} 个文件。", progress: 100, autoHide: true);
         }
         catch (Exception exception)
         {
+            if (resourceChanged)
+            {
+                InvalidateCurrentDeviceResourceCache();
+                await RefreshDeviceResourcesAsync(forceRefresh: true);
+                if (CurrentDevice is { } currentDevice)
+                    await PersistDeviceAuxiliaryCacheAsync(currentDevice);
+            }
             DeviceResourceStatusText.Text = $"导入失败：{exception.Message}";
             await ShowMessageAsync("无法导入", exception.Message);
         }
@@ -2469,7 +2675,9 @@ public partial class MainWindow
             try
             {
                 await _kindle.RemoveResourceAsync(device, resource, _lifetimeCancellation.Token);
-                await RefreshDeviceResourcesAsync();
+                InvalidateCurrentDeviceResourceCache();
+                await RefreshDeviceResourcesAsync(forceRefresh: true);
+                await PersistDeviceAuxiliaryCacheAsync(device);
                 DeviceResourceStatusText.Text = $"已删除 {resource.FileName}";
                 ShowTransferToast("删除 Kindle 资源", $"已删除 {resource.FileName}", progress: 100, autoHide: true);
             }
@@ -2487,7 +2695,7 @@ public partial class MainWindow
     {
         try
         {
-            var dashboard = await _readerData.GetReadingDashboardAsync(cancellationToken: _lifetimeCancellation.Token);
+            var dashboard = await _readerData.GetReadingDashboardAsync(100, _lifetimeCancellation.Token);
             DashboardBooksStartedText.Text = $"{dashboard.BooksStarted} 本";
             DashboardBooksFinishedText.Text = $"{dashboard.BooksFinished} 本";
             DashboardTotalTimeText.Text = FormatReadingTime(dashboard.TotalSeconds);
@@ -2503,23 +2711,26 @@ public partial class MainWindow
             {
                 var title = ViewModel.LibraryBooks.FirstOrDefault(book => book.Id == item.BookId)?.Title
                     ?? "未导入的书籍";
-                _readingDashboardItems.Add(new Stage3DashboardRecentViewModel(
+                var recent = new Stage3DashboardRecentViewModel(
                     title,
                     item.ProgressPercent,
                     item.CumulativeSeconds,
-                    item.UpdatedAt));
+                    item.UpdatedAt);
+                _readingDashboardItems.Add(recent);
+                DashboardRecentItems.Add(recent);
             }
             DashboardRecentText.Text = _readingDashboardItems.Count == 0
                 ? "还没有阅读记录。打开一本 EPUB 后，这里会显示最近进度。"
                 : string.Join(Environment.NewLine, _readingDashboardItems.Select(item => item.Display));
+            DashboardRecentEmptyText.IsVisible = _readingDashboardItems.Count == 0;
 
             DashboardDays.Clear();
             var maximumSeconds = Math.Max(1, dashboard.DailyReading.Max(day => day.ActiveSeconds));
             foreach (var day in dashboard.DailyReading)
             {
                 DashboardDays.Add(new Stage3DashboardDayViewModel(
-                    day.Date.ToString("MM/dd", CultureInfo.InvariantCulture),
-                    day.ActiveSeconds == 0 ? "" : FormatReadingTime(day.ActiveSeconds),
+                    day.Date.ToString("MM-dd", CultureInfo.InvariantCulture),
+                    day.ActiveSeconds == 0 ? "" : $"{day.ActiveSeconds / 60d:0.#} 分",
                     day.ActiveSeconds == 0 ? 4 : 10 + 108d * day.ActiveSeconds / maximumSeconds));
             }
 
@@ -2537,8 +2748,8 @@ public partial class MainWindow
                 ("0–24%", (double)progressValues.Count(value => value < 25), $"{progressValues.Count(value => value < 25)} 本"),
                 ("25–49%", (double)progressValues.Count(value => value >= 25 && value < 50), $"{progressValues.Count(value => value >= 25 && value < 50)} 本"),
                 ("50–74%", (double)progressValues.Count(value => value >= 50 && value < 75), $"{progressValues.Count(value => value >= 50 && value < 75)} 本"),
-                ("75–99%", (double)progressValues.Count(value => value >= 75 && value < 100), $"{progressValues.Count(value => value >= 75 && value < 100)} 本"),
-                ("完成", (double)progressValues.Count(value => value >= 100), $"{progressValues.Count(value => value >= 100)} 本")
+                ("75–99%", (double)progressValues.Count(value => value >= 75 && value < 99.5), $"{progressValues.Count(value => value >= 75 && value < 99.5)} 本"),
+                ("完成", (double)progressValues.Count(value => value >= 99.5), $"{progressValues.Count(value => value >= 99.5)} 本")
             ]);
 
             var readingCount = Math.Max(0, dashboard.BooksStarted - dashboard.BooksFinished);
@@ -2611,7 +2822,7 @@ public partial class MainWindow
     private static string FormatReadingTime(long seconds)
     {
         if (seconds < 60) return $"{seconds} 秒";
-        if (seconds < 3600) return $"{Math.Max(1, seconds / 60)} 分钟";
+        if (seconds < 3600) return $"{seconds / 60d:0.#} 分";
         return $"{seconds / 3600d:0.#} 小时";
     }
 
@@ -2807,9 +3018,7 @@ public partial class MainWindow
             DefaultBodyPaddingBox.Value = (decimal)_appSettings.DefaultReaderLayout.BodyPadding;
             DefaultVerticalWritingCheck.IsChecked = _appSettings.DefaultReaderLayout.VerticalWriting;
             SelectSettingsFontFamily(_appSettings.DefaultReaderLayout.FontFamily);
-            AboutVersionText.Text = typeof(MainWindow).Assembly.GetName().Version is { } version
-                ? $"版本 {version.ToString(3)}"
-                : "版本未知";
+            AboutVersionText.Text = $"版本 {ApplicationVersion.GetDisplayVersion(typeof(MainWindow).Assembly)}";
             SettingsDataPathText.Text = _paths.Data;
             ZLibraryEmailBox.Text = _zLibrarySettings.Email;
             ZLibraryPasswordBox.Text = _zLibrarySettings.Password;
@@ -2892,6 +3101,72 @@ public partial class MainWindow
         CalibreDetectionStatusDot.Fill = new SolidColorBrush(Color.Parse(isDetected ? "#2E8B57" : "#D6A100"));
         ToolTip.SetTip(CalibreDetectionStatusDot, status);
         AutomationProperties.SetName(CalibreDetectionStatusDot, status);
+
+        InstallCalibreButton.IsEnabled = !_calibreSetupBusy && !isDetected;
+        _calibreDetectionCancellation?.Cancel();
+        _calibreDetectionCancellation?.Dispose();
+        _calibreDetectionCancellation = null;
+
+        if (!isDetected)
+        {
+            InstallKfxInputButton.IsEnabled = !_calibreSetupBusy;
+            ToolTip.SetTip(InstallKfxInputButton, "安装 Calibre KFX Input 插件");
+            return;
+        }
+
+        InstallKfxInputButton.IsEnabled = false;
+        ToolTip.SetTip(InstallKfxInputButton, "正在检查 KFX Input 安装状态");
+        if (_calibreSetupBusy) return;
+
+        var detectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
+        detectionCancellation.CancelAfter(TimeSpan.FromSeconds(15));
+        _calibreDetectionCancellation = detectionCancellation;
+        _ = DetectKfxInputInstallationAsync(configuredPath, detectionCancellation);
+    }
+
+    private async Task DetectKfxInputInstallationAsync(
+        string calibrePath,
+        CancellationTokenSource detectionCancellation)
+    {
+        try
+        {
+            using var setup = new CalibreSetupService();
+            var installed = await setup.IsKfxInputInstalledAsync(calibrePath, detectionCancellation.Token);
+            if (!ReferenceEquals(_calibreDetectionCancellation, detectionCancellation)) return;
+
+            InstallKfxInputButton.IsEnabled = !installed;
+            ToolTip.SetTip(
+                InstallKfxInputButton,
+                installed ? "KFX Input 已安装" : "未检测到 KFX Input，点击安装");
+            CalibreSetupStatusText.Text = installed
+                ? "已检测到 KFX Input 插件。"
+                : "未检测到 KFX Input，可点击安装。";
+        }
+        catch (OperationCanceledException) when (detectionCancellation.IsCancellationRequested)
+        {
+            if (ReferenceEquals(_calibreDetectionCancellation, detectionCancellation)
+                && !_lifetimeCancellation.IsCancellationRequested)
+            {
+                InstallKfxInputButton.IsEnabled = true;
+                ToolTip.SetTip(InstallKfxInputButton, "未能确认 KFX Input 状态，点击可重新安装");
+                CalibreSetupStatusText.Text = "KFX Input 状态检查超时，可点击安装。";
+            }
+        }
+        catch (Exception exception)
+        {
+            if (!ReferenceEquals(_calibreDetectionCancellation, detectionCancellation)) return;
+            InstallKfxInputButton.IsEnabled = true;
+            ToolTip.SetTip(InstallKfxInputButton, "未能确认 KFX Input 状态，点击可重新安装");
+            CalibreSetupStatusText.Text = $"KFX Input 状态检查失败：{exception.Message}";
+        }
+        finally
+        {
+            if (ReferenceEquals(_calibreDetectionCancellation, detectionCancellation))
+            {
+                _calibreDetectionCancellation = null;
+                detectionCancellation.Dispose();
+            }
+        }
     }
 
     private void ScheduleAppSettingsAutoSave()
@@ -2997,7 +3272,13 @@ public partial class MainWindow
         {
             Title = "导入本地字典",
             AllowMultiple = false,
-            FileTypeFilter = [new FilePickerFileType("字典文本") { Patterns = ["*.txt", "*.tsv", "*.csv"] }]
+            FileTypeFilter =
+            [
+                new FilePickerFileType("支持的词典")
+                {
+                    Patterns = ["*.mdx", "*.azw", "*.azw3", "*.mobi", "*.kfx", "*.txt", "*.tsv", "*.csv"]
+                }
+            ]
         });
         var path = files.FirstOrDefault()?.TryGetLocalPath();
         if (string.IsNullOrWhiteSpace(path)) return;
@@ -3122,10 +3403,9 @@ public partial class MainWindow
         finally
         {
             _calibreSetupBusy = false;
-            InstallCalibreButton.IsEnabled = true;
-            InstallKfxInputButton.IsEnabled = true;
             CalibreSetupProgressBar.IsVisible = false;
             CalibreSetupProgressBar.IsIndeterminate = false;
+            UpdateCalibreDetectionStatus();
         }
     }
 
@@ -3781,17 +4061,6 @@ public partial class MainWindow
         catch (Exception exception) { KindleEmailSettingsStatusText.Text = $"保存失败：{exception.Message}"; }
     }
 
-    private static DateTimeOffset? ParseClippingDate(string metadata)
-    {
-        var separator = metadata.IndexOf('|');
-        var value = separator >= 0 ? metadata[(separator + 1)..] : metadata;
-        value = value.Replace("Added on", string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Replace("添加于", string.Empty, StringComparison.OrdinalIgnoreCase)
-            .Trim(' ', '-', ':', '：');
-        return DateTimeOffset.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out var parsed)
-            ? parsed
-            : null;
-    }
 }
 
 public sealed record Stage3DashboardDayViewModel(
@@ -3829,11 +4098,13 @@ public sealed class Stage3ReadingMaterialGroupViewModel : ObservableObject, IDis
         string bookTitle,
         IReadOnlyList<Stage3ReadingMaterialViewModel> items,
         string? coverPath,
-        bool isExpanded)
+        bool isExpanded,
+        bool isMixedSource = false)
     {
         Source = source;
         BookTitle = string.IsNullOrWhiteSpace(bookTitle) ? "未命名书籍" : bookTitle;
         Items = items;
+        IsMixedSource = isMixedSource;
         _isExpanded = isExpanded;
         if (!string.IsNullOrWhiteSpace(coverPath) && File.Exists(coverPath))
         {
@@ -3842,7 +4113,8 @@ public sealed class Stage3ReadingMaterialGroupViewModel : ObservableObject, IDis
     }
 
     public ReadingMaterialSource Source { get; }
-    public string SourceLabel => Source == ReadingMaterialSource.Local ? "本地书籍" : "Kindle";
+    public bool IsMixedSource { get; }
+    public string SourceLabel => IsMixedSource ? "本地书籍 + Kindle" : Source == ReadingMaterialSource.Local ? "本地书籍" : "Kindle";
     public string BookTitle { get; }
     public IReadOnlyList<Stage3ReadingMaterialViewModel> Items { get; }
     public string CountLabel => $"{Items.Count} 条批注";
@@ -3878,7 +4150,8 @@ public sealed class Stage3ReadingMaterialViewModel : ObservableObject
         string note,
         DateTimeOffset? updatedAt,
         ReaderAnnotation? localAnnotation,
-        KindleClipping? kindleClipping)
+        KindleClipping? kindleClipping,
+        KindleClipping? pairedKindleClipping = null)
     {
         Source = source;
         BookTitle = bookTitle;
@@ -3890,6 +4163,7 @@ public sealed class Stage3ReadingMaterialViewModel : ObservableObject
         UpdatedAt = updatedAt;
         LocalAnnotation = localAnnotation;
         KindleClipping = kindleClipping;
+        PairedKindleClipping = pairedKindleClipping;
     }
 
     public ReadingMaterialSource Source { get; }
@@ -3903,6 +4177,7 @@ public sealed class Stage3ReadingMaterialViewModel : ObservableObject
     public DateTimeOffset? UpdatedAt { get; }
     public ReaderAnnotation? LocalAnnotation { get; }
     public KindleClipping? KindleClipping { get; }
+    public KindleClipping? PairedKindleClipping { get; }
     public string QuoteLabel => string.IsNullOrWhiteSpace(Quote) ? "无划线内容" : $"“{Quote}”";
     public string NoteLabel => string.IsNullOrWhiteSpace(Note) ? "" : $"批注：{Note}";
     public string ChapterDisplayLabel => $"章节：{ChapterLabel}";

@@ -56,6 +56,7 @@ public partial class MainWindow : Window
     private readonly DoubanMetadataService _douban;
     private readonly IKindleDeviceService? _kindle;
     private readonly DeviceModelStore _deviceModelStore;
+    private readonly KindleDeviceAuxiliaryCacheStore _kindleAuxiliaryCacheStore;
     private readonly ISecretProtector _secretProtector;
     private readonly AppBackupService _backupService;
     private readonly AppSettingsStore _appSettingsStore;
@@ -136,11 +137,12 @@ public partial class MainWindow : Window
         _douban = douban ?? new DoubanMetadataService();
         _kindle = services?.KindleDeviceService;
         _deviceModelStore = new DeviceModelStore(paths);
+        _kindleAuxiliaryCacheStore = new KindleDeviceAuxiliaryCacheStore(paths);
         _secretProtector = services?.SecretProtector ?? new PlaintextSecretProtector();
         _backupService = new AppBackupService(paths, _secretProtector);
         _appSettingsStore = new AppSettingsStore(paths);
         _fontLibrary = new FontLibraryService(paths);
-        _dictionaryService = new DictionaryService(paths);
+        _dictionaryService = new DictionaryService(paths, _formatConverter);
         _readerData = new ReaderDataService(paths);
         _bookContent = new EpubBookContentService(_readerData);
         _footnotes = new EpubFootnoteResolver();
@@ -478,6 +480,9 @@ public partial class MainWindow : Window
         _appSettingsAutoSaveCancellation?.Cancel();
         _appSettingsAutoSaveCancellation?.Dispose();
         _appSettingsAutoSaveCancellation = null;
+        _calibreDetectionCancellation?.Cancel();
+        _calibreDetectionCancellation?.Dispose();
+        _calibreDetectionCancellation = null;
         _conversionCancellation?.Cancel();
         _transferCancellation?.Cancel();
         _isTransferring = false;
@@ -2368,13 +2373,14 @@ public partial class MainWindow : Window
         bool UpdateCover,
         bool UpdatePublication);
 
-    private async Task<bool> ConfirmAsync(string title, string message)
+    private async Task<bool> ConfirmAsync(string title, string message, string? primaryText = null)
     {
         if (Environment.GetEnvironmentVariable("KKINDLE_SEND_DIAG") == "1") return true;
         if (_confirmationCompletion is not null) return false;
         ConfirmationTitleText.Text = title;
         ConfirmationMessageText.Text = message;
-        ConfirmationOkButton.Content = title.Contains("删除", StringComparison.Ordinal) ? "确认删除" : "应用";
+        ConfirmationOkButton.Content = primaryText
+            ?? (title.Contains("删除", StringComparison.Ordinal) ? "确认删除" : "应用");
         ShowOverlay(ConfirmationOverlay);
         _confirmationCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var completion = _confirmationCompletion;

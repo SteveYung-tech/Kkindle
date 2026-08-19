@@ -9,12 +9,11 @@
     <RootNamespace>Kkindle.Desktop.Windows</RootNamespace>
     <AssemblyName>Kkindle</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>..\Kkindle.App.WinUI\Assets\Kkindle.ico</ApplicationIcon>
+    <ApplicationIcon>..\Kkindle.App\Assets\Icons\Kkindle.ico</ApplicationIcon>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishReadyToRun>false</PublishReadyToRun>
-    <Version>0.5.2</Version>
     <Product>Kkindle</Product>
     <Authors>kingstacker</Authors>
     <RepositoryUrl>https://github.com/kingstacker/Kkindle</RepositoryUrl>
@@ -30,7 +29,7 @@
       <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
-    <Content Include="..\Kkindle.App.WinUI\Assets\Kkindle.ico" Link="Assets\Kkindle.ico">
+    <Content Include="..\Kkindle.App\Assets\Icons\Kkindle.ico" Link="Assets\Kkindle.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>

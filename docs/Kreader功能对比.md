@@ -1,6 +1,6 @@
 # Kreader 阅读器功能对比：老版 WinUI vs 新版 Avalonia
 
-> 审计方法：对 `src/Kkindle.App.WinUI`（老版参照，MainWindow.xaml 阅读器区 3589–5208 + 9 个 Reader 分部类 + 4 个脚本文件）与 `src/Kkindle.App`（新版，MainWindow.axaml 阅读器区 3118–4221 + 7 个 Reader 分部类 + 基础设施）逐一比对；UI 元素、事件接线、行为、脚本逐项核对，行号均为源码实际行号。
+> 本文是迁移期间完成的历史审计记录：删除前的 WinUI 参照版（MainWindow.xaml 阅读器区 3589–5208 + 9 个 Reader 分部类 + 4 个脚本文件）与 `src/Kkindle.App`（MainWindow.axaml 阅读器区 3118–4221 + 7 个 Reader 分部类 + 基础设施）曾逐项比对。旧 WinUI 源码已于 2026-08-19 删除，文中旧版行号仅用于追溯当时的审计结论。
 
 ## 结论摘要
 

@@ -4,7 +4,6 @@
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>Kkindle.Desktop.MacOS</RootNamespace>
     <AssemblyName>Kkindle</AssemblyName>
-    <Version>0.5.2</Version>
     <Product>Kkindle</Product>
     <Authors>kingstacker</Authors>
     <RuntimeIdentifiers>osx-x64;osx-arm64</RuntimeIdentifiers>

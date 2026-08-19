@@ -479,9 +479,11 @@ public sealed class KindleDeviceTests
             Assert.Equal(2, items.Count);
             Assert.Equal(KindleClippingType.Highlight, items[0].Type);
             Assert.Equal("Cities are living systems.", items[0].Content);
+            Assert.Equal(new DateTime(2026, 8, 9), items[0].AddedAt?.Date);
             Assert.Equal(KindleClippingType.Note, items[1].Type);
             Assert.Equal("规模", items[1].BookTitle);
             Assert.Equal("杰弗里·韦斯特", items[1].Author);
+            Assert.Equal(new DateTime(2026, 8, 10), items[1].AddedAt?.Date);
 
             await service.DeleteClippingAsync(device, items[0].Id);
             var remaining = Assert.Single(await service.ReadClippingsAsync(device));
@@ -507,6 +509,69 @@ public sealed class KindleDeviceTests
         var rebuilt = KindleClippingsParser.BuildDocument([parsed[1]]);
         Assert.Single(KindleClippingsParser.Parse(rebuilt));
         Assert.EndsWith("==========\r\n", rebuilt);
+    }
+
+    [Fact]
+    public void ClippingsParserPairsHighlightAndNoteAtTheSameLocation()
+    {
+        const string content = """
+            凡人修仙传（忘语）
+            - 您在位置 #12144-12145的标注 | 添加于 2026年8月19日星期三 下午7:14:35
+
+            绿衣少女纤细单薄的身子。
+            ==========
+            凡人修仙传（忘语）
+            - 您在位置 #12145 的笔记 | 添加于 2026年8月19日星期三 下午7:14:46
+
+            好看
+            ==========
+            """;
+
+        var pair = Assert.Single(KindleClippingsParser.PairForDisplay(KindleClippingsParser.Parse(content)));
+        Assert.Equal(KindleClippingType.Highlight, pair.Clipping.Type);
+        Assert.Equal("绿衣少女纤细单薄的身子。", pair.Clipping.Content);
+        Assert.NotNull(pair.PairedNote);
+        Assert.Equal("好看", pair.PairedNote!.Content);
+    }
+
+    [Fact]
+    public async Task DeletesDuplicateKindleClippingsInOneRewrite()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "KkindleTests", Guid.NewGuid().ToString("N"));
+        var documents = Path.Combine(root, "documents");
+        Directory.CreateDirectory(documents);
+        var clippingsPath = Path.Combine(documents, "My Clippings.txt");
+        const string block = "Book (Author)\n- Your Highlight at Location 1 | Added on August 9, 2026\n\nSame quote";
+        await File.WriteAllTextAsync(clippingsPath, $"{block}\n==========\n{block}\n==========\n", new System.Text.UTF8Encoding(true));
+        try
+        {
+            var service = new KindleDeviceService();
+            var device = new KindleDevice { RootPath = root, Name = "Fake Kindle", IsReady = true };
+            var items = await service.ReadClippingsAsync(device);
+
+            await service.DeleteClippingsAsync(device, items.Select(item => item.Id).ToArray());
+
+            Assert.Empty(await service.ReadClippingsAsync(device));
+            Assert.False(File.Exists(clippingsPath + ".kkindle-part"));
+            Assert.False(File.Exists(clippingsPath + ".kkindle-backup"));
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ClippingsParserHandlesBomAndCjkMetadata()
+    {
+        const string content = "\uFEFF吾輩は猫である（夏目漱石）\n- 位置No. 3-4のハイライト | 作成日: 2026年8月11日\n\n名前はまだ無い。\n==========\n";
+
+        var item = Assert.Single(KindleClippingsParser.Parse(content));
+
+        Assert.Equal("吾輩は猫である", item.BookTitle);
+        Assert.Equal("夏目漱石", item.Author);
+        Assert.Equal(KindleClippingType.Highlight, item.Type);
+        Assert.Equal(new DateTime(2026, 8, 11), item.AddedAt?.Date);
     }
 
     [Fact]

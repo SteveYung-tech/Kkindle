@@ -63,6 +63,7 @@ public partial class MainWindow
 {
     private const string DefaultBookTitle = "未命名书籍";
     private const string DefaultBookAuthors = "未知作者";
+    private static readonly TimeSpan DoubanBatchCooldown = TimeSpan.FromSeconds(30);
     // Exact title match alone auto-applies; a containment match also needs the
     // author to appear in the candidate abstract before trusting it.
     private const double DoubanAutoApplyScore = 80;
@@ -71,6 +72,7 @@ public partial class MainWindow
     // they use a dedicated client with a gentler request interval. Manual and
     // batch flows share _doubanMatchCancellation, so they never interleave.
     private DoubanMetadataService? _doubanBatchService;
+    private DateTimeOffset? _lastDoubanBatchMatchAt;
 
     private DoubanMetadataService DoubanBatchService => _doubanBatchService ??= new DoubanMetadataService(
         minimumInterval: TimeSpan.FromSeconds(2.5));
@@ -83,6 +85,12 @@ public partial class MainWindow
             SetTaskStatus("书库是空的，先导入书籍再使用一键豆瓣匹配。");
             return;
         }
+
+        if (!await ConfirmAsync(
+                "一键豆瓣匹配",
+                $"将按书名和作者自动匹配并写入 {cards.Length} 本书的豆瓣信息。此功能不推荐频繁使用，可能触发豆瓣访问限制；是否继续？",
+                "继续匹配"))
+            return;
         await RunDoubanBatchMatchAsync(cards);
     }
 
@@ -98,6 +106,21 @@ public partial class MainWindow
             await ShowMessageAsync("网络功能已关闭", "请先在应用设置中允许网络功能，再使用豆瓣匹配。");
             return;
         }
+
+        var now = DateTimeOffset.UtcNow;
+        if (_lastDoubanBatchMatchAt is { } last)
+        {
+            var elapsed = now - last;
+            if (elapsed < DoubanBatchCooldown)
+            {
+                var remaining = DoubanBatchCooldown - elapsed;
+                await ShowMessageAsync(
+                    "豆瓣匹配暂不可用",
+                    $"短时间内只能使用一次一键豆瓣匹配，请约 {Math.Ceiling(remaining.TotalSeconds)} 秒后再试。频繁请求可能触发豆瓣访问限制。");
+                return;
+            }
+        }
+        _lastDoubanBatchMatchAt = now;
 
         var cancellation = new CancellationTokenSource();
         _doubanMatchCancellation = cancellation;
