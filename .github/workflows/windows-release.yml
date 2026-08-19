@@ -1,0 +1,120 @@
+name: Windows Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要创建或重新发布的版本标签，例如 v0.6.0-dev.4"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish Windows release
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_DIR: ${{ github.workspace }}\artifacts\github-release
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out selected revision
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Resolve version and release tag
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v(?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$') {
+            throw "版本标签必须符合 vX.Y.Z 或 vX.Y.Z-prerelease：$env:RELEASE_TAG"
+          }
+          "version=$($Matches.version)" >> $env:GITHUB_OUTPUT
+
+          $existingTag = git tag --list $env:RELEASE_TAG
+          if ($existingTag -eq $env:RELEASE_TAG) {
+            git checkout --detach "refs/tags/$env:RELEASE_TAG"
+          } else {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a $env:RELEASE_TAG -m "Kkindle $env:RELEASE_TAG"
+            git push origin "refs/tags/$env:RELEASE_TAG"
+          }
+
+      - name: Restore dependencies
+        run: dotnet restore Kkindle.sln -p:Platform=x64
+
+      - name: Run release tests
+        run: dotnet test Kkindle.sln -c Release -p:Platform=x64 --no-restore
+
+      - name: Build Avalonia Windows head
+        run: dotnet build src/Kkindle.Desktop.Windows/Kkindle.Desktop.Windows.csproj -c Release -p:Platform=x64 --no-restore
+
+      - name: Install release toolchain
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Chocolatey 安装发布工具失败：$LASTEXITCODE" }
+
+      - name: Build installer and portable package
+        shell: pwsh
+        run: |
+          .\scripts\Build-Release.ps1 `
+            -Version '${{ steps.version.outputs.version }}' `
+            -OutputRoot $env:RELEASE_DIR
+
+      - name: Create checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem -File $env:RELEASE_DIR |
+            Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
+            Set-Content -Encoding ascii "$env:RELEASE_DIR\SHA256SUMS.txt"
+
+      - name: Create or update Windows GitHub Release
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $assets = @(Get-ChildItem -File $env:RELEASE_DIR | ForEach-Object { $_.FullName })
+          $releaseArgs = @(
+            $env:RELEASE_TAG,
+            "--repo", $env:GITHUB_REPOSITORY,
+            "--title", "Kkindle $env:RELEASE_TAG",
+            "--verify-tag"
+          )
+          if ($version -match '-') { $releaseArgs += "--prerelease" }
+
+          $releases = gh release list --repo $env:GITHUB_REPOSITORY --limit 1000 --json tagName |
+            ConvertFrom-Json
+          $releaseExists = $null -ne ($releases | Where-Object { $_.tagName -eq $env:RELEASE_TAG })
+          if ($releaseExists) {
+            gh release upload $env:RELEASE_TAG $assets --clobber --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create @releaseArgs $assets --generate-notes
+          }
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: Kkindle-${{ steps.version.outputs.version }}-win-x64
+          path: |
+            ${{ env.RELEASE_DIR }}/*.exe
+            ${{ env.RELEASE_DIR }}/*.zip
+            ${{ env.RELEASE_DIR }}/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
