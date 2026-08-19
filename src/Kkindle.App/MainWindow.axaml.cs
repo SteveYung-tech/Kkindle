@@ -337,10 +337,12 @@ public partial class MainWindow : Window
                 _selectedCard = ViewModel.Books[0];
                 _ = RunSendDiagnosticAsync();
             }
+#if DEBUG
             if (Environment.GetEnvironmentVariable("KKINDLE_KREADER_VALIDATE") == "1")
             {
                 _ = Dispatcher.UIThread.InvokeAsync(RunKreaderValidationAndExitAsync);
             }
+#endif
             if (int.TryParse(Environment.GetEnvironmentVariable("KKINDLE_OPEN_BOOK_INDEX"), out var openIndex)
                 && openIndex >= 0 && openIndex < ViewModel.Books.Count)
             {
