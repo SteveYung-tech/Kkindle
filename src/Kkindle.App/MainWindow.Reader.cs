@@ -284,8 +284,8 @@ public partial class MainWindow
         {
             if (OperatingSystem.IsLinux() && !_readerIsPdf)
             {
-                ReaderLinuxTextFallbackOverlay.IsVisible = false;
-                SetReaderHostLayer(revealActiveHost: true);
+                if (!ReaderLinuxTextFallbackOverlay.IsVisible)
+                    SetReaderHostLayer(revealActiveHost: true);
             }
 
             if (!await WaitForReaderHostReadyAsync(
@@ -415,11 +415,16 @@ public partial class MainWindow
 
         _readerLinuxTextFallbackTargetTitle = null;
         if (OperatingSystem.IsLinux() && !_readerIsPdf)
+        {
             _readerScrollPosition = offset < 0 ? -1 : 0;
+            _readerLinuxTextFallbackMoveToChapterEnd = offset < 0 && !startAtChapterTitle;
+            _readerLinuxTextFallbackEndFragment = null;
+        }
         _readerCurrentFragment = null;
         var targetIndex = _readerChapterIndex + offset;
         if (targetIndex < 0 || targetIndex >= _readerDocument.Chapters.Count)
         {
+            _readerLinuxTextFallbackMoveToChapterEnd = false;
             ReaderStatusText.Text = offset < 0 ? "已经是第一章。" : "已经是最后一章。";
             return;
         }

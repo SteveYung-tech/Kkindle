@@ -85,6 +85,38 @@ internal static class EpubReaderImageReferenceNormalizer
         }
     }
 
+    internal static string? ResolveFirstLocalImagePath(XElement element, string path)
+    {
+        try
+        {
+            var chapterDirectory = Path.GetDirectoryName(path);
+            if (string.IsNullOrWhiteSpace(chapterDirectory)) return null;
+            var epubRoot = Path.GetFullPath(Path.Combine(chapterDirectory, ".."));
+
+            foreach (var source in EnumerateImageReferences(element))
+            {
+                var resolved = ResolveReaderRelativeResourcePath(epubRoot, chapterDirectory, source);
+                if (resolved is not null && File.Exists(resolved))
+                    return resolved;
+            }
+
+            foreach (var child in element.Descendants())
+            {
+                foreach (var source in EnumerateImageReferences(child))
+                {
+                    var resolved = ResolveReaderRelativeResourcePath(epubRoot, chapterDirectory, source);
+                    if (resolved is not null && File.Exists(resolved))
+                        return resolved;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+
     internal static string? NormalizeSrcSetAttribute(
         XElement element,
         string sourcePath,

@@ -3790,6 +3790,9 @@
                             Focusable="True"
                             Tapped="ReaderLinuxTextFallback_Tapped"
                             PointerWheelChanged="ReaderLinuxTextFallback_PointerWheelChanged"
+                            PointerPressed="ReaderLinuxTextFallback_PointerPressed"
+                            PointerReleased="ReaderLinuxTextFallback_PointerReleased"
+                            KeyDown="ReaderLinuxTextFallback_KeyDown"
                             ZIndex="25">
                         <Grid x:Name="ReaderLinuxTextFallbackContent">
                             <ScrollViewer x:Name="ReaderLinuxTextFallbackScroll"
@@ -3799,20 +3802,38 @@
                                           ScrollChanged="ReaderLinuxTextFallbackScroll_ScrollChanged">
                                 <StackPanel Spacing="18">
                                     <SelectableTextBlock x:Name="ReaderLinuxTextFallbackText"
-                                                        Foreground="{StaticResource InkBrush}"
-                                                        SelectionBrush="{StaticResource InkBrush}"
-                                                        SelectionForegroundBrush="{StaticResource PaperBrush}"
-                                                        TextWrapping="Wrap"
-                                                        HorizontalAlignment="Center"
-                                                        PointerReleased="ReaderLinuxTextFallback_ContentPointerReleased" />
-                                    <ItemsControl ItemsSource="{Binding ReaderLinuxTextFallbackImages}">
+                                                        IsVisible="False" />
+                                    <ItemsControl ItemsSource="{Binding ReaderLinuxTextFallbackBlocks}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <Border Margin="0,6,0,0">
-                                                    <Image Source="{Binding}"
-                                                           Stretch="Uniform"
-                                                           HorizontalAlignment="Center"
-                                                           MaxWidth="960" />
+                                                    <Grid>
+                                                        <SelectableTextBlock Text="{Binding Text}"
+                                                                            IsVisible="{Binding IsText}"
+                                                                            FontSize="{Binding FontSize}"
+                                                                            LineHeight="{Binding LineHeight}"
+                                                                            MaxWidth="{Binding MaxWidth}"
+                                                                            Foreground="{StaticResource InkBrush}"
+                                                                            SelectionBrush="{StaticResource InkBrush}"
+                                                                            SelectionForegroundBrush="{StaticResource PaperBrush}"
+                                                                            TextWrapping="Wrap"
+                                                                            HorizontalAlignment="Center"
+                                                                            PointerReleased="ReaderLinuxTextFallback_ContentPointerReleased" />
+                                                        <Image Source="{Binding Image.Source}"
+                                                               IsVisible="{Binding IsImage}"
+                                                               MaxWidth="{Binding Image.MaxWidth}"
+                                                               MaxHeight="{Binding Image.MaxHeight}"
+                                                               Stretch="Uniform"
+                                                               HorizontalAlignment="Center" />
+                                                        <Button Content="{Binding FootnoteLabel}"
+                                                                Tag="{Binding FootnoteHref}"
+                                                                Classes="readerFootnoteMarker"
+                                                                IsVisible="{Binding IsFootnote}"
+                                                                HorizontalAlignment="Center"
+                                                                PointerEntered="ReaderLinuxTextFallbackFootnoteButton_PointerEntered"
+                                                                PointerExited="ReaderLinuxTextFallbackFootnoteButton_PointerExited"
+                                                                Click="ReaderLinuxTextFallbackFootnoteButton_Click" />
+                                                    </Grid>
                                                 </Border>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
@@ -3824,6 +3845,12 @@
                                     Padding="24,18">
                                 <Grid x:Name="ReaderLinuxTextFallbackPagedContent"
                                       ColumnDefinitions="*,28,*">
+                                    <Image x:Name="ReaderLinuxTextFallbackPageImageLeft"
+                                           Grid.Column="0"
+                                           Stretch="Uniform"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           IsVisible="False" />
                                     <SelectableTextBlock x:Name="ReaderLinuxTextFallbackPageLeft"
                                                         Grid.Column="0"
                                                         Foreground="{StaticResource InkBrush}"
@@ -3832,6 +3859,12 @@
                                                         TextWrapping="Wrap"
                                                         HorizontalAlignment="Stretch"
                                                         PointerReleased="ReaderLinuxTextFallback_ContentPointerReleased" />
+                                    <Image x:Name="ReaderLinuxTextFallbackPageImageRight"
+                                           Grid.Column="2"
+                                           Stretch="Uniform"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           IsVisible="False" />
                                     <SelectableTextBlock x:Name="ReaderLinuxTextFallbackPageRight"
                                                         Grid.Column="2"
                                                         Foreground="{StaticResource InkBrush}"
@@ -4459,6 +4492,58 @@
                     </ScrollViewer>
                 </Border>
                 </Grid>
+            </Popup>
+
+            <Popup x:Name="ReaderSelectionHostPopup"
+                   IsOpen="False"
+                   IsLightDismissEnabled="True"
+                   ShouldUseOverlayLayer="False"
+                   TakesFocusFromNativeControl="False">
+                <Border x:Name="ReaderSelectionPopupBar"
+                        Padding="3"
+                        Background="{StaticResource PaperBrush}"
+                        BorderBrush="#000000"
+                        BorderThickness="1"
+                        CornerRadius="0">
+                    <StackPanel Orientation="Horizontal" Spacing="0">
+                        <Button Content="复制"
+                                Classes="readerSelectionAction"
+                                Click="ReaderSelectionCopyButton_Click" />
+                        <Rectangle Width="1" Height="18" Margin="2,0" Fill="#D5D5D1" VerticalAlignment="Center" />
+                        <Button x:Name="ReaderSelectionHighlightMenuButton"
+                                Content="划线 ▾"
+                                Classes="readerSelectionAction"
+                                PointerEntered="ReaderSelectionHighlightMenuButton_PointerEntered">
+                            <Button.Flyout>
+                                <MenuFlyout>
+                                    <MenuItem Header="直线  ───" Classes="readerSelectionStyle" Tag="solid" Click="ReaderSelectionHighlightStyleItem_Click" />
+                                    <MenuItem Header="双线  ═══" Classes="readerSelectionStyle" Tag="double" Click="ReaderSelectionHighlightStyleItem_Click" />
+                                    <MenuItem Header="虚线  ┄┄┄" Classes="readerSelectionStyle" Tag="dashed" Click="ReaderSelectionHighlightStyleItem_Click" />
+                                    <MenuItem Header="点线  ···" Classes="readerSelectionStyle" Tag="dotted" Click="ReaderSelectionHighlightStyleItem_Click" />
+                                    <MenuItem Header="波浪线  ﹏﹏" Classes="readerSelectionStyle" Tag="wavy" Click="ReaderSelectionHighlightStyleItem_Click" />
+                                    <Separator />
+                                    <MenuItem Header="荧光标记（黑白反色）  ▰" Classes="readerSelectionStyle" Tag="marker" Click="ReaderSelectionHighlightStyleItem_Click" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Rectangle Width="1" Height="18" Margin="2,0" Fill="#D5D5D1" VerticalAlignment="Center" />
+                        <Button Content="批注"
+                                Classes="readerSelectionAction"
+                                Click="ReaderSelectionAnnotateButton_Click" />
+                        <Rectangle Width="1" Height="18" Margin="2,0" Fill="#D5D5D1" VerticalAlignment="Center" />
+                        <Button Content="AI 解释"
+                                Classes="readerSelectionAction"
+                                Click="ReaderSelectionAiButton_Click" />
+                        <Rectangle Width="1" Height="18" Margin="2,0" Fill="#D5D5D1" VerticalAlignment="Center" />
+                        <Button Content="搜索"
+                                Classes="readerSelectionAction"
+                                Click="ReaderSelectionSearchButton_Click" />
+                        <Rectangle Width="1" Height="18" Margin="2,0" Fill="#D5D5D1" VerticalAlignment="Center" />
+                        <Button Content="词典"
+                                Classes="readerSelectionAction"
+                                Click="ReaderSelectionDictionaryButton_Click" />
+                    </StackPanel>
+                </Border>
             </Popup>
 
             <!-- A native popup keeps the footnote above the HWND-backed

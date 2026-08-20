@@ -373,33 +373,36 @@ public partial class MainWindow
         {
             _ = LoadReaderChapterPreviewBodyAsync(
                 target,
-                index,
-                ReaderChapterPreviewTitleText.Text,
+                _readerTocItems[index],
                 requestVersion);
         }
     }
 
     private async Task LoadReaderChapterPreviewBodyAsync(
         Control target,
-        int index,
-        string title,
+        EpubReaderNavigationItem item,
         int requestVersion)
     {
         if (_readerDocument is null
-            || index < 0
-            || index >= _readerDocument.Chapters.Count)
+            || item.ChapterIndex < 0
+            || item.ChapterIndex >= _readerDocument.Chapters.Count
+            || !Uri.TryCreate(item.Target, UriKind.Absolute, out var targetUri)
+            || !targetUri.IsFile
+            || !IsPathInside(_readerDocument.RootPath, targetUri.LocalPath))
         {
             return;
         }
 
-        var chapterPath = Path.GetFullPath(_readerDocument.Chapters[index]);
+        var chapterPath = Path.GetFullPath(targetUri.LocalPath);
+        var fragment = GetReaderTargetFragment(targetUri);
         try
         {
-            if (!_readerChapterPreviewTextCache.TryGetValue(chapterPath, out var preview))
+            var cacheKey = $"{chapterPath}\0{fragment}\0{item.Title}";
+            if (!_readerChapterPreviewTextCache.TryGetValue(cacheKey, out var preview))
             {
-                var plainText = await EpubBookContentService.ExtractPlainTextAsync(chapterPath);
-                preview = BuildReaderChapterPreviewText(plainText, title);
-                _readerChapterPreviewTextCache[chapterPath] = preview;
+                var plainText = await Task.Run(() => ExtractReaderPlainText(chapterPath, fragment, item.Title));
+                preview = BuildReaderChapterPreviewText(plainText, item.Title);
+                _readerChapterPreviewTextCache[cacheKey] = preview;
             }
 
             if (requestVersion != _readerChapterPreviewRequestVersion
@@ -422,7 +425,7 @@ public partial class MainWindow
 
     private static string BuildReaderChapterPreviewText(string plainText, string title)
     {
-        var normalizedTitle = NormalizeReaderPlainTextLine(title);
+        plainText = EnsureReaderPlainTextStartsWithTitle(plainText, title);
         return string.Join(
             Environment.NewLine,
             plainText
@@ -431,10 +434,6 @@ public partial class MainWindow
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries)
                 .Select(line => line.Trim())
                 .Where(line => line.Length > 0)
-                .Where(line => !string.Equals(
-                    NormalizeReaderPlainTextLine(line),
-                    normalizedTitle,
-                    StringComparison.OrdinalIgnoreCase))
                 .Take(4));
     }
 

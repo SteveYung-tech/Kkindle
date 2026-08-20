@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Net;
@@ -74,10 +75,17 @@ public partial class MainWindow
     private bool _readerLinuxTextFallbackUpdating;
     private bool _readerLinuxTextFallbackPointerPressed;
     private Point _readerLinuxTextFallbackPointerStart;
+    private bool _readerLinuxTextFallbackMoveToChapterEnd;
+    private int _readerLinuxTextFallbackWheelDeltaRemainder;
+    private int _readerLinuxTextFallbackContinuousWheelDirection;
+    private long _readerLinuxTextFallbackContinuousWheelLastTick;
     private string? _readerLinuxTextFallbackTargetTitle;
+    private string? _readerLinuxTextFallbackEndFragment;
     private string _readerLinuxTextFallbackText = string.Empty;
     private List<string> _readerLinuxTextFallbackPages = [];
-    public ObservableCollection<Bitmap> ReaderLinuxTextFallbackImages { get; } = [];
+    private List<ReaderLinuxTextFallbackPageItem> _readerLinuxTextFallbackPageItems = [];
+    public ObservableCollection<ReaderLinuxTextFallbackBlock> ReaderLinuxTextFallbackBlocks { get; } = [];
+    public ObservableCollection<ReaderLinuxTextFallbackImage> ReaderLinuxTextFallbackImages { get; } = [];
     private int _readerLinuxTextFallbackPageIndex;
     private string? _readerPendingBookmarkQuote;
     private int? _readerPendingBookmarkPosition;
@@ -144,6 +152,111 @@ public partial class MainWindow
         double ClientWidth,
         double ClientHeight);
 
+    public sealed class ReaderLinuxTextFallbackImage : INotifyPropertyChanged, IDisposable
+    {
+        private double _maxWidth;
+        private double _maxHeight;
+
+        public ReaderLinuxTextFallbackImage(Bitmap source, double maxWidth, double maxHeight)
+        {
+            Source = source;
+            _maxWidth = maxWidth;
+            _maxHeight = maxHeight;
+        }
+
+        public Bitmap Source { get; }
+
+        public double MaxWidth
+        {
+            get => _maxWidth;
+            private set
+            {
+                if (Math.Abs(_maxWidth - value) < 0.1) return;
+                _maxWidth = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MaxWidth)));
+            }
+        }
+
+        public double MaxHeight
+        {
+            get => _maxHeight;
+            private set
+            {
+                if (Math.Abs(_maxHeight - value) < 0.1) return;
+                _maxHeight = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MaxHeight)));
+            }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public void Resize(double maxWidth, double maxHeight)
+        {
+            MaxWidth = maxWidth;
+            MaxHeight = maxHeight;
+        }
+
+        public void Dispose() => Source.Dispose();
+    }
+
+    public sealed class ReaderLinuxTextFallbackBlock
+    {
+        public ReaderLinuxTextFallbackBlock(
+            string text,
+            int textOffset,
+            double fontSize,
+            double lineHeight,
+            double maxWidth)
+        {
+            Text = text;
+            TextOffset = textOffset;
+            FontSize = fontSize;
+            LineHeight = lineHeight;
+            MaxWidth = maxWidth;
+        }
+
+        public ReaderLinuxTextFallbackBlock(ReaderLinuxTextFallbackImage image)
+        {
+            Image = image;
+        }
+
+        public ReaderLinuxTextFallbackBlock(string footnoteLabel, string footnoteHref)
+        {
+            FootnoteLabel = string.IsNullOrWhiteSpace(footnoteLabel) ? "注" : footnoteLabel.Trim();
+            FootnoteHref = footnoteHref;
+        }
+
+        public string Text { get; } = string.Empty;
+        public int TextOffset { get; }
+        public double FontSize { get; }
+        public double LineHeight { get; }
+        public double MaxWidth { get; }
+        public ReaderLinuxTextFallbackImage? Image { get; }
+        public string FootnoteLabel { get; } = string.Empty;
+        public string FootnoteHref { get; } = string.Empty;
+        public bool IsText => Image is null && string.IsNullOrWhiteSpace(FootnoteHref);
+        public bool IsImage => Image is not null;
+        public bool IsFootnote => !string.IsNullOrWhiteSpace(FootnoteHref);
+    }
+
+    private sealed record ReaderLinuxTextFallbackRawBlock(
+        string? Text,
+        string? ImagePath,
+        string? FootnoteHref = null,
+        string? FootnoteLabel = null);
+
+    private sealed record ReaderLinuxTextFallbackExtractedContent(
+        string Text,
+        IReadOnlyList<ReaderLinuxTextFallbackRawBlock> Blocks);
+
+    private sealed record ReaderLinuxTextFallbackPageItem(
+        string Text,
+        int TextOffset,
+        ReaderLinuxTextFallbackImage? Image)
+    {
+        public bool IsImage => Image is not null;
+    }
+
     private static ReaderLayoutSettings NormalizeReaderLayoutForPlatform(ReaderLayoutSettings settings)
     {
         return ReaderLayoutDefaults.Normalize(settings);
@@ -193,11 +306,13 @@ public partial class MainWindow
         _readerSearchQuery = string.Empty;
         ClearReaderSearchResultSelection();
         _readerContinuousSkipDepth = 0;
+        _readerLinuxTextFallbackMoveToChapterEnd = false;
         _readerContinuousLocked = false;
         _readerContinuousDirection = 0;
         ResetReaderContinuousEdgeTracking();
         _readerScrollPollRunning = false;
         _readerWheelDeltaRemainder = 0;
+        _readerLinuxTextFallbackWheelDeltaRemainder = 0;
         Interlocked.Exchange(ref _readerPendingKeyboardNavigation, 0);
         _readerPdfSearchSequence++;
         _readerSessionStarted = DateTimeOffset.UtcNow;
@@ -377,7 +492,8 @@ public partial class MainWindow
                 const bodyStyle = getComputedStyle(body);
                 const paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
                 const paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
-                const contentHeight = body.clientHeight - paddingTop - paddingBottom;
+                const viewportHeight = root.clientHeight || window.innerHeight || body.clientHeight || 0;
+                const contentHeight = viewportHeight - paddingTop - paddingBottom;
                 if (contentHeight > 0)
                   root.style.setProperty('--kkindle-page-content-h', contentHeight + 'px');
               }
@@ -386,9 +502,9 @@ public partial class MainWindow
             """;
         await host.InvokeScriptAsync(script);
         await WaitForReaderFontsAsync(host, cancellationToken);
+        await host.InvokeScriptAsync(FitReaderCoverImageScript);
         if (pagination)
         {
-            await host.InvokeScriptAsync(FitReaderCoverImageScript);
             await host.InvokeScriptAsync(ReaderPaginationScripts.Snap);
         }
         await WriteReaderLayoutDiagnosticsAsync("configure", host);
@@ -452,10 +568,11 @@ public partial class MainWindow
         builder.Append("\nli, blockquote { font-size: 1rem !important; line-height: 1.78 !important; }");
         builder.Append("\nh1, h2, h3, h4 { color: #111111 !important; line-height: 1.35 !important; font-weight: bold !important; margin: 1.35em 0 0.72em 0 !important; }");
         builder.Append("\nblockquote { border-left: 3px solid #222222 !important; margin: 1.4em 0 !important; padding: 0.2em 1.1em !important; color: #333333 !important; opacity: 0.88; }");
-        builder.Append("\nimg, svg { display: block; width: auto !important; max-width: 100% !important; height: auto !important; margin: 1.8em auto !important; break-inside: avoid; } svg image { max-width: 100% !important; }");
+        builder.Append("\nimg, svg { display: block; width: auto !important; max-width: 100% !important; max-height: calc(var(--kkindle-page-content-h, 100vh) - 3.6em) !important; height: auto !important; object-fit: contain !important; margin: 1.8em auto !important; break-inside: avoid; } svg image { max-width: 100% !important; }");
         builder.Append("\n.chatu-part { margin-top: 4vh !important; text-align: center !important; } .chatu-part img { width: auto !important; max-width: min(42%, 260px) !important; max-height: 38vh !important; margin: 0.8em auto !important; } .chatu-part + h1 { margin-top: 0.8em !important; }");
+        builder.Append("\nimg.kkindle-cover, .kkindle-cover img, svg.kkindle-cover, .kkindle-cover svg { max-height: calc(var(--kkindle-page-content-h, 100vh) - 6em) !important; margin: 1em auto !important; }");
         if (pagination)
-            builder.Append("\nimg, svg { max-height: calc(var(--kkindle-page-content-h, 100vh) - 3.6em) !important; object-fit: contain !important; } img.kkindle-cover, .kkindle-cover img, svg.kkindle-cover, .kkindle-cover svg { max-height: calc(var(--kkindle-page-content-h, 100vh) - 6em) !important; margin: 1em auto !important; }");
+            builder.Append("\nimg.kkindle-cover, .kkindle-cover img, svg.kkindle-cover, .kkindle-cover svg { break-inside: avoid-column !important; }");
         builder.Append("\npre, table { max-width: 100% !important; overflow-x: auto !important; }");
         builder.Append("\nhr { border: 0 !important; border-top: 1px solid #222222 !important; opacity: 0.24; margin: 2em 0 !important; }");
         builder.Append("\nruby { ruby-align: center !important; } rt { font-size: 0.5em !important; color: inherit !important; }");
@@ -475,37 +592,61 @@ public partial class MainWindow
           const root = document.documentElement;
           const body = document.body;
           if (!root || !body) return false;
-          const viewWidth = root.clientWidth || window.innerWidth || 0;
-          const viewHeight = root.clientHeight || window.innerHeight || 0;
-          if (viewWidth <= 0 || viewHeight <= 0) return false;
+          const fit = () => {
+            const viewWidth = root.clientWidth || window.innerWidth || 0;
+            const viewHeight = root.clientHeight || window.innerHeight || 0;
+            if (viewWidth <= 0 || viewHeight <= 0) return false;
 
-          const bodyStyle = getComputedStyle(body);
-          const paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
-          const paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
-          const contentHeight = body.clientHeight - paddingTop - paddingBottom;
-          if (contentHeight > 0)
-            root.style.setProperty('--kkindle-page-content-h', contentHeight + 'px');
+            const bodyStyle = getComputedStyle(body);
+            const paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
+            const paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+            const viewportHeight = root.clientHeight || window.innerHeight || body.clientHeight || 0;
+            const contentHeight = viewportHeight - paddingTop - paddingBottom;
+            if (contentHeight > 0)
+              root.style.setProperty('--kkindle-page-content-h', contentHeight + 'px');
 
-          const candidates = Array.from(
-            document.querySelectorAll('body img, body svg, body svg image'));
-          for (const element of candidates) {
-            const isSvgImage = element.tagName.toLowerCase() === 'image';
-            const naturalWidth = element.naturalWidth
-              || parseFloat(element.getAttribute('width')) || 0;
-            const naturalHeight = element.naturalHeight
-              || parseFloat(element.getAttribute('height')) || 0;
-            if (naturalWidth <= 0 || naturalHeight <= 0) continue;
-            const viewportArea = viewWidth * viewHeight;
-            if (naturalWidth * naturalHeight < viewportArea * 0.35
-                && !(naturalWidth >= viewWidth * 0.6
-                  && naturalHeight >= viewHeight * 0.6)) continue;
-            element.classList.add('kkindle-cover');
-            if (isSvgImage && element.parentElement
-                && /^svg$/i.test(element.parentElement.tagName))
-              element.parentElement.classList.add('kkindle-cover');
-            return true;
+            const candidates = Array.from(
+              document.querySelectorAll('body img, body svg, body svg image'));
+            const shortImagePage = (body.innerText || body.textContent || '').trim().length <= 120
+              && candidates.length > 0
+              && candidates.length <= 4;
+            for (let index = 0; index < candidates.length; index++) {
+              const element = candidates[index];
+              const tag = element.tagName.toLowerCase();
+              const isSvgImage = tag === 'image';
+              const rect = element.getBoundingClientRect?.() || { width: 0, height: 0 };
+              const naturalWidth = element.naturalWidth
+                || parseFloat(element.getAttribute('width')) || rect.width || 0;
+              const naturalHeight = element.naturalHeight
+                || parseFloat(element.getAttribute('height')) || rect.height || 0;
+              if (naturalWidth <= 0 || naturalHeight <= 0) {
+                if (tag === 'img' && !element.dataset.kkindleCoverLoadWatch) {
+                  element.dataset.kkindleCoverLoadWatch = '1';
+                  element.addEventListener('load', () => requestAnimationFrame(fit), { once: true });
+                }
+                continue;
+              }
+
+              const viewportArea = viewWidth * viewHeight;
+              const largeImage = naturalWidth * naturalHeight >= viewportArea * 0.35
+                || (naturalWidth >= viewWidth * 0.6 && naturalHeight >= viewHeight * 0.6);
+              if (!largeImage && !(shortImagePage && index === 0)) continue;
+              element.classList.add('kkindle-cover');
+              if (isSvgImage && element.parentElement
+                  && /^svg$/i.test(element.parentElement.tagName))
+                element.parentElement.classList.add('kkindle-cover');
+              return true;
+            }
+            return false;
+          };
+          window.__kkindleFitReaderCoverImage = fit;
+          if (!window.__kkindleFitReaderCoverImageResizeWatch) {
+            window.__kkindleFitReaderCoverImageResizeWatch = true;
+            window.addEventListener('resize', () => requestAnimationFrame(fit), { passive: true });
           }
-          return false;
+          const fitted = fit();
+          requestAnimationFrame(fit);
+          return fitted;
         })();
         """;
 
@@ -657,23 +798,26 @@ public partial class MainWindow
         // Avalonia reading layer is therefore the dependable visible surface;
         // retain the WebView behind it for parsing, navigation and features.
 
-        var targetTitle = _readerLinuxTextFallbackTargetTitle;
+        var targetTitle = _readerLinuxTextFallbackTargetTitle
+            ?? GetReaderChapterDisplayName(_readerChapterIndex);
         var fragment = string.IsNullOrWhiteSpace(targetTitle)
             ? null
             : DecodeReaderFragment(_readerCurrentFragment);
-        var text = await Task.Run(
-            () => ExtractReaderPlainText(chapterPath, fragment, targetTitle),
-            cancellationToken);
-        var imagePaths = await Task.Run(
-            () => EpubReaderImageReferenceNormalizer.ExtractLocalImagePaths(chapterPath),
+        var endFragment = DecodeReaderFragment(_readerLinuxTextFallbackEndFragment);
+        var content = await Task.Run(
+            () => ExtractReaderFallbackContent(chapterPath, fragment, targetTitle, endFragment),
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var text = content.Text;
         if (string.IsNullOrWhiteSpace(text))
             text = GetReaderChapterDisplayName(_readerChapterIndex);
 
         var fontSize = 16d * _readerLayout.FontScale;
-        var visible = !string.IsNullOrWhiteSpace(text);
+        var visible = !string.IsNullOrWhiteSpace(text)
+            || content.Blocks.Any(block =>
+                !string.IsNullOrWhiteSpace(block.ImagePath)
+                || !string.IsNullOrWhiteSpace(block.FootnoteHref));
         _readerLinuxTextFallbackUpdating = true;
         try
         {
@@ -687,11 +831,11 @@ public partial class MainWindow
             ReaderLinuxTextFallbackPageLeft.LineHeight = fontSize * _readerLayout.LineHeight;
             ReaderLinuxTextFallbackPageRight.FontSize = fontSize;
             ReaderLinuxTextFallbackPageRight.LineHeight = fontSize * _readerLayout.LineHeight;
-            UpdateLinuxReaderTextFallbackImages(imagePaths);
+            UpdateLinuxReaderTextFallbackBlocks(content.Blocks, text, fontSize);
             if (_readerLayout.FlowMode == 0)
                 ReaderLinuxTextFallbackScroll.Offset = new Vector(0, Math.Max(0, _readerScrollPosition));
             else
-                _readerLinuxTextFallbackPageIndex = _readerScrollPosition < 0
+                _readerLinuxTextFallbackPageIndex = _readerLinuxTextFallbackMoveToChapterEnd || _readerScrollPosition < 0
                     ? -1
                     : (int)Math.Round(Math.Max(0, _readerScrollPosition));
             ReaderLinuxTextFallbackOverlay.IsVisible = visible;
@@ -725,8 +869,15 @@ public partial class MainWindow
         ReaderLinuxTextFallbackText.Text = string.Empty;
         ReaderLinuxTextFallbackPageLeft.Text = string.Empty;
         ReaderLinuxTextFallbackPageRight.Text = string.Empty;
+        ReaderLinuxTextFallbackPageImageLeft.Source = null;
+        ReaderLinuxTextFallbackPageImageRight.Source = null;
+        ReaderLinuxTextFallbackPageImageLeft.IsVisible = false;
+        ReaderLinuxTextFallbackPageImageRight.IsVisible = false;
         _readerLinuxTextFallbackText = string.Empty;
         _readerLinuxTextFallbackPages.Clear();
+        _readerLinuxTextFallbackPageItems.Clear();
+        _readerLinuxTextFallbackMoveToChapterEnd = false;
+        _readerLinuxTextFallbackEndFragment = null;
         ClearLinuxReaderTextFallbackImages();
         ClearLinuxReaderTextFallbackSelectionState();
     }
@@ -736,7 +887,6 @@ public partial class MainWindow
         if (_readerLinuxTextFallbackUpdating) return;
         if (_readerLayout.FlowMode != 0) return;
         SyncLinuxReaderTextFallbackScrollState(saveProgress: true);
-        TryAdvanceReaderScrollChapter();
     }
 
     private bool IsLinuxReaderTextFallbackActive() =>
@@ -763,7 +913,7 @@ public partial class MainWindow
                 viewport);
         }
 
-        var pageCount = Math.Max(1, _readerLinuxTextFallbackPages.Count);
+        var pageCount = GetLinuxReaderTextFallbackPageCount();
         var spreadSize = _readerLayout.TwoPageMode ? 2 : 1;
         var maximumPage = Math.Max(0, pageCount - spreadSize);
         var pageIndex = _readerLinuxTextFallbackPageIndex < 0
@@ -824,7 +974,7 @@ public partial class MainWindow
     private void SyncLinuxReaderTextFallbackPagedState(bool saveProgress)
     {
         if (!IsLinuxReaderTextFallbackActive()) return;
-        var pageCount = Math.Max(1, _readerLinuxTextFallbackPages.Count);
+        var pageCount = GetLinuxReaderTextFallbackPageCount();
         var spreadSize = _readerLayout.TwoPageMode ? 2 : 1;
         var maximum = Math.Max(0, pageCount - spreadSize);
         _readerLinuxTextFallbackPageIndex = _readerLinuxTextFallbackPageIndex < 0
@@ -873,8 +1023,8 @@ public partial class MainWindow
             ReaderLinuxTextFallbackPagedContent.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
             ReaderLinuxTextFallbackPagedContent.HorizontalAlignment = HorizontalAlignment.Center;
         }
-        ReaderLinuxTextFallbackPageRight.IsVisible = twoPage;
         Grid.SetColumn(ReaderLinuxTextFallbackPageRight, twoPage ? 2 : 0);
+        Grid.SetColumn(ReaderLinuxTextFallbackPageImageRight, twoPage ? 2 : 0);
         if (paged)
             RebuildLinuxReaderTextFallbackPages();
     }
@@ -885,6 +1035,7 @@ public partial class MainWindow
         if (_readerLayout.FlowMode != 1)
         {
             _readerLinuxTextFallbackPages.Clear();
+            _readerLinuxTextFallbackPageItems.Clear();
             return;
         }
 
@@ -898,21 +1049,58 @@ public partial class MainWindow
         var pageHeight = Math.Max(180, overlayHeight - 36);
         var linesPerPage = Math.Max(4, (int)Math.Floor(pageHeight / lineHeight));
         var lineUnits = Math.Max(8, pageWidth / (fontSize * 0.92));
-        _readerLinuxTextFallbackPages = PaginateReaderPlainText(
-            _readerLinuxTextFallbackText,
-            lineUnits,
-            linesPerPage);
+        _readerLinuxTextFallbackPages.Clear();
+        _readerLinuxTextFallbackPageItems.Clear();
+        foreach (var block in ReaderLinuxTextFallbackBlocks)
+        {
+            if (block.Image is not null)
+            {
+                _readerLinuxTextFallbackPageItems.Add(new ReaderLinuxTextFallbackPageItem(
+                    string.Empty,
+                    0,
+                    block.Image));
+                continue;
+            }
+
+            foreach (var page in PaginateReaderPlainText(block.Text, lineUnits, linesPerPage))
+            {
+                var offset = block.TextOffset + Math.Max(0, block.Text.IndexOf(page, StringComparison.Ordinal));
+                _readerLinuxTextFallbackPages.Add(page);
+                _readerLinuxTextFallbackPageItems.Add(new ReaderLinuxTextFallbackPageItem(
+                    page,
+                    Math.Max(0, offset),
+                    null));
+            }
+        }
+        if (_readerLinuxTextFallbackPageItems.Count == 0)
+        {
+            _readerLinuxTextFallbackPages = PaginateReaderPlainText(
+                _readerLinuxTextFallbackText,
+                lineUnits,
+                linesPerPage);
+            foreach (var page in _readerLinuxTextFallbackPages)
+            {
+                _readerLinuxTextFallbackPageItems.Add(new ReaderLinuxTextFallbackPageItem(
+                    page,
+                    0,
+                    null));
+            }
+        }
 
         var spreadSize = _readerLayout.TwoPageMode ? 2 : 1;
-        var maximum = Math.Max(0, _readerLinuxTextFallbackPages.Count - spreadSize);
+        var maximum = Math.Max(0, GetLinuxReaderTextFallbackPageCount() - spreadSize);
+        var moveToChapterEnd = _readerLinuxTextFallbackMoveToChapterEnd
+            || _readerLinuxTextFallbackPageIndex < 0
+            || _readerScrollPosition < 0;
         _readerLinuxTextFallbackPageIndex = Math.Clamp(
-            _readerLinuxTextFallbackPageIndex < 0
+            moveToChapterEnd
                 ? maximum
                 : (int)Math.Round(Math.Max(0, _readerScrollPosition)),
             0,
             maximum);
         if (_readerLayout.TwoPageMode && _readerLinuxTextFallbackPageIndex % 2 != 0)
             _readerLinuxTextFallbackPageIndex--;
+        _readerLinuxTextFallbackMoveToChapterEnd = false;
 
         ReaderLinuxTextFallbackPageLeft.MaxWidth = pageWidth;
         ReaderLinuxTextFallbackPageRight.MaxWidth = pageWidth;
@@ -921,22 +1109,89 @@ public partial class MainWindow
 
     private void RenderLinuxReaderTextFallbackPage()
     {
-        if (_readerLinuxTextFallbackPages.Count == 0)
+        var pageCount = GetLinuxReaderTextFallbackPageCount();
+        if (pageCount == 0)
         {
             ReaderLinuxTextFallbackPageLeft.Text = string.Empty;
             ReaderLinuxTextFallbackPageRight.Text = string.Empty;
+            ReaderLinuxTextFallbackPageLeft.IsVisible = false;
+            ReaderLinuxTextFallbackPageRight.IsVisible = false;
+            ReaderLinuxTextFallbackPageImageLeft.Source = null;
+            ReaderLinuxTextFallbackPageImageRight.Source = null;
+            ReaderLinuxTextFallbackPageImageLeft.IsVisible = false;
+            ReaderLinuxTextFallbackPageImageRight.IsVisible = false;
             return;
         }
 
         _readerLinuxTextFallbackPageIndex = Math.Clamp(
             _readerLinuxTextFallbackPageIndex,
             0,
-            Math.Max(0, _readerLinuxTextFallbackPages.Count - 1));
-        ReaderLinuxTextFallbackPageLeft.Text = _readerLinuxTextFallbackPages[_readerLinuxTextFallbackPageIndex];
-        ReaderLinuxTextFallbackPageRight.Text = _readerLayout.TwoPageMode
-            && _readerLinuxTextFallbackPageIndex + 1 < _readerLinuxTextFallbackPages.Count
-                ? _readerLinuxTextFallbackPages[_readerLinuxTextFallbackPageIndex + 1]
-                : string.Empty;
+            Math.Max(0, pageCount - 1));
+        RenderLinuxReaderTextFallbackSlot(
+            ReaderLinuxTextFallbackPageLeft,
+            ReaderLinuxTextFallbackPageImageLeft,
+            _readerLinuxTextFallbackPageIndex);
+
+        var rightPageIndex = _readerLinuxTextFallbackPageIndex + 1;
+        if (_readerLayout.TwoPageMode && rightPageIndex < pageCount)
+        {
+            RenderLinuxReaderTextFallbackSlot(
+                ReaderLinuxTextFallbackPageRight,
+                ReaderLinuxTextFallbackPageImageRight,
+                rightPageIndex);
+        }
+        else
+        {
+            ReaderLinuxTextFallbackPageRight.Text = string.Empty;
+            ReaderLinuxTextFallbackPageRight.IsVisible = false;
+            ReaderLinuxTextFallbackPageImageRight.Source = null;
+            ReaderLinuxTextFallbackPageImageRight.IsVisible = false;
+        }
+    }
+
+    private void RenderLinuxReaderTextFallbackSlot(
+        SelectableTextBlock textBlock,
+        Image imageControl,
+        int pageIndex)
+    {
+        if (pageIndex >= 0
+            && pageIndex < _readerLinuxTextFallbackPageItems.Count
+            && _readerLinuxTextFallbackPageItems[pageIndex] is { Image: { } image })
+        {
+            var (slotMaxWidth, slotMaxHeight) = GetLinuxReaderTextFallbackPagedImageBounds(textBlock);
+            imageControl.Source = image.Source;
+            imageControl.MaxWidth = Math.Min(image.MaxWidth, slotMaxWidth);
+            imageControl.MaxHeight = Math.Min(image.MaxHeight, slotMaxHeight);
+            imageControl.IsVisible = true;
+            textBlock.Text = string.Empty;
+            textBlock.IsVisible = false;
+            return;
+        }
+
+        if (pageIndex >= 0
+            && pageIndex < _readerLinuxTextFallbackPageItems.Count
+            && !_readerLinuxTextFallbackPageItems[pageIndex].IsImage)
+        {
+            textBlock.Text = _readerLinuxTextFallbackPageItems[pageIndex].Text;
+            textBlock.IsVisible = true;
+        }
+        else
+        {
+            textBlock.Text = string.Empty;
+            textBlock.IsVisible = false;
+        }
+        imageControl.Source = null;
+        imageControl.IsVisible = false;
+    }
+
+    private int GetLinuxReaderTextFallbackPageCount() =>
+        Math.Max(1, _readerLinuxTextFallbackPageItems.Count > 0
+            ? _readerLinuxTextFallbackPageItems.Count
+            : _readerLinuxTextFallbackPages.Count);
+
+    private int GetLinuxReaderTextFallbackImagePageCount()
+    {
+        return _readerLinuxTextFallbackPageItems.Count(item => item.IsImage);
     }
 
     private static List<string> PaginateReaderPlainText(
@@ -971,28 +1226,41 @@ public partial class MainWindow
             }
         }
 
-        foreach (var paragraph in text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n'))
+        var paragraphs = System.Text.RegularExpressions.Regex.Split(
+            text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Trim(),
+            @"\n{2,}");
+        foreach (var paragraph in paragraphs)
         {
-            var remaining = paragraph.Trim();
-            if (remaining.Length == 0)
+            var linesInParagraph = paragraph.Split('\n');
+            if (linesInParagraph.All(lineText => string.IsNullOrWhiteSpace(lineText)))
             {
                 CommitBlankLine();
                 continue;
             }
 
-            var currentUnits = 0d;
-            foreach (var ch in remaining)
+            foreach (var paragraphLine in linesInParagraph)
             {
-                var unit = GetReaderPlainTextCharUnits(ch);
-                if (line.Length > 0 && currentUnits + unit > lineUnits)
+                var remaining = paragraphLine.Trim();
+                if (remaining.Length == 0)
                 {
-                    CommitLine();
-                    currentUnits = 0;
+                    CommitBlankLine();
+                    continue;
                 }
-                line.Append(ch);
-                currentUnits += unit;
+
+                var currentUnits = 0d;
+                foreach (var ch in remaining)
+                {
+                    var unit = GetReaderPlainTextCharUnits(ch);
+                    if (line.Length > 0 && currentUnits + unit > lineUnits)
+                    {
+                        CommitLine();
+                        currentUnits = 0;
+                    }
+                    line.Append(ch);
+                    currentUnits += unit;
+                }
+                CommitLine();
             }
-            CommitLine();
             CommitBlankLine();
         }
 
@@ -1002,14 +1270,108 @@ public partial class MainWindow
         return pages;
     }
 
+    private void UpdateLinuxReaderTextFallbackBlocks(
+        IReadOnlyList<ReaderLinuxTextFallbackRawBlock> rawBlocks,
+        string fallbackText,
+        double fontSize)
+    {
+        ClearLinuxReaderTextFallbackImages();
+        ReaderLinuxTextFallbackBlocks.Clear();
+        var (maxWidth, maxHeight) = GetLinuxReaderTextFallbackImageBounds();
+        var imageCache = new Dictionary<string, ReaderLinuxTextFallbackImage>(StringComparer.OrdinalIgnoreCase);
+        var lineHeight = fontSize * _readerLayout.LineHeight;
+        var textMaxWidth = Math.Max(320, _readerLayout.MaxWidth);
+        var textOffset = 0;
+
+        foreach (var rawBlock in rawBlocks)
+        {
+            if (!string.IsNullOrWhiteSpace(rawBlock.ImagePath))
+            {
+                if (!imageCache.TryGetValue(rawBlock.ImagePath, out var image))
+                {
+                    try
+                    {
+                        image = new ReaderLinuxTextFallbackImage(
+                            new Bitmap(rawBlock.ImagePath),
+                            maxWidth,
+                            maxHeight);
+                        imageCache[rawBlock.ImagePath] = image;
+                        ReaderLinuxTextFallbackImages.Add(image);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                }
+                ReaderLinuxTextFallbackBlocks.Add(new ReaderLinuxTextFallbackBlock(image));
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(rawBlock.FootnoteHref))
+            {
+                ReaderLinuxTextFallbackBlocks.Add(new ReaderLinuxTextFallbackBlock(
+                    rawBlock.FootnoteLabel ?? "注",
+                    rawBlock.FootnoteHref));
+                continue;
+            }
+
+            var text = NormalizeReaderPlainText(rawBlock.Text ?? string.Empty);
+            if (string.IsNullOrWhiteSpace(text)) continue;
+            var start = IndexOfReaderPlainTextBlock(fallbackText, text, textOffset);
+            if (start < 0) start = textOffset;
+            ReaderLinuxTextFallbackBlocks.Add(new ReaderLinuxTextFallbackBlock(
+                text,
+                Math.Clamp(start, 0, fallbackText.Length),
+                fontSize,
+                lineHeight,
+                textMaxWidth));
+            textOffset = Math.Clamp(start + text.Length, 0, fallbackText.Length);
+        }
+
+        if (ReaderLinuxTextFallbackBlocks.Count == 0 && !string.IsNullOrWhiteSpace(fallbackText))
+        {
+            ReaderLinuxTextFallbackBlocks.Add(new ReaderLinuxTextFallbackBlock(
+                fallbackText,
+                0,
+                fontSize,
+                lineHeight,
+                textMaxWidth));
+        }
+    }
+
+    private static int IndexOfReaderPlainTextBlock(string fullText, string blockText, int startIndex)
+    {
+        if (string.IsNullOrWhiteSpace(fullText) || string.IsNullOrWhiteSpace(blockText))
+            return -1;
+
+        startIndex = Math.Clamp(startIndex, 0, fullText.Length);
+        var index = fullText.IndexOf(blockText, startIndex, StringComparison.Ordinal);
+        if (index >= 0) return index;
+
+        var firstLine = blockText
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(firstLine)) return -1;
+        return fullText.IndexOf(firstLine.Trim(), startIndex, StringComparison.Ordinal);
+    }
+
     private void UpdateLinuxReaderTextFallbackImages(IReadOnlyList<string> imagePaths)
     {
         ClearLinuxReaderTextFallbackImages();
+        ReaderLinuxTextFallbackBlocks.Clear();
+        var (maxWidth, maxHeight) = GetLinuxReaderTextFallbackImageBounds();
         foreach (var imagePath in imagePaths.Take(12))
         {
             try
             {
-                ReaderLinuxTextFallbackImages.Add(new Bitmap(imagePath));
+                var image = new ReaderLinuxTextFallbackImage(
+                    new Bitmap(imagePath),
+                    maxWidth,
+                    maxHeight);
+                ReaderLinuxTextFallbackImages.Add(image);
+                ReaderLinuxTextFallbackBlocks.Add(new ReaderLinuxTextFallbackBlock(image));
             }
             catch
             {
@@ -1017,15 +1379,69 @@ public partial class MainWindow
         }
     }
 
+    private void UpdateLinuxReaderTextFallbackImageSizes()
+    {
+        if (ReaderLinuxTextFallbackImages.Count == 0) return;
+        var (maxWidth, maxHeight) = GetLinuxReaderTextFallbackImageBounds();
+        foreach (var image in ReaderLinuxTextFallbackImages)
+            image.Resize(maxWidth, maxHeight);
+        if (_readerLayout.FlowMode == 1)
+            RenderLinuxReaderTextFallbackPage();
+    }
+
+    private (double MaxWidth, double MaxHeight) GetLinuxReaderTextFallbackImageBounds()
+    {
+        var overlayWidth = ReaderLinuxTextFallbackOverlay.Bounds.Width;
+        if (!double.IsFinite(overlayWidth) || overlayWidth <= 0)
+            overlayWidth = ReaderWebViewHost.Bounds.Width;
+        var overlayHeight = ReaderLinuxTextFallbackOverlay.Bounds.Height;
+        if (!double.IsFinite(overlayHeight) || overlayHeight <= 0)
+            overlayHeight = ReaderWebViewHost.Bounds.Height;
+
+        var availableWidth = Math.Max(80, overlayWidth - 48);
+        var availableHeight = Math.Max(80, overlayHeight - 36);
+        return (availableWidth, availableHeight);
+    }
+
+    private (double MaxWidth, double MaxHeight) GetLinuxReaderTextFallbackPagedImageBounds(SelectableTextBlock textBlock)
+    {
+        var slotWidth = double.IsFinite(textBlock.MaxWidth) && textBlock.MaxWidth > 0
+            ? textBlock.MaxWidth
+            : 0;
+        if (slotWidth <= 0)
+        {
+            var contentWidth = ReaderLinuxTextFallbackPagedContent.Bounds.Width;
+            if (!double.IsFinite(contentWidth) || contentWidth <= 0)
+                contentWidth = ReaderLinuxTextFallbackPagedRoot.Bounds.Width;
+            if (!double.IsFinite(contentWidth) || contentWidth <= 0)
+                contentWidth = ReaderLinuxTextFallbackOverlay.Bounds.Width;
+            slotWidth = _readerLayout.TwoPageMode
+                ? Math.Max(80, (contentWidth - 28) / 2)
+                : Math.Max(80, Math.Min(_readerLayout.MaxWidth, contentWidth));
+        }
+
+        var slotHeight = ReaderLinuxTextFallbackPagedRoot.Bounds.Height;
+        if (!double.IsFinite(slotHeight) || slotHeight <= 0)
+            slotHeight = ReaderLinuxTextFallbackOverlay.Bounds.Height;
+        slotHeight -= ReaderLinuxTextFallbackPagedRoot.Padding.Top + ReaderLinuxTextFallbackPagedRoot.Padding.Bottom;
+        return (Math.Max(80, slotWidth), Math.Max(80, slotHeight));
+    }
+
     private void ClearLinuxReaderTextFallbackImages()
     {
-        foreach (var bitmap in ReaderLinuxTextFallbackImages)
-            bitmap.Dispose();
+        ReaderLinuxTextFallbackPageImageLeft.Source = null;
+        ReaderLinuxTextFallbackPageImageRight.Source = null;
+        ReaderLinuxTextFallbackPageImageLeft.IsVisible = false;
+        ReaderLinuxTextFallbackPageImageRight.IsVisible = false;
+        foreach (var image in ReaderLinuxTextFallbackImages)
+            image.Dispose();
         ReaderLinuxTextFallbackImages.Clear();
+        ReaderLinuxTextFallbackBlocks.Clear();
     }
 
     private void ClearLinuxReaderTextFallbackSelectionState()
     {
+        HideReaderSelectionPopup();
         _readerPendingSelection = null;
         _readerPendingSelectionStartOffset = 0;
         _readerPendingSelectionEndOffset = 0;
@@ -1036,20 +1452,14 @@ public partial class MainWindow
         ReaderAnnotateButton.IsVisible = false;
     }
 
-    private void SyncLinuxReaderTextFallbackSelectionState()
+    private void SyncLinuxReaderTextFallbackSelectionState(Point? placementPoint = null, double? selectionBottom = null)
     {
         if (!IsLinuxReaderTextFallbackActive())
             return;
 
         if (_readerLayout.FlowMode == 0)
         {
-            if (!TrySyncLinuxReaderTextFallbackSelectionFromBlock(
-                    ReaderLinuxTextFallbackText,
-                    _readerLinuxTextFallbackText,
-                    0))
-            {
-                ClearLinuxReaderTextFallbackSelectionState();
-            }
+            ClearLinuxReaderTextFallbackSelectionState();
             return;
         }
 
@@ -1058,6 +1468,7 @@ public partial class MainWindow
                 GetLinuxReaderTextFallbackPageText(0),
                 _readerLinuxTextFallbackPageIndex))
         {
+            ShowReaderSelectionPopup(placementPoint, selectionBottom);
             return;
         }
 
@@ -1067,6 +1478,7 @@ public partial class MainWindow
                 GetLinuxReaderTextFallbackPageText(1),
                 _readerLinuxTextFallbackPageIndex + 1))
         {
+            ShowReaderSelectionPopup(placementPoint, selectionBottom);
             return;
         }
 
@@ -1102,6 +1514,55 @@ public partial class MainWindow
         return true;
     }
 
+    private bool TrySyncLinuxReaderTextFallbackSelectionFromBlock(
+        SelectableTextBlock block,
+        ReaderLinuxTextFallbackBlock textBlock)
+    {
+        var selectedText = block.SelectedText?.Trim();
+        if (string.IsNullOrWhiteSpace(selectedText))
+            return false;
+
+        var pageText = textBlock.Text;
+        var start = Math.Min(block.SelectionStart, block.SelectionEnd);
+        var end = Math.Max(block.SelectionStart, block.SelectionEnd);
+        start = Math.Clamp(start, 0, pageText.Length);
+        end = Math.Clamp(end, 0, pageText.Length);
+
+        _readerPendingSelection = selectedText;
+        _readerPendingSelectionStartOffset = textBlock.TextOffset + start;
+        _readerPendingSelectionEndOffset = textBlock.TextOffset + end;
+        _readerPendingSelectionPrefix = pageText[..start];
+        _readerPendingSelectionSuffix = end < pageText.Length ? pageText[end..] : string.Empty;
+        _selectedReaderAnnotation = null;
+        ReaderDeleteAnnotationButton.IsEnabled = false;
+        ReaderAnnotationSelectionText.Text = selectedText;
+        ReaderHighlightButton.IsVisible = true;
+        ReaderAnnotateButton.IsVisible = true;
+        ReaderStatusText.Text = "已选中文字，可点击“划线”保存";
+        return true;
+    }
+
+    private bool TrySyncLinuxReaderTextFallbackSelectionFromVisual(
+        Visual visual,
+        Point placementPoint)
+    {
+        Visual? current = visual;
+        while (current is not null)
+        {
+            if (current is SelectableTextBlock block
+                && block.DataContext is ReaderLinuxTextFallbackBlock textBlock
+                && TrySyncLinuxReaderTextFallbackSelectionFromBlock(block, textBlock))
+            {
+                ShowReaderSelectionPopup(placementPoint);
+                return true;
+            }
+
+            current = current.GetVisualParent();
+        }
+
+        return false;
+    }
+
     private string GetLinuxReaderTextFallbackPageText(int relativePageIndex)
     {
         if (_readerLinuxTextFallbackPages.Count == 0)
@@ -1109,18 +1570,21 @@ public partial class MainWindow
         var pageIndex = Math.Clamp(
             _readerLinuxTextFallbackPageIndex + relativePageIndex,
             0,
-            Math.Max(0, _readerLinuxTextFallbackPages.Count - 1));
-        return _readerLinuxTextFallbackPages[pageIndex];
+            Math.Max(0, GetLinuxReaderTextFallbackPageCount() - 1));
+        return pageIndex >= 0
+            && pageIndex < _readerLinuxTextFallbackPageItems.Count
+            && !_readerLinuxTextFallbackPageItems[pageIndex].IsImage
+            ? _readerLinuxTextFallbackPageItems[pageIndex].Text
+            : string.Empty;
     }
 
     private int GetLinuxReaderTextFallbackPageOffset(int pageIndex)
     {
-        if (_readerLinuxTextFallbackPages.Count == 0) return 0;
-        pageIndex = Math.Clamp(pageIndex, 0, Math.Max(0, _readerLinuxTextFallbackPages.Count - 1));
-        var offset = 0;
-        for (var index = 0; index < pageIndex; index++)
-            offset += _readerLinuxTextFallbackPages[index].Length;
-        return offset;
+        if (_readerLinuxTextFallbackPageItems.Count == 0) return 0;
+        pageIndex = Math.Clamp(pageIndex, 0, Math.Max(0, GetLinuxReaderTextFallbackPageCount() - 1));
+        return !_readerLinuxTextFallbackPageItems[pageIndex].IsImage
+            ? _readerLinuxTextFallbackPageItems[pageIndex].TextOffset
+            : 0;
     }
 
     private static bool IsWithinReaderLinuxTextContent(Visual visual)
@@ -1167,44 +1631,503 @@ public partial class MainWindow
 
     private void ReaderLinuxTextFallback_Tapped(object? sender, TappedEventArgs e)
     {
-        if (!IsLinuxReaderTextFallbackActive() || _readerLayout.FlowMode != 1)
+        if (!IsLinuxReaderTextFallbackActive()) return;
+        if (e.Source is Visual visual
+            && TrySyncLinuxReaderTextFallbackSelectionFromVisual(
+                visual,
+                e.GetPosition(ReaderWebViewHost)))
         {
             return;
         }
-
-        if (e.Source is Visual visual && IsWithinReaderLinuxTextContent(visual))
-        {
-            SyncLinuxReaderTextFallbackSelectionState();
-            return;
-        }
-
-        var point = e.GetPosition(ReaderLinuxTextFallbackOverlay);
-        var width = Math.Max(1, ReaderLinuxTextFallbackOverlay.Bounds.Width);
-        var direction = point.X < width / 2 ? -1 : 1;
-        e.Handled = true;
-        ClearLinuxReaderTextFallbackSelectionState();
-        _ = ObserveReaderTaskAsync(TurnReaderPageAsync(direction));
+        if (e.Source is Visual source && !IsWithinReaderLinuxTextContent(source))
+            ClearLinuxReaderTextFallbackSelectionState();
     }
 
     private void ReaderLinuxTextFallback_ContentPointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        SyncLinuxReaderTextFallbackSelectionState();
+        if (sender is SelectableTextBlock block
+            && block.DataContext is ReaderLinuxTextFallbackBlock textBlock
+            && TrySyncLinuxReaderTextFallbackSelectionFromBlock(block, textBlock))
+        {
+            var point = e.GetPosition(ReaderWebViewHost);
+            var bottom = block.TranslatePoint(new Point(0, block.Bounds.Height), ReaderWebViewHost)?.Y;
+            ShowReaderSelectionPopup(point, bottom);
+            return;
+        }
+
+        var fallbackPoint = e.GetPosition(ReaderWebViewHost);
+        var fallbackBottom = sender is SelectableTextBlock fallbackBlock
+            ? fallbackBlock.TranslatePoint(new Point(0, fallbackBlock.Bounds.Height), ReaderWebViewHost)?.Y
+            : null;
+        SyncLinuxReaderTextFallbackSelectionState(fallbackPoint, fallbackBottom);
+    }
+
+    private void ReaderLinuxTextFallbackFootnoteButton_PointerEntered(object? sender, PointerEventArgs e)
+    {
+        if (sender is not Button { Tag: string href }) return;
+        _readerFootnotePinned = false;
+        _ = ObserveReaderTaskAsync(HandleReaderFootnoteHoverAsync(
+            href,
+            isFootnote: true,
+            e.GetPosition(ReaderWebViewHost)));
+    }
+
+    private void ReaderLinuxTextFallbackFootnoteButton_PointerExited(object? sender, PointerEventArgs e)
+    {
+        _readerFootnoteHoverSequence++;
+        if (!_readerFootnotePinned)
+            HideReaderFootnotePopup();
+    }
+
+    private void ReaderLinuxTextFallbackFootnoteButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string href } button) return;
+        _readerFootnotePinned = true;
+        _ = ObserveReaderTaskAsync(HandleReaderFootnoteHoverAsync(
+            href,
+            isFootnote: true,
+            button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height), ReaderWebViewHost),
+            pin: true));
+    }
+
+    private void ReaderLinuxTextFallback_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!IsLinuxReaderTextFallbackActive() || _readerLayout.FlowMode != 1)
+        {
+            _readerLinuxTextFallbackPointerPressed = false;
+            return;
+        }
+
+        var point = e.GetCurrentPoint(ReaderLinuxTextFallbackOverlay);
+        if (!point.Properties.IsLeftButtonPressed || e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+        {
+            _readerLinuxTextFallbackPointerPressed = false;
+            return;
+        }
+
+        _readerLinuxTextFallbackPointerPressed = true;
+        _readerLinuxTextFallbackPointerStart = point.Position;
+    }
+
+    private void ReaderLinuxTextFallback_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (!IsLinuxReaderTextFallbackActive())
+        {
+            _readerLinuxTextFallbackPointerPressed = false;
+            return;
+        }
+
+        var point = e.GetPosition(ReaderLinuxTextFallbackOverlay);
+        if (_readerLayout.FlowMode == 0
+            && e.Source is Visual continuousSource
+            && IsWithinReaderLinuxTextContent(continuousSource))
+        {
+            _readerLinuxTextFallbackPointerPressed = false;
+            return;
+        }
+        SyncLinuxReaderTextFallbackSelectionState(e.GetPosition(ReaderWebViewHost));
+        if (!string.IsNullOrWhiteSpace(_readerPendingSelection))
+        {
+            _readerLinuxTextFallbackPointerPressed = false;
+            return;
+        }
+
+        if (!_readerLinuxTextFallbackPointerPressed || _readerLayout.FlowMode != 1)
+        {
+            _readerLinuxTextFallbackPointerPressed = false;
+            return;
+        }
+
+        _readerLinuxTextFallbackPointerPressed = false;
+        var moved = Math.Abs(point.X - _readerLinuxTextFallbackPointerStart.X)
+            + Math.Abs(point.Y - _readerLinuxTextFallbackPointerStart.Y);
+        if (moved > 12) return;
+
+        var width = Math.Max(1, ReaderLinuxTextFallbackOverlay.Bounds.Width);
+        if (point.X < width / 3 || point.X > width * 2 / 3)
+        {
+            var direction = point.X < width / 3 ? -1 : 1;
+            e.Handled = true;
+            HideReaderSelectionPopup();
+            _ = ObserveReaderTaskAsync(TurnReaderPageAsync(direction));
+        }
+    }
+
+    private void ReaderLinuxTextFallback_KeyDown(object? sender, KeyEventArgs e)
+    {
+        TryHandleLinuxReaderTextFallbackKeyDown(e);
+    }
+
+    private bool TryHandleLinuxReaderTextFallbackKeyDown(KeyEventArgs e)
+    {
+        if (!IsLinuxReaderTextFallbackActive() || IsReaderTextInputFocused()) return false;
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) return false;
+
+        if (e.Key == Key.F11)
+        {
+            e.Handled = true;
+            ToggleReaderZenMode();
+            return true;
+        }
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = HandleReaderEscapeShortcut();
+            return e.Handled;
+        }
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.F)
+        {
+            e.Handled = true;
+            OpenReaderSearchShortcut();
+            return true;
+        }
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.B)
+        {
+            e.Handled = true;
+            _ = ObserveReaderTaskAsync(ToggleReaderBookmarkAsync());
+            return true;
+        }
+
+        if (_readerLayout.FlowMode == 1)
+        {
+            var chapterDirection = !_readerIsPdf
+                ? e.Key == Key.Up
+                    ? -1
+                    : e.Key == Key.Down
+                        ? 1
+                        : 0
+                : 0;
+            if (chapterDirection != 0)
+            {
+                e.Handled = true;
+                ReaderLinuxTextFallbackOverlay.Focus();
+                _ = ObserveReaderTaskAsync(TurnReaderPageAsync(chapterDirection, chapterOnly: true));
+                return true;
+            }
+
+            var direction = e.Key is Key.Left or Key.PageUp
+                ? -1
+                : e.Key is Key.Right or Key.PageDown
+                    ? 1
+                    : 0;
+            if (direction != 0)
+            {
+                e.Handled = true;
+                ReaderLinuxTextFallbackOverlay.Focus();
+                _ = ObserveReaderTaskAsync(TurnReaderPageAsync(direction));
+                return true;
+            }
+        }
+        else if (!_readerIsPdf && _readerDocument is not null)
+        {
+            var chapterDirection = e.Key == Key.Left
+                ? -1
+                : e.Key == Key.Right
+                    ? 1
+                    : 0;
+            if (chapterDirection != 0)
+            {
+                e.Handled = true;
+                ReaderLinuxTextFallbackOverlay.Focus();
+                _ = ObserveReaderTaskAsync(TurnReaderPageAsync(chapterDirection, chapterOnly: true));
+                return true;
+            }
+
+            var scrollDirection = e.Key == Key.Up
+                ? -1
+                : e.Key == Key.Down
+                    ? 1
+                    : 0;
+            if (scrollDirection != 0)
+            {
+                e.Handled = true;
+                ReaderLinuxTextFallbackOverlay.Focus();
+                _ = ObserveReaderTaskAsync(ScrollReaderWithKeyboardAsync(scrollDirection));
+                return true;
+            }
+
+            var pageDirection = e.Key == Key.PageUp
+                ? -1
+                : e.Key == Key.PageDown
+                    ? 1
+                    : 0;
+            if (pageDirection != 0)
+            {
+                e.Handled = true;
+                ReaderLinuxTextFallbackOverlay.Focus();
+                _ = ObserveReaderTaskAsync(TurnReaderPageAsync(pageDirection));
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void ReaderLinuxTextFallback_PointerWheelChanged(object? sender, PointerWheelEventArgs e)
     {
         if (!IsLinuxReaderTextFallbackActive()) return;
-        if (_readerLayout.FlowMode != 1) return;
         var delta = e.Delta.Y;
         if (Math.Abs(delta) < 0.01) return;
+        var direction = delta < 0 ? 1 : -1;
+        if (_readerLayout.FlowMode == 1)
+        {
+            e.Handled = true;
+            var wheelDelta = (int)Math.Round(-delta * (Math.Abs(delta) < 12 ? 120 : 1));
+            if (_readerLinuxTextFallbackWheelDeltaRemainder != 0
+                && Math.Sign(_readerLinuxTextFallbackWheelDeltaRemainder) != Math.Sign(wheelDelta))
+            {
+                _readerLinuxTextFallbackWheelDeltaRemainder = 0;
+            }
+            _readerLinuxTextFallbackWheelDeltaRemainder += wheelDelta;
+            if (Math.Abs(_readerLinuxTextFallbackWheelDeltaRemainder) >= 120)
+            {
+                direction = _readerLinuxTextFallbackWheelDeltaRemainder > 0 ? 1 : -1;
+                _readerLinuxTextFallbackWheelDeltaRemainder %= 120;
+                _ = ObserveReaderTaskAsync(TurnReaderPageAsync(direction));
+            }
+            return;
+        }
+
+        var extent = Math.Max(0, ReaderLinuxTextFallbackScroll.Extent.Height);
+        var viewport = Math.Max(0, ReaderLinuxTextFallbackScroll.Viewport.Height);
+        var maximum = Math.Max(0, extent - viewport);
+        var current = Math.Clamp(ReaderLinuxTextFallbackScroll.Offset.Y, 0, maximum);
+        var atEdge = direction < 0
+            ? current <= 4
+            : current >= maximum - 4;
+        if (!atEdge)
+        {
+            _readerLinuxTextFallbackContinuousWheelDirection = direction;
+            _readerLinuxTextFallbackContinuousWheelLastTick = Environment.TickCount64;
+            return;
+        }
+
         e.Handled = true;
-        _ = ObserveReaderTaskAsync(TurnReaderPageAsync(delta < 0 ? 1 : -1));
+        var now = Environment.TickCount64;
+        var startsNewGesture = _readerLinuxTextFallbackContinuousWheelLastTick > 0
+            && (direction != _readerLinuxTextFallbackContinuousWheelDirection
+                || now - _readerLinuxTextFallbackContinuousWheelLastTick >= 180);
+        _readerLinuxTextFallbackContinuousWheelDirection = direction;
+        _readerLinuxTextFallbackContinuousWheelLastTick = now;
+        if (startsNewGesture)
+            TryMoveReaderChapterFromContinuousEdge(direction);
+    }
+
+    private static ReaderLinuxTextFallbackExtractedContent ExtractReaderFallbackContent(
+        string path,
+        string? startFragment = null,
+        string? startTitle = null,
+        string? endFragment = null)
+    {
+        var text = ExtractReaderPlainText(path, startFragment, startTitle, endFragment);
+        try
+        {
+            var settings = new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Ignore,
+                IgnoreComments = true,
+                IgnoreProcessingInstructions = true
+            };
+            using var reader = XmlReader.Create(path, settings);
+            var document = XDocument.Load(reader, LoadOptions.PreserveWhitespace);
+            var body = document.Descendants().FirstOrDefault(element =>
+                element.Name.LocalName.Equals("body", StringComparison.OrdinalIgnoreCase));
+            if (body is null)
+                return CreateFallbackContentFromTextAndImages(path, text);
+
+            var blocks = new List<ReaderLinuxTextFallbackRawBlock>();
+            var builder = new StringBuilder();
+            var fragment = startFragment?.TrimStart('#');
+            var hasFragment = !string.IsNullOrWhiteSpace(fragment);
+            var stopFragment = endFragment?.TrimStart('#');
+            var hasStopFragment = !string.IsNullOrWhiteSpace(stopFragment)
+                && !string.Equals(stopFragment, fragment, StringComparison.Ordinal);
+            var capture = !hasFragment;
+            var foundFragment = false;
+            var stopCapture = false;
+
+            void FlushText()
+            {
+                var blockText = NormalizeReaderPlainText(builder.ToString());
+                builder.Clear();
+                if (!string.IsNullOrWhiteSpace(blockText))
+                    blocks.Add(new ReaderLinuxTextFallbackRawBlock(blockText, null));
+            }
+
+            void Visit(XNode node)
+            {
+                if (node is XText textNode)
+                {
+                    if (capture)
+                        AppendReaderPlainText(builder, textNode.Value);
+                    return;
+                }
+
+                if (node is not XElement element)
+                    return;
+
+                var name = element.Name.LocalName.ToLowerInvariant();
+                if (name is "script" or "style" or "noscript")
+                    return;
+
+                var matchedHere = false;
+                if (hasFragment && !capture && ElementMatchesReaderFragment(element, fragment))
+                {
+                    capture = true;
+                    foundFragment = true;
+                    matchedHere = true;
+                }
+
+                if (capture
+                    && hasStopFragment
+                    && ElementMatchesReaderFragment(element, stopFragment))
+                {
+                    FlushText();
+                    stopCapture = true;
+                    return;
+                }
+
+                if (capture && name == "a" && IsReaderFootnoteReference(element))
+                {
+                    FlushText();
+                    var href = ResolveReaderElementHref(path, element);
+                    if (!string.IsNullOrWhiteSpace(href))
+                    {
+                        var label = NormalizeReaderPlainTextLine(element.Value);
+                        if (string.IsNullOrWhiteSpace(label))
+                            label = element.Descendants().Select(e => (string?)e.Attribute("alt")).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))
+                                ?? "注";
+                        blocks.Add(new ReaderLinuxTextFallbackRawBlock(null, null, href, label));
+                        return;
+                    }
+                }
+
+                if (capture && name is "img" or "image" or "picture")
+                {
+                    FlushText();
+                    var imagePath = EpubReaderImageReferenceNormalizer.ResolveFirstLocalImagePath(element, path);
+                    if (!string.IsNullOrWhiteSpace(imagePath))
+                        blocks.Add(new ReaderLinuxTextFallbackRawBlock(null, imagePath));
+                    return;
+                }
+
+                foreach (var child in element.Nodes())
+                {
+                    if (stopCapture) break;
+                    Visit(child);
+                }
+                if (stopCapture) return;
+
+                if (capture && name is "br")
+                    AppendReaderPlainTextLineBreak(builder);
+                else if (capture && IsReaderPlainTextBlock(name))
+                    AppendReaderPlainTextBreak(builder);
+
+                if (matchedHere)
+                {
+                    capture = true;
+                }
+            }
+
+            foreach (var node in body.Nodes())
+            {
+                if (stopCapture) break;
+                Visit(node);
+            }
+            FlushText();
+
+            if (hasFragment && !foundFragment)
+                return CreateFallbackContentFromTextAndImages(path, text);
+
+            if (!blocks.Any(block => !string.IsNullOrWhiteSpace(block.Text)))
+            {
+                var title = NormalizeReaderPlainTextLine(startTitle);
+                if (!string.IsNullOrWhiteSpace(title))
+                    blocks.Insert(0, new ReaderLinuxTextFallbackRawBlock(title, null));
+            }
+
+            if (!string.IsNullOrWhiteSpace(startTitle)
+                && blocks.FirstOrDefault(block => !string.IsNullOrWhiteSpace(block.Text)) is { Text: { } firstText }
+                && !NormalizeReaderPlainTextLine(firstText).Contains(
+                    NormalizeReaderPlainTextLine(startTitle),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                blocks.Insert(0, new ReaderLinuxTextFallbackRawBlock(
+                    NormalizeReaderPlainTextLine(startTitle),
+                    null));
+            }
+
+            return new ReaderLinuxTextFallbackExtractedContent(text, blocks);
+        }
+        catch
+        {
+            return CreateFallbackContentFromTextAndImages(path, text);
+        }
+    }
+
+    private static ReaderLinuxTextFallbackExtractedContent CreateFallbackContentFromTextAndImages(
+        string path,
+        string text)
+    {
+        var blocks = new List<ReaderLinuxTextFallbackRawBlock>();
+        if (!string.IsNullOrWhiteSpace(text))
+            blocks.Add(new ReaderLinuxTextFallbackRawBlock(text, null));
+        foreach (var imagePath in EpubReaderImageReferenceNormalizer.ExtractLocalImagePaths(path))
+            blocks.Add(new ReaderLinuxTextFallbackRawBlock(null, imagePath));
+        return new ReaderLinuxTextFallbackExtractedContent(text, blocks);
+    }
+
+    private static bool IsReaderFootnoteReference(XElement element)
+    {
+        var metadata = string.Join(
+            ' ',
+            element.Attributes()
+                .Where(attribute => attribute.Name.LocalName is "type" or "role" or "rel" or "class" or "id" or "href")
+                .Select(attribute => attribute.Value));
+        return System.Text.RegularExpressions.Regex.IsMatch(
+            metadata,
+            @"\b(noteref|doc-noteref|footnote|endnote|note[-_]?ref|fn[-_]?ref)\b|(?:^|[#\s_-])(?:note|fn|ftn|footnote|zww?)[-_:]?\d*(?:n|ref)?(?:$|[\s#_-])",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    }
+
+    private static string? ResolveReaderElementHref(string sourcePath, XElement element)
+    {
+        var href = element.Attributes().FirstOrDefault(attribute =>
+            attribute.Name.LocalName.Equals("href", StringComparison.OrdinalIgnoreCase))?.Value;
+        if (string.IsNullOrWhiteSpace(href)) return null;
+        try
+        {
+            return Uri.TryCreate(new Uri(sourcePath), href.Trim(), out var uri) && uri.IsFile
+                ? uri.AbsoluteUri
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool ElementMatchesReaderFragment(XElement element, string? fragment)
+    {
+        if (string.IsNullOrWhiteSpace(fragment)) return false;
+        foreach (var attribute in element.Attributes())
+        {
+            var name = attribute.Name.LocalName;
+            if ((name.Equals("id", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("name", StringComparison.OrdinalIgnoreCase))
+                && string.Equals(attribute.Value, fragment, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static string ExtractReaderPlainText(
         string path,
         string? startFragment = null,
-        string? startTitle = null)
+        string? startTitle = null,
+        string? endFragment = null)
     {
         try
         {
@@ -1220,6 +2143,9 @@ public partial class MainWindow
             var inBody = false;
             var fragment = startFragment?.TrimStart('#');
             var hasFragment = !string.IsNullOrWhiteSpace(fragment);
+            var stopFragment = endFragment?.TrimStart('#');
+            var hasStopFragment = !string.IsNullOrWhiteSpace(stopFragment)
+                && !string.Equals(stopFragment, fragment, StringComparison.Ordinal);
             var capture = !hasFragment;
             var foundFragment = false;
             while (reader.Read())
@@ -1236,11 +2162,18 @@ public partial class MainWindow
                         capture = true;
                         foundFragment = true;
                     }
-                    if (inBody && IsReaderPlainTextBlock(name))
+                    if (inBody
+                        && capture
+                        && hasStopFragment
+                        && ElementMatchesReaderFragment(reader, stopFragment))
                     {
-                        AppendReaderPlainTextBreak(fallbackBuilder);
+                        break;
+                    }
+                    if (inBody && name == "br")
+                    {
+                        AppendReaderPlainTextLineBreak(fallbackBuilder);
                         if (capture)
-                            AppendReaderPlainTextBreak(builder);
+                            AppendReaderPlainTextLineBreak(builder);
                     }
                 }
                 else if (reader.NodeType == XmlNodeType.EndElement)
@@ -1265,14 +2198,18 @@ public partial class MainWindow
             var raw = hasFragment && foundFragment
                 ? builder.ToString()
                 : fallbackBuilder.ToString();
-            return TrimReaderPlainTextToTitle(NormalizeReaderPlainText(raw), startTitle);
+            return EnsureReaderPlainTextStartsWithTitle(
+                TrimReaderPlainTextToTitle(NormalizeReaderPlainText(raw), startTitle),
+                startTitle);
         }
         catch (XmlException)
         {
             var html = File.ReadAllText(path);
             var withoutTags = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", " ");
-            return TrimReaderPlainTextToTitle(
-                NormalizeReaderPlainText(WebUtility.HtmlDecode(withoutTags)),
+            return EnsureReaderPlainTextStartsWithTitle(
+                TrimReaderPlainTextToTitle(
+                    NormalizeReaderPlainText(WebUtility.HtmlDecode(withoutTags)),
+                    startTitle),
                 startTitle);
         }
     }
@@ -1296,7 +2233,7 @@ public partial class MainWindow
     private static bool IsReaderPlainTextBlock(string name)
         => name is "p" or "div" or "section" or "article" or "main"
             or "h1" or "h2" or "h3" or "h4" or "h5" or "h6"
-            or "li" or "blockquote" or "br";
+            or "li" or "blockquote";
 
     private static void AppendReaderPlainText(StringBuilder builder, string text)
     {
@@ -1314,15 +2251,24 @@ public partial class MainWindow
         if (builder.Length >= 2 && builder[^2] != '\n') builder.AppendLine();
     }
 
+    private static void AppendReaderPlainTextLineBreak(StringBuilder builder)
+    {
+        if (builder.Length == 0) return;
+        if (builder[^1] != '\n') builder.AppendLine();
+    }
+
     private static string NormalizeReaderPlainText(string text)
     {
-        var lines = text
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+        var normalized = string.Join(
+            "\n",
+            text
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n')
             .Split('\n')
-            .Select(line => System.Text.RegularExpressions.Regex.Replace(line, @"[ \t\f\v]+", " ").Trim())
-            .Where(line => line.Length > 0);
-        return string.Join(Environment.NewLine + Environment.NewLine, lines);
+            .Select(line => System.Text.RegularExpressions.Regex.Replace(line, @"[ \t\f\v]+", " ").Trim()));
+        normalized = System.Text.RegularExpressions.Regex.Replace(normalized, @"\n{3,}", "\n\n").Trim();
+        return normalized.Replace("\n", Environment.NewLine);
     }
 
     private static string TrimReaderPlainTextToTitle(string text, string? title)
@@ -1344,6 +2290,26 @@ public partial class MainWindow
 
         var directIndex = text.IndexOf(title, StringComparison.OrdinalIgnoreCase);
         return directIndex >= 0 ? text[directIndex..].TrimStart() : text;
+    }
+
+    private static string EnsureReaderPlainTextStartsWithTitle(string text, string? title)
+    {
+        title = NormalizeReaderPlainTextLine(title);
+        if (string.IsNullOrWhiteSpace(title)) return text;
+        if (string.IsNullOrWhiteSpace(text)) return title;
+
+        var firstLine = NormalizeReaderPlainTextLine(
+            text.Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace('\r', '\n')
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault());
+        if (string.Equals(firstLine, title, StringComparison.OrdinalIgnoreCase)
+            || firstLine.Contains(title, StringComparison.OrdinalIgnoreCase))
+        {
+            return text.TrimStart();
+        }
+
+        return title + Environment.NewLine + Environment.NewLine + text.TrimStart();
     }
 
     private static string NormalizeReaderPlainTextLine(string? text)
@@ -1498,6 +2464,7 @@ public partial class MainWindow
                 () =>
                 {
                     if (!IsLinuxReaderTextFallbackActive()) return;
+                    UpdateLinuxReaderTextFallbackImageSizes();
                     if (_readerLayout.FlowMode == 1)
                         RebuildLinuxReaderTextFallbackPages();
                     SyncLinuxReaderTextFallbackState(saveProgress: false);
@@ -1609,7 +2576,8 @@ public partial class MainWindow
                   const bodyStyle = getComputedStyle(body);
                   const paddingTop = parseFloat(bodyStyle.paddingTop) || 0;
                   const paddingBottom = parseFloat(bodyStyle.paddingBottom) || 0;
-                  const contentHeight = body.clientHeight - paddingTop - paddingBottom;
+                  const viewportHeight = root.clientHeight || window.innerHeight || body.clientHeight || 0;
+                  const contentHeight = viewportHeight - paddingTop - paddingBottom;
                   if (contentHeight > 0)
                     root.style.setProperty('--kkindle-page-content-h', contentHeight + 'px');
                   return true;
@@ -1626,6 +2594,7 @@ public partial class MainWindow
                 try
                 {
                     await host.InvokeScriptAsync(script);
+                    await host.InvokeScriptAsync(FitReaderCoverImageScript);
                     if (_readerLayout.FlowMode == 1)
                         await host.InvokeScriptAsync(ReaderPaginationScripts.Snap);
                 }
@@ -1798,6 +2767,7 @@ public partial class MainWindow
         if (!Uri.TryCreate(item.Target, UriKind.Absolute, out var target) || !target.IsFile) return false;
         if (!IsPathInside(_readerDocument.RootPath, target.LocalPath)) return false;
         PruneReaderPendingLocations(intent);
+        HideReaderSelectionPopup();
         if (!ReaderNavigationLocationPolicy.UsesRestorePosition(intent))
             _readerRestoredProgress = null;
         ResetReaderContinuousEdgeTracking();
@@ -1805,10 +2775,17 @@ public partial class MainWindow
             && !_readerIsPdf
             && intent is ReaderNavigationIntent.Toc or ReaderNavigationIntent.Progress;
         _readerLinuxTextFallbackTargetTitle = linuxFallbackStartsAtTarget ? item.Title : null;
+        if (linuxFallbackStartsAtTarget && !_readerLinuxTextFallbackMoveToChapterEnd)
+            _readerLinuxTextFallbackEndFragment = null;
 
         var current = CurrentReaderHost;
         if (ReaderNavigationLocationPolicy.TargetsSameDocument(current.Source, target))
         {
+            var sameDocumentSessionToken = _readerSessionCancellation?.Token ?? cancellationToken;
+            _readerNavigationCancellation?.Cancel();
+            var sameDocumentNavigationCancellation = CancellationTokenSource.CreateLinkedTokenSource(sameDocumentSessionToken);
+            _readerNavigationCancellation = sameDocumentNavigationCancellation;
+            var sameDocumentNavigationToken = sameDocumentNavigationCancellation.Token;
             try
             {
                 var direction = transitionDirection
@@ -1822,7 +2799,7 @@ public partial class MainWindow
                         await ApplyReaderLocationAsync(
                             current,
                             target,
-                            cancellationToken,
+                            sameDocumentNavigationToken,
                             intent,
                             _readerRestoredProgress is not null);
                         _readerChapterIndex = item.ChapterIndex;
@@ -1830,24 +2807,24 @@ public partial class MainWindow
                         await UpdateReaderScrollStateAsync(current);
                         if (linuxFallbackStartsAtTarget)
                         {
-                            _readerScrollPosition = 0;
+                            _readerScrollPosition = _readerLinuxTextFallbackMoveToChapterEnd ? -1 : 0;
                             _readerScrollRatio = 0;
-                            _readerLinuxTextFallbackPageIndex = 0;
+                            _readerLinuxTextFallbackPageIndex = _readerLinuxTextFallbackMoveToChapterEnd ? -1 : 0;
                         }
-                        await UpdateLinuxReaderTextFallbackAsync(cancellationToken);
+                        await UpdateLinuxReaderTextFallbackAsync(sameDocumentNavigationToken);
                         return true;
                     },
-                    cancellationToken,
+                    sameDocumentNavigationToken,
                     animate: intent != ReaderNavigationIntent.None);
                 PrimeReaderContinuousEdgeTracking();
                 SetReaderTocSelection(item);
                 ReaderChapterText.Text = GetReaderChapterPositionLabel();
                 UpdateReaderToolbar();
                 await UpdateReaderBookmarkIndicatorAsync();
-                await SaveReaderProgressAsync(cancellationToken);
+                await SaveReaderProgressAsync(sameDocumentSessionToken);
                 return true;
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (sameDocumentNavigationToken.IsCancellationRequested)
             {
                 return false;
             }
@@ -1855,6 +2832,12 @@ public partial class MainWindow
             {
                 ReaderStatusText.Text = $"定位失败：{exception.Message}";
                 return false;
+            }
+            finally
+            {
+                if (ReferenceEquals(_readerNavigationCancellation, sameDocumentNavigationCancellation))
+                    _readerNavigationCancellation = null;
+                sameDocumentNavigationCancellation.Dispose();
             }
         }
 
@@ -1868,15 +2851,28 @@ public partial class MainWindow
         var host = OperatingSystem.IsLinux()
             ? CurrentReaderHost
             : IsReaderHostReady(hiddenHost) ? hiddenHost! : CurrentReaderHost;
+        var previousChapterIndex = _readerChapterIndex;
+        var previousFragment = _readerCurrentFragment;
         try
         {
             ReaderStatusText.Text = string.Empty;
+            if (OperatingSystem.IsLinux() && !_readerIsPdf)
+            {
+                _readerChapterIndex = item.ChapterIndex;
+                _readerCurrentFragment = GetReaderTargetFragment(target);
+                if (linuxFallbackStartsAtTarget)
+                {
+                    _readerScrollPosition = _readerLinuxTextFallbackMoveToChapterEnd ? -1 : 0;
+                    _readerScrollRatio = 0;
+                    _readerLinuxTextFallbackPageIndex = _readerLinuxTextFallbackMoveToChapterEnd ? -1 : 0;
+                }
+            }
             var loaded = await NavigateReaderHostAndWaitAsync(host, target, navigationToken);
             if (!loaded) throw new InvalidOperationException("章节加载失败。");
 
             await ApplySavedAnnotationsAsync(host, navigationToken);
             var direction = transitionDirection
-                ?? (item.ChapterIndex < _readerChapterIndex ? -1 : 1);
+                ?? (item.ChapterIndex < previousChapterIndex ? -1 : 1);
             await RunReaderContentTransitionAsync(
                 current,
                 host,
@@ -1902,9 +2898,9 @@ public partial class MainWindow
                     await UpdateReaderScrollStateAsync(host);
                     if (linuxFallbackStartsAtTarget)
                     {
-                        _readerScrollPosition = 0;
+                        _readerScrollPosition = _readerLinuxTextFallbackMoveToChapterEnd ? -1 : 0;
                         _readerScrollRatio = 0;
-                        _readerLinuxTextFallbackPageIndex = 0;
+                        _readerLinuxTextFallbackPageIndex = _readerLinuxTextFallbackMoveToChapterEnd ? -1 : 0;
                     }
                     await UpdateLinuxReaderTextFallbackAsync(navigationToken);
                     return true;
@@ -1924,10 +2920,20 @@ public partial class MainWindow
         }
         catch (OperationCanceledException) when (navigationToken.IsCancellationRequested)
         {
+            if (ReferenceEquals(_readerNavigationCancellation, navigationCancellation))
+            {
+                _readerChapterIndex = previousChapterIndex;
+                _readerCurrentFragment = previousFragment;
+            }
             return false;
         }
         catch (Exception exception)
         {
+            if (ReferenceEquals(_readerNavigationCancellation, navigationCancellation))
+            {
+                _readerChapterIndex = previousChapterIndex;
+                _readerCurrentFragment = previousFragment;
+            }
             ReaderStatusText.Text = $"打开章节失败：{exception.Message}";
             return false;
         }
@@ -2911,7 +3917,8 @@ public partial class MainWindow
     private async Task HandleReaderFootnoteHoverAsync(
         string href,
         bool isFootnote,
-        Point? placementPoint = null)
+        Point? placementPoint = null,
+        bool pin = false)
     {
         if (!isFootnote
             || _readerDocument is null
@@ -2920,7 +3927,7 @@ public partial class MainWindow
             || string.IsNullOrWhiteSpace(uri.Fragment))
             return;
         var sequence = ++_readerFootnoteHoverSequence;
-        _readerFootnotePinned = false;
+        _readerFootnotePinned = pin;
         var path = Path.GetFullPath(uri.LocalPath);
         if (!IsPathInside(_readerDocument.RootPath, path)) return;
 
@@ -3096,7 +4103,10 @@ public partial class MainWindow
         ReaderFootnotePopup.IsVisible = true;
         if (placementPoint is { } point)
             _readerFootnotePlacementPoint = point;
-        if (CurrentReaderHost?.View is Control view
+        var placementTarget = IsLinuxReaderTextFallbackActive()
+            ? ReaderWebViewHost
+            : CurrentReaderHost?.View as Control;
+        if (placementTarget is { } view
             && _readerFootnotePlacementPoint is { } anchor)
         {
             ReaderFootnoteHostPopup.PlacementTarget = view;
@@ -3157,6 +4167,8 @@ public partial class MainWindow
                     }
                     goto case "scroll";
                 case "scroll":
+                    if (IsLinuxReaderTextFallbackActive())
+                        break;
                     var horizontalScroll = _readerLayout.FlowMode == 1 || _readerLayout.VerticalWriting;
                     if (!_readerIsPdf)
                     {
@@ -3185,6 +4197,8 @@ public partial class MainWindow
                     UpdateReaderBookmarkIndicatorFromTrackedLocation();
                     break;
                 case "selection":
+                    if (IsLinuxReaderTextFallbackActive())
+                        break;
                     _readerPendingSelection = root.TryGetProperty("text", out var selection)
                         ? selection.GetString()
                         : null;
@@ -3200,6 +4214,13 @@ public partial class MainWindow
                         ReaderAnnotationSelectionText.Text = _readerPendingSelection;
                         ReaderHighlightButton.IsVisible = true;
                         ReaderAnnotateButton.IsVisible = true;
+                        if (OperatingSystem.IsLinux())
+                        {
+                            var x = ReadDouble(root, "x");
+                            var y = ReadDouble(root, "y");
+                            var bottom = ReadDouble(root, "bottom");
+                            ShowReaderSelectionPopup(new Point(x, y), bottom);
+                        }
                     }
                     else
                     {
@@ -3211,6 +4232,7 @@ public partial class MainWindow
                         ReaderAnnotationSelectionText.Text = "请先在正文中选择一段文字，再点击顶部“批注”。";
                         ReaderHighlightButton.IsVisible = false;
                         ReaderAnnotateButton.IsVisible = false;
+                        HideReaderSelectionPopup();
                     }
                     break;
                 case "selectionAction":
@@ -3412,6 +4434,121 @@ public partial class MainWindow
     // native HWND island Avalonia cannot paint over), so its buttons arrive as
     // bridge messages instead of XAML clicks. Each action mirrors the WinUI
     // reference's selection-bar handlers.
+    private void ShowReaderSelectionPopup(Point? placementPoint = null, double? selectionBottom = null)
+    {
+        if (string.IsNullOrWhiteSpace(_readerPendingSelection))
+        {
+            HideReaderSelectionPopup();
+            return;
+        }
+
+        var hostWidth = Math.Max(1, ReaderWebViewHost.Bounds.Width);
+        var hostHeight = Math.Max(1, ReaderWebViewHost.Bounds.Height);
+        var anchor = placementPoint ?? new Point(
+            Math.Max(24, hostWidth / 2),
+            Math.Max(24, hostHeight / 2));
+        var barWidth = ReaderSelectionPopupBar.Bounds.Width > 0
+            ? ReaderSelectionPopupBar.Bounds.Width
+            : 360;
+        var barHeight = ReaderSelectionPopupBar.Bounds.Height > 0
+            ? ReaderSelectionPopupBar.Bounds.Height
+            : 38;
+        var left = Math.Min(
+            Math.Max(8, anchor.X - barWidth / 2),
+            Math.Max(8, hostWidth - barWidth - 8));
+        var bottom = selectionBottom is { } value && double.IsFinite(value)
+            ? value
+            : anchor.Y;
+        var roomAbove = anchor.Y - barHeight - 10 >= 8;
+        var anchorY = roomAbove
+            ? Math.Clamp(anchor.Y, 8, hostHeight - 8)
+            : Math.Clamp(bottom, 8, hostHeight - 8);
+        ReaderSelectionHostPopup.PlacementTarget = ReaderWebViewHost;
+        ReaderSelectionHostPopup.Placement = Avalonia.Controls.PlacementMode.AnchorAndGravity;
+        ReaderSelectionHostPopup.PlacementRect = new Rect(left, anchorY, 1, 1);
+        ReaderSelectionHostPopup.PlacementAnchor =
+            Avalonia.Controls.Primitives.PopupPositioning.PopupAnchor.TopLeft;
+        ReaderSelectionHostPopup.PlacementGravity =
+            roomAbove
+                ? Avalonia.Controls.Primitives.PopupPositioning.PopupGravity.TopLeft
+                : Avalonia.Controls.Primitives.PopupPositioning.PopupGravity.BottomLeft;
+        ReaderSelectionHostPopup.PlacementConstraintAdjustment =
+            Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.FlipX
+            | Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.FlipY
+            | Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.SlideX
+            | Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.SlideY;
+        ReaderSelectionHostPopup.HorizontalOffset = 0;
+        ReaderSelectionHostPopup.VerticalOffset = roomAbove ? -10 : 12;
+        ReaderSelectionHostPopup.IsOpen = true;
+    }
+
+    private void HideReaderSelectionPopup()
+    {
+        if (ReaderSelectionHostPopup is not null)
+            ReaderSelectionHostPopup.IsOpen = false;
+    }
+
+    private async void ReaderSelectionCopyButton_Click(object? sender, RoutedEventArgs e)
+    {
+        HideReaderSelectionPopup();
+        await PerformReaderSelectionCopyAsync();
+    }
+
+    private async void ReaderSelectionHighlightButton_Click(object? sender, RoutedEventArgs e)
+    {
+        HideReaderSelectionPopup();
+        await ApplyReaderHighlightStyleAsync("solid");
+    }
+
+    private void ReaderSelectionHighlightMenuButton_PointerEntered(object? sender, PointerEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
+        if (sender is Button { Flyout: { } flyout } button)
+            flyout.ShowAt(button);
+    }
+
+    private async void ReaderSelectionHighlightStyleItem_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string style }) return;
+        HideReaderSelectionPopup();
+        await ApplyReaderHighlightStyleAsync(style);
+    }
+
+    private void ReaderSelectionAnnotateButton_Click(object? sender, RoutedEventArgs e)
+    {
+        HideReaderSelectionPopup();
+        _selectedReaderAnnotation = null;
+        ReaderDeleteAnnotationButton.IsEnabled = false;
+        ReaderAnnotationNoteBox.Text = string.Empty;
+        if (_readerZenMode) ExitReaderZenMode();
+        ShowReaderNotesTab();
+        ReaderAnnotationNoteBox.Focus();
+    }
+
+    private void ReaderSelectionAiButton_Click(object? sender, RoutedEventArgs e)
+    {
+        HideReaderSelectionPopup();
+        if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
+        ShowReaderAiTab();
+        _ = ObserveReaderTaskAsync(SendReaderAiQuestionAsync(
+            $"请解释下面这段文字的含义、上下文和隐含前提，并给出一个简单例子：\n\n{_readerPendingSelection}"));
+    }
+
+    private void ReaderSelectionSearchButton_Click(object? sender, RoutedEventArgs e)
+    {
+        HideReaderSelectionPopup();
+        if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
+        ShowReaderSearchPanel();
+        ReaderTocSearchBox.Text = _readerPendingSelection;
+        ReaderTocSearchBox.Focus();
+    }
+
+    private async void ReaderSelectionDictionaryButton_Click(object? sender, RoutedEventArgs e)
+    {
+        HideReaderSelectionPopup();
+        await PerformReaderSelectionDictionaryAsync();
+    }
+
     private void DispatchReaderSelectionAction(JsonElement root)
     {
         if (!root.TryGetProperty("action", out var actionElement)) return;
@@ -3542,6 +4679,9 @@ public partial class MainWindow
         _readerPreviousScrollPosition = 0;
         _readerLastNearTop = false;
         _readerLastNearBottom = false;
+        _readerLinuxTextFallbackWheelDeltaRemainder = 0;
+        _readerLinuxTextFallbackContinuousWheelDirection = 0;
+        _readerLinuxTextFallbackContinuousWheelLastTick = 0;
     }
 
     private void PrimeReaderContinuousEdgeTracking()
@@ -3716,10 +4856,10 @@ public partial class MainWindow
 
         if (_readerLayout.FlowMode == 1)
         {
-            if (_readerLinuxTextFallbackPages.Count == 0)
+            if (GetLinuxReaderTextFallbackPageCount() <= 1 && _readerLinuxTextFallbackPages.Count == 0)
                 RebuildLinuxReaderTextFallbackPages();
             var spreadSize = _readerLayout.TwoPageMode ? 2 : 1;
-            var maximum = Math.Max(0, _readerLinuxTextFallbackPages.Count - spreadSize);
+            var maximum = Math.Max(0, GetLinuxReaderTextFallbackPageCount() - spreadSize);
             var targetPage = _readerLinuxTextFallbackPageIndex + direction * spreadSize;
             if (targetPage >= 0 && targetPage <= maximum)
             {
@@ -3728,6 +4868,9 @@ public partial class MainWindow
                 SyncLinuxReaderTextFallbackPagedState(saveProgress: true);
                 return;
             }
+
+            if (await TryNavigateAdjacentReaderTocPageBoundaryAsync(direction))
+                return;
 
             if (direction > 0 && _readerChapterIndex + 1 < _readerDocument.Chapters.Count)
                 await MoveReaderChapterAsync(1);
@@ -3770,6 +4913,48 @@ public partial class MainWindow
             await MoveReaderChapterAsync(-1);
         else
             ReaderStatusText.Text = "已经是第一章。";
+    }
+
+    private async Task<bool> TryNavigateAdjacentReaderTocPageBoundaryAsync(int direction)
+    {
+        direction = Math.Sign(direction);
+        if (direction == 0 || _readerTocItems.Count == 0) return false;
+
+        var currentIndex = GetCurrentReaderTocIndex();
+        var targetIndex = currentIndex + direction;
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= _readerTocItems.Count)
+            return false;
+
+        var target = _readerTocItems[targetIndex];
+        if (direction < 0)
+        {
+            var next = targetIndex + 1 < _readerTocItems.Count
+                ? _readerTocItems[targetIndex + 1]
+                : null;
+            _readerLinuxTextFallbackMoveToChapterEnd = true;
+            _readerLinuxTextFallbackEndFragment = next is not null
+                && next.ChapterIndex == target.ChapterIndex
+                && Uri.TryCreate(next.Target, UriKind.Absolute, out var nextTarget)
+                    ? GetReaderTargetFragment(nextTarget)
+                    : null;
+        }
+        else
+        {
+            _readerLinuxTextFallbackMoveToChapterEnd = false;
+            _readerLinuxTextFallbackEndFragment = null;
+        }
+
+        var navigated = await NavigateToReaderItemAsync(
+            target,
+            ReaderToken,
+            ReaderNavigationIntent.Toc,
+            transitionDirection: direction);
+        if (!navigated)
+        {
+            _readerLinuxTextFallbackMoveToChapterEnd = false;
+            _readerLinuxTextFallbackEndFragment = null;
+        }
+        return navigated;
     }
 
     private async Task TurnReaderPageAsync(int direction, bool chapterOnly = false)

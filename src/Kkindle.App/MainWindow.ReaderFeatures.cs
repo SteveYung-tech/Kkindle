@@ -59,6 +59,12 @@ public partial class MainWindow
             return;
         }
 
+        if (IsLinuxReaderTextFallbackActive()
+            && TryHandleLinuxReaderTextFallbackKeyDown(e))
+        {
+            return;
+        }
+
         // Native WebViews are swapped at chapter boundaries. If Windows sends
         // the next arrow to the Avalonia window before the newly visible HWND
         // has accepted focus, keep paginated navigation responsive here. Keys
