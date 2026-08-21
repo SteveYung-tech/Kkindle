@@ -209,8 +209,10 @@ public partial class MainWindow
         public void Dispose() => Source.Dispose();
     }
 
-    public sealed class ReaderLinuxTextFallbackBlock
+    public sealed class ReaderLinuxTextFallbackBlock : INotifyPropertyChanged
     {
+        private double _width = double.NaN;
+
         public ReaderLinuxTextFallbackBlock(
             string text,
             int textOffset,
@@ -261,6 +263,28 @@ public partial class MainWindow
         public bool IsText => Image is null && string.IsNullOrWhiteSpace(FootnoteHref);
         public bool IsImage => Image is not null;
         public bool IsFootnote => !string.IsNullOrWhiteSpace(FootnoteHref);
+
+        /// <summary>
+        /// Fixed layout width of the selectable paragraph. Wrapping must not
+        /// depend on the control's content-derived DesiredSize: SelectableTextBlock
+        /// re-measures when a selection starts or ends on a line boundary, and a
+        /// content-derived width makes that re-measure re-wrap the paragraph.
+        /// </summary>
+        public double Width
+        {
+            get => _width;
+            private set
+            {
+                if (double.IsNaN(_width) && double.IsNaN(value)) return;
+                if (!double.IsNaN(_width) && !double.IsNaN(value) && Math.Abs(_width - value) < 0.1) return;
+                _width = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Width)));
+            }
+        }
+
+        public void ResizeText(double width) => Width = width;
+
+        public event PropertyChangedEventHandler? PropertyChanged;
     }
 
     private sealed record ReaderLinuxTextFallbackRawBlock(
@@ -1731,6 +1755,8 @@ public partial class MainWindow
                 lineHeight,
                 textMaxWidth));
         }
+
+        UpdateLinuxReaderTextFallbackBlockWidths();
     }
 
     private static int IndexOfReaderPlainTextBlock(string fullText, string blockText, int startIndex)
@@ -1783,8 +1809,39 @@ public partial class MainWindow
             RenderLinuxReaderTextFallbackPage();
     }
 
-    private (double MaxWidth, double MaxHeight) GetLinuxReaderTextFallbackImageBounds()
+    /// <summary>
+    /// Pins the scrolling fallback paragraphs to a measured width so that
+    /// starting or ending a selection on a line boundary cannot re-wrap the
+    /// body text (the paged surface pins its rectangle the same way).
+    /// </summary>
+    private void UpdateLinuxReaderTextFallbackBlockWidths()
     {
+        if (ReaderLinuxTextFallbackBlocks.Count == 0) return;
+        var width = GetLinuxReaderTextFallbackBlockWidth();
+        foreach (var block in ReaderLinuxTextFallbackBlocks)
+        {
+            if (block.IsText)
+                block.ResizeText(width);
+        }
+    }
+
+    private double GetLinuxReaderTextFallbackBlockWidth()
+    {
+        var available = ReaderLinuxTextFallbackScroll.Bounds.Width;
+        if (!double.IsFinite(available) || available <= 0)
+            available = ReaderLinuxTextFallbackOverlay.Bounds.Width;
+        if (!double.IsFinite(available) || available <= 0)
+            available = ReaderWebViewHost.Bounds.Width;
+        if (!double.IsFinite(available) || available <= 0)
+            available = Math.Max(320, _readerLayout.MaxWidth);
+
+        // ScrollViewer padding (24 per side) plus room for the vertical scrollbar.
+        available -= 48 + 18;
+        var maxWidth = Math.Max(320, _readerLayout.MaxWidth);
+        return Math.Floor(Math.Max(240, Math.Min(maxWidth, available)));
+    }
+
+    private (double MaxWidth, double MaxHeight) GetLinuxReaderTextFallbackImageBounds()    {
         var overlayWidth = ReaderLinuxTextFallbackOverlay.Bounds.Width;
         if (!double.IsFinite(overlayWidth) || overlayWidth <= 0)
             overlayWidth = ReaderWebViewHost.Bounds.Width;
@@ -3252,6 +3309,7 @@ public partial class MainWindow
                         || !string.IsNullOrWhiteSpace(_readerPendingSelection);
                     if (!selectionInProgress)
                     {
+                        UpdateLinuxReaderTextFallbackBlockWidths();
                         if (_readerLayout.FlowMode == 1)
                             RebuildLinuxReaderTextFallbackPages();
                         SyncLinuxReaderTextFallbackState(saveProgress: false);
