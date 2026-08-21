@@ -269,7 +269,7 @@ public sealed class EpubReaderTests
                       <body onload="window.pwned = true">
                         <img src="https://example.com/remote.jpg" />
                         <img class="local" src="../images/ok.jpg" />
-                        <a class="footnote" href="#note-1"><img src="https://example.com/note.png" alt="" width="24" height="24" /></a>
+                        <a class="footnote" href="#note-1"><img src="https://example.com/note.png" alt="这是完整脚注解释" width="24" height="24" /></a>
                         <picture>
                           <source type="image/webp" srcset="../images/ok.webp 1x, https://example.com/ok.webp 2x" />
                           <img class="lazy" data-src="../images/lazy.jpg" data-srcset="../images/lazy.jpg 1x, https://example.com/lazy@2x.jpg 2x" alt="lazy image" />
@@ -318,9 +318,16 @@ public sealed class EpubReaderTests
             Assert.Contains("contextmenu", bridge, StringComparison.Ordinal);
             Assert.Contains("reportSelection(event)", bridge, StringComparison.Ordinal);
             Assert.Contains("contextMenu: !!contextEvent", bridge, StringComparison.Ordinal);
+            Assert.Contains("getSelectionAnchorRect", bridge, StringComparison.Ordinal);
+            Assert.Contains("const anchorX = hasAnchor ? rect.left", bridge, StringComparison.Ordinal);
+            Assert.Contains("const left = Math.min(Math.max(8, x)", bridge, StringComparison.Ordinal);
+            Assert.DoesNotContain("const anchorX = contextEvent ? contextEvent.clientX", bridge, StringComparison.Ordinal);
+            Assert.Contains("align-self: center", bridge, StringComparison.Ordinal);
             Assert.Contains("bookmarkToggle", bridge, StringComparison.Ordinal);
             Assert.Contains("data-kkindle-footnote-href", bridge, StringComparison.Ordinal);
-            Assert.Contains("element.removeAttribute('href')", bridge, StringComparison.Ordinal);
+            Assert.Contains("footnoteHoverElement", bridge, StringComparison.Ordinal);
+            Assert.Contains("if (footnoteHoverElement === element) return", bridge, StringComparison.Ordinal);
+            Assert.DoesNotContain("element.removeAttribute('href')", bridge, StringComparison.Ordinal);
             Assert.Contains("type: \"footnoteHover\"", bridge, StringComparison.Ordinal);
             Assert.Contains("nativeContinuousScroll", bridge, StringComparison.Ordinal);
             Assert.Contains("if (nativeContinuousScroll) return", bridge, StringComparison.Ordinal);
@@ -332,6 +339,7 @@ public sealed class EpubReaderTests
             Assert.Contains("position + viewport >= extent - 4", bridge, StringComparison.Ordinal);
             Assert.Contains("../images/ok.jpg", html, StringComparison.Ordinal);
             Assert.Contains("class=\"kkindle-footnote-marker\">注</sup>", html, StringComparison.Ordinal);
+            Assert.DoesNotContain("这是完整脚注解释", html, StringComparison.Ordinal);
             Assert.DoesNotContain("width=\"24\"", html, StringComparison.Ordinal);
 
             var cssPath = Path.Combine(document.RootPath, "OEBPS", "styles", "book.css");

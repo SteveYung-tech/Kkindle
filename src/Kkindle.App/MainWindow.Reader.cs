@@ -115,6 +115,7 @@ public partial class MainWindow
             FocusCurrentReaderHost();
             SetReaderTocSelectionForLocation(_readerChapterIndex, _readerCurrentFragment);
             await UpdateReaderScrollStateAsync(CurrentReaderHost!);
+            ScheduleReaderBookPageCountRefresh();
             UpdateReaderToolbar();
             PrimeReaderContinuousEdgeTracking();
 
@@ -720,7 +721,6 @@ public partial class MainWindow
         ReaderLinuxTextFallbackText.Text = string.Empty;
         StopReaderFootnoteHoverPoll();
         _readerFootnoteHoverSequence++;
-        _readerFootnotePinned = false;
         HideReaderFootnotePopup();
         ReaderHighlightButton.IsVisible = false;
         ReaderAnnotateButton.IsVisible = false;

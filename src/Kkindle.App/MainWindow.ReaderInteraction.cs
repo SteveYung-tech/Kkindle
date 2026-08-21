@@ -12,10 +12,14 @@ using System.Xml;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Media.TextFormatting;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -31,6 +35,7 @@ namespace Kkindle;
 /// </summary>
 public partial class MainWindow
 {
+    internal const char ReaderLinuxTextFallbackFootnoteMarker = '\uE000';
     private const int ReaderAnimationNone = 0;
     private const int ReaderAnimationFade = 1;
     private const int ReaderAnimationSlide = 2;
@@ -67,7 +72,6 @@ public partial class MainWindow
     private string? _readerPendingSearchContext;
     private int _readerBookmarkIndicatorSequence;
     private int _readerFootnoteHoverSequence;
-    private bool _readerFootnotePinned;
     private bool _readerFootnotePollRunning;
     private string? _readerFootnoteHref;
     private Point? _readerFootnotePlacementPoint;
@@ -75,6 +79,9 @@ public partial class MainWindow
     private bool _readerLinuxTextFallbackUpdating;
     private bool _readerLinuxTextFallbackPointerPressed;
     private Point _readerLinuxTextFallbackPointerStart;
+    private Vector _readerLinuxTextFallbackSelectionScrollOffset;
+    private bool _readerLinuxTextFallbackSelectionScrollLocked;
+    private bool _readerLinuxTextFallbackRestoringSelectionScroll;
     private bool _readerLinuxTextFallbackMoveToChapterEnd;
     private int _readerLinuxTextFallbackWheelDeltaRemainder;
     private int _readerLinuxTextFallbackContinuousWheelDirection;
@@ -105,6 +112,9 @@ public partial class MainWindow
     private double _readerScrollHeight;
     private double _readerClientWidth;
     private double _readerClientHeight;
+    private int[] _readerBookPageCounts = [];
+    private CancellationTokenSource? _readerBookPageCountCancellation;
+    private int _readerBookPageCountSequence;
     private DateTimeOffset _readerSessionStarted;
     private WindowState _readerWindowStateBeforeZen = WindowState.Normal;
     private bool _readerZenMode;
@@ -220,6 +230,18 @@ public partial class MainWindow
             Image = image;
         }
 
+        internal ReaderLinuxTextFallbackBlock(
+            string text,
+            int textOffset,
+            double fontSize,
+            double lineHeight,
+            double maxWidth,
+            IReadOnlyList<ReaderLinuxTextFallbackFootnote> inlineFootnotes)
+            : this(text, textOffset, fontSize, lineHeight, maxWidth)
+        {
+            InlineFootnotes = inlineFootnotes;
+        }
+
         public ReaderLinuxTextFallbackBlock(string footnoteLabel, string footnoteHref)
         {
             FootnoteLabel = string.IsNullOrWhiteSpace(footnoteLabel) ? "注" : footnoteLabel.Trim();
@@ -234,6 +256,8 @@ public partial class MainWindow
         public ReaderLinuxTextFallbackImage? Image { get; }
         public string FootnoteLabel { get; } = string.Empty;
         public string FootnoteHref { get; } = string.Empty;
+        internal IReadOnlyList<ReaderLinuxTextFallbackFootnote> InlineFootnotes { get; } = [];
+        internal bool HasInlineFootnotes => InlineFootnotes.Count > 0;
         public bool IsText => Image is null && string.IsNullOrWhiteSpace(FootnoteHref);
         public bool IsImage => Image is not null;
         public bool IsFootnote => !string.IsNullOrWhiteSpace(FootnoteHref);
@@ -249,12 +273,21 @@ public partial class MainWindow
         string Text,
         IReadOnlyList<ReaderLinuxTextFallbackRawBlock> Blocks);
 
+    internal sealed record ReaderLinuxTextFallbackFootnote(
+        string Label,
+        string Href);
+
     private sealed record ReaderLinuxTextFallbackPageItem(
         string Text,
         int TextOffset,
-        ReaderLinuxTextFallbackImage? Image)
+        ReaderLinuxTextFallbackImage? Image,
+        IReadOnlyList<ReaderLinuxTextFallbackFootnote>? Footnotes = null)
     {
+        public IReadOnlyList<ReaderLinuxTextFallbackFootnote> InlineFootnotes { get; } =
+            Footnotes ?? [];
+
         public bool IsImage => Image is not null;
+        public bool HasInlineFootnotes => InlineFootnotes.Count > 0;
     }
 
     private static ReaderLayoutSettings NormalizeReaderLayoutForPlatform(ReaderLayoutSettings settings)
@@ -294,6 +327,11 @@ public partial class MainWindow
         _readerScrollHeight = 0;
         _readerClientWidth = 0;
         _readerClientHeight = 0;
+        _readerBookPageCountCancellation?.Cancel();
+        _readerBookPageCountCancellation?.Dispose();
+        _readerBookPageCountCancellation = null;
+        _readerBookPageCounts = [];
+        _readerBookPageCountSequence++;
         _readerSearchCount = 0;
         _readerSearchIndex = -1;
         _readerPendingChunkOffset = null;
@@ -496,6 +534,23 @@ public partial class MainWindow
                 const contentHeight = viewportHeight - paddingTop - paddingBottom;
                 if (contentHeight > 0)
                   root.style.setProperty('--kkindle-page-content-h', contentHeight + 'px');
+
+                // Some EPUB converters put every source line in a paragraph
+                // behind a <br>. That is a physical line break, not a
+                // paragraph boundary, and it makes a reflowable paragraph
+                // jump to the next line while there is still room on the
+                // current one. Flatten those breaks for prose paragraphs;
+                // preformatted and explicitly marked verse remain intact.
+                body.querySelectorAll('br').forEach(br => {
+                  const paragraph = br.closest('p, li, blockquote, div, section, article, main');
+                  if (!paragraph
+                      || br.closest('pre, code, kbd, samp')
+                      || br.closest('[class*="poem"], [class*="poetry"], [class*="verse"], [id*="poem"], [id*="poetry"], [id*="verse"]')
+                      || /(?:poem|poetry|verse|诗|詩)/i.test(
+                        `${paragraph.className || ''} ${paragraph.id || ''}`))
+                    return;
+                  br.replaceWith(document.createTextNode(' '));
+                });
               }
               return true;
             })();
@@ -558,12 +613,29 @@ public partial class MainWindow
         builder.Append("\nhtml, body { background: #FFFFFF !important; color: #111111 !important; border: 0 !important; outline: 0 !important; box-shadow: none !important; }");
         if (OperatingSystem.IsLinux())
             builder.Append("\nhtml, body { visibility: visible !important; opacity: 1 !important; }");
-        builder.Append($"\nbody {{ font-size: 1rem !important; line-height: {Format(lineHeight)} !important; font-family: {fontStack} !important; letter-spacing: 0.012em !important; overflow-wrap: anywhere; box-sizing: border-box; line-break: strict; word-break: normal; }}");
-        builder.Append("\nbody :where(p, div, span, section, article, main, h1, h2, h3, h4, h5, h6, li, td, th, blockquote, a, em, strong, b, i, ruby, rt) { visibility: visible !important; opacity: 1 !important; color: #111111 !important; -webkit-text-fill-color: #111111 !important; font-family: inherit !important; }");
+        builder.Append($"\nbody {{ font-size: 1rem !important; line-height: {Format(lineHeight)} !important; font-family: {fontStack} !important; letter-spacing: 0.012em !important; overflow-wrap: anywhere !important; box-sizing: border-box; line-break: anywhere !important; word-break: break-all !important; }}");
+        // Keep every character available as a wrapping opportunity. EPUBs
+        // frequently carry restrictive word-breaking rules on individual
+        // elements, which can move a token wholesale to the next line and
+        // leave visible space at the end of the current line. Preformatted
+        // content keeps its own whitespace semantics below.
+        builder.Append("\nbody :where(p, div, span, section, article, main, h1, h2, h3, h4, h5, h6, li, td, th, blockquote, a, em, strong, b, i, ruby, rt) { visibility: visible !important; opacity: 1 !important; color: #111111 !important; -webkit-text-fill-color: #111111 !important; font-family: inherit !important; overflow-wrap: anywhere !important; word-break: break-all !important; white-space: normal !important; line-break: anywhere !important; }");
+        if (!vertical)
+            builder.Append("\nbody :where(p, div, section, article, main, li, td, th, blockquote) { text-align: justify !important; text-justify: inter-character !important; }");
+        builder.Append("\nbody pre, body code, body kbd, body samp { white-space: pre-wrap !important; overflow-wrap: anywhere !important; word-break: break-all !important; line-break: anywhere !important; }");
+        builder.Append("\nbody br { display: inline !important; }");
+        builder.Append("\nbody :where(aside[id*='footnote'], aside[class*='footnote'], aside[role='doc-footnote'], .duokan-footnote-content, .duokan-footnote-item) { display: none !important; }");
         if (!vertical)
             builder.Append("\nbody { text-align: justify !important; }");
         builder.Append("\n::selection, body *::selection { background: #000000 !important; background-color: #000000 !important; color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important; }");
         builder.Append("\na { color: #222222 !important; }");
+        // Footnote markers are part of the sentence, not standalone page
+        // content. Keep the marker's glyph and its superscript wrapper as one
+        // small inline unit so a column break cannot strand [1] on an empty
+        // page. The bridge adds the class to the actual noteref anchors after
+        // the XHTML body has been parsed.
+        builder.Append("\nbody a.kkindle-footnote-reference, body span.kkindle-footnote-marker { white-space: nowrap !important; line-height: 1 !important; break-inside: avoid !important; break-before: avoid-column !important; break-after: avoid-column !important; text-decoration: none !important; }");
+        builder.Append("\nbody span.sbiao { white-space: nowrap !important; line-height: 1 !important; break-inside: avoid !important; break-before: avoid-column !important; break-after: avoid-column !important; }");
         builder.Append("\np { margin: 0.55em 0 1.05em 0 !important; }");
         builder.Append("\nli, blockquote { font-size: 1rem !important; line-height: 1.78 !important; }");
         builder.Append("\nh1, h2, h3, h4 { color: #111111 !important; line-height: 1.35 !important; font-weight: bold !important; margin: 1.35em 0 0.72em 0 !important; }");
@@ -867,12 +939,20 @@ public partial class MainWindow
     {
         ReaderLinuxTextFallbackOverlay.IsVisible = false;
         ReaderLinuxTextFallbackText.Text = string.Empty;
+        ReaderLinuxTextFallbackPageLeft.Inlines?.Clear();
+        ReaderLinuxTextFallbackPageRight.Inlines?.Clear();
         ReaderLinuxTextFallbackPageLeft.Text = string.Empty;
         ReaderLinuxTextFallbackPageRight.Text = string.Empty;
         ReaderLinuxTextFallbackPageImageLeft.Source = null;
         ReaderLinuxTextFallbackPageImageRight.Source = null;
         ReaderLinuxTextFallbackPageImageLeft.IsVisible = false;
         ReaderLinuxTextFallbackPageImageRight.IsVisible = false;
+        ReaderLinuxTextFallbackPageFootnoteLeft.Content = string.Empty;
+        ReaderLinuxTextFallbackPageFootnoteLeft.Tag = null;
+        ReaderLinuxTextFallbackPageFootnoteLeft.IsVisible = false;
+        ReaderLinuxTextFallbackPageFootnoteRight.Content = string.Empty;
+        ReaderLinuxTextFallbackPageFootnoteRight.Tag = null;
+        ReaderLinuxTextFallbackPageFootnoteRight.IsVisible = false;
         _readerLinuxTextFallbackText = string.Empty;
         _readerLinuxTextFallbackPages.Clear();
         _readerLinuxTextFallbackPageItems.Clear();
@@ -886,7 +966,60 @@ public partial class MainWindow
     {
         if (_readerLinuxTextFallbackUpdating) return;
         if (_readerLayout.FlowMode != 0) return;
+        if (_readerLinuxTextFallbackSelectionScrollLocked)
+        {
+            RestoreLinuxTextFallbackSelectionScrollOffset();
+            return;
+        }
         SyncLinuxReaderTextFallbackScrollState(saveProgress: true);
+    }
+
+    private void RestoreLinuxTextFallbackSelectionScrollOffset()
+    {
+        if (!_readerLinuxTextFallbackSelectionScrollLocked
+            || _readerLinuxTextFallbackRestoringSelectionScroll)
+        {
+            return;
+        }
+
+        var target = new Vector(
+            Math.Max(0, _readerLinuxTextFallbackSelectionScrollOffset.X),
+            Math.Max(0, _readerLinuxTextFallbackSelectionScrollOffset.Y));
+        var current = ReaderLinuxTextFallbackScroll.Offset;
+        if (Math.Abs(current.X - target.X) <= 0.5
+            && Math.Abs(current.Y - target.Y) <= 0.5)
+            return;
+
+        _readerLinuxTextFallbackRestoringSelectionScroll = true;
+        try
+        {
+            ReaderLinuxTextFallbackScroll.Offset = target;
+        }
+        finally
+        {
+            _readerLinuxTextFallbackRestoringSelectionScroll = false;
+        }
+    }
+
+    private void ReleaseLinuxTextFallbackSelectionScrollLock()
+    {
+        if (!_readerLinuxTextFallbackSelectionScrollLocked) return;
+
+        RestoreLinuxTextFallbackSelectionScrollOffset();
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                if (!IsLinuxReaderTextFallbackActive() || _readerLayout.FlowMode != 0)
+                {
+                    _readerLinuxTextFallbackSelectionScrollLocked = false;
+                    return;
+                }
+
+                RestoreLinuxTextFallbackSelectionScrollOffset();
+                _readerLinuxTextFallbackSelectionScrollLocked = false;
+                SyncLinuxReaderTextFallbackScrollState(saveProgress: false);
+            },
+            DispatcherPriority.Background);
     }
 
     private bool IsLinuxReaderTextFallbackActive() =>
@@ -1048,13 +1181,55 @@ public partial class MainWindow
             : Math.Max(240, Math.Min(_readerLayout.MaxWidth, overlayWidth - 48));
         var pageHeight = Math.Max(180, overlayHeight - 36);
         var linesPerPage = Math.Max(4, (int)Math.Floor(pageHeight / lineHeight));
-        var lineUnits = Math.Max(8, pageWidth / (fontSize * 0.92));
+        // Use the real Avalonia text formatter for the visible fallback pages
+        // so the split point is the same one used by the wrapping control.
         _readerLinuxTextFallbackPages.Clear();
         _readerLinuxTextFallbackPageItems.Clear();
+
+        var textBuilder = new StringBuilder();
+        var footnotes = new List<ReaderLinuxTextFallbackFootnote>();
+        var textOffset = 0;
+
+        void FlushTextPages()
+        {
+            if (textBuilder.Length == 0) return;
+
+            var mixedText = textBuilder.ToString();
+            var pages = PaginateReaderPlainTextWithMeasuredLayout(
+                mixedText,
+                pageWidth,
+                linesPerPage,
+                fontSize,
+                lineHeight,
+                ReaderLinuxTextFallbackPageLeft.FontFamily);
+            var footnoteIndex = 0;
+            foreach (var page in pages)
+            {
+                var notesOnPage = new List<ReaderLinuxTextFallbackFootnote>();
+                foreach (var character in page)
+                {
+                    if (character != ReaderLinuxTextFallbackFootnoteMarker || footnoteIndex >= footnotes.Count)
+                        continue;
+                    notesOnPage.Add(footnotes[footnoteIndex++]);
+                }
+
+                _readerLinuxTextFallbackPages.Add(page);
+                _readerLinuxTextFallbackPageItems.Add(new ReaderLinuxTextFallbackPageItem(
+                    page,
+                    Math.Max(0, textOffset),
+                    null,
+                    notesOnPage));
+            }
+
+            textBuilder.Clear();
+            footnotes.Clear();
+        }
+
         foreach (var block in ReaderLinuxTextFallbackBlocks)
         {
             if (block.Image is not null)
             {
+                FlushTextPages();
                 _readerLinuxTextFallbackPageItems.Add(new ReaderLinuxTextFallbackPageItem(
                     string.Empty,
                     0,
@@ -1062,22 +1237,38 @@ public partial class MainWindow
                 continue;
             }
 
-            foreach (var page in PaginateReaderPlainText(block.Text, lineUnits, linesPerPage))
+            if (block.IsFootnote)
             {
-                var offset = block.TextOffset + Math.Max(0, block.Text.IndexOf(page, StringComparison.Ordinal));
-                _readerLinuxTextFallbackPages.Add(page);
-                _readerLinuxTextFallbackPageItems.Add(new ReaderLinuxTextFallbackPageItem(
-                    page,
-                    Math.Max(0, offset),
-                    null));
+                if (textBuilder.Length == 0)
+                    textOffset = 0;
+                textBuilder.Append(ReaderLinuxTextFallbackFootnoteMarker);
+                footnotes.Add(new ReaderLinuxTextFallbackFootnote(
+                    block.FootnoteLabel,
+                    block.FootnoteHref));
+                continue;
             }
+
+            if (string.IsNullOrWhiteSpace(block.Text)) continue;
+            if (textBuilder.Length == 0)
+                textOffset = block.TextOffset;
+            else if (textBuilder[^1] != '\n')
+                textBuilder.AppendLine();
+            textBuilder.Append(block.Text);
+            if (block.HasInlineFootnotes)
+                footnotes.AddRange(block.InlineFootnotes);
         }
+
+        FlushTextPages();
+
         if (_readerLinuxTextFallbackPageItems.Count == 0)
         {
-            _readerLinuxTextFallbackPages = PaginateReaderPlainText(
+            _readerLinuxTextFallbackPages = PaginateReaderPlainTextWithMeasuredLayout(
                 _readerLinuxTextFallbackText,
-                lineUnits,
-                linesPerPage);
+                pageWidth,
+                linesPerPage,
+                fontSize,
+                lineHeight,
+                ReaderLinuxTextFallbackPageLeft.FontFamily);
             foreach (var page in _readerLinuxTextFallbackPages)
             {
                 _readerLinuxTextFallbackPageItems.Add(new ReaderLinuxTextFallbackPageItem(
@@ -1102,8 +1293,22 @@ public partial class MainWindow
             _readerLinuxTextFallbackPageIndex--;
         _readerLinuxTextFallbackMoveToChapterEnd = false;
 
+        // Pagination is calculated from this exact rectangle. Keep the
+        // selectable controls at that rectangle instead of letting their
+        // content-derived DesiredSize change when a selection starts or ends
+        // on a line boundary and triggering a second wrap pass.
+        ReaderLinuxTextFallbackPageLeft.Width = pageWidth;
+        ReaderLinuxTextFallbackPageLeft.MinWidth = pageWidth;
         ReaderLinuxTextFallbackPageLeft.MaxWidth = pageWidth;
+        ReaderLinuxTextFallbackPageLeft.Height = pageHeight;
+        ReaderLinuxTextFallbackPageLeft.MinHeight = pageHeight;
+        ReaderLinuxTextFallbackPageLeft.MaxHeight = pageHeight;
+        ReaderLinuxTextFallbackPageRight.Width = pageWidth;
+        ReaderLinuxTextFallbackPageRight.MinWidth = pageWidth;
         ReaderLinuxTextFallbackPageRight.MaxWidth = pageWidth;
+        ReaderLinuxTextFallbackPageRight.Height = pageHeight;
+        ReaderLinuxTextFallbackPageRight.MinHeight = pageHeight;
+        ReaderLinuxTextFallbackPageRight.MaxHeight = pageHeight;
         RenderLinuxReaderTextFallbackPage();
     }
 
@@ -1112,6 +1317,8 @@ public partial class MainWindow
         var pageCount = GetLinuxReaderTextFallbackPageCount();
         if (pageCount == 0)
         {
+            ReaderLinuxTextFallbackPageLeft.Inlines?.Clear();
+            ReaderLinuxTextFallbackPageRight.Inlines?.Clear();
             ReaderLinuxTextFallbackPageLeft.Text = string.Empty;
             ReaderLinuxTextFallbackPageRight.Text = string.Empty;
             ReaderLinuxTextFallbackPageLeft.IsVisible = false;
@@ -1120,6 +1327,12 @@ public partial class MainWindow
             ReaderLinuxTextFallbackPageImageRight.Source = null;
             ReaderLinuxTextFallbackPageImageLeft.IsVisible = false;
             ReaderLinuxTextFallbackPageImageRight.IsVisible = false;
+            ReaderLinuxTextFallbackPageFootnoteLeft.Content = string.Empty;
+            ReaderLinuxTextFallbackPageFootnoteLeft.Tag = null;
+            ReaderLinuxTextFallbackPageFootnoteLeft.IsVisible = false;
+            ReaderLinuxTextFallbackPageFootnoteRight.Content = string.Empty;
+            ReaderLinuxTextFallbackPageFootnoteRight.Tag = null;
+            ReaderLinuxTextFallbackPageFootnoteRight.IsVisible = false;
             return;
         }
 
@@ -1130,6 +1343,7 @@ public partial class MainWindow
         RenderLinuxReaderTextFallbackSlot(
             ReaderLinuxTextFallbackPageLeft,
             ReaderLinuxTextFallbackPageImageLeft,
+            ReaderLinuxTextFallbackPageFootnoteLeft,
             _readerLinuxTextFallbackPageIndex);
 
         var rightPageIndex = _readerLinuxTextFallbackPageIndex + 1;
@@ -1138,22 +1352,34 @@ public partial class MainWindow
             RenderLinuxReaderTextFallbackSlot(
                 ReaderLinuxTextFallbackPageRight,
                 ReaderLinuxTextFallbackPageImageRight,
+                ReaderLinuxTextFallbackPageFootnoteRight,
                 rightPageIndex);
         }
         else
         {
+            ReaderLinuxTextFallbackPageRight.Inlines?.Clear();
             ReaderLinuxTextFallbackPageRight.Text = string.Empty;
             ReaderLinuxTextFallbackPageRight.IsVisible = false;
             ReaderLinuxTextFallbackPageImageRight.Source = null;
             ReaderLinuxTextFallbackPageImageRight.IsVisible = false;
+            ReaderLinuxTextFallbackPageFootnoteRight.Content = string.Empty;
+            ReaderLinuxTextFallbackPageFootnoteRight.Tag = null;
+            ReaderLinuxTextFallbackPageFootnoteRight.IsVisible = false;
         }
     }
 
     private void RenderLinuxReaderTextFallbackSlot(
         SelectableTextBlock textBlock,
         Image imageControl,
+        Button footnoteButton,
         int pageIndex)
     {
+        textBlock.Inlines?.Clear();
+        textBlock.Text = string.Empty;
+        footnoteButton.Content = string.Empty;
+        footnoteButton.Tag = null;
+        footnoteButton.IsVisible = false;
+
         if (pageIndex >= 0
             && pageIndex < _readerLinuxTextFallbackPageItems.Count
             && _readerLinuxTextFallbackPageItems[pageIndex] is { Image: { } image })
@@ -1172,7 +1398,11 @@ public partial class MainWindow
             && pageIndex < _readerLinuxTextFallbackPageItems.Count
             && !_readerLinuxTextFallbackPageItems[pageIndex].IsImage)
         {
-            textBlock.Text = _readerLinuxTextFallbackPageItems[pageIndex].Text;
+            var page = _readerLinuxTextFallbackPageItems[pageIndex];
+            if (page.HasInlineFootnotes)
+                RenderLinuxReaderTextFallbackInlinePage(textBlock, page);
+            else
+                textBlock.Text = page.Text;
             textBlock.IsVisible = true;
         }
         else
@@ -1182,6 +1412,60 @@ public partial class MainWindow
         }
         imageControl.Source = null;
         imageControl.IsVisible = false;
+    }
+
+    private void RenderLinuxReaderTextFallbackInlinePage(
+        SelectableTextBlock textBlock,
+        ReaderLinuxTextFallbackPageItem page)
+    {
+        var footnoteIndex = 0;
+        var textStart = 0;
+        var text = page.Text;
+
+        void AddRun(string value)
+        {
+            if (value.Length > 0)
+                textBlock.Inlines?.Add(new Run(value));
+        }
+
+        for (var index = 0; index < text.Length; index++)
+        {
+            if (text[index] != ReaderLinuxTextFallbackFootnoteMarker)
+                continue;
+
+            AddRun(text[textStart..index]);
+            if (footnoteIndex < page.InlineFootnotes.Count)
+            {
+                var footnote = page.InlineFootnotes[footnoteIndex++];
+                textBlock.Inlines?.Add(new InlineUIContainer(
+                    CreateLinuxReaderInlineFootnoteButton(footnote)));
+            }
+            else
+            {
+                AddRun("注");
+            }
+            textStart = index + 1;
+        }
+
+        AddRun(text[textStart..]);
+    }
+
+    private Button CreateLinuxReaderInlineFootnoteButton(
+        ReaderLinuxTextFallbackFootnote footnote)
+    {
+        var button = new Button
+        {
+            Content = footnote.Label,
+            Tag = footnote.Href,
+            Focusable = true,
+            VerticalAlignment = VerticalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Padding = new Thickness(2, 0)
+        };
+        button.Classes.Add("readerFootnoteMarker");
+        button.PointerEntered += ReaderLinuxTextFallbackFootnoteButton_PointerEntered;
+        button.PointerExited += ReaderLinuxTextFallbackFootnoteButton_PointerExited;
+        return button;
     }
 
     private int GetLinuxReaderTextFallbackPageCount() =>
@@ -1248,8 +1532,9 @@ public partial class MainWindow
                 }
 
                 var currentUnits = 0d;
-                foreach (var ch in remaining)
+                for (var index = 0; index < remaining.Length; index++)
                 {
+                    var ch = remaining[index];
                     var unit = GetReaderPlainTextCharUnits(ch);
                     if (line.Length > 0 && currentUnits + unit > lineUnits)
                     {
@@ -1270,6 +1555,82 @@ public partial class MainWindow
         return pages;
     }
 
+    private static List<string> PaginateReaderPlainTextWithMeasuredLayout(
+        string text,
+        double pageWidth,
+        int linesPerPage,
+        double fontSize,
+        double lineHeight,
+        FontFamily fontFamily)
+    {
+        var normalized = text
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Trim();
+        if (normalized.Length == 0)
+            return [string.Empty];
+
+        try
+        {
+            var layout = new TextLayout(
+                normalized,
+                new Typeface(fontFamily, FontStyle.Normal, FontWeight.Normal, FontStretch.Normal),
+                Math.Max(1, fontSize),
+                Brushes.Transparent,
+                TextAlignment.Left,
+                TextWrapping.Wrap,
+                TextTrimming.None,
+                null,
+                FlowDirection.LeftToRight,
+                Math.Max(1, pageWidth),
+                double.PositiveInfinity,
+                Math.Max(1, lineHeight),
+                0,
+                0,
+                null,
+                null);
+            var lines = layout.TextLines
+                .Select(line =>
+                {
+                    var start = Math.Clamp(line.FirstTextSourceIndex, 0, normalized.Length);
+                    var end = Math.Clamp(start + line.Length, start, normalized.Length);
+                    return (Start: start, End: end);
+                })
+                .Where(line => line.End > line.Start)
+                .ToArray();
+            if (lines.Length == 0)
+                return [string.Empty];
+
+            var pages = new List<string>();
+            var safeLinesPerPage = Math.Max(1, linesPerPage);
+            for (var lineIndex = 0; lineIndex < lines.Length; lineIndex += safeLinesPerPage)
+            {
+                var start = lines[lineIndex].Start;
+                var nextLineIndex = Math.Min(lineIndex + safeLinesPerPage, lines.Length);
+                var end = nextLineIndex < lines.Length
+                    ? lines[nextLineIndex].Start
+                    : normalized.Length;
+                end = Math.Clamp(end, start, normalized.Length);
+                var page = normalized[start..end].TrimEnd();
+                if (page.Length > 0)
+                    pages.Add(page);
+            }
+
+            return pages.Count > 0 ? pages : [string.Empty];
+        }
+        catch
+        {
+            // TextLayout is unavailable before an Avalonia text backend is
+            // initialized (for example during a headless page estimate). The
+            // deterministic unit fallback still keeps every character and
+            // is used only for that exceptional path.
+            return PaginateReaderPlainText(
+                normalized,
+                Math.Max(8, pageWidth / Math.Max(1, fontSize)),
+                linesPerPage);
+        }
+    }
+
     private void UpdateLinuxReaderTextFallbackBlocks(
         IReadOnlyList<ReaderLinuxTextFallbackRawBlock> rawBlocks,
         string fallbackText,
@@ -1282,11 +1643,42 @@ public partial class MainWindow
         var lineHeight = fontSize * _readerLayout.LineHeight;
         var textMaxWidth = Math.Max(320, _readerLayout.MaxWidth);
         var textOffset = 0;
+        var pendingText = new StringBuilder();
+        var pendingFootnotes = new List<ReaderLinuxTextFallbackFootnote>();
+        var pendingOffset = 0;
+
+        void FlushTextBlock()
+        {
+            var text = NormalizeReaderPlainText(pendingText.ToString());
+            pendingText.Clear();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                pendingFootnotes.Clear();
+                return;
+            }
+
+            ReaderLinuxTextFallbackBlocks.Add(pendingFootnotes.Count == 0
+                ? new ReaderLinuxTextFallbackBlock(
+                    text,
+                    Math.Clamp(pendingOffset, 0, fallbackText.Length),
+                    fontSize,
+                    lineHeight,
+                    textMaxWidth)
+                : new ReaderLinuxTextFallbackBlock(
+                    text,
+                    Math.Clamp(pendingOffset, 0, fallbackText.Length),
+                    fontSize,
+                    lineHeight,
+                    textMaxWidth,
+                    pendingFootnotes.ToArray()));
+            pendingFootnotes.Clear();
+        }
 
         foreach (var rawBlock in rawBlocks)
         {
             if (!string.IsNullOrWhiteSpace(rawBlock.ImagePath))
             {
+                FlushTextBlock();
                 if (!imageCache.TryGetValue(rawBlock.ImagePath, out var image))
                 {
                     try
@@ -1309,8 +1701,11 @@ public partial class MainWindow
 
             if (!string.IsNullOrWhiteSpace(rawBlock.FootnoteHref))
             {
-                ReaderLinuxTextFallbackBlocks.Add(new ReaderLinuxTextFallbackBlock(
-                    rawBlock.FootnoteLabel ?? "注",
+                if (pendingText.Length == 0)
+                    pendingOffset = textOffset;
+                pendingText.Append(ReaderLinuxTextFallbackFootnoteMarker);
+                pendingFootnotes.Add(new ReaderLinuxTextFallbackFootnote(
+                    string.IsNullOrWhiteSpace(rawBlock.FootnoteLabel) ? "注" : rawBlock.FootnoteLabel.Trim(),
                     rawBlock.FootnoteHref));
                 continue;
             }
@@ -1319,14 +1714,13 @@ public partial class MainWindow
             if (string.IsNullOrWhiteSpace(text)) continue;
             var start = IndexOfReaderPlainTextBlock(fallbackText, text, textOffset);
             if (start < 0) start = textOffset;
-            ReaderLinuxTextFallbackBlocks.Add(new ReaderLinuxTextFallbackBlock(
-                text,
-                Math.Clamp(start, 0, fallbackText.Length),
-                fontSize,
-                lineHeight,
-                textMaxWidth));
+            if (pendingText.Length == 0)
+                pendingOffset = start;
+            pendingText.Append(text);
             textOffset = Math.Clamp(start + text.Length, 0, fallbackText.Length);
         }
+
+        FlushTextBlock();
 
         if (ReaderLinuxTextFallbackBlocks.Count == 0 && !string.IsNullOrWhiteSpace(fallbackText))
         {
@@ -1468,7 +1862,10 @@ public partial class MainWindow
                 GetLinuxReaderTextFallbackPageText(0),
                 _readerLinuxTextFallbackPageIndex))
         {
-            ShowReaderSelectionPopup(placementPoint, selectionBottom);
+            var anchor = GetReaderSelectionAnchorRect(ReaderLinuxTextFallbackPageLeft);
+            ShowReaderSelectionPopup(
+                anchor?.Position ?? placementPoint,
+                anchor?.Bottom ?? selectionBottom);
             return;
         }
 
@@ -1478,7 +1875,10 @@ public partial class MainWindow
                 GetLinuxReaderTextFallbackPageText(1),
                 _readerLinuxTextFallbackPageIndex + 1))
         {
-            ShowReaderSelectionPopup(placementPoint, selectionBottom);
+            var anchor = GetReaderSelectionAnchorRect(ReaderLinuxTextFallbackPageRight);
+            ShowReaderSelectionPopup(
+                anchor?.Position ?? placementPoint,
+                anchor?.Bottom ?? selectionBottom);
             return;
         }
 
@@ -1508,10 +1908,91 @@ public partial class MainWindow
         _selectedReaderAnnotation = null;
         ReaderDeleteAnnotationButton.IsEnabled = false;
         ReaderAnnotationSelectionText.Text = selectedText;
-        ReaderHighlightButton.IsVisible = true;
-        ReaderAnnotateButton.IsVisible = true;
-        ReaderStatusText.Text = "已选中文字，可点击“划线”保存";
+        if (!OperatingSystem.IsLinux())
+            ReaderStatusText.Text = "已选中文字，可点击“划线”保存";
         return true;
+    }
+
+    private Rect? GetReaderSelectionAnchorRect(SelectableTextBlock block)
+    {
+        try
+        {
+            var start = Math.Max(0, Math.Min(block.SelectionStart, block.SelectionEnd));
+            var end = Math.Max(0, Math.Max(block.SelectionStart, block.SelectionEnd));
+            if (block.TextLayout is not { } layout)
+                return null;
+
+            var left = double.PositiveInfinity;
+            var top = double.PositiveInfinity;
+            var right = double.NegativeInfinity;
+            var boundsBottom = double.NegativeInfinity;
+            var lineTop = 0d;
+            foreach (var line in layout.TextLines)
+            {
+                var lineStart = Math.Max(0, line.FirstTextSourceIndex);
+                var lineEnd = Math.Max(lineStart, lineStart + line.Length);
+                var selectedStart = Math.Max(start, lineStart);
+                var selectedEnd = Math.Min(end, lineEnd);
+                if (selectedEnd <= selectedStart)
+                {
+                    lineTop += Math.Max(0, line.Height);
+                    continue;
+                }
+
+                var segmentLeft = double.PositiveInfinity;
+                var segmentRight = double.NegativeInfinity;
+                foreach (var textBounds in line.GetTextBounds(
+                             selectedStart,
+                             selectedEnd - selectedStart))
+                {
+                    segmentLeft = Math.Min(segmentLeft, textBounds.Rectangle.Left);
+                    segmentRight = Math.Max(segmentRight, textBounds.Rectangle.Right);
+                }
+
+                if (!double.IsFinite(segmentLeft)
+                    || !double.IsFinite(segmentRight))
+                {
+                    var startHit = layout.HitTestTextPosition(selectedStart);
+                    var endHit = layout.HitTestTextPosition(Math.Max(selectedStart, selectedEnd - 1));
+                    segmentLeft = selectedStart <= lineStart
+                        ? line.Start
+                        : startHit.X;
+                    segmentRight = selectedEnd >= lineEnd
+                        ? line.Start + line.WidthIncludingTrailingWhitespace
+                        : endHit.Right;
+                }
+                if (!double.IsFinite(segmentLeft)
+                    || !double.IsFinite(segmentRight)
+                    || !double.IsFinite(lineTop)
+                    || !double.IsFinite(line.Height))
+                {
+                    lineTop += Math.Max(0, line.Height);
+                    continue;
+                }
+
+                left = Math.Min(left, segmentLeft);
+                top = Math.Min(top, lineTop);
+                right = Math.Max(right, Math.Max(segmentLeft, segmentRight));
+                boundsBottom = Math.Max(boundsBottom, lineTop + line.Height);
+                lineTop += Math.Max(0, line.Height);
+            }
+
+            if (!double.IsFinite(left)
+                || !double.IsFinite(top)
+                || !double.IsFinite(right)
+                || !double.IsFinite(boundsBottom))
+                return null;
+
+            var topLeft = block.TranslatePoint(new Point(left, top), ReaderWebViewHost);
+            var bottomRight = block.TranslatePoint(new Point(right, boundsBottom), ReaderWebViewHost);
+            return topLeft is { } topPoint && bottomRight is { } bottomPoint
+                ? new Rect(topPoint, bottomPoint)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private bool TrySyncLinuxReaderTextFallbackSelectionFromBlock(
@@ -1536,9 +2017,8 @@ public partial class MainWindow
         _selectedReaderAnnotation = null;
         ReaderDeleteAnnotationButton.IsEnabled = false;
         ReaderAnnotationSelectionText.Text = selectedText;
-        ReaderHighlightButton.IsVisible = true;
-        ReaderAnnotateButton.IsVisible = true;
-        ReaderStatusText.Text = "已选中文字，可点击“划线”保存";
+        if (!OperatingSystem.IsLinux())
+            ReaderStatusText.Text = "已选中文字，可点击“划线”保存";
         return true;
     }
 
@@ -1553,7 +2033,10 @@ public partial class MainWindow
                 && block.DataContext is ReaderLinuxTextFallbackBlock textBlock
                 && TrySyncLinuxReaderTextFallbackSelectionFromBlock(block, textBlock))
             {
-                ShowReaderSelectionPopup(placementPoint);
+                var anchor = GetReaderSelectionAnchorRect(block);
+                ShowReaderSelectionPopup(
+                    anchor?.Position ?? placementPoint,
+                    anchor?.Bottom);
                 return true;
             }
 
@@ -1601,6 +2084,19 @@ public partial class MainWindow
         return false;
     }
 
+    private static bool IsReaderLinuxTextFallbackScrollBarVisual(Visual visual)
+    {
+        var current = visual;
+        while (current is not null)
+        {
+            if (current is ScrollBar)
+                return true;
+            current = current.GetVisualParent();
+        }
+
+        return false;
+    }
+
     private static double GetReaderPlainTextCharUnits(char ch)
     {
         if (char.IsWhiteSpace(ch)) return 0.35;
@@ -1632,6 +2128,14 @@ public partial class MainWindow
     private void ReaderLinuxTextFallback_Tapped(object? sender, TappedEventArgs e)
     {
         if (!IsLinuxReaderTextFallbackActive()) return;
+        var tappedPoint = e.GetPosition(ReaderLinuxTextFallbackOverlay);
+        var tappedButton = FindReaderFootnoteButton(e.Source as Visual)
+            ?? FindReaderFootnoteButtonAt(tappedPoint);
+        if (tappedButton is not null)
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.Source is Visual visual
             && TrySyncLinuxReaderTextFallbackSelectionFromVisual(
                 visual,
@@ -1651,7 +2155,10 @@ public partial class MainWindow
         {
             var point = e.GetPosition(ReaderWebViewHost);
             var bottom = block.TranslatePoint(new Point(0, block.Bounds.Height), ReaderWebViewHost)?.Y;
-            ShowReaderSelectionPopup(point, bottom);
+            var anchor = GetReaderSelectionAnchorRect(block);
+            ShowReaderSelectionPopup(
+                anchor?.Position ?? point,
+                anchor?.Bottom ?? bottom);
             return;
         }
 
@@ -1665,7 +2172,6 @@ public partial class MainWindow
     private void ReaderLinuxTextFallbackFootnoteButton_PointerEntered(object? sender, PointerEventArgs e)
     {
         if (sender is not Button { Tag: string href }) return;
-        _readerFootnotePinned = false;
         _ = ObserveReaderTaskAsync(HandleReaderFootnoteHoverAsync(
             href,
             isFootnote: true,
@@ -1674,27 +2180,72 @@ public partial class MainWindow
 
     private void ReaderLinuxTextFallbackFootnoteButton_PointerExited(object? sender, PointerEventArgs e)
     {
-        _readerFootnoteHoverSequence++;
-        if (!_readerFootnotePinned)
-            HideReaderFootnotePopup();
+        HideReaderFootnotePopup();
     }
 
-    private void ReaderLinuxTextFallbackFootnoteButton_Click(object? sender, RoutedEventArgs e)
+    private static Button? FindReaderFootnoteButton(Visual? visual)
     {
-        if (sender is not Button { Tag: string href } button) return;
-        _readerFootnotePinned = true;
+        var current = visual;
+        while (current is not null)
+        {
+            if (current is Button { Tag: string href }
+                && !string.IsNullOrWhiteSpace(href))
+                return (Button)current;
+            current = current.GetVisualParent();
+        }
+        return null;
+    }
+
+    private Button? FindReaderFootnoteButtonAt(Point point)
+    {
+        foreach (var visual in ReaderLinuxTextFallbackOverlay.GetVisualsAt(point).Reverse())
+        {
+            if (FindReaderFootnoteButton(visual) is { } button)
+                return button;
+        }
+        return null;
+    }
+
+    private bool TrySyncLinuxReaderTextFallbackSelectionAt(
+        Point point,
+        Point placementPoint)
+    {
+        foreach (var visual in ReaderLinuxTextFallbackOverlay.GetVisualsAt(point).Reverse())
+        {
+            if (TrySyncLinuxReaderTextFallbackSelectionFromVisual(visual, placementPoint))
+                return true;
+        }
+
+        return false;
+    }
+
+    private void ReaderLinuxTextFallback_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!IsLinuxReaderTextFallbackActive()) return;
+        var button = FindReaderFootnoteButton(e.Source as Visual)
+            ?? FindReaderFootnoteButtonAt(e.GetPosition(ReaderLinuxTextFallbackOverlay));
+        if (button is not { Tag: string href })
+        {
+            HideReaderFootnotePopup();
+            return;
+        }
+
+        if (ReaderFootnoteHostPopup.IsOpen
+            && string.Equals(_readerFootnoteHref, href, StringComparison.Ordinal))
+            return;
         _ = ObserveReaderTaskAsync(HandleReaderFootnoteHoverAsync(
             href,
             isFootnote: true,
-            button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height), ReaderWebViewHost),
-            pin: true));
+            e.GetPosition(ReaderWebViewHost)));
     }
 
     private void ReaderLinuxTextFallback_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (!IsLinuxReaderTextFallbackActive() || _readerLayout.FlowMode != 1)
+        if (!IsLinuxReaderTextFallbackActive()
+            || (_readerLayout.FlowMode != 0 && _readerLayout.FlowMode != 1))
         {
             _readerLinuxTextFallbackPointerPressed = false;
+            _readerLinuxTextFallbackSelectionScrollLocked = false;
             return;
         }
 
@@ -1702,11 +2253,32 @@ public partial class MainWindow
         if (!point.Properties.IsLeftButtonPressed || e.KeyModifiers.HasFlag(KeyModifiers.Shift))
         {
             _readerLinuxTextFallbackPointerPressed = false;
+            _readerLinuxTextFallbackSelectionScrollLocked = false;
+            return;
+        }
+
+        // A press exactly on the first/last glyph of a line can be hit-tested
+        // as ScrollContentPresenter instead of SelectableTextBlock. It is
+        // still a text-selection press, and SelectableTextBlock may scroll
+        // itself to reveal the selection. Freeze the reader for every press
+        // in the continuous viewport; leave the scrollbar free to scroll.
+        if (_readerLayout.FlowMode == 0
+            && e.Source is Visual source
+            && IsReaderLinuxTextFallbackScrollBarVisual(source))
+        {
+            _readerLinuxTextFallbackPointerPressed = false;
+            _readerLinuxTextFallbackSelectionScrollLocked = false;
             return;
         }
 
         _readerLinuxTextFallbackPointerPressed = true;
         _readerLinuxTextFallbackPointerStart = point.Position;
+        if (_readerLayout.FlowMode == 0)
+        {
+            _readerLinuxTextFallbackSelectionScrollOffset =
+                ReaderLinuxTextFallbackScroll.Offset;
+            _readerLinuxTextFallbackSelectionScrollLocked = true;
+        }
     }
 
     private void ReaderLinuxTextFallback_PointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -1714,18 +2286,45 @@ public partial class MainWindow
         if (!IsLinuxReaderTextFallbackActive())
         {
             _readerLinuxTextFallbackPointerPressed = false;
+            _readerLinuxTextFallbackSelectionScrollLocked = false;
             return;
         }
 
         var point = e.GetPosition(ReaderLinuxTextFallbackOverlay);
-        if (_readerLayout.FlowMode == 0
-            && e.Source is Visual continuousSource
-            && IsWithinReaderLinuxTextContent(continuousSource))
+        if ((FindReaderFootnoteButton(e.Source as Visual)
+                ?? FindReaderFootnoteButtonAt(point)) is not null)
         {
             _readerLinuxTextFallbackPointerPressed = false;
+            ReleaseLinuxTextFallbackSelectionScrollLock();
+            e.Handled = true;
             return;
         }
+        if (_readerLayout.FlowMode == 0)
+        {
+            _readerLinuxTextFallbackPointerPressed = false;
+            var placementPoint = e.GetPosition(ReaderWebViewHost);
+            var synced = e.Source is Visual selectedVisual
+                && TrySyncLinuxReaderTextFallbackSelectionFromVisual(
+                    selectedVisual,
+                    placementPoint);
+            if (!synced)
+            {
+                synced = TrySyncLinuxReaderTextFallbackSelectionAt(point, placementPoint);
+            }
+            if (synced)
+            {
+                // Keep the original viewport frozen until selection indices,
+                // anchor geometry, and the popup have all been computed. A
+                // selectable text block can request a bring-into-view during
+                // that work; releasing the lock first reintroduces the jump
+                // at a line boundary.
+                ReleaseLinuxTextFallbackSelectionScrollLock();
+                return;
+            }
+        }
         SyncLinuxReaderTextFallbackSelectionState(e.GetPosition(ReaderWebViewHost));
+        if (_readerLayout.FlowMode == 0)
+            ReleaseLinuxTextFallbackSelectionScrollLock();
         if (!string.IsNullOrWhiteSpace(_readerPendingSelection))
         {
             _readerLinuxTextFallbackPointerPressed = false;
@@ -1953,7 +2552,7 @@ public partial class MainWindow
                     blocks.Add(new ReaderLinuxTextFallbackRawBlock(blockText, null));
             }
 
-            void Visit(XNode node)
+            void Visit(XNode node, bool reflowableParagraph = false)
             {
                 if (node is XText textNode)
                 {
@@ -1968,6 +2567,24 @@ public partial class MainWindow
                 var name = element.Name.LocalName.ToLowerInvariant();
                 if (name is "script" or "style" or "noscript")
                     return;
+                if (IsReaderFootnoteDefinition(element))
+                    return;
+
+                var metadata = string.Join(
+                    ' ',
+                    element.Attributes()
+                        .Where(attribute => attribute.Name.LocalName is "class" or "id")
+                        .Select(attribute => attribute.Value));
+                var preservesLineBreaks = name is "pre" or "code" or "kbd" or "samp"
+                    || System.Text.RegularExpressions.Regex.IsMatch(
+                        metadata,
+                        @"(?:poem|poetry|verse|诗|詩)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                        | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+                var childReflowableParagraph = !preservesLineBreaks
+                    && (reflowableParagraph
+                        || name is "p" or "li" or "blockquote"
+                        or "div" or "section" or "article" or "main");
 
                 var matchedHere = false;
                 if (hasFragment && !capture && ElementMatchesReaderFragment(element, fragment))
@@ -1992,10 +2609,11 @@ public partial class MainWindow
                     var href = ResolveReaderElementHref(path, element);
                     if (!string.IsNullOrWhiteSpace(href))
                     {
-                        var label = NormalizeReaderPlainTextLine(element.Value);
-                        if (string.IsNullOrWhiteSpace(label))
-                            label = element.Descendants().Select(e => (string?)e.Attribute("alt")).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))
-                                ?? "注";
+                        // An EPUB footnote reference often contains an image
+                        // whose alt text is the complete footnote explanation.
+                        // That alt text belongs in the popup, never in the
+                        // inline marker shown in the reading surface.
+                        var label = GetReaderFootnoteMarkerLabel(element);
                         blocks.Add(new ReaderLinuxTextFallbackRawBlock(null, null, href, label));
                         return;
                     }
@@ -2013,12 +2631,17 @@ public partial class MainWindow
                 foreach (var child in element.Nodes())
                 {
                     if (stopCapture) break;
-                    Visit(child);
+                    Visit(child, childReflowableParagraph);
                 }
                 if (stopCapture) return;
 
                 if (capture && name is "br")
-                    AppendReaderPlainTextLineBreak(builder);
+                {
+                    if (reflowableParagraph && !preservesLineBreaks)
+                        AppendReaderPlainText(builder, " ");
+                    else
+                        AppendReaderPlainTextLineBreak(builder);
+                }
                 else if (capture && IsReaderPlainTextBlock(name))
                     AppendReaderPlainTextBreak(builder);
 
@@ -2078,6 +2701,9 @@ public partial class MainWindow
 
     private static bool IsReaderFootnoteReference(XElement element)
     {
+        if (IsReaderFootnoteBacklink(element))
+            return false;
+
         var metadata = string.Join(
             ' ',
             element.Attributes()
@@ -2085,9 +2711,98 @@ public partial class MainWindow
                 .Select(attribute => attribute.Value));
         return System.Text.RegularExpressions.Regex.IsMatch(
             metadata,
-            @"\b(noteref|doc-noteref|footnote|endnote|note[-_]?ref|fn[-_]?ref)\b|(?:^|[#\s_-])(?:note|fn|ftn|footnote|zww?)[-_:]?\d*(?:n|ref)?(?:$|[\s#_-])",
+            @"\b(noteref|doc-noteref|footnote|endnote|note[-_]?ref|fn[-_]?ref)\b|(?:^|[#\s_-])(?:notes?|fn|ftn|footnotes?|zww?)[-_:]?\d*(?:n|ref)?(?:$|[\s#_-])",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase
             | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    }
+
+    private static bool IsReaderFootnoteDefinition(XElement element)
+    {
+        var type = string.Join(
+            ' ',
+            element.Attributes()
+                .Where(attribute => attribute.Name.LocalName is "type" or "role")
+                .Select(attribute => attribute.Value));
+        var identity = string.Join(
+            ' ',
+            element.Attributes()
+                .Where(attribute => attribute.Name.LocalName is "class" or "id")
+                .Select(attribute => attribute.Value));
+        return IsReaderFootnoteDefinition(element.Name.LocalName, type, identity);
+    }
+
+    private static bool IsReaderFootnoteDefinition(XmlReader reader, string localName)
+    {
+        var type = string.Join(
+            ' ',
+            new[]
+            {
+                reader.GetAttribute("type"),
+                reader.GetAttribute("type", "http://www.idpf.org/2007/ops"),
+                reader.GetAttribute("role")
+            }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        var identity = string.Join(
+            ' ',
+            new[] { reader.GetAttribute("class"), reader.GetAttribute("id") }
+                .Where(value => !string.IsNullOrWhiteSpace(value)));
+        return IsReaderFootnoteDefinition(localName, type, identity);
+    }
+
+    private static bool IsReaderFootnoteDefinition(
+        string localName,
+        string type,
+        string identity)
+    {
+        if (System.Text.RegularExpressions.Regex.IsMatch(
+                type,
+                @"\b(?:doc-)?(?:footnote|endnote)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                | System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+            return true;
+
+        var isDefinitionContainer = localName.Equals("aside", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("section", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("div", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("ol", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("ul", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("li", StringComparison.OrdinalIgnoreCase)
+            || localName.Equals("p", StringComparison.OrdinalIgnoreCase);
+        return isDefinitionContainer
+            && System.Text.RegularExpressions.Regex.IsMatch(
+                identity,
+                @"(?:^|[\s_-])(?:duokan-)?(?:footnote|endnote)(?:[\s_-]|$)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    }
+
+    private static string GetReaderFootnoteMarkerLabel(XElement element)
+    {
+        var label = NormalizeReaderPlainTextLine(element.Value);
+        // Keep genuine short markers such as [1], 注1, or †. Long text is
+        // almost always an image alt/title containing the note body itself.
+        return !string.IsNullOrWhiteSpace(label) && label.Length <= 8
+            ? label
+            : "注";
+    }
+
+    private static bool IsReaderFootnoteBacklink(XElement element)
+    {
+        var id = element.Attributes().FirstOrDefault(attribute =>
+            attribute.Name.LocalName.Equals("id", StringComparison.OrdinalIgnoreCase))?.Value?.Trim();
+        var href = element.Attributes().FirstOrDefault(attribute =>
+            attribute.Name.LocalName.Equals("href", StringComparison.OrdinalIgnoreCase))?.Value?.Trim();
+        if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(href))
+            return false;
+
+        var hash = href.IndexOf('#');
+        if (hash < 0 || hash + 1 >= href.Length)
+            return false;
+
+        var fragment = href[(hash + 1)..];
+        var query = fragment.IndexOfAny(['?', '#']);
+        if (query >= 0) fragment = fragment[..query];
+        return id.EndsWith("n", StringComparison.OrdinalIgnoreCase)
+            && !fragment.EndsWith("n", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? ResolveReaderElementHref(string sourcePath, XElement element)
@@ -2097,9 +2812,20 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(href)) return null;
         try
         {
-            return Uri.TryCreate(new Uri(sourcePath), href.Trim(), out var uri) && uri.IsFile
-                ? uri.AbsoluteUri
-                : null;
+            var sourceUri = new Uri(Path.GetFullPath(sourcePath), UriKind.Absolute);
+            var trimmed = href.Trim();
+            var hash = trimmed.IndexOf('#');
+            var pathPart = hash >= 0 ? trimmed[..hash] : trimmed;
+            if (!Uri.TryCreate(sourceUri, pathPart, out var uri) || !uri.IsFile)
+                return null;
+
+            if (hash >= 0)
+            {
+                var fragment = Uri.UnescapeDataString(trimmed[(hash + 1)..]);
+                var builder = new UriBuilder(uri) { Fragment = fragment };
+                uri = builder.Uri;
+            }
+            return uri.AbsoluteUri;
         }
         catch
         {
@@ -2141,6 +2867,9 @@ public partial class MainWindow
             var builder = new StringBuilder();
             var fallbackBuilder = new StringBuilder();
             var inBody = false;
+            var reflowParagraphDepth = 0;
+            var preserveBreakDepth = 0;
+            var elementStates = new Stack<(bool Reflow, bool Preserve)>();
             var fragment = startFragment?.TrimStart('#');
             var hasFragment = !string.IsNullOrWhiteSpace(fragment);
             var stopFragment = endFragment?.TrimStart('#');
@@ -2154,6 +2883,26 @@ public partial class MainWindow
                 {
                     var name = reader.LocalName.ToLowerInvariant();
                     if (name == "body") inBody = true;
+                    if (inBody && IsReaderFootnoteDefinition(reader, name))
+                    {
+                        if (!reader.IsEmptyElement)
+                            reader.Skip();
+                        continue;
+                    }
+                    var metadata = $"{reader.GetAttribute("class")} {reader.GetAttribute("id")}";
+                    var preservesLineBreaks = name is "pre" or "code" or "kbd" or "samp"
+                        || System.Text.RegularExpressions.Regex.IsMatch(
+                            metadata,
+                            @"(?:poem|poetry|verse|诗|詩)",
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                            | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+                    var entersReflow = (name is "p" or "li" or "blockquote"
+                        or "div" or "section" or "article" or "main")
+                        && preserveBreakDepth == 0;
+                    if (preservesLineBreaks)
+                        preserveBreakDepth++;
+                    if (entersReflow)
+                        reflowParagraphDepth++;
                     if (inBody
                         && hasFragment
                         && !capture
@@ -2171,9 +2920,29 @@ public partial class MainWindow
                     }
                     if (inBody && name == "br")
                     {
-                        AppendReaderPlainTextLineBreak(fallbackBuilder);
+                        if (reflowParagraphDepth > 0 && preserveBreakDepth == 0)
+                            AppendReaderPlainText(fallbackBuilder, " ");
+                        else
+                            AppendReaderPlainTextLineBreak(fallbackBuilder);
                         if (capture)
-                            AppendReaderPlainTextLineBreak(builder);
+                        {
+                            if (reflowParagraphDepth > 0 && preserveBreakDepth == 0)
+                                AppendReaderPlainText(builder, " ");
+                            else
+                                AppendReaderPlainTextLineBreak(builder);
+                        }
+                    }
+
+                    if (reader.IsEmptyElement)
+                    {
+                        if (entersReflow)
+                            reflowParagraphDepth = Math.Max(0, reflowParagraphDepth - 1);
+                        if (preservesLineBreaks)
+                            preserveBreakDepth = Math.Max(0, preserveBreakDepth - 1);
+                    }
+                    else
+                    {
+                        elementStates.Push((entersReflow, preservesLineBreaks));
                     }
                 }
                 else if (reader.NodeType == XmlNodeType.EndElement)
@@ -2183,7 +2952,15 @@ public partial class MainWindow
                     {
                         AppendReaderPlainTextBreak(fallbackBuilder);
                         if (capture)
-                            AppendReaderPlainTextBreak(builder);
+                        AppendReaderPlainTextBreak(builder);
+                    }
+                    if (elementStates.Count > 0)
+                    {
+                        var state = elementStates.Pop();
+                        if (state.Reflow)
+                            reflowParagraphDepth = Math.Max(0, reflowParagraphDepth - 1);
+                        if (state.Preserve)
+                            preserveBreakDepth = Math.Max(0, preserveBreakDepth - 1);
                     }
                     if (name == "body") inBody = false;
                 }
@@ -2428,6 +3205,7 @@ public partial class MainWindow
             {
                 await UpdateReaderScrollStateAsync(currentHost);
                 PrimeReaderContinuousEdgeTracking();
+                ScheduleReaderBookPageCountRefresh();
             }
             if (!_readerIsPdf
                 && currentHost is not null
@@ -2457,7 +3235,6 @@ public partial class MainWindow
 
     private void ReaderWebViewHost_SizeChanged(object? sender, SizeChangedEventArgs e)
     {
-        ScheduleReaderRelayout();
         if (IsLinuxReaderTextFallbackActive())
         {
             Dispatcher.UIThread.Post(
@@ -2465,12 +3242,26 @@ public partial class MainWindow
                 {
                     if (!IsLinuxReaderTextFallbackActive()) return;
                     UpdateLinuxReaderTextFallbackImageSizes();
-                    if (_readerLayout.FlowMode == 1)
-                        RebuildLinuxReaderTextFallbackPages();
-                    SyncLinuxReaderTextFallbackState(saveProgress: false);
+                    // Selection must be a paint-only operation. In particular,
+                    // dragging over a visual line end can make Avalonia report
+                    // a transient host-size change; rebuilding the page from
+                    // that event changes the wrap points under the pointer.
+                    // Keep the already measured page rectangle until the
+                    // gesture/selection has been released and cleared.
+                    var selectionInProgress = _readerLinuxTextFallbackPointerPressed
+                        || !string.IsNullOrWhiteSpace(_readerPendingSelection);
+                    if (!selectionInProgress)
+                    {
+                        if (_readerLayout.FlowMode == 1)
+                            RebuildLinuxReaderTextFallbackPages();
+                        SyncLinuxReaderTextFallbackState(saveProgress: false);
+                    }
                 },
                 DispatcherPriority.Loaded);
+            return;
         }
+
+        ScheduleReaderRelayout();
     }
 
     // A native webview can trail Avalonia's Grid by several compositor frames
@@ -3878,25 +4669,13 @@ public partial class MainWindow
 
     private async Task HandleReaderLinkAsync(string href, bool showFootnote = false)
     {
+        if (showFootnote)
+            return;
+
         _readerFootnoteHoverSequence++;
-        _readerFootnotePinned = false;
         if (_readerDocument is null || !Uri.TryCreate(href, UriKind.Absolute, out var uri) || !uri.IsFile) return;
         var path = Path.GetFullPath(uri.LocalPath);
         if (!IsPathInside(_readerDocument.RootPath, path)) return;
-
-        if (showFootnote && !string.IsNullOrWhiteSpace(uri.Fragment))
-        {
-            var targets = await _footnotes.ResolveAsync(
-                _readerDocument.RootPath,
-                [uri.AbsoluteUri],
-                ReaderToken);
-            if (targets.TryGetValue(EpubFootnoteResolver.NormalizeTargetKey(uri.AbsoluteUri), out var footnote))
-            {
-                _readerFootnotePinned = true;
-                ShowReaderFootnotePopup(footnote);
-                return;
-            }
-        }
 
         var match = _readerDocument.Chapters
             .Select((chapter, index) => (chapter, index))
@@ -3917,8 +4696,7 @@ public partial class MainWindow
     private async Task HandleReaderFootnoteHoverAsync(
         string href,
         bool isFootnote,
-        Point? placementPoint = null,
-        bool pin = false)
+        Point? placementPoint = null)
     {
         if (!isFootnote
             || _readerDocument is null
@@ -3927,7 +4705,6 @@ public partial class MainWindow
             || string.IsNullOrWhiteSpace(uri.Fragment))
             return;
         var sequence = ++_readerFootnoteHoverSequence;
-        _readerFootnotePinned = pin;
         var path = Path.GetFullPath(uri.LocalPath);
         if (!IsPathInside(_readerDocument.RootPath, path)) return;
 
@@ -3945,6 +4722,7 @@ public partial class MainWindow
 
     private void StartReaderFootnoteHoverPoll()
     {
+        if (!OperatingSystem.IsWindows()) return;
         _readerFootnoteHoverTimer ??= new DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(120)
@@ -3980,7 +4758,6 @@ public partial class MainWindow
 
     private async Task PollReaderFootnoteHoverAsync()
     {
-        if (ShouldKeepReaderFootnotePopupOpen()) return;
         if (_readerIsPdf
             || !OperatingSystem.IsWindows()
             || !ReaderRoot.IsVisible
@@ -4053,9 +4830,6 @@ public partial class MainWindow
             placementPoint: new Point(relativeX / scaling, relativeY / scaling));
     }
 
-    private bool ShouldKeepReaderFootnotePopupOpen() =>
-        _readerFootnotePinned && ReaderFootnoteHostPopup.IsOpen;
-
     private static string CreateReaderFootnoteHoverProbeScript(
         double relativeX,
         double relativeY,
@@ -4076,7 +4850,7 @@ public partial class MainWindow
               const y = Math.max(0, Math.min(vh - 1, Math.round({{y}} * vh / {{height}})));
               const element = document.elementFromPoint(x, y);
               const anchor = element?.closest?.('a');
-              if (!anchor) return null;
+              if (!anchor || !isFootnoteLink(anchor)) return null;
               let url;
               try {
                 const href = anchor.getAttribute('href')
@@ -4134,11 +4908,14 @@ public partial class MainWindow
 
     private void HideReaderFootnotePopup()
     {
+        // Invalidate a resolver that is still awaiting the note text. This
+        // prevents a popup from reappearing after the pointer has left.
+        _readerFootnoteHoverSequence++;
         ReaderFootnoteHostPopup.IsOpen = false;
         ReaderFootnotePopup.IsVisible = false;
         ReaderFootnoteText.Text = string.Empty;
         _readerFootnotePlacementPoint = null;
-        if (!_readerFootnotePinned) _readerFootnoteHref = null;
+        _readerFootnoteHref = null;
     }
 
     private void HandleReaderBridgeMessage(string? body)
@@ -4210,10 +4987,14 @@ public partial class MainWindow
                     {
                         _selectedReaderAnnotation = null;
                         ReaderDeleteAnnotationButton.IsEnabled = false;
-                        ReaderStatusText.Text = "已选中文字，可点击“划线”保存";
+                        if (!OperatingSystem.IsLinux())
+                            ReaderStatusText.Text = "已选中文字，可点击“划线”保存";
                         ReaderAnnotationSelectionText.Text = _readerPendingSelection;
-                        ReaderHighlightButton.IsVisible = true;
-                        ReaderAnnotateButton.IsVisible = true;
+                        if (!OperatingSystem.IsLinux())
+                        {
+                            ReaderHighlightButton.IsVisible = true;
+                            ReaderAnnotateButton.IsVisible = true;
+                        }
                         if (OperatingSystem.IsLinux())
                         {
                             var x = ReadDouble(root, "x");
@@ -4279,9 +5060,7 @@ public partial class MainWindow
                     }
                     break;
                 case "footnoteLeave":
-                    _readerFootnoteHoverSequence++;
-                    if (!_readerFootnotePinned)
-                        HideReaderFootnotePopup();
+                    HideReaderFootnotePopup();
                     break;
                 case "resize":
                     ScheduleReaderRelayout();
@@ -4447,38 +5226,56 @@ public partial class MainWindow
         var anchor = placementPoint ?? new Point(
             Math.Max(24, hostWidth / 2),
             Math.Max(24, hostHeight / 2));
-        var barWidth = ReaderSelectionPopupBar.Bounds.Width > 0
-            ? ReaderSelectionPopupBar.Bounds.Width
-            : 360;
-        var barHeight = ReaderSelectionPopupBar.Bounds.Height > 0
-            ? ReaderSelectionPopupBar.Bounds.Height
-            : 38;
-        var left = Math.Min(
-            Math.Max(8, anchor.X - barWidth / 2),
-            Math.Max(8, hostWidth - barWidth - 8));
+        var barWidth = ReaderSelectionPopupBar.Bounds.Width;
+        var barHeight = ReaderSelectionPopupBar.Bounds.Height;
+        // On the first open Avalonia may not have arranged the Popup content
+        // yet. Use a conservative fallback size; forcing an infinite measure
+        // from a selection event can invalidate the reader's layout pass.
+        if (!double.IsFinite(barWidth) || barWidth <= 0) barWidth = 360;
+        if (!double.IsFinite(barHeight) || barHeight <= 0) barHeight = 38;
+
+        const double bodyInset = 8;
+        const double aboveGap = 10;
+        const double belowGap = 12;
+
+        // Top/Bottom gravity centers the bar on the placement point. Shift
+        // that point by half the bar width so the bar's left edge aligns with
+        // the selection's left edge. If the selection is too close to the
+        // reader's right edge, clamp the whole bar back inside the body.
+        // The positioner is deliberately not allowed to flip/slide against
+        // the desktop work area: the reader body is the boundary.
+        var minimumLeft = bodyInset;
+        var maximumLeft = Math.Max(minimumLeft, hostWidth - bodyInset - barWidth);
+        var left = Math.Clamp(anchor.X, minimumLeft, maximumLeft);
+        var anchorX = left + barWidth / 2;
         var bottom = selectionBottom is { } value && double.IsFinite(value)
             ? value
             : anchor.Y;
-        var roomAbove = anchor.Y - barHeight - 10 >= 8;
-        var anchorY = roomAbove
-            ? Math.Clamp(anchor.Y, 8, hostHeight - 8)
-            : Math.Clamp(bottom, 8, hostHeight - 8);
+        var roomAbove = anchor.Y - barHeight - aboveGap >= bodyInset;
+        var roomBelow = bottom + belowGap + barHeight <= hostHeight - bodyInset;
+        var placeAbove = roomAbove || !roomBelow;
+        var anchorY = placeAbove
+            ? Math.Clamp(
+                anchor.Y,
+                bodyInset + barHeight + aboveGap,
+                Math.Max(bodyInset + barHeight + aboveGap, hostHeight - bodyInset))
+            : Math.Clamp(
+                bottom,
+                bodyInset,
+                Math.Max(bodyInset, hostHeight - bodyInset - barHeight - belowGap));
         ReaderSelectionHostPopup.PlacementTarget = ReaderWebViewHost;
         ReaderSelectionHostPopup.Placement = Avalonia.Controls.PlacementMode.AnchorAndGravity;
-        ReaderSelectionHostPopup.PlacementRect = new Rect(left, anchorY, 1, 1);
+        ReaderSelectionHostPopup.PlacementRect = new Rect(anchorX, anchorY, 1, 1);
         ReaderSelectionHostPopup.PlacementAnchor =
             Avalonia.Controls.Primitives.PopupPositioning.PopupAnchor.TopLeft;
         ReaderSelectionHostPopup.PlacementGravity =
-            roomAbove
-                ? Avalonia.Controls.Primitives.PopupPositioning.PopupGravity.TopLeft
-                : Avalonia.Controls.Primitives.PopupPositioning.PopupGravity.BottomLeft;
+            placeAbove
+                ? Avalonia.Controls.Primitives.PopupPositioning.PopupGravity.Top
+                : Avalonia.Controls.Primitives.PopupPositioning.PopupGravity.Bottom;
         ReaderSelectionHostPopup.PlacementConstraintAdjustment =
-            Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.FlipX
-            | Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.FlipY
-            | Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.SlideX
-            | Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.SlideY;
+            Avalonia.Controls.Primitives.PopupPositioning.PopupPositionerConstraintAdjustment.None;
         ReaderSelectionHostPopup.HorizontalOffset = 0;
-        ReaderSelectionHostPopup.VerticalOffset = roomAbove ? -10 : 12;
+        ReaderSelectionHostPopup.VerticalOffset = placeAbove ? -aboveGap : belowGap;
         ReaderSelectionHostPopup.IsOpen = true;
     }
 
@@ -5979,14 +6776,7 @@ public partial class MainWindow
         if (ReaderProgressPercentText is not null)
             ReaderProgressPercentText.Text = $"{CalculateReaderProgressPercent():0}%";
         if (ReaderReadingProgressText is not null)
-        {
-            var tocIndex = GetCurrentReaderTocIndex();
-            ReaderReadingProgressText.Text = _readerIsPdf
-                ? $"已读 {_readerPdfPage} / {Math.Max(1, _readerPdfPages.Count)} 页"
-                : tocIndex >= 0
-                    ? $"已读 {tocIndex + 1} / {_readerTocItems.Count} 章"
-                    : $"已读 {Math.Clamp(_readerChapterIndex + 1, 0, _readerDocument?.Chapters.Count ?? 0)} / {_readerDocument?.Chapters.Count ?? 0} 章";
-        }
+            ReaderReadingProgressText.Text = GetReaderReadingProgressLabel();
         if (ReaderProgressSlider is not null)
         {
             _readerProgressSliderUpdating = true;
@@ -6032,6 +6822,239 @@ public partial class MainWindow
                     && tocIndex >= 0
                     && tocIndex + 1 < _readerTocItems.Count;
         UpdateReaderSearchCount();
+    }
+
+    private string GetReaderReadingProgressLabel()
+    {
+        var (currentPage, totalPages) = GetReaderPagePosition();
+        return $"已读 {currentPage} / {totalPages} 页";
+    }
+
+    private (double Width, double Height) GetReaderPageCountMeasure()
+    {
+        var width = _readerClientWidth > 0
+            ? _readerClientWidth
+            : ReaderWebViewHost.Bounds.Width;
+        var height = _readerClientHeight > 0
+            ? _readerClientHeight
+            : ReaderWebViewHost.Bounds.Height;
+        if (IsLinuxReaderTextFallbackActive())
+        {
+            if (ReaderLinuxTextFallbackOverlay.Bounds.Width > 0)
+                width = ReaderLinuxTextFallbackOverlay.Bounds.Width;
+            if (ReaderLinuxTextFallbackOverlay.Bounds.Height > 0)
+                height = ReaderLinuxTextFallbackOverlay.Bounds.Height;
+        }
+
+        // A native WebView can report zero bounds for a few compositor frames
+        // while it is being attached. Do not turn that transient state into a
+        // book with thousands of tiny pages; use the normal reader surface's
+        // minimum usable geometry until the host reports its real viewport.
+        if (width < 640)
+        {
+            var rootWidth = ReaderRoot.Bounds.Width;
+            width = rootWidth >= 640
+                ? Math.Min(_readerLayout.MaxWidth, Math.Max(640, rootWidth - 320))
+                : 960;
+        }
+        if (height < 360)
+        {
+            var rootHeight = ReaderRoot.Bounds.Height;
+            height = rootHeight >= 360 ? Math.Max(360, rootHeight - 100) : 600;
+        }
+
+        return (
+            Math.Max(320, double.IsFinite(width) ? width : 0),
+            Math.Max(240, double.IsFinite(height) ? height : 0));
+    }
+
+    private void ScheduleReaderBookPageCountRefresh()
+    {
+        if (_readerIsPdf
+            || _readerDocument is not { Chapters.Count: > 0 } document)
+            return;
+
+        var (width, height) = GetReaderPageCountMeasure();
+        if (width <= 0 || height <= 0) return;
+
+        _readerBookPageCountCancellation?.Cancel();
+        _readerBookPageCountCancellation?.Dispose();
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            _readerSessionCancellation?.Token ?? _lifetimeCancellation.Token);
+        _readerBookPageCountCancellation = cancellation;
+        var sequence = ++_readerBookPageCountSequence;
+        var layout = _readerLayout;
+        _ = ObserveReaderTaskAsync(
+            RefreshReaderBookPageCountsAsync(
+                document,
+                layout,
+                width,
+                height,
+                sequence,
+                cancellation));
+    }
+
+    private async Task RefreshReaderBookPageCountsAsync(
+        EpubReaderDocument document,
+        ReaderLayoutSettings layout,
+        double viewportWidth,
+        double viewportHeight,
+        int sequence,
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            var counts = await Task.Run(
+                () => document.Chapters
+                    .Select(path => EstimateReaderChapterPageCount(
+                        path,
+                        layout,
+                        viewportWidth,
+                        viewportHeight))
+                    .Select(count => Math.Max(1, count))
+                    .ToArray(),
+                cancellation.Token);
+            cancellation.Token.ThrowIfCancellationRequested();
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (sequence != _readerBookPageCountSequence
+                    || !ReferenceEquals(document, _readerDocument)
+                    || cancellation.IsCancellationRequested)
+                    return;
+                _readerBookPageCounts = counts;
+                UpdateReaderToolbar();
+            });
+        }
+        finally
+        {
+            if (ReferenceEquals(_readerBookPageCountCancellation, cancellation))
+            {
+                _readerBookPageCountCancellation = null;
+                cancellation.Dispose();
+            }
+        }
+    }
+
+    private static int EstimateReaderChapterPageCount(
+        string path,
+        ReaderLayoutSettings layout,
+        double viewportWidth,
+        double viewportHeight)
+    {
+        if (!File.Exists(path)) return 1;
+
+        var fontSize = Math.Max(10, 16d * layout.FontScale);
+        var lineHeight = Math.Max(fontSize + 2, fontSize * layout.LineHeight);
+        var pageWidth = layout.TwoPageMode
+            ? Math.Max(180, (viewportWidth - 24 - 24 - 28) / 2)
+            : Math.Max(240, Math.Min(layout.MaxWidth, viewportWidth - 48));
+        var pageHeight = Math.Max(180, viewportHeight - 36);
+        var linesPerPage = Math.Max(4, (int)Math.Floor(pageHeight / lineHeight));
+        var lineUnits = Math.Max(8, pageWidth / fontSize);
+        var content = ExtractReaderFallbackContent(path);
+        var text = new StringBuilder();
+        var pages = 0;
+
+        void FlushText()
+        {
+            if (text.Length == 0) return;
+            pages += PaginateReaderPlainText(text.ToString(), lineUnits, linesPerPage).Count;
+            text.Clear();
+        }
+
+        foreach (var block in content.Blocks)
+        {
+            if (!string.IsNullOrWhiteSpace(block.ImagePath))
+            {
+                FlushText();
+                pages++;
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(block.FootnoteHref))
+            {
+                text.Append(ReaderLinuxTextFallbackFootnoteMarker);
+                continue;
+            }
+
+            var blockText = NormalizeReaderPlainText(block.Text ?? string.Empty);
+            if (!string.IsNullOrWhiteSpace(blockText))
+                text.Append(blockText);
+        }
+
+        if (content.Blocks.Count == 0 && !string.IsNullOrWhiteSpace(content.Text))
+            text.Append(NormalizeReaderPlainText(content.Text));
+
+        FlushText();
+        return Math.Max(1, pages);
+    }
+
+    private (int CurrentPage, int TotalPages) GetReaderPagePosition()
+    {
+        var local = GetReaderChapterPagePosition();
+        if (_readerDocument is not { Chapters.Count: > 0 } document
+            || _readerBookPageCounts.Length != document.Chapters.Count
+            || _readerIsPdf)
+            return local;
+
+        if (_readerChapterIndex >= 0 && _readerChapterIndex < _readerBookPageCounts.Length)
+            _readerBookPageCounts[_readerChapterIndex] = Math.Max(
+                1,
+                Math.Max(_readerBookPageCounts[_readerChapterIndex], local.TotalPages));
+
+        var totalPages = _readerBookPageCounts.Sum(count => Math.Max(1, count));
+        var prefixPages = _readerBookPageCounts
+            .Take(Math.Clamp(_readerChapterIndex, 0, _readerBookPageCounts.Length))
+            .Sum(count => Math.Max(1, count));
+        return (
+            Math.Clamp(prefixPages + local.CurrentPage, 1, Math.Max(1, totalPages)),
+            Math.Max(1, totalPages));
+    }
+
+    private (int CurrentPage, int TotalPages) GetReaderChapterPagePosition()
+    {
+        if (_readerIsPdf)
+            return (
+                Math.Clamp(_readerPdfPage, 1, Math.Max(1, _readerPdfPages.Count)),
+                Math.Max(1, _readerPdfPages.Count));
+
+        if (_readerLayout.FlowMode == 1 && IsLinuxReaderTextFallbackActive())
+        {
+            var pageCount = GetLinuxReaderTextFallbackPageCount();
+            var pageIndex = _readerLinuxTextFallbackPageIndex < 0
+                ? pageCount - 1
+                : _readerLinuxTextFallbackPageIndex;
+            return (Math.Clamp(pageIndex + 1, 1, pageCount), pageCount);
+        }
+
+        var horizontal = _readerLayout.FlowMode == 1 || _readerLayout.VerticalWriting;
+        var viewport = horizontal ? _readerClientWidth : _readerClientHeight;
+        var extent = horizontal ? _readerScrollWidth : _readerScrollHeight;
+        if (viewport <= 0 || extent <= 0)
+            return (1, 1);
+
+        var position = Math.Max(0, _readerScrollPosition);
+        if (_readerLayout.FlowMode == 1)
+        {
+            // Paginated WebView content is snapped to one viewport per page.
+            // The rounded maximum mirrors ReaderPaginationScripts and avoids
+            // counting the trailing layout inset as an extra page.
+            var maximum = Math.Max(0, extent - viewport);
+            var viewCount = Math.Max(1, (int)Math.Round(maximum / viewport) + 1);
+            var currentView = Math.Clamp(
+                (int)Math.Round(position / viewport) + 1,
+                1,
+                viewCount);
+            var pagesPerView = _readerLayout.TwoPageMode ? 2 : 1;
+            return (
+                Math.Clamp((currentView - 1) * pagesPerView + 1, 1, viewCount * pagesPerView),
+                viewCount * pagesPerView);
+        }
+
+        var totalPages = Math.Max(1, (int)Math.Ceiling(extent / viewport));
+        var currentPage = Math.Clamp((int)Math.Floor(position / viewport) + 1, 1, totalPages);
+        return (currentPage, totalPages);
     }
 
     private void UpdateReaderSearchCount()

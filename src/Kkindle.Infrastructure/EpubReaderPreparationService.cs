@@ -21,7 +21,7 @@ public sealed class EpubReaderPreparationService
     private const string ExtractionReadyFileName = ".kkindle-extracted";
     // Bump whenever sanitization or the injected bridge changes. Existing
     // reader caches otherwise keep the old JavaScript indefinitely.
-    private const string ExtractionFormatVersion = "24";
+    private const string ExtractionFormatVersion = "36";
     private const string ReaderBridgeFileName = ".kkindle-reader-bridge.js";
     private const string ContentSecurityPolicyBase =
         "default-src 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; " +
@@ -142,6 +142,31 @@ public sealed class EpubReaderPreparationService
           };
 
           let dismissedSelectionText = "";
+          const getSelectionAnchorRect = (range, leadingWhitespace) => {
+            // getBoundingClientRect() on a multi-line Range returns the union
+            // of every line. Its left edge can therefore belong to a later
+            // line, which makes the action bar appear above the wrong word.
+            // Anchor a collapsed range at the logical start instead; this is
+            // the first selected character in document order.
+            try {
+              const start = range.cloneRange();
+              if (leadingWhitespace > 0
+                  && range.startContainer?.nodeType === Node.TEXT_NODE) {
+                const value = range.startContainer.nodeValue || "";
+                const offset = Math.min(
+                  value.length,
+                  range.startOffset + leadingWhitespace);
+                start.setStart(range.startContainer, offset);
+              }
+              start.collapse(true);
+              const caret = start.getBoundingClientRect();
+              if (caret && caret.height > 0) return caret;
+            } catch (_) { }
+
+            const rects = Array.from(range.getClientRects?.() || [])
+              .filter(rect => rect.width > 0 || rect.height > 0);
+            return rects[0] || range.getBoundingClientRect();
+          };
           const reportSelection = contextEvent => {
             try {
               const selection = window.getSelection();
@@ -178,10 +203,17 @@ public sealed class EpubReaderPreparationService
               const endOffset = pointOffset(range.endContainer, range.endOffset) - trailing;
               const textClone = removeNonReaderText(document.body.cloneNode(true));
               const fullText = textClone.textContent || "";
-              const rect = range.getBoundingClientRect();
-              const anchorX = contextEvent ? contextEvent.clientX : rect.left;
-              const anchorY = contextEvent ? contextEvent.clientY : rect.top;
-              const anchorBottom = contextEvent ? contextEvent.clientY : rect.bottom;
+              const rect = getSelectionAnchorRect(range, leading);
+              const hasAnchor = rect
+                && (rect.width > 0 || rect.height > 0)
+                && Number.isFinite(rect.left)
+                && Number.isFinite(rect.top);
+              // A context-menu event belongs to the pointer, not necessarily
+              // to the first selected character. Use it only as a last-resort
+              // fallback when the browser cannot expose a selection rect.
+              const anchorX = hasAnchor ? rect.left : (contextEvent?.clientX || 0);
+              const anchorY = hasAnchor ? rect.top : (contextEvent?.clientY || 0);
+              const anchorBottom = hasAnchor ? rect.bottom : (contextEvent?.clientY || 0);
               send({
                 type: "selection",
                 text: text.slice(0, 12000),
@@ -234,13 +266,13 @@ public sealed class EpubReaderPreparationService
                   background: #FFFFFF; color: #000000; border: 0; outline: 0;
                   min-width: 52px; height: 30px; padding: 3px 8px;
                   display: inline-flex; align-items: center; justify-content: center;
-                  font-size: 12px; line-height: normal;
+                  font-size: 12px; line-height: 18px; vertical-align: middle;
                   font-family: inherit; cursor: pointer; border-radius: 0;
                 }
                 #kkindle-selection-bar button:hover { background: #F2F2F2; color: #000000; }
                 #kkindle-selection-bar button:active { background: #D9D9D9; color: #000000; }
                 #kkindle-selection-bar .kk-sel-sep {
-                  display: block; flex: 0 0 1px; width: 1px; height: 18px;
+                  display: block; align-self: center; flex: 0 0 1px; width: 1px; height: 18px;
                   background: #D5D5D1; margin: 0 2px;
                 }
                 #kkindle-selection-bar .kk-sel-highlight-wrap {
@@ -356,7 +388,10 @@ public sealed class EpubReaderPreparationService
             selectionBar.style.display = 'flex';
             const barWidth = selectionBar.offsetWidth || 0;
             const barHeight = selectionBar.offsetHeight || 0;
-            const left = Math.min(Math.max(8, x - barWidth / 2), Math.max(8, vw - barWidth - 8));
+            // x is the first selected glyph, not the pointer or the selection
+            // midpoint. Keep the toolbar's leading edge above that glyph;
+            // this remains stable when the selection spans several lines.
+            const left = Math.min(Math.max(8, x), Math.max(8, vw - barWidth - 8));
             let top = y - barHeight - 10;
             if (top < 8) top = (bottom || y) + 12;
             top = Math.min(Math.max(8, top), Math.max(8, vh - barHeight - 8));
@@ -410,6 +445,19 @@ public sealed class EpubReaderPreparationService
           };
 
           const isFootnoteLink = element => {
+            const backlinkId = (element.getAttribute('id') || '').trim();
+            const backlinkHref = (element.getAttribute('href')
+              || element.getAttribute('data-kkindle-footnote-href') || '').trim();
+            const backlinkHash = backlinkHref.indexOf('#');
+            if (backlinkId && backlinkHash >= 0 && backlinkHash + 1 < backlinkHref.length) {
+              let backlinkFragment = backlinkHref.slice(backlinkHash + 1);
+              const backlinkQuery = backlinkFragment.search(/[?#]/);
+              if (backlinkQuery >= 0) backlinkFragment = backlinkFragment.slice(0, backlinkQuery);
+              if (backlinkId.toLowerCase().endsWith('n')
+                  && backlinkFragment
+                  && !backlinkFragment.toLowerCase().endsWith('n'))
+                return false;
+            }
             const metadata = [
               element.getAttribute('epub:type') || '',
               element.getAttribute('role') || '',
@@ -419,11 +467,22 @@ public sealed class EpubReaderPreparationService
               element.getAttribute('href') || ''
             ].join(' ');
             const label = (element.textContent || '').trim();
-            return /\b(noteref|doc-noteref|footnote|endnote|note[-_]?ref|fn[-_]?ref)\b/i.test(metadata)
-              || /(?:^|[#\s_-])(?:note|fn|ftn|footnote|zww?)[-_:]?\d*(?:n|ref)?(?:$|[\s#_-])/i.test(metadata)
+            const detected = /\b(noteref|doc-noteref|footnote|endnote|note[-_]?ref|fn[-_]?ref)\b/i.test(metadata)
+              || /(?:^|[#\s_-])(?:notes?|fn|ftn|footnotes?|zww?)[-_:]?\d*(?:n|ref)?(?:$|[\s#_-])/i.test(metadata)
               || (!!(element.closest('sup') || element.querySelector('sup'))
                   && /^(?:\[?\d{1,3}\]?|[＊*†‡])$/.test(label));
+            if (detected) element.classList.add('kkindle-footnote-reference');
+            return detected;
           };
+          const markFootnoteLinks = () => {
+            document.querySelectorAll('a').forEach(element => {
+              try { isFootnoteLink(element); } catch (_) { }
+            });
+          };
+          if (document.readyState === 'loading')
+            document.addEventListener('DOMContentLoaded', markFootnoteLinks, { once: true });
+          else
+            markFootnoteLinks();
           const isPageTurnTarget = element =>
             element instanceof Element
             && !element.closest('a, button, input, textarea, select, option, label, #kkindle-selection-bar');
@@ -460,6 +519,7 @@ public sealed class EpubReaderPreparationService
                 let absoluteHref;
                 try { absoluteHref = new URL(href, location.href).href; }
                 catch (_) { absoluteHref = href; }
+                if (footnote) return;
                 send({ type: "link", href: absoluteHref, target: element.target || "", footnote });
                 return;
               }
@@ -499,33 +559,21 @@ public sealed class EpubReaderPreparationService
             } catch (_) { }
           }, true);
           let footnoteHoverTimer = 0;
-          const suppressFootnoteStatus = element => {
-            if (!element || !isFootnoteLink(element)) return;
-            const href = element.getAttribute('href');
-            if (!href || !href.includes('#')) return;
-            element.setAttribute('data-kkindle-footnote-href', href);
-            // WebView2 otherwise displays the raw local XHTML URL while the
-            // note marker is hovered. The bridge retains the target instead.
-            element.removeAttribute('href');
-          };
-          const restoreFootnoteStatus = element => {
-            if (!element) return;
-            const href = element.getAttribute('data-kkindle-footnote-href');
-            if (href && !element.getAttribute('href')) element.setAttribute('href', href);
-          };
+          let footnoteHoverElement = null;
           document.addEventListener("pointerover", event => {
             try {
               const element = event.target instanceof Element
-                ? event.target.closest("a[href]")
+                ? event.target.closest("a")
                 : null;
               if (!element || !element.href.includes('#')) return;
               if (!isFootnoteLink(element)) return;
-              suppressFootnoteStatus(element);
+              if (footnoteHoverElement === element) return;
+              footnoteHoverElement = element;
               window.clearTimeout(footnoteHoverTimer);
               footnoteHoverTimer = window.setTimeout(() =>
                 send({
                   type: "footnoteHover",
-                  href: new URL(element.getAttribute('data-kkindle-footnote-href') || '', location.href).href,
+                  href: new URL(element.href, location.href).href,
                   x: event.clientX || 0,
                   y: event.clientY || 0
                 }), 90);
@@ -539,9 +587,8 @@ public sealed class EpubReaderPreparationService
                 : null;
               if (!element) return;
               if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
-              restoreFootnoteStatus(element);
-              if (element.getAttribute('data-kkindle-footnote-href'))
-                send({ type: "footnoteLeave" });
+              if (footnoteHoverElement === element) footnoteHoverElement = null;
+              if (isFootnoteLink(element)) send({ type: "footnoteLeave" });
             } catch (_) { }
           }, true);
           // Handle navigation on keydown so arrows respond immediately and
@@ -1224,12 +1271,11 @@ public sealed class EpubReaderPreparationService
                     && parent.Name.LocalName == "a"
                     && IsFootnoteReference(parent))
                 {
-                    var label = element.Attribute("alt")?.Value?.Trim();
                     element.ReplaceWith(
                         new XElement(
                             namespaceName + "sup",
                             new XAttribute("class", "kkindle-footnote-marker"),
-                            string.IsNullOrWhiteSpace(label) ? "注" : label));
+                            "注"));
                 }
                 else
                 {
@@ -1283,6 +1329,9 @@ public sealed class EpubReaderPreparationService
 
     private static bool IsFootnoteReference(XElement element)
     {
+        if (IsFootnoteBacklink(element))
+            return false;
+
         var metadata = string.Join(
             ' ',
             element.Attributes()
@@ -1290,8 +1339,26 @@ public sealed class EpubReaderPreparationService
                 .Select(attribute => attribute.Value));
         return Regex.IsMatch(
             metadata,
-            @"\b(noteref|doc-noteref|footnote|endnote|note[-_]?ref|fn[-_]?ref)\b|(?:^|[#\s_-])(?:note|fn|ftn|footnote|zww?)[-_:]?\d*(?:n|ref)?(?:$|[\s#_-])",
+            @"\b(noteref|doc-noteref|footnote|endnote|note[-_]?ref|fn[-_]?ref)\b|(?:^|[#\s_-])(?:notes?|fn|ftn|footnotes?|zww?)[-_:]?\d*(?:n|ref)?(?:$|[\s#_-])",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static bool IsFootnoteBacklink(XElement element)
+    {
+        var id = element.Attribute("id")?.Value?.Trim();
+        var href = element.Attribute("href")?.Value?.Trim();
+        if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(href))
+            return false;
+
+        var hash = href.IndexOf('#');
+        if (hash < 0 || hash + 1 >= href.Length)
+            return false;
+
+        var fragment = href[(hash + 1)..];
+        var query = fragment.IndexOfAny(['?', '#']);
+        if (query >= 0) fragment = fragment[..query];
+        return id.EndsWith("n", StringComparison.OrdinalIgnoreCase)
+            && !fragment.EndsWith("n", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task SanitizeCssFileAsync(

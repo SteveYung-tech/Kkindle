@@ -288,7 +288,6 @@ public partial class MainWindow
     private void ReaderFootnoteCloseButton_Click(object? sender, RoutedEventArgs e)
     {
         _readerFootnoteHoverSequence++;
-        _readerFootnotePinned = false;
         HideReaderFootnotePopup();
     }
 

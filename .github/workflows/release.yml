@@ -33,10 +33,10 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
 
-      - name: Set up .NET 9
+      - name: Set up .NET 8
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 8.0.423
 
       - name: Resolve and validate version
         id: version
@@ -93,7 +93,7 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 8.0.423
       - name: Resolve version
         id: version
         shell: bash
@@ -147,7 +147,7 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 8.0.423
       - name: Resolve version
         id: version
         shell: bash

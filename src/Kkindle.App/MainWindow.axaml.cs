@@ -159,6 +159,19 @@ public partial class MainWindow : Window
 
         InitializeComponent();
         ApplyApplicationIcon();
+        // SelectableTextBlock handles PointerPressed while beginning a text
+        // selection. Listen after handled events so the reader can freeze its
+        // scroll offset before Avalonia brings the selection into view.
+        ReaderLinuxTextFallbackOverlay.AddHandler(
+            InputElement.PointerPressedEvent,
+            ReaderLinuxTextFallback_PointerPressed,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        ReaderLinuxTextFallbackOverlay.AddHandler(
+            InputElement.PointerReleasedEvent,
+            ReaderLinuxTextFallback_PointerReleased,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
         BookGrid.ItemsPanel = new FuncTemplate<Panel?>(() =>
         {
             _bookGridPanel = new AnimatedWrapPanel
@@ -232,8 +245,12 @@ public partial class MainWindow : Window
         // every open because ApplyTemplate can rebuild the PART_Popup instance.
         AuthorFilterBox.DropDownOpened += (_, _) =>
         {
-            if (AuthorFilterBox.GetTemplateDescendants()
-                    .FirstOrDefault(c => c.Name == "PART_Popup") is Popup { } popup)
+            if (AuthorFilterBox.GetVisualDescendants().OfType<Popup>().FirstOrDefault() is { } popup)
+                popup.Width = _authorPopupWidth;
+        };
+        AuthorFilterBox.TemplateApplied += (_, e) =>
+        {
+            if (e.NameScope.Find("PART_Popup") is Popup popup)
                 popup.Width = _authorPopupWidth;
         };
         Dispatcher.UIThread.Post(UpdateBookGridLayout, DispatcherPriority.Loaded);
@@ -259,7 +276,7 @@ public partial class MainWindow : Window
     // the ListBox rebuilds its template ScrollViewer.
     private void AttachBookGridAutoHideScrollbar()
     {
-        if (BookGrid.GetTemplateDescendants().OfType<ScrollViewer>().FirstOrDefault() is not { } viewer)
+        if (BookGrid.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault() is not { } viewer)
         {
             BookGrid.TemplateApplied += (_, _) => AttachBookGridAutoHideScrollbar();
             return;

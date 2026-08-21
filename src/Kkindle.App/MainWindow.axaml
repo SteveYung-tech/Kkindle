@@ -3789,9 +3789,8 @@
                             IsVisible="False"
                             Focusable="True"
                             Tapped="ReaderLinuxTextFallback_Tapped"
+                            PointerMoved="ReaderLinuxTextFallback_PointerMoved"
                             PointerWheelChanged="ReaderLinuxTextFallback_PointerWheelChanged"
-                            PointerPressed="ReaderLinuxTextFallback_PointerPressed"
-                            PointerReleased="ReaderLinuxTextFallback_PointerReleased"
                             KeyDown="ReaderLinuxTextFallback_KeyDown"
                             ZIndex="25">
                         <Grid x:Name="ReaderLinuxTextFallbackContent">
@@ -3808,31 +3807,26 @@
                                             <DataTemplate>
                                                 <Border Margin="0,6,0,0">
                                                     <Grid>
-                                                        <SelectableTextBlock Text="{Binding Text}"
-                                                                            IsVisible="{Binding IsText}"
-                                                                            FontSize="{Binding FontSize}"
-                                                                            LineHeight="{Binding LineHeight}"
-                                                                            MaxWidth="{Binding MaxWidth}"
-                                                                            Foreground="{StaticResource InkBrush}"
-                                                                            SelectionBrush="{StaticResource InkBrush}"
-                                                                            SelectionForegroundBrush="{StaticResource PaperBrush}"
-                                                                            TextWrapping="Wrap"
-                                                                            HorizontalAlignment="Center"
-                                                                            PointerReleased="ReaderLinuxTextFallback_ContentPointerReleased" />
+                                                        <local:ReaderLinuxTextFallbackTextBlock Block="{Binding}"
+                                                                                                  IsVisible="{Binding IsText}"
+                                                                                                  FontSize="{Binding FontSize}"
+                                                                                                  LineHeight="{Binding LineHeight}"
+                                                                                                  MaxWidth="{Binding MaxWidth}"
+                                                                                                  Foreground="{StaticResource InkBrush}"
+                                                                                                  SelectionBrush="{StaticResource InkBrush}"
+                                                                                                  SelectionForegroundBrush="{StaticResource PaperBrush}"
+                                                                                                  TextAlignment="Left"
+                                                                                                  TextWrapping="Wrap"
+                                                                                                  HorizontalAlignment="Center"
+                                                                                                  PointerReleased="ReaderLinuxTextFallback_ContentPointerReleased"
+                                                                                                  FootnotePointerEntered="ReaderLinuxTextFallbackFootnoteButton_PointerEntered"
+                                                                                                  FootnotePointerExited="ReaderLinuxTextFallbackFootnoteButton_PointerExited" />
                                                         <Image Source="{Binding Image.Source}"
                                                                IsVisible="{Binding IsImage}"
                                                                MaxWidth="{Binding Image.MaxWidth}"
                                                                MaxHeight="{Binding Image.MaxHeight}"
                                                                Stretch="Uniform"
                                                                HorizontalAlignment="Center" />
-                                                        <Button Content="{Binding FootnoteLabel}"
-                                                                Tag="{Binding FootnoteHref}"
-                                                                Classes="readerFootnoteMarker"
-                                                                IsVisible="{Binding IsFootnote}"
-                                                                HorizontalAlignment="Center"
-                                                                PointerEntered="ReaderLinuxTextFallbackFootnoteButton_PointerEntered"
-                                                                PointerExited="ReaderLinuxTextFallbackFootnoteButton_PointerExited"
-                                                                Click="ReaderLinuxTextFallbackFootnoteButton_Click" />
                                                     </Grid>
                                                 </Border>
                                             </DataTemplate>
@@ -3856,9 +3850,18 @@
                                                         Foreground="{StaticResource InkBrush}"
                                                         SelectionBrush="{StaticResource InkBrush}"
                                                         SelectionForegroundBrush="{StaticResource PaperBrush}"
+                                                        TextAlignment="Left"
                                                         TextWrapping="Wrap"
                                                         HorizontalAlignment="Stretch"
                                                         PointerReleased="ReaderLinuxTextFallback_ContentPointerReleased" />
+                                    <Button x:Name="ReaderLinuxTextFallbackPageFootnoteLeft"
+                                            Grid.Column="0"
+                                            Classes="readerFootnoteMarker"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            IsVisible="False"
+                                            PointerEntered="ReaderLinuxTextFallbackFootnoteButton_PointerEntered"
+                                            PointerExited="ReaderLinuxTextFallbackFootnoteButton_PointerExited" />
                                     <Image x:Name="ReaderLinuxTextFallbackPageImageRight"
                                            Grid.Column="2"
                                            Stretch="Uniform"
@@ -3870,10 +3873,19 @@
                                                         Foreground="{StaticResource InkBrush}"
                                                         SelectionBrush="{StaticResource InkBrush}"
                                                         SelectionForegroundBrush="{StaticResource PaperBrush}"
+                                                        TextAlignment="Left"
                                                         TextWrapping="Wrap"
                                                         HorizontalAlignment="Stretch"
                                                         IsVisible="False"
                                                         PointerReleased="ReaderLinuxTextFallback_ContentPointerReleased" />
+                                    <Button x:Name="ReaderLinuxTextFallbackPageFootnoteRight"
+                                            Grid.Column="2"
+                                            Classes="readerFootnoteMarker"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            IsVisible="False"
+                                            PointerEntered="ReaderLinuxTextFallbackFootnoteButton_PointerEntered"
+                                            PointerExited="ReaderLinuxTextFallbackFootnoteButton_PointerExited" />
                                 </Grid>
                             </Border>
                         </Grid>
@@ -4497,7 +4509,7 @@
             <Popup x:Name="ReaderSelectionHostPopup"
                    IsOpen="False"
                    IsLightDismissEnabled="True"
-                   ShouldUseOverlayLayer="False"
+                   ShouldUseOverlayLayer="True"
                    TakesFocusFromNativeControl="False">
                 <Border x:Name="ReaderSelectionPopupBar"
                         Padding="3"
@@ -4552,7 +4564,8 @@
                    IsOpen="False"
                    IsLightDismissEnabled="False"
                    ShouldUseOverlayLayer="False"
-                   TakesFocusFromNativeControl="False">
+                   TakesFocusFromNativeControl="False"
+                   IsHitTestVisible="False">
                 <Border x:Name="ReaderFootnotePopup"
                         Width="360"
                         MaxHeight="260"

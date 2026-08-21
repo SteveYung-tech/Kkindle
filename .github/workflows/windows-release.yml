@@ -31,10 +31,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up .NET 9
+      - name: Set up .NET 8
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 9.0.300
+          dotnet-version: 8.0.423
 
       - name: Resolve version and release tag
         id: version

@@ -114,7 +114,7 @@
 
 ## 5. 构建与验证
 
-仓库 global.json 固定 SDK 9.0.300，本机主要安装 9.0.315。本机验证从临时目录执行绝对项目路径，以避开 SDK 锁定：
+仓库 global.json 固定 SDK 8.0.423。本机验证从临时目录执行绝对项目路径，以确保使用仓库锁定的 SDK：
 
     cd C:\Users\kings\AppData\Local\Temp
 
